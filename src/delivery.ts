@@ -1,15 +1,21 @@
 /**
- * src/delivery.ts — Submission delta builder (P1.M2.T1.S1) + transport
- * (P1.M2.T1.S2; submit flow per spec h3.6).
+ * src/delivery.ts — Submission delta builder (P1.M2.T1.S1), completion
+ * record builder (P1.M2.T1.S3), and transport (P1.M2.T1.S2; submit flow
+ * per spec h3.6).
  *
- * Two builder responsibilities, UI-free (h2.13 discipline):
+ * Three builder responsibilities, UI-free (h2.13 discipline):
  *
  * 1. {@link buildSubmission} — turn a computed diff ({@link computeDiff}
  *    output from snapshots.ts) plus an optional batch note into the compact
  *    ≤3-line custom message the model receives on ctrl+s. The full card data
  *    rides in `details` for the user-only renderer (P1.M7.T3.S1, h2.36:
  *    the card is drawn from `details`, NOT from content — decision Q2=A).
- * 2. The h3.6 side effects, in order: build FIRST, then
+ * 2. {@link buildCompletion} — the ONE full-context injection (h2.0 §2): the
+ *    entire h2.46 Q&A record, sent to the model exactly once at completion.
+ *    Fully PURE — no snapshot, no epoch bump, no clear (completion is not a
+ *    submission; lifecycle P1.M2.T2.S2 clears AFTER delivery); recap card
+ *    data rides in `details` for the user-only renderer (P1.M7.T3.S2).
+ * 3. The h3.6 side effects, in order: build FIRST, then
  *    {@link takeSnapshot}(state) BEFORE `state.bumpEpoch()`. One call = one
  *    submission = exactly one snapshot + one bump (mirrors
  *    `recordAnswers` in fallback.ts so ring digests stay coherent across
@@ -29,8 +35,9 @@
  * two halves (delivery.test.ts module hygiene enforces that split).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { evaluateDependsOn } from "./depends-on.js";
 import { takeSnapshot, type DiffEntry, type SubmissionCardData } from "./snapshots.js";
-import type { InterrogationState } from "./state.js";
+import { UNGROUPED_LABEL, type InterrogationState, type Question } from "./state.js";
 
 /** Fixed reminder line (h3.6) — the second content line, byte-exact. */
 export const SUBMISSION_REMINDER = "Consider how these affect your other questions.";
@@ -147,18 +154,246 @@ export function buildSubmission(
   return { customType: "interrogation-submission", content, display: true, details };
 }
 
+// ==== Completion record builder (P1.M2.T1.S3) ==============================
+// The ONE full-context injection (h2.0 §2): the entire Q&A record reaches
+// the model exactly once, at completion. Per-request injection is explicitly
+// forbidden (h2.4 user veto). Unlike buildSubmission this builder is fully
+// PURE — no snapshot, no epoch bump, no clear, no events (completion is not
+// a submission; P1.M2.T2.S2's lifecycle owns clearing AFTER delivery).
+
+/** Fixed placeholder for questions without an answer (h2.46 format). */
+const COMPLETION_UNANSWERED = "(unanswered)";
+
+/**
+ * One question's recap row — plain data for the user-only recap card
+ * renderer (P1.M7.T3.S2; h2.36). Never a reference into stored state.
+ */
+export interface CompletionRecapEntry {
+  /** Question id. */
+  id: string;
+  /** `title ?? prompt`. */
+  title: string;
+  /** Label-preferred answer summary; "(unanswered)" when no answer exists. */
+  answer: string;
+  /** True iff the answer followed the recommendation. */
+  star: boolean;
+  /** Free-text elaboration; key omitted when absent or empty. */
+  freeText?: string;
+  /** ISO 8601 timestamp of the answer; omitted when unanswered. */
+  answeredAt?: string;
+}
+
+/** One group's slice of the recap card, in `order[]` sequence. */
+export interface CompletionRecapGroup {
+  /** `q.group ?? UNGROUPED_LABEL` ("(none)"). */
+  group: string;
+  /** Entries in `order[]` order within this group. */
+  questions: CompletionRecapEntry[];
+}
+
+/**
+ * The pi.sendMessage payload for interrogation completion (h3.9). `content`
+ * is the full h2.46 record VERBATIM — the ONE full injection (h2.0 §2, Q30:
+ * the model writes the final spec from it); the user-only recap card is
+ * rendered from `details` by P1.M7.T3.S2, never from content.
+ */
+export interface CompletionMessage {
+  customType: "interrogation-completion";
+  /** The h2.46 record, byte-exact (grammar documented on buildCompletion). */
+  content: string;
+  display: true;
+  details: {
+    /** The interrogation goal. */
+    goal: string;
+    /** Grouped recap rows; groups in first-appearance order. */
+    groups: CompletionRecapGroup[];
+    /** Batch notes in order; may be [] (notes are NOT stored in state). */
+    notes: string[];
+    /** Withdrawn/moot ids with derived reasons, in `order[]` order. */
+    withdrawnMoot: Array<{ id: string; status: "withdrawn" | "moot"; reason: string }>;
+    /** ISO timestamp captured at record build. */
+    completedAt: string;
+    /** state.epoch at build time (completion freezes the epoch). */
+    epoch: number;
+  };
+}
+
+/**
+ * Label-preferred answer summary — a local replication of snapshots.ts's
+ * module-PRIVATE `answerSummary` (choice → option label whose value matches
+ * `answer.value`, falling back to the raw value; text → raw value; no answer
+ * → "(unanswered)"). Duplicated by design; THIS comment is the sync
+ * reference between the two rules — do NOT import the private.
+ */
+function completionAnswerSummary(q: Question): string {
+  const answer = q.answer;
+  if (answer === undefined) return COMPLETION_UNANSWERED;
+  if (q.type === "choice") {
+    return q.options?.find((o) => o.value === answer.value)?.label ?? answer.value;
+  }
+  return answer.value;
+}
+
+/**
+ * Build the completion message — the single FULL Q&A record the model
+ * receives exactly once when the interrogation completes (h3.9; commitment
+ * h2.0 §2; Q30: the model writes the final spec from it). Pure: NO snapshot,
+ * NO epoch bump, NO clear, NO events, NO mutation of `state` or its stored
+ * questions (completion is not a submission — P1.M2.T2.S2's lifecycle
+ * dismisses the panel and clears AFTER delivery, keeping entries for audit).
+ * NO transport: callers hand the returned message to deliverSubmission,
+ * which carries it unchanged (SendableMessage union member).
+ *
+ * Record format (h2.46, quoted verbatim — `content` is this record, byte
+ * for byte):
+ *
+ * ```
+ * INTERROGATION COMPLETE — {goal}
+ * [group] {id} {title}: {answer value/label} {★ if recommendation followed} {— free text}
+ * …every question, grouped, in order…
+ * NOTES: {batch notes in order}
+ * Withdrawn/moot: {ids + reasons}
+ * ```
+ *
+ * Line grammars (one space between tokens; optional segments are omitted,
+ * never left blank):
+ *
+ * - Header: `INTERROGATION COMPLETE — {goal}` (EM-dash, one space each side).
+ * - Question line (EVERY question regardless of status — h2.46 "every
+ *   question, grouped, in order"):
+ *   `[${group}] ${id} ${title}: ${answer}` + ` ★` (iff `recommendation !==
+ *   undefined && answer.value === recommendation`) + ` — ${text}` (iff
+ *   `answer.text` is a non-empty string). `group` is `q.group ??
+ *   UNGROUPED_LABEL` and rides on EVERY question line (h2.46 shows the group
+ *   per line — no standalone group headers); `title` is `q.title ??
+ *   q.prompt`; groups appear in first-appearance order and questions in
+ *   `order[]` order. `answer` uses the label-preferred rule replicated from
+ *   snapshots.ts's private `answerSummary` ({@link completionAnswerSummary}).
+ * - NOTES line (ALWAYS present): `NOTES: ${notes.join("; ")}`, or
+ *   `NOTES: (none)` when `notes` is undefined/empty. Batch notes are NOT
+ *   stored in state — P1.M2.T2.S2's completion trigger collects them from
+ *   the delivered submission messages' `details.note` and passes them here;
+ *   this function only formats (undefined === []).
+ * - Withdrawn/moot line (ALWAYS present):
+ *   `Withdrawn/moot: ${entries.join("; ")}` with entry
+ *   `${id} (${status}: ${reason})`, or `Withdrawn/moot: (none)` when empty.
+ *   Entries come from `orderedQuestions()` filtered to status
+ *   "withdrawn"/"moot", in `order[]` order. Reason derivation:
+ *   `withdrawn` → the human-readable "omitted by agent" (merge.ts's
+ *   WithdrawalInfo.reason is the fixed string "withdrawn", which would read
+ *   as the tautological "(withdrawn: withdrawn)" — this record-only mapping
+ *   is documented here); `moot` → `evaluateDependsOn(state)` recomputes the
+ *   reason at build time (reasons are NOT persisted on Question) and the
+ *   leading `moot: ` prefix of the h2.29-format reason (e.g.
+ *   `moot: storage=sqlite`) is stripped to avoid the doubled
+ *   "(moot: moot: …)"; a moot question with no matching MootEvaluation
+ *   entry (defensive) gets "dependency unmet".
+ *
+ * details carries BOTH compact and expanded recap data (h2.36): goal +
+ * grouped answers + timestamps for the compact card; `withdrawnMoot` with
+ * reasons for `expanded`.
+ *
+ * @param state the interrogation state at completion (read-only here)
+ * @param notes batch notes in order (undefined === []; never stored in state)
+ * @returns the message for P1.M2.T2.S2 to hand to deliverSubmission
+ */
+export function buildCompletion(state: InterrogationState, notes?: string[]): CompletionMessage {
+  const questions = state.orderedQuestions();
+
+  // Moot reasons are COMPUTED, never stored (depends-on.ts): one evaluation
+  // pass at build time, then an id → reason map. On a state at completion
+  // statuses are stable, so the pass writes nothing (withdrawn/closed are
+  // skipped; still-moot questions are listed without a status write) — the
+  // call is effectively read-only here; delivery.test.ts purity assertions
+  // (zero changed/epoch-bumped events, byte-identical serialize()) guard it.
+  const mootReasons = new Map(evaluateDependsOn(state).mootered.map((m) => [m.id, m.reason] as const));
+
+  const groups: CompletionRecapGroup[] = [];
+  const byGroup = new Map<string, CompletionRecapGroup>();
+  const withdrawnMoot: CompletionMessage["details"]["withdrawnMoot"] = [];
+  const lines: string[] = [`INTERROGATION COMPLETE — ${state.goal}`];
+
+  for (const q of questions) {
+    const groupKey = q.group ?? UNGROUPED_LABEL;
+    let group = byGroup.get(groupKey);
+    if (group === undefined) {
+      group = { group: groupKey, questions: [] };
+      byGroup.set(groupKey, group);
+      groups.push(group); // first-appearance order
+    }
+
+    const star = q.recommendation !== undefined && q.answer?.value === q.recommendation;
+    const freeText = q.answer?.text;
+    const hasFreeText = typeof freeText === "string" && freeText.length > 0;
+
+    const entry: CompletionRecapEntry = {
+      id: q.id,
+      title: q.title ?? q.prompt,
+      answer: completionAnswerSummary(q),
+      star,
+    };
+    if (hasFreeText) entry.freeText = freeText;
+    if (q.answer !== undefined) entry.answeredAt = q.answer.at;
+    group.questions.push(entry);
+
+    // Question line — group label rides on EVERY line (h2.46); optional
+    // segments are omitted entirely, never left blank.
+    lines.push(
+      `[${groupKey}] ${q.id} ${entry.title}: ${entry.answer}` +
+        (star ? " ★" : "") +
+        (hasFreeText ? ` — ${freeText}` : ""),
+    );
+
+    if (q.status === "withdrawn" || q.status === "moot") {
+      withdrawnMoot.push({
+        id: q.id,
+        status: q.status,
+        reason:
+          q.status === "withdrawn"
+            ? "omitted by agent"
+            : (mootReasons.get(q.id)?.replace(/^moot:\s*/, "") ?? "dependency unmet"),
+      });
+    }
+  }
+
+  lines.push(
+    `NOTES: ${notes !== undefined && notes.length > 0 ? notes.join("; ") : "(none)"}`,
+    `Withdrawn/moot: ${
+      withdrawnMoot.length > 0
+        ? withdrawnMoot.map((e) => `${e.id} (${e.status}: ${e.reason})`).join("; ")
+        : "(none)"
+    }`,
+  );
+
+  return {
+    customType: "interrogation-completion",
+    content: lines.join("\n"),
+    display: true,
+    details: {
+      goal: state.goal,
+      groups,
+      notes: notes ?? [],
+      withdrawnMoot,
+      completedAt: new Date().toISOString(),
+      epoch: state.epoch,
+    },
+  };
+}
+
 // ==== TRANSPORT (P1.M2.T1.S2) ==============================================
 // Everything above builds the message; everything below delivers it. The
 // marker is a structural contract: the builder half stays free of
 // sendMessage/triggerTurn (enforced by delivery.test.ts module hygiene).
 
 /**
- * The union of message shapes this module can deliver to the agent. Today
- * that is just {@link SubmissionMessage}; P1.M2.T1.S3 (completion record)
- * widens this alias to a union — keeping the alias means the widening touches
- * exactly one line and every consumer route stays {@link deliverSubmission}.
+ * The union of message shapes this module can deliver to the agent:
+ * {@link SubmissionMessage} (submit deltas) and {@link CompletionMessage}
+ * (the one full completion record). P1.M2.T1.S3 widened this alias to the
+ * union — keeping the alias means every consumer route stays
+ * {@link deliverSubmission} (the single widening point, as S2's contract
+ * reserved).
  */
-export type SendableMessage = SubmissionMessage;
+export type SendableMessage = SubmissionMessage | CompletionMessage;
 
 /**
  * pi.sendMessage options, mirrored from ExtensionAPI (types.d.ts:
@@ -238,6 +473,9 @@ export function deliverSubmission(
   const options: DeliveryOptions = busy
     ? { deliverAs: "steer" }
     : { triggerTurn: true, deliverAs: "followUp" };
-  pi.sendMessage(msg, options);
+  // Generic instantiation pins T to the UNION of details shapes — otherwise
+  // inference picks the first union member's details and rejects the other.
+  // Pure type-level: msg is still passed through by reference, unmutated.
+  pi.sendMessage<SendableMessage["details"]>(msg, options);
   // Fire-and-forget: no await, no try/catch — let caller error handling see throws.
 }

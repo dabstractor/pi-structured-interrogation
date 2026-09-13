@@ -260,7 +260,7 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "delivery.ts — submissions and completion records",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Delta message builder (~2 lines + reminder), sendMessage plumbing with triggerTurn, one-time completion record.",
               "subtasks": [
                 {
@@ -303,7 +303,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S3",
                   "title": "Completion record builder (the one full injection)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1"
@@ -322,14 +322,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "lifecycle.ts — auto-close and completion trigger",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Per-run upsert tracking via tool_execution events, close pass on agent_settled, one-time completion injection with panel-dismiss hook.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "Auto-close engine (agent_settled close pass)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S2",
@@ -348,7 +348,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "Completion trigger + one-time injection",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1",

@@ -1,5 +1,6 @@
 /**
- * Unit tests for src/delivery.ts (P1.M2.T1.S1 builder + P1.M2.T1.S2 transport).
+ * Unit tests for src/delivery.ts (P1.M2.T1.S1 builder, P1.M2.T1.S3 completion
+ * builder, P1.M2.T1.S2 transport).
  *
  * Follows snapshots.test.ts conventions: fresh InterrogationState per test,
  * fixtures built via createInterrogationState + applyAnswer + computeDiff,
@@ -15,6 +16,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   SUBMISSION_LIST_MAX_CHARS,
   SUBMISSION_REMINDER,
+  buildCompletion,
   buildSubmission,
   deliverSubmission,
   type DeliveryOptions,
@@ -231,18 +233,21 @@ describe("module hygiene", () => {
   test("builder half stays transport-free; pi import is type-only (S2 appended)", () => {
     const src = fs.readFileSync(new URL("./delivery.ts", import.meta.url), "utf8");
 
-    // Exactly three imports: two local data-layer modules + ONE type-only pi
+    // Exactly four imports: three local data-layer modules + ONE type-only pi
     // import (Pick<ExtensionAPI, "sendMessage"> needs the type; the module
-    // must keep zero runtime pi dependency).
+    // must keep zero runtime pi dependency). S3 added depends-on.js for the
+    // completion record's moot-reason recomputation.
     const importLines = src.split("\n").filter((l) => l.startsWith("import"));
-    expect(importLines).toHaveLength(3);
+    expect(importLines).toHaveLength(4);
     expect(importLines).toContain(
       'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";',
     );
     const localImports = importLines.filter((l) => !l.includes("@earendil-works"));
-    expect(localImports).toHaveLength(2);
+    expect(localImports).toHaveLength(3);
     for (const line of localImports) {
-      expect(line).toMatch(/^import (?:type )?\{.*\} from "\.\/(snapshots|state)\.js";$/s);
+      expect(line).toMatch(
+        /^import (?:type )?\{.*\} from "\.\/(snapshots|state|depends-on)\.js";$/s,
+      );
     }
 
     // S1's builder half (everything above the TRANSPORT section marker) never
@@ -360,5 +365,270 @@ describe("deliverSubmission (P1.M2.T1.S2 transport)", () => {
       "invalid state",
     );
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1.M2.T1.S3 — buildCompletion (the one full injection)
+// ---------------------------------------------------------------------------
+
+/**
+ * Multi-group fixture at completion: answered ★ + free text, unanswered
+ * choice, withdrawn, moot (dependsOn pair), answered text with free text,
+ * recommendation NOT followed, ungrouped. Terminal statuses are set BEFORE
+ * buildCompletion runs so the builder's internal evaluateDependsOn pass is a
+ * no-op (stable statuses → read-only), keeping the fixture pure.
+ */
+function goldenState(): InterrogationState {
+  const s = createInterrogationState("Plan the migration");
+  s.upsertQuestion(
+    q({
+      id: "storage",
+      title: "Storage engine",
+      type: "choice",
+      group: "Storage",
+      recommendation: "sqlite",
+      options: [
+        { value: "sqlite", label: "SQLite" },
+        { value: "postgres", label: "Postgres" },
+      ],
+    }),
+  );
+  s.applyAnswer("storage", ans("sqlite", "We already run sqlite everywhere."));
+  s.upsertQuestion(
+    q({
+      id: "backup",
+      prompt: "Backup strategy",
+      type: "choice",
+      group: "Storage",
+      options: [
+        { value: "sqlite", label: "SQLite" },
+        { value: "postgres", label: "Postgres" },
+      ],
+    }),
+  );
+  s.upsertQuestion(q({ id: "dropped", prompt: "Drop legacy tables", group: "Storage" }));
+  s.setStatus("dropped", "withdrawn");
+  s.upsertQuestion(
+    q({
+      id: "legacy",
+      prompt: "Legacy data migration",
+      type: "choice",
+      group: "Storage",
+      options: [
+        { value: "etl", label: "ETL scripts" },
+        { value: "manual", label: "Manual copy" },
+      ],
+      dependsOn: [{ id: "storage", equals: "postgres" }],
+    }),
+  );
+  s.setStatus("legacy", "moot");
+  s.upsertQuestion(q({ id: "rollout", prompt: "Rollout plan", group: "Delivery" }));
+  s.applyAnswer("rollout", ans("Blue-green", "staged over two weeks"));
+  s.upsertQuestion(
+    q({
+      id: "monitoring",
+      title: "Monitoring",
+      type: "choice",
+      group: "Delivery",
+      recommendation: "postgres",
+      options: [
+        { value: "sqlite", label: "SQLite" },
+        { value: "postgres", label: "Postgres" },
+      ],
+    }),
+  );
+  s.applyAnswer("monitoring", ans("sqlite"));
+  s.upsertQuestion(q({ id: "misc", prompt: "Anything else" }));
+  s.applyAnswer("misc", ans("None for now"));
+  return s;
+}
+
+/** Expected h2.46 record for goldenState — byte-exact golden string. */
+const GOLDEN_CONTENT = [
+  "INTERROGATION COMPLETE — Plan the migration",
+  "[Storage] storage Storage engine: SQLite ★ — We already run sqlite everywhere.",
+  "[Storage] backup Backup strategy: (unanswered)",
+  "[Storage] dropped Drop legacy tables: (unanswered)",
+  "[Storage] legacy Legacy data migration: (unanswered)",
+  "[Delivery] rollout Rollout plan: Blue-green — staged over two weeks",
+  "[Delivery] monitoring Monitoring: SQLite",
+  "[(none)] misc Anything else: None for now",
+  "NOTES: Chose sqlite after profiling; skipped backup for v1",
+  "Withdrawn/moot: dropped (withdrawn: omitted by agent); legacy (moot: storage=sqlite)",
+].join("\n");
+
+describe("buildCompletion (P1.M2.T1.S3 — the one full injection)", () => {
+  test("golden_record_multi_group_byte_exact_content_and_envelope", () => {
+    const msg = buildCompletion(goldenState(), [
+      "Chose sqlite after profiling",
+      "skipped backup for v1",
+    ]);
+
+    expect(msg.content).toBe(GOLDEN_CONTENT);
+    expect(msg.customType).toBe("interrogation-completion");
+    expect(msg.display).toBe(true);
+  });
+
+  test("header_line_byte_exact_em_dash_not_hyphen", () => {
+    const msg = buildCompletion(goldenState());
+    expect(msg.content.split("\n")[0]).toBe("INTERROGATION COMPLETE — Plan the migration");
+    expect(msg.content.includes("COMPLETE --")).toBe(false);
+    expect(msg.content.includes("COMPLETE - ")).toBe(false);
+  });
+
+  test("star_iff_answer_matches_recommendation_free_text_iff_non_empty", () => {
+    const opts = [
+      { value: "x", label: "Ex" },
+      { value: "y", label: "Why" },
+    ];
+    state.upsertQuestion(q({ id: "a", type: "choice", recommendation: "x", options: opts }));
+    state.upsertQuestion(q({ id: "b", type: "choice", recommendation: "y", options: opts }));
+    state.upsertQuestion(q({ id: "c", type: "choice", options: opts })); // no recommendation
+    state.applyAnswer("a", ans("x"));
+    state.applyAnswer("b", ans("x")); // recommendation NOT followed
+    state.applyAnswer("c", ans("x"));
+    state.upsertQuestion(q({ id: "t1" }));
+    state.applyAnswer("t1", ans("v", "some elaboration"));
+    state.upsertQuestion(q({ id: "t2" }));
+    state.applyAnswer("t2", ans("v", "")); // empty string → no free-text segment
+
+    const msg = buildCompletion(state);
+    const lines = msg.content.split("\n");
+    expect(lines[1]).toBe("[(none)] a prompt for a: Ex ★");
+    expect(lines[2]).toBe("[(none)] b prompt for b: Ex"); // no ★
+    expect(lines[3]).toBe("[(none)] c prompt for c: Ex"); // no recommendation → never ★
+    expect(lines[4]).toBe("[(none)] t1 prompt for t1: v — some elaboration");
+    expect(lines[5]).toBe("[(none)] t2 prompt for t2: v");
+
+    const entries = msg.details.groups[0]!.questions;
+    const a = entries.find((e) => e.id === "a")!;
+    expect(a).toEqual({ id: "a", title: "prompt for a", answer: "Ex", star: true, answeredAt: T0 });
+    const t1 = entries.find((e) => e.id === "t1")!;
+    expect(t1.freeText).toBe("some elaboration");
+    const t2 = entries.find((e) => e.id === "t2")!;
+    expect(t2.star).toBe(false);
+    expect("freeText" in t2).toBe(false); // empty string → key omitted
+    expect("answeredAt" in t2).toBe(true);
+  });
+
+  test("notes_line_joins_in_order_none_when_empty_or_undefined", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+
+    const multi = buildCompletion(state, ["first", "second; third", "last"]);
+    expect(multi.content.split("\n")).toContain("NOTES: first; second; third; last");
+    expect(multi.details.notes).toEqual(["first", "second; third", "last"]);
+    expect(multi.content.split("\n").filter((l) => l.startsWith("NOTES:"))).toHaveLength(1);
+
+    const empty = buildCompletion(state, []);
+    expect(empty.content.split("\n")).toContain("NOTES: (none)");
+    expect(empty.details.notes).toEqual([]);
+
+    const undef = buildCompletion(state);
+    expect(undef.content.split("\n")).toContain("NOTES: (none)");
+    expect(undef.details.notes).toEqual([]);
+  });
+
+  test("withdrawn_moot_reasons_derived_none_when_empty", () => {
+    const s = createInterrogationState("G");
+    s.upsertQuestion(q({ id: "w", prompt: "W" }));
+    s.setStatus("w", "withdrawn");
+    s.upsertQuestion(q({ id: "dep", prompt: "Dep" }));
+    s.applyAnswer("dep", ans("sqlite"));
+    s.upsertQuestion(q({ id: "m", prompt: "M", dependsOn: [{ id: "dep", equals: "postgres" }] }));
+    s.setStatus("m", "moot");
+    s.upsertQuestion(q({ id: "ghost", prompt: "Ghost" }));
+    s.setStatus("ghost", "moot"); // no dependsOn → not in mootered → defensive fallback
+
+    const msg = buildCompletion(s);
+    expect(msg.content).toContain(
+      "Withdrawn/moot: w (withdrawn: omitted by agent); m (moot: dep=sqlite); ghost (moot: dependency unmet)",
+    );
+    expect(msg.details.withdrawnMoot).toEqual([
+      { id: "w", status: "withdrawn", reason: "omitted by agent" },
+      { id: "m", status: "moot", reason: "dep=sqlite" },
+      { id: "ghost", status: "moot", reason: "dependency unmet" },
+    ]);
+
+    const plain = createInterrogationState("G");
+    plain.upsertQuestion(q({ id: "q1" }));
+    expect(buildCompletion(plain).content.split("\n")).toContain("Withdrawn/moot: (none)");
+  });
+
+  test("groups_first_appearance_order_questions_in_order_within_group", () => {
+    const s = createInterrogationState("G");
+    s.upsertQuestion(q({ id: "u1", prompt: "U1" })); // (none) appears first
+    s.upsertQuestion(q({ id: "b1", prompt: "B1", group: "Bravo" }));
+    s.upsertQuestion(q({ id: "a1", prompt: "A1", group: "Alpha" }));
+    s.upsertQuestion(q({ id: "b2", prompt: "B2", group: "Bravo" }));
+
+    const msg = buildCompletion(s);
+    expect(msg.details.groups.map((g) => g.group)).toEqual(["(none)", "Bravo", "Alpha"]);
+    expect(msg.details.groups[1]!.questions.map((e) => e.id)).toEqual(["b1", "b2"]);
+    const lines = msg.content.split("\n");
+    expect(lines[1]).toBe("[(none)] u1 U1: (unanswered)");
+    expect(lines[2]).toBe("[Bravo] b1 B1: (unanswered)");
+    expect(lines[3]).toBe("[Alpha] a1 A1: (unanswered)");
+    expect(lines[4]).toBe("[Bravo] b2 B2: (unanswered)"); // order[] order within group
+  });
+
+  test("details_shape_goal_groups_notes_withdrawnMoot_completedAt_epoch", () => {
+    const msg = buildCompletion(goldenState(), ["note"]);
+    expect(msg.details.goal).toBe("Plan the migration");
+    expect(msg.details.notes).toEqual(["note"]);
+    expect(msg.details.epoch).toBe(1);
+    expect(Number.isNaN(Date.parse(msg.details.completedAt))).toBe(false);
+    expect(msg.details.groups.map((g) => g.group)).toEqual(["Storage", "Delivery", "(none)"]);
+
+    const storage = msg.details.groups[0]!.questions;
+    expect(storage.find((e) => e.id === "storage")).toEqual({
+      id: "storage",
+      title: "Storage engine",
+      answer: "SQLite",
+      star: true,
+      freeText: "We already run sqlite everywhere.",
+      answeredAt: T0,
+    });
+    const backup = storage.find((e) => e.id === "backup")!;
+    expect(backup.answer).toBe("(unanswered)");
+    expect(backup.star).toBe(false);
+    expect("freeText" in backup).toBe(false);
+    expect("answeredAt" in backup).toBe(false); // unanswered → both keys omitted
+    expect(msg.details.groups[2]!.questions.map((e) => e.id)).toEqual(["misc"]);
+    expect(msg.details.withdrawnMoot).toEqual([
+      { id: "dropped", status: "withdrawn", reason: "omitted by agent" },
+      { id: "legacy", status: "moot", reason: "storage=sqlite" },
+    ]);
+  });
+
+  test("purity_no_snapshot_bump_clear_events_or_state_mutation", () => {
+    const s = goldenState();
+    const before = s.serialize();
+    const snapshotsBefore = s.snapshots.length;
+    const epochBefore = s.epoch;
+    let changedEvents = 0;
+    s.on("changed", () => changedEvents++);
+    const epochEvents: number[] = [];
+    s.on("epoch-bumped", (e) => epochEvents.push(e));
+
+    buildCompletion(s, ["n"]);
+
+    expect(s.serialize()).toEqual(before); // byte-identical state
+    expect(s.snapshots.length).toBe(snapshotsBefore); // no takeSnapshot
+    expect(s.epoch).toBe(epochBefore); // no bumpEpoch
+    expect(changedEvents).toBe(0); // no events (incl. none from evaluateDependsOn)
+    expect(epochEvents).toEqual([]);
+  });
+});
+
+describe("SendableMessage widening (P1.M2.T1.S3)", () => {
+  test("completion_message_assignable_and_carried_by_deliverSubmission_unchanged", () => {
+    const msg: SendableMessage = buildCompletion(goldenState(), ["note"]); // type-level union check
+    expect(msg.customType).toBe("interrogation-completion");
+
+    const sendMessage = vi.fn();
+    deliverSubmission({ sendMessage }, msg, { isIdle: () => true });
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(msg, { triggerTurn: true, deliverAs: "followUp" });
   });
 });

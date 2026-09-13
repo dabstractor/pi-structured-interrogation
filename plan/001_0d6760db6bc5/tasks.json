@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Tool + state core (no UI)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "PRD M1 (h2.48): scaffold the package, config loader, the full state engine (state machine, merge rules, rev/epoch, snapshots, dependsOn evaluator), and the interrogate tool with schema, guards, caps, read formatting, non-TUI fallback digest, and tool-row renderers. Ends runnable: model upserts/reads in a scratch session; guards reject stale calls; caps truncate with warnings; details carry full state.",
           "tasks": [
             {
@@ -137,7 +137,7 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "interrogate tool (tool.ts)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "typebox schema, four action shapes, rev/epoch guards (throw), caps engine, read/status formatting, non-TUI fallback digest + answers action, registration with resident text and compact render rows.",
               "subtasks": [
                 {
@@ -230,7 +230,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S6",
                   "title": "Tool registration: resident text, guidelines, render rows, index wiring",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1",
@@ -267,7 +267,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Submission delta builder",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S2",

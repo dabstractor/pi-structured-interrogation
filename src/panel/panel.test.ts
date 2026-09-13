@@ -337,7 +337,7 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(panel.view).toBe("short"); // esc always returns to short
   });
 
-  test("test_esc_in_short_is_not_consumed_by_host", () => {
+  test("test_esc_in_short_suspends_via_router_descent", () => {
     const { lifecycle, dismiss } = makeMockLifecycle();
     createPanelHost(lifecycle);
     const mock = makeMockPi();
@@ -346,13 +346,15 @@ describe("view switching (built-in S1 bindings)", () => {
     openPanel(mock.pi, optsFor(state));
     const panel = firstCall(mock).component;
 
+    // Esc descent terminus (FR-16): short-view esc suspends — done(null),
+    // nothing user-visible destroyed. Now owned by keys.ts (P1.M3.T3.S1).
     panel.handleInput(ESCAPE);
     expect(panel.view).toBe("short");
-    // Top-level esc suspend is keys.ts (P1.M3.T3.S1) territory — the S1 host
-    // must NOT suspend on esc in short view.
-    expect(panel.view).toBe("short");
+    expect(panel.isResolved()).toBe(true);
+    panel.handleInput(ESCAPE); // repeated esc on a resolved panel: no throw
+    expect(panel.isResolved()).toBe(true);
     dismiss();
-    expect(panel.suspend).toBeDefined(); // panel still mounted (done not fired)
+    expect(panel.suspend).toBeDefined(); // panel still a usable object
   });
 
   test("test_deepSticky_resets_on_reopen", async () => {

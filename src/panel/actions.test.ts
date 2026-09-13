@@ -554,7 +554,7 @@ describe("submit — flush pending answers", () => {
 
 // ---------------------------------------------- temporary matcher (panel.ts)
 
-describe("handleInput — TEMPORARY minimal matcher", () => {
+describe("handleInput — config-driven router (keys.ts, P1.M3.T3.S1)", () => {
   test("test_matcher_arrows_drive_option_up_down_including_application_mode", () => {
     const { panel } = makePanel(seed(BASIC));
     panel.handleInput("\u001b[B"); // ↓
@@ -612,13 +612,16 @@ describe("handleInput — TEMPORARY minimal matcher", () => {
     expect(state.getQuestion("q1")?.status).toBe("open"); // matcher never ran
   });
 
-  test("test_matcher_navigation_gated_to_short_view", () => {
+  test("test_router_fixed_arrows_work_in_any_view", () => {
     const state = seed(BASIC);
     const { panel } = makePanel(state);
-    panel.handleInput("\u000c"); // ctrl+l → overview (S1 built-in)
+    panel.handleInput("\u000c"); // ctrl+l → overview (router seam default)
     expect(panel.view).toBe("overview");
-    panel.handleInput("\u001b[B"); // ↓ in overview must NOT move the cursor
-    expect(panel.cursorIndex).toBe(0);
+    // Arrows are FIXED keys (h2.34): the router checks them before anything
+    // else, in ANY view — only enter/digits/externalEditor carry focus
+    // gating. Deep-view scroll navigation (M5) refines on top.
+    panel.handleInput("\u001b[B"); // ↓ moves the cursor in overview too
+    expect(panel.cursorIndex).toBe(1);
   });
 
   test("test_matcher_submit_uses_the_delivery_seam_and_stays_inert_without_it", () => {

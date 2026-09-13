@@ -396,7 +396,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Panel short form (replace-editor)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "PRD M3 (h2.48): panel.ts hosting via ctx.ui.custom fire-and-forget, header/goal/footer, short-view rendering with ★ recommendation marks and preselect, digits/enter accept-advance, tab navigation, config-driven keys.ts. Proves AC-1 (minus gate dimming) and part of AC-5.",
           "tasks": [
             {
@@ -494,14 +494,14 @@
               "type": "Task",
               "id": "P1.M3.T3",
               "title": "Key routing (panel/keys.ts)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Config-driven key dispatch with the intercept-before-forward rule and esc descent.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T3.S1",
                   "title": "Config-driven dispatch: intercept-before-forward, esc descent",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1",
@@ -538,7 +538,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S1",
                   "title": "Editor composition: getEditorComponent factory + stock fallback",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T1.S1",
@@ -556,7 +556,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S2",
                   "title": "Two-stage enter, newlines, history isolation",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M4.T1.S1"

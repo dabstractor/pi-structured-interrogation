@@ -26,9 +26,10 @@
  *
  * Seam map (interfaces only here — no stub implementations beyond tests):
  * - `DraftStore` → implemented by P1.M4.T2.S1 (accepted via openPanel options).
- * - `KeyHandler` → implemented by P1.M3.T3.S1 (keys.ts). Until then a MINIMAL
- *   built-in binding set (ctrl+d / ctrl+l / esc, accelerators read from config
- *   with hardcoded fallbacks) keeps the host testable.
+ * - `KeyHandler` → keys.ts (P1.M3.T3.S1): the panel defaults the seam to
+ *   buildKeyRouter(config, defaultRoutedActions(delivery)) so every panel
+ *   dispatches through the config-driven router; an explicit `keys` option
+ *   (openPanel / InterrogationPanelArgs) overrides the default set.
  *
  * Host record discipline: exactly one panel host exists per extension session,
  * so the mutable host record is module-scoped (mirrors state.ts's singleton
@@ -42,7 +43,8 @@ import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { getState, type InterrogationState } from "../state.js";
-import { panelActions, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
+import type { RippleConfirmFn, SubmitDeps } from "./actions.js";
+import { buildKeyRouter, defaultRoutedActions } from "./keys.js";
 import {
   renderFlashLine,
   renderFooter,
@@ -132,39 +134,11 @@ export interface PiUISurface {
 /** Statuses counted as "currently active" for focus selection (h2.44 set). */
 const ACTIVE_STATUSES: readonly string[] = ["open", "answered", "submitted", "reasked"];
 
-const ESCAPE = "\u001b";
-const CTRL_D_FALLBACK = "\u0004";
-const CTRL_L_FALLBACK = "\u000c";
-const CTRL_S_FALLBACK = "\u0013";
-
-/**
- * TEMPORARY minimal-matcher key bytes (P1.M3.T2.S2) — h2.34 marks arrows,
- * enter, and esc FIXED (never config-driven); tab/shift+tab follow the
- * config.ts DEFAULTS (keys.prevQuestion "tab" / keys.nextQuestion
- * "shift+tab"). keys.ts (P1.M3.T3.S1) owns final dispatch and deletes all
- * of this — including these constants.
- */
-const ARROW_UP = ["\u001b[A", "\u001bOA"];
-const ARROW_DOWN = ["\u001b[B", "\u001bOB"];
-const SHIFT_TAB = "\u001b[Z";
-const DIGIT = /^[1-9]$/;
 /** Footer flash lifetime (h2.37 transient states ~2.5s). */
 const FLASH_MS = 2500;
 
 /** Default ripple seam — always-true no-op until P1.M5.T4.S1 swaps it. */
 const defaultRippleConfirm: RippleConfirmFn = () => true;
-
-/**
- * Map a config accelerator string ("ctrl+d" form) to the raw control byte
- * `handleInput` receives. Falls back to the hardcoded default for anything
- * the minimal S1 matcher cannot express (full matching arrives with keys.ts,
- * P1.M3.T3.S1).
- */
-function ctrlSequence(accelerator: string | undefined, fallback: string): string {
-  if (typeof accelerator !== "string") return fallback;
-  const match = /^ctrl\+([a-z])$/.exec(accelerator.trim().toLowerCase());
-  return match !== null ? String.fromCharCode(match[1].charCodeAt(0) - 96) : fallback;
-}
 
 /** Constructor dependencies for {@link InterrogationPanel}. */
 export interface InterrogationPanelArgs {
@@ -263,7 +237,8 @@ export class InterrogationPanel implements Component {
    */
   readonly config: InterrogatorConfig;
   private readonly drafts: DraftStore | undefined;
-  private readonly keys: KeyHandler | undefined;
+  /** The config-driven dispatcher — always present (router is the default). */
+  private readonly keys: KeyHandler;
   /**
    * Key display labels, memoized ONCE at construction from
    * resolveKeyLabels(config) (h2.52 — no hardcoded key names anywhere in
@@ -272,9 +247,6 @@ export class InterrogationPanel implements Component {
    * never serves stale labels across reloads.
    */
   private readonly labels: Record<KeyAction, string>;
-  private readonly deepKey: string;
-  private readonly overviewKey: string;
-  private readonly submitKey: string;
   private cached: string[] | undefined;
   private lastWidth = -1;
   /** Guard so a second done() after suspend cannot re-resolve (idempotent). */
@@ -291,11 +263,11 @@ export class InterrogationPanel implements Component {
     this.state = args.state;
     this.config = args.config;
     this.drafts = args.drafts;
-    this.keys = args.keys;
+    // Key dispatch ALWAYS flows through the config-driven router (keys.ts,
+    // P1.M3.T3.S1): the seam default wires the named actions + view-toggle
+    // seams; an explicit args.keys (host override) replaces it wholesale.
+    this.keys = args.keys ?? buildKeyRouter(args.config, defaultRoutedActions(args.delivery));
     this.labels = resolveKeyLabels(args.config);
-    this.deepKey = ctrlSequence(args.config.keys.deep, CTRL_D_FALLBACK);
-    this.overviewKey = ctrlSequence(args.config.keys.overview, CTRL_L_FALLBACK);
-    this.submitKey = ctrlSequence(args.config.keys.submit, CTRL_S_FALLBACK);
     this.delivery = args.delivery;
     this.rippleConfirm = args.confirmRipple ?? defaultRippleConfirm;
     this.currentId = pickInitialQuestionId(args.state, args.focusQuestionId);
@@ -324,73 +296,16 @@ export class InterrogationPanel implements Component {
   }
 
   /**
-   * Key dispatch: the KeyHandler seam (keys.ts, P1.M3.T3.S1) consumes first;
-   * otherwise the MINIMAL S1 built-ins apply — ctrl+d toggles short↔deep
-   * (entering deep sets deepSticky), ctrl+l toggles overview↔(deepSticky ?
-   * deep : short), esc in overview/deep returns to short. Esc in short is NOT
-   * consumed here — the top-level suspend binding is keys.ts territory (T3).
+   * Key dispatch: the config-driven router (keys.ts, P1.M3.T3.S1) owns ALL
+   * of it — fixed arrows/esc/enter, the esc-descent ladder (short-view esc
+   * suspends, FR-16), and every config.keys accelerator via the h2.34
+   * intercept-before-forward rule (config keys are consumed even in text
+   * focus). Unmatched input is ignored here for now; P1.M4.T1.S2 forwards it
+   * to the embedded editor when focus === "text".
    */
   handleInput(data: string): void {
     if (this.resolved) return;
-    if (this.keys !== undefined && this.keys(data, this)) return;
-
-    // ------------------------------------------------------------- TEMPORARY
-    // Minimal built-in matcher (P1.M3.T2.S2) — deleted wholesale by keys.ts
-    // (P1.M3.T3.S1). Delegates ONLY to the named actions in actions.ts.
-    // Arrows are matched BEFORE any esc logic below (they are ESC-prefixed
-    // 3-byte sequences the esc branch must never eat).
-    if (this.view === "short") {
-      if (ARROW_UP.includes(data)) {
-        panelActions.optionUp(this);
-        return;
-      }
-      if (ARROW_DOWN.includes(data)) {
-        panelActions.optionDown(this);
-        return;
-      }
-      if (this.config.digitQuickSelect && DIGIT.test(data)) {
-        panelActions.digit(this, Number(data));
-        return;
-      }
-      if (data === "\r" || data === "\n") {
-        panelActions.accept(this);
-        return;
-      }
-      // Config defaults (h2.34): prevQuestion "tab", nextQuestion
-      // "shift+tab". Hardcoded here only because the minimal matcher cannot
-      // express accelerator strings — keys.ts reads config.keys directly.
-      if (data === "\t") {
-        panelActions.prevQuestion(this);
-        return;
-      }
-      if (data === SHIFT_TAB) {
-        panelActions.nextQuestion(this);
-        return;
-      }
-    }
-    // Submit is view-agnostic; inert until a delivery surface is provided.
-    if (data === this.submitKey && this.delivery !== undefined) {
-      panelActions.submit(this, this.delivery);
-      return;
-    }
-    // ----------------------------------------------- end TEMPORARY matcher
-
-    if (data === this.deepKey) {
-      if (this.view === "deep") {
-        this.setView("short");
-      } else {
-        this.deepSticky = true;
-        this.setView("deep");
-      }
-      return;
-    }
-    if (data === this.overviewKey) {
-      this.setView(this.view === "overview" ? (this.deepSticky ? "deep" : "short") : "overview");
-      return;
-    }
-    if (data === ESCAPE && this.view !== "short") {
-      this.setView("short");
-    }
+    this.keys(data, this);
   }
 
   /**
@@ -435,7 +350,17 @@ export class InterrogationPanel implements Component {
     this.footerFlash = undefined;
   }
 
-  private setView(view: PanelView): void {
+  /** True once suspend() resolved custom() (the router's defensive guard). */
+  isResolved(): boolean {
+    return this.resolved;
+  }
+
+  /**
+   * Switch views (public so the keys.ts router + seam callbacks drive view
+   * state through ONE path — no duplicated toggle logic). No-op when the
+   * view is unchanged; invalidates the render cache otherwise.
+   */
+  setView(view: PanelView): void {
     if (this.view === view) return;
     this.view = view;
     this.invalidate();

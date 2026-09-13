@@ -1,0 +1,450 @@
+/**
+ * src/panel/keys.test.ts — config-driven key dispatch tests (P1.M3.T3.S1).
+ *
+ * Conventions follow panel.test.ts / actions.test.ts: no runtime, fakes
+ * cast to the narrow structural surface the router touches, and action
+ * handlers are vi.fn spies. Default-accelerator cases feed RAW terminal
+ * data and round-trip it through matchesKey in the fixture helper first —
+ * if pi-tui's sequence grammar ever changes, the fixture fails loudly
+ * instead of the assertions silently drifting (AUTOMATION-POLICY: all
+ * dispatch behavior asserted in vitest, no live pi session).
+ */
+import { Key, matchesKey, type KeyId } from "@earendil-works/pi-tui";
+import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
+import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
+import {
+  buildKeyRouter,
+  defaultRoutedActions,
+  parseAccelerator,
+  resolveBindings,
+  type RoutedActions,
+} from "./keys.js";
+import type { InterrogationPanel, PanelFocus, PanelView } from "./panel.js";
+
+// ------------------------------------------------------------------ fixtures
+
+/** Raw terminal data for each h2.34 default accelerator. */
+const DEFAULT_DATA: Record<KeyAction, string> = {
+  deep: "\u0004", // ctrl+d
+  overview: "\u000c", // ctrl+l
+  focusText: "\u0014", // ctrl+t
+  batchNote: "\u001b[109;6u", // kitty CSI-u ctrl+shift+m (m = 109)
+  submit: "\u0013", // ctrl+s
+  breakOut: "\u001b[113;6u", // kitty CSI-u ctrl+shift+q (q = 113)
+  discuss: "\u001b[101;6u", // kitty CSI-u ctrl+shift+e (e = 101)
+  externalEditor: "\u0007", // ctrl+g
+  prevQuestion: "\t",
+  nextQuestion: "\u001b[Z",
+};
+
+const UP = "\u001b[A";
+const DOWN = "\u001b[B";
+const ESCAPE = "\u001b";
+const ENTER = "\r";
+const F9 = "\u001b[20~";
+const CTRL_ALT_D = "\u001b\u0004"; // legacy ctrl+alt+d (ESC + control byte)
+
+function configWithKeys(keys: Partial<Record<KeyAction, string>>): InterrogatorConfig {
+  return { ...DEFAULT_CONFIG, keys: { ...DEFAULT_CONFIG.keys, ...keys } };
+}
+
+/**
+ * Fake panel exposing exactly the surface the router + seam defaults touch,
+ * with REAL view/focus state transitions (setView assigns like panel.ts).
+ * suspend flips isResolved like the resolved guard does.
+ */
+interface PanelStub extends InterrogationPanel {
+  resolvedFlag: boolean;
+  suspendCalls: number;
+}
+
+function makePanel(
+  overrides: { view?: PanelView; focus?: PanelFocus; deepSticky?: boolean } = {},
+): PanelStub {
+  const panel = {
+    view: overrides.view ?? "short",
+    focus: overrides.focus ?? "options",
+    deepSticky: overrides.deepSticky ?? false,
+    resolvedFlag: false,
+    setView(v: PanelView) {
+      this.view = v;
+    },
+    suspend() {
+      this.suspendCalls += 1;
+      this.resolvedFlag = true;
+    },
+    isResolved() {
+      return this.resolvedFlag;
+    },
+    suspendCalls: 0,
+    invalidate: vi.fn(),
+  };
+  return panel as unknown as PanelStub;
+}
+
+/** All-void→true spies for the seam callbacks, boolean spies for actions. */
+function makeActions() {
+  const spies = {
+    optionUp: vi.fn((_p: InterrogationPanel) => true),
+    optionDown: vi.fn((_p: InterrogationPanel) => true),
+    digit: vi.fn((_p: InterrogationPanel, _n: number) => true),
+    accept: vi.fn((_p: InterrogationPanel) => true),
+    prevQuestion: vi.fn((_p: InterrogationPanel) => true),
+    nextQuestion: vi.fn((_p: InterrogationPanel) => true),
+    submit: vi.fn((_p: InterrogationPanel) => true),
+    onDeep: vi.fn((_p: InterrogationPanel) => undefined),
+    onOverview: vi.fn((_p: InterrogationPanel) => undefined),
+    onFocusText: vi.fn((_p: InterrogationPanel) => undefined),
+    onBatchNote: vi.fn((_p: InterrogationPanel) => undefined),
+    onBreakOut: vi.fn((_p: InterrogationPanel) => undefined),
+    onDiscuss: vi.fn((_p: InterrogationPanel) => undefined),
+    onExternalEditor: vi.fn((_p: InterrogationPanel) => undefined),
+  };
+  const all: Mock[] = Object.values(spies);
+  return { ...spies, all };
+}
+
+/** Total invocations across every action spy — the single-dispatch counter. */
+function dispatchCount(actions: { all: Mock[] }): number {
+  return actions.all.reduce((n, m) => n + m.mock.calls.length, 0);
+}
+
+/**
+ * Round-trip guard: the raw data MUST match its accelerator via matchesKey.
+ * Runs at fixture time so a pi-tui grammar change fails here, loudly.
+ */
+function expectMatches(data: string, keyId: KeyId, label: string): void {
+  if (!matchesKey(data, keyId)) {
+    throw new Error(`fixture broken: matchesKey(${JSON.stringify(data)}, "${keyId}") — ${label}`);
+  }
+}
+
+/** Router with spy actions for a config. */
+function makeRouter(config: InterrogatorConfig, actions: RoutedActions) {
+  return { route: buildKeyRouter(config, actions), actions };
+}
+/** Router whose action spies are reachable with full Mock typing. */
+function makeSpiedRouter(config: InterrogatorConfig) {
+  const actions = makeActions();
+  return { route: buildKeyRouter(config, actions), actions };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// ------------------------------------------------------- accelerator layer
+
+describe("parseAccelerator — grammar validation", () => {
+  test("test_parseAccelerator_accepts_valid_forms", () => {
+    expect(parseAccelerator("ctrl+d")).toBe("ctrl+d");
+    expect(parseAccelerator("  CTRL+SHIFT+M ")).toBe("ctrl+shift+m");
+    expect(parseAccelerator("shift+tab")).toBe("shift+tab");
+    expect(parseAccelerator("tab")).toBe("tab");
+    expect(parseAccelerator("f9")).toBe("f9");
+    expect(parseAccelerator("1")).toBe("1");
+    expect(parseAccelerator("?")).toBe("?");
+    expect(parseAccelerator("ctrl+alt+super+x")).toBe("ctrl+alt+super+x");
+  });
+
+  test("test_parseAccelerator_rejects_invalid_forms", () => {
+    expect(parseAccelerator("ctrl+")).toBeUndefined(); // dangling modifier
+    expect(parseAccelerator("+")).toBeUndefined(); // empty tokens
+    expect(parseAccelerator("")).toBeUndefined();
+    expect(parseAccelerator("   ")).toBeUndefined();
+    expect(parseAccelerator("hyper+x")).toBeUndefined(); // unknown modifier
+    expect(parseAccelerator("ctrl+ctrl+d")).toBeUndefined(); // duplicate modifier
+    expect(parseAccelerator("ctrl+f13")).toBeUndefined(); // unknown base key
+    expect(parseAccelerator("ctrl+ab")).toBeUndefined(); // multi-char non-name
+  });
+
+  test("test_resolveBindings_falls_back_to_default_with_one_warn_per_invalid", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const config = configWithKeys({ submit: "ctrl+", deep: "not a key!!" });
+    const bindings = resolveBindings(config);
+
+    // Every action resolves to SOMETHING (table never has holes).
+    for (const action of Object.keys(DEFAULT_CONFIG.keys) as KeyAction[]) {
+      expect(bindings[action]).toBeDefined();
+    }
+    // Invalid entries fall back to the h2.52 defaults…
+    expect(bindings.submit).toBe("ctrl+s");
+    expect(bindings.deep).toBe("ctrl+d");
+    // …valid remaps survive…
+    const remapped = resolveBindings(configWithKeys({ submit: "f9" }));
+    expect(remapped.submit).toBe("f9");
+    // …and each invalid entry warns exactly once.
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ------------------------------------------------------------ default config
+
+describe("buildKeyRouter — default config dispatch (h2.34 table)", () => {
+  test("test_default_accelerators_dispatch_every_action", () => {
+    // Fixture round-trip: raw data must satisfy matchesKey for its binding.
+    const bindings = resolveBindings(DEFAULT_CONFIG);
+    for (const action of Object.keys(DEFAULT_DATA) as KeyAction[]) {
+      expectMatches(DEFAULT_DATA[action], bindings[action], action);
+    }
+
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+
+    // Fixed arrows + enter (options focus) round-trip too.
+    expectMatches(UP, Key.up, "up");
+    expectMatches(DOWN, Key.down, "down");
+    expectMatches(ENTER, Key.enter, "enter");
+    expectMatches(ESCAPE, Key.escape, "escape");
+
+    for (const action of Object.keys(DEFAULT_DATA) as KeyAction[]) {
+      const fresh = makeActions();
+      const router = makeRouter(DEFAULT_CONFIG, fresh);
+      const panel = makePanel(
+        action === "externalEditor" ? { focus: "text" } : { focus: "options" },
+      );
+      const consumed = router.route(DEFAULT_DATA[action], panel);
+      expect(consumed, `${action} consumes ${JSON.stringify(DEFAULT_DATA[action])}`).toBe(true);
+      expect(dispatchCount(fresh), `${action} dispatches exactly once`).toBe(1);
+    }
+
+    // Spot-check the wiring: each spy fired on its own action, nothing else.
+    const spot = makeActions();
+    const spotRouter = makeRouter(DEFAULT_CONFIG, spot);
+    spotRouter.route(DEFAULT_DATA.submit, makePanel());
+    expect(spot.submit).toHaveBeenCalledTimes(1);
+    expect(spot.onDeep).not.toHaveBeenCalled();
+    spotRouter.route(DEFAULT_DATA.breakOut, makePanel());
+    expect(spot.onBreakOut).toHaveBeenCalledTimes(1);
+    spotRouter.route(DEFAULT_DATA.batchNote, makePanel());
+    expect(spot.onBatchNote).toHaveBeenCalledTimes(1);
+    spotRouter.route(DEFAULT_DATA.prevQuestion, makePanel());
+    expect(spot.prevQuestion).toHaveBeenCalledTimes(1);
+    spotRouter.route(DEFAULT_DATA.nextQuestion, makePanel());
+    expect(spot.nextQuestion).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_unmatched_input_forwards", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel();
+    expect(route("x", panel)).toBe(false); // plain letter
+    expect(route("\u001b[9~", panel)).toBe(false); // unbound sequence
+    expect(dispatchCount(actions)).toBe(0);
+  });
+});
+
+// ------------------------------------------------------------------ remap
+
+describe("buildKeyRouter — remappability (AC-12 core)", () => {
+  test("test_remapped_key_fires_and_old_key_releases", () => {
+    const remapped = configWithKeys({ submit: "f9", deep: "ctrl+alt+d" });
+    const bindings = resolveBindings(remapped);
+    expectMatches(F9, bindings.submit, "remapped submit");
+    expectMatches(CTRL_ALT_D, bindings.deep, "remapped deep");
+
+    const actions = makeActions();
+    const { route } = makeRouter(remapped, actions);
+
+    // New keys fire…
+    expect(route(F9, makePanel())).toBe(true);
+    expect(actions.submit).toHaveBeenCalledTimes(1);
+    expect(route(CTRL_ALT_D, makePanel())).toBe(true);
+    expect(actions.onDeep).toHaveBeenCalledTimes(1);
+
+    // …old defaults are RELEASED (forwarded, not consumed).
+    expect(route("\u0013", makePanel())).toBe(false); // old ctrl+s submit
+    expect(route("\u0004", makePanel())).toBe(false); // old ctrl+d deep
+    expect(actions.submit).toHaveBeenCalledTimes(1);
+    expect(actions.onDeep).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------- intercept rule (text)
+
+describe("buildKeyRouter — h2.34 intercept rule with focus === text", () => {
+  test("test_text_focus_still_intercepts_panel_keys", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+
+    // Panel-level keys consumed IN text focus — the whole point of the rule.
+    expect(route(DEFAULT_DATA.submit, makePanel({ focus: "text" }))).toBe(true);
+    expect(actions.submit).toHaveBeenCalledTimes(1);
+    expect(route(DEFAULT_DATA.deep, makePanel({ focus: "text" }))).toBe(true);
+    expect(actions.onDeep).toHaveBeenCalledTimes(1);
+    expect(route(DEFAULT_DATA.overview, makePanel({ focus: "text" }))).toBe(true);
+    expect(route(DEFAULT_DATA.focusText, makePanel({ focus: "text" }))).toBe(true);
+    expect(route(DEFAULT_DATA.batchNote, makePanel({ focus: "text" }))).toBe(true);
+    expect(route(DEFAULT_DATA.discuss, makePanel({ focus: "text" }))).toBe(true);
+    expect(route(DEFAULT_DATA.breakOut, makePanel({ focus: "text" }))).toBe(true);
+    expect(route(DEFAULT_DATA.prevQuestion, makePanel({ focus: "text" }))).toBe(true);
+    expect(route(DEFAULT_DATA.nextQuestion, makePanel({ focus: "text" }))).toBe(true);
+
+    // Typing keys FORWARD (return false) — the user is writing an answer.
+    const fresh = makeActions();
+    const freshRouter = makeRouter(DEFAULT_CONFIG, fresh);
+    const textPanel = makePanel({ focus: "text" });
+    expect(freshRouter.route("1", textPanel)).toBe(false);
+    expect(freshRouter.route("9", textPanel)).toBe(false);
+    expect(freshRouter.route("a", textPanel)).toBe(false);
+    expect(freshRouter.route(ENTER, textPanel)).toBe(false); // two-stage enter is M4
+    expect(dispatchCount(fresh)).toBe(0);
+  });
+
+  test("test_externalEditor_only_in_text_focus", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    // Options focus: ctrl+g is NOT consumed (kept free elsewhere).
+    expect(route(DEFAULT_DATA.externalEditor, makePanel({ focus: "options" }))).toBe(false);
+    expect(actions.onExternalEditor).not.toHaveBeenCalled();
+    // Text focus: consumed (its h2.34 context).
+    expect(route(DEFAULT_DATA.externalEditor, makePanel({ focus: "text" }))).toBe(true);
+    expect(actions.onExternalEditor).toHaveBeenCalledTimes(1);
+  });
+});
+
+// -------------------------------------------------------------- esc descent
+
+describe("buildKeyRouter — esc descent ladder (FR-16)", () => {
+  test("test_esc_descends_deep_overview_and_suspends_from_short", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+
+    // deep → short (deepSticky NOT cleared — only entering deep sets it).
+    const deep = makePanel({ view: "deep", deepSticky: true });
+    expect(route(ESCAPE, deep)).toBe(true);
+    expect(deep.view).toBe("short");
+    expect(deep.deepSticky).toBe(true);
+
+    // overview → short without sticky.
+    const overview = makePanel({ view: "overview", deepSticky: false });
+    expect(route(ESCAPE, overview)).toBe(true);
+    expect(overview.view).toBe("short");
+
+    // overview → deep WITH sticky (mirror of panel.ts's old overview toggle).
+    const stickyOverview = makePanel({ view: "overview", deepSticky: true });
+    expect(route(ESCAPE, stickyOverview)).toBe(true);
+    expect(stickyOverview.view).toBe("deep");
+
+    // short → suspend exactly once; state fields untouched (FR-16).
+    const short = makePanel({ view: "short" });
+    short.focus = "options";
+    expect(route(ESCAPE, short)).toBe(true);
+    expect(short.suspendCalls).toBe(1);
+    expect(short.isResolved()).toBe(true);
+    expect(short.view).toBe("short");
+
+    // Repeated esc on the resolved panel: no throw, no second suspend,
+    // router returns false (resolved guard).
+    expect(route(ESCAPE, short)).toBe(false);
+    expect(short.suspendCalls).toBe(1);
+    expect(dispatchCount(actions)).toBe(0); // esc never touches action spies
+  });
+});
+
+// ------------------------------------------------------------- fixed keys
+
+describe("buildKeyRouter — fixed keys and gating", () => {
+  test("test_arrows_and_enter_dispatch_regardless_of_config", () => {
+    // Even a config that remaps actions cannot shadow the fixed keys —
+    // arrows/enter/esc are not in the KeyAction union at all.
+    const actions = makeActions();
+    const { route } = makeRouter(configWithKeys({ prevQuestion: "up", nextQuestion: "down" }), actions);
+    const panel = makePanel();
+    expect(route(UP, panel)).toBe(true);
+    expect(actions.optionUp).toHaveBeenCalledTimes(1); // fixed arrow, not prevQuestion
+    expect(actions.prevQuestion).not.toHaveBeenCalled();
+    expect(route(DOWN, panel)).toBe(true);
+    expect(actions.optionDown).toHaveBeenCalledTimes(1);
+    expect(route(ENTER, panel)).toBe(true);
+    expect(actions.accept).toHaveBeenCalledTimes(1);
+    expect(route(ESCAPE, panel)).toBe(true); // fixed esc — suspends from short
+    expect(panel.suspendCalls).toBe(1);
+  });
+
+  test("test_digitQuickSelect_off_forwards_digits", () => {
+    const config = { ...DEFAULT_CONFIG, digitQuickSelect: false };
+    const actions = makeActions();
+    const { route } = makeRouter(config, actions);
+    expect(route("5", makePanel())).toBe(false);
+    expect(actions.digit).not.toHaveBeenCalled();
+  });
+
+  test("test_digit_honors_action_result", () => {
+    const actions = makeActions();
+    actions.digit.mockReturnValueOnce(false); // beyond options → not consumed
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    expect(route("7", makePanel())).toBe(false);
+    expect(actions.digit).toHaveBeenCalledWith(expect.anything(), 7);
+
+    const actions2 = makeActions();
+    const route2 = makeRouter(DEFAULT_CONFIG, actions2).route;
+    expect(route2("2", makePanel())).toBe(true); // in range → consumed
+    expect(actions2.digit).toHaveBeenCalledWith(expect.anything(), 2);
+  });
+
+  test("test_navigation_action_false_propagates", () => {
+    const actions = makeActions();
+    actions.optionUp.mockReturnValueOnce(false);
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    expect(route(UP, makePanel())).toBe(false);
+  });
+});
+
+// ------------------------------------------------------------- collisions
+
+describe("buildKeyRouter — collision + single-dispatch guarantees", () => {
+  test("test_collision_first_in_resolution_order_wins", () => {
+    // deep (earlier) vs submit (later) both on ctrl+d → deep wins.
+    const actions = makeActions();
+    const { route } = makeRouter(configWithKeys({ submit: "ctrl+d" }), actions);
+    expect(route("\u0004", makePanel())).toBe(true);
+    expect(actions.onDeep).toHaveBeenCalledTimes(1);
+    expect(actions.submit).not.toHaveBeenCalled();
+    expect(dispatchCount(actions)).toBe(1); // never double-dispatch
+  });
+});
+
+// ------------------------------------------------- default seam behaviors
+
+describe("defaultRoutedActions — seam defaults", () => {
+  test("test_default_seams_toggle_views_and_suspend", () => {
+    const actions = defaultRoutedActions();
+    const panel = makePanel();
+
+    actions.onDeep(panel); // short → deep, sticky set
+    expect(panel.view).toBe("deep");
+    expect(panel.deepSticky).toBe(true);
+    actions.onDeep(panel); // deep → short, sticky survives
+    expect(panel.view).toBe("short");
+
+    actions.onOverview(panel); // → overview
+    expect(panel.view).toBe("overview");
+    actions.onOverview(panel); // deepSticky already set above → deep
+    expect(panel.view).toBe("deep");
+
+    // Fresh session (no sticky): overview toggles back to short.
+    const fresh2 = makePanel();
+    actions.onOverview(fresh2);
+    expect(fresh2.view).toBe("overview");
+    actions.onOverview(fresh2); // no sticky → short
+    expect(fresh2.view).toBe("short");
+
+    const sticky = makePanel();
+    actions.onDeep(sticky); // deep (sticky now true)
+    actions.onOverview(sticky); // → overview
+    actions.onOverview(sticky); // sticky → deep
+    expect(sticky.view).toBe("deep");
+
+    actions.onFocusText(panel);
+    expect(panel.focus).toBe("text");
+
+    actions.onBreakOut(panel); // suspend terminus (M6 refines)
+    expect(panel.suspendCalls).toBe(1);
+
+    // Inert seams must not throw (M4/M6 wire them later).
+    expect(() => actions.onBatchNote(panel)).not.toThrow();
+    expect(() => actions.onDiscuss(panel)).not.toThrow();
+    expect(() => actions.onExternalEditor(panel)).not.toThrow();
+  });
+});

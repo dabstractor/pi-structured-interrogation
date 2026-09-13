@@ -27,6 +27,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createCompletionTrigger } from "./completion.js";
 import { loadConfig } from "./config.js";
+import { registerDebugCommands } from "./debug-commands.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { createInterrogateTool } from "./tool.js";
 
@@ -61,4 +62,9 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       },
     }),
   });
+
+  // P1.M2.T3.S1 — debug commands for scripted verification (h2.50): share
+  // the tool executor / submission path so keyboard-driven runs are evidence
+  // about the production path. Uses the same single-loaded config.
+  registerDebugCommands(pi, config);
 }

@@ -431,7 +431,14 @@ describe("extension factory wiring (index.ts)", () => {
       on: (_event: string, _handler: unknown) => undefined, // lifecycle subscriptions (P1.M2.T2.S1)
     } as unknown as ExtensionAPI;
     await mod.default(fakePi);
-    expect(commands).toEqual(["interrogate-ping"]); // T1 contract preserved
+    // T1 contract preserved (ping first), plus the P1.M2.T3.S1 debug
+    // commands registered after the lifecycle wiring (h2.50).
+    expect(commands).toEqual([
+      "interrogate-ping",
+      "interrogate-debug-upsert",
+      "interrogate-debug-submit",
+      "interrogate-debug-state",
+    ]);
     expect(tools).toHaveLength(1);
     expect((tools[0] as { name: string }).name).toBe("interrogate");
     expect((tools[0] as { description: string }).description).toBe(INTERROGATE_TOOL_DESCRIPTION);

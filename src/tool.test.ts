@@ -271,25 +271,63 @@ describe("executeInterrogate: record", () => {
 });
 
 describe("executeInterrogate: reopen", () => {
-  test("no state throws", () => {
+  test("no state throws — state existence is the only guard (FR-6 bans recency/epoch checks)", () => {
     expect(() => executeInterrogate({ reopen: true }, tuiCtx())).toThrowError("no interrogation state to reopen");
     expect(() => executeInterrogate({ reopen: true }, printCtx())).toThrowError("no interrogation state to reopen");
   });
 
-  test("TUI: status line + resurface ack, inline reopen envelope", () => {
+  test("TUI + suspended: resume hook invoked once, Panel reopened + inline reopen envelope (P1.M6.T2.S1)", () => {
     const st = seedState();
     seedQ(st, "q1");
-    const r = executeInterrogate({ reopen: true }, tuiCtx());
-    expect(r.content).toBe("0/1 answered · 0 re-asked · 0 moot · epoch 1\nPanel resurfaced.");
+    const calls: string[] = [];
+    const r = executeInterrogate({ reopen: true }, tuiCtx(), DEFAULT_CONFIG, {
+      onReopen: () => {
+        calls.push("reopened");
+        return "reopened";
+      },
+    });
+    expect(calls).toEqual(["reopened"]); // hook fired exactly once, synchronously
+    expect(r.content).toBe("0/1 answered · 0 re-asked · 0 moot · epoch 1\nPanel reopened.");
     expect(r.details.action).toBe("reopen");
     expect(r.details.statusLine).toBe("0/1 answered · 0 re-asked · 0 moot · epoch 1");
     expect(r.details.state.questions.q1).toBeDefined();
   });
 
-  test("non-TUI: identical to a read (nothing to resurface)", () => {
+  test("TUI + already-open: hook's already-open ack, no throw", () => {
     const st = seedState();
     seedQ(st, "q1");
-    const r = executeInterrogate({ reopen: true }, printCtx());
+    const r = executeInterrogate({ reopen: true }, tuiCtx(), DEFAULT_CONFIG, { onReopen: () => "already-open" });
+    expect(r.content).toBe("0/1 answered · 0 re-asked · 0 moot · epoch 1\nPanel already open.");
+    expect(r.details.action).toBe("reopen");
+  });
+
+  test("TUI + zero-open / dead panel: hook's no-state ack, no throw", () => {
+    const st = seedState();
+    seedQ(st, "q1");
+    const r = executeInterrogate({ reopen: true }, tuiCtx(), DEFAULT_CONFIG, { onReopen: () => "no-state" });
+    expect(r.content).toBe("0/1 answered · 0 re-asked · 0 moot · epoch 1\nNo open questions to reopen.");
+    expect(r.details.action).toBe("reopen");
+  });
+
+  test("TUI without deps: defaults to the reopened confirmation (executor callers predate the wiring)", () => {
+    const st = seedState();
+    seedQ(st, "q1");
+    const r = executeInterrogate({ reopen: true }, tuiCtx());
+    expect(r.content).toBe("0/1 answered · 0 re-asked · 0 moot · epoch 1\nPanel reopened.");
+    expect(r.details.action).toBe("reopen");
+  });
+
+  test("non-TUI: identical to a read (nothing to resurface); hook never invoked", () => {
+    const st = seedState();
+    seedQ(st, "q1");
+    let calls = 0;
+    const r = executeInterrogate({ reopen: true }, printCtx(), DEFAULT_CONFIG, {
+      onReopen: () => {
+        calls += 1;
+        return "reopened";
+      },
+    });
+    expect(calls).toBe(0);
     expect(r.details.action).toBe("read");
     expect(r.content).toBe(buildReadResult(st.serialize()).content);
   });

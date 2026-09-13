@@ -104,6 +104,36 @@ export interface ExecutorContext {
  */
 let activeConfig: InterrogatorConfig = DEFAULT_CONFIG;
 
+/**
+ * What the injected resume hook reports about the host-side reopen attempt
+ * ([Mode A] — the full reopen decision table lives on the hook's host side;
+ * see the `reopen` case below for the executor's line mapping).
+ */
+export type ReopenOutcome = "reopened" | "already-open" | "no-state";
+
+/**
+ * Optional executor dependencies injected by the factory (index.ts).
+ * Deliberately NOT a UI surface: the executor's non-blocking invariant
+ * (h2.0 §1) forbids any direct UI calls, so panel-touching behavior is
+ * injected from the factory closure that owns the panel host.
+ */
+export interface ToolDeps {
+  /**
+   * [Mode A] Resume hook for `{reopen:true}` (FR-6/Q12 agent-judgment
+   * reopen). The executor adds NO deterministic guard beyond state
+   * existence — no recency, epoch, or cooldown check — because the agent's
+   * judgment is the only gate and the always-visible suspend widget is the
+   * user's safety net while suspended. The hook exists instead of a direct
+   * UI call because the executor must stay synchronous and UI-free
+   * (h2.0 §1): the panel module retains its own surface carriers
+   * (activePi/lastOpts), so the hook needs nothing from this context. It
+   * routes through the SAME resumePanel path as the ctrl+shift+q /
+   * /interrogate hotkey (h2.35 — a single resume path); the host phase
+   * flips synchronously, so the returned outcome is trustworthy at once.
+   */
+  onReopen?: () => ReopenOutcome;
+}
+
 // ------------------------------------------------------------------- helpers
 
 /**
@@ -176,7 +206,8 @@ function upsertWarnings(parsed: string[], capped: string[], config: Interrogator
  *   status + digest + warnings composite.
  * - record (h2.20): TUI → IGNORED (ack note only, no state change);
  *   non-TUI → recordAnswers (epoch bumped inside) + status/unknown lines.
- * - reopen: TUI → resurface ack (the panel host owns the actual resurface);
+ * - reopen: TUI → invokes the injected `deps.onReopen` resume hook (agent-
+ *   judgment trusted, FR-6) and reports its outcome as a confirmation line;
  *   non-TUI → identical to read.
  *
  * @throws Error on malformed params (isError) and on record/reopen without
@@ -186,6 +217,7 @@ export function executeInterrogate(
   args: unknown,
   ctx: ExecutorContext,
   config: InterrogatorConfig = activeConfig,
+  deps: ToolDeps = {},
 ): InterrogateResult {
   // 1. Parse + route — before ANY state work (malformed input never mutates).
   const parsed = parseInterrogateParams(args, config);
@@ -239,6 +271,20 @@ export function executeInterrogate(
     }
 
     // ---------------------------------------------------------- reopen
+    //
+    // [Mode A] AGENT-JUDGMENT REOPEN (FR-6/Q12): there is NO deterministic
+    // guard here beyond state existence — no recency, epoch, or cooldown
+    // check. The agent's judgment is the only gate, and the always-visible
+    // suspend widget is the user's safety net while suspended, so a wrong
+    // judgment call costs the user one esc — never stranding them. The
+    // actual resume is delegated to the injected `deps.onReopen` hook
+    // rather than any direct UI call: this executor must stay synchronous
+    // and UI-free (h2.0 §1), and the panel module retains its own surface
+    // carriers, so the hook needs nothing from this context. The hook
+    // routes through the SAME resumePanel path as the ctrl+shift+q /
+    // /interrogate hotkey (h2.35 — a single resume path); the host phase
+    // flips synchronously, so the outcome is trustworthy immediately and
+    // this call stays non-blocking.
     case "reopen": {
       if (!existing) throw new Error("no interrogation state to reopen");
       const serialized = existing.serialize();
@@ -247,9 +293,14 @@ export function executeInterrogate(
         return buildReadResult(serialized);
       }
       const statusLine = buildStatusLine(serialized);
-      // Model-facing ack only: the panel host (P1.M3) subscribes to state
-      // events and owns the actual resurface. Never blocking here.
-      return { content: `${statusLine}\nPanel resurfaced.`, details: inlineEnvelope(serialized, "reopen", statusLine) };
+      const outcome = deps.onReopen?.() ?? "reopened";
+      const line =
+        outcome === "already-open"
+          ? "Panel already open."
+          : outcome === "no-state"
+            ? "No open questions to reopen."
+            : "Panel reopened.";
+      return { content: `${statusLine}\n${line}`, details: inlineEnvelope(serialized, "reopen", statusLine) };
     }
 
     // ---------------------------------------------------------- record
@@ -315,7 +366,10 @@ function renderCallRow(args: Static<typeof InterrogateParams> | undefined, theme
  * default config for direct {@link executeInterrogate} callers (debug
  * commands, tests).
  */
-export function createInterrogateTool(config: InterrogatorConfig): ToolDefinition<typeof InterrogateParams, ResultDetails> {
+export function createInterrogateTool(
+  config: InterrogatorConfig,
+  deps: ToolDeps = {},
+): ToolDefinition<typeof InterrogateParams, ResultDetails> {
   activeConfig = config;
   return {
     name: "interrogate",
@@ -325,7 +379,7 @@ export function createInterrogateTool(config: InterrogatorConfig): ToolDefinitio
     promptGuidelines: INTERROGATE_PROMPT_GUIDELINES,
     parameters: InterrogateParams,
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-      const result = executeInterrogate(params, ctx, config);
+      const result = executeInterrogate(params, ctx, config, deps);
       return { content: [{ type: "text", text: result.content }], details: result.details };
     },
     renderCall(args, theme, _context) {

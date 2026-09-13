@@ -24,7 +24,7 @@
  * clear in-memory state). The panel host and message renderers land in later
  * milestones.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createCompletionTrigger } from "./completion.js";
 import { registerInterrogateCommand } from "./command.js";
 import { loadConfig } from "./config.js";
@@ -32,6 +32,8 @@ import { registerDebugCommands } from "./debug-commands.js";
 import { DraftStore } from "./draft-store.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
+import { resumePanel } from "./panel/suspend.js";
+import { getState } from "./state.js";
 import { createInterrogateTool } from "./tool.js";
 
 export default async function interrogatorExtension(pi: ExtensionAPI): Promise<void> {
@@ -43,8 +45,6 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       ctx.ui.notify("pi-interrogator: pong", "info");
     },
   });
-
-  pi.registerTool(createInterrogateTool(config));
 
   // P1.M2.T2.S1 — auto-close engine (h2.44): subscribes tool_execution_start/end
   // + agent_settled and runs the idempotent close pass after each settle.
@@ -85,6 +85,47 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // persistence.ts (P1.M7.T1) must not serialize it.
   const drafts = new DraftStore();
   maybeAutoOpen(pi, config, panelHost, drafts);
+
+  // P1.M6.T2.S1 — agent-judgment reopen (FR-6/Q12, h2.35): the tool's
+  // {reopen:true} action resumes a suspended panel through the SAME
+  // resumePanel path as the ctrl+shift+q / /interrogate hotkey — no
+  // deterministic guard beyond host phase + open-question existence (the
+  // agent's judgment is the gate; the always-visible suspend widget is the
+  // user's safety net). Registered AFTER createPanelHost so the hook
+  // closure captures the live host; the phase API isOpen()/isSuspended()
+  // is the only state source (the module-private `phase` is never read
+  // directly). The 0-open suspended edge mirrors S2's empty-state rule:
+  // a dead panel is never resumed. Idempotency races are S1's concern
+  // (resumePanel → openPanel no-ops when already open) — not duplicated
+  // here.
+  //
+  // Surface carrier adaptation (PRP drift rule): the factory's `pi` is an
+  // ExtensionAPI with NO `ui` (panel.ts's maybeAutoOpen note) — the
+  // PiUISurface carrier is the per-event handler ctx, same as every other
+  // panel entry point. reopen:true executes INSIDE an interrogate tool
+  // call, whose tool_execution_start event has already fired, so stashing
+  // that ctx gives the hook a fresh surface at the moment it runs. The
+  // stash is defensively consulted for undefined only; state existence is
+  // checked by the executor BEFORE the hook, and a suspended host implies
+  // a prior panel ctx existed.
+  let resumeSurface: ExtensionContext | undefined;
+  pi.on("tool_execution_start", (event, ctx) => {
+    if (event.toolName === "interrogate") resumeSurface = ctx;
+  });
+  pi.registerTool(
+    createInterrogateTool(config, {
+      onReopen: () => {
+        if (panelHost.isOpen()) return "already-open";
+        if (panelHost.isSuspended()) {
+          const open = getState()?.orderedQuestions().filter((q) => q.status === "open").length ?? 0;
+          if (open === 0 || resumeSurface === undefined) return "no-state";
+          resumePanel(resumeSurface);
+          return "reopened";
+        }
+        return "no-state";
+      },
+    }),
+  );
 
   // P1.M6.T1.S2 — /interrogate toggle command + the global break-out/resume
   // shortcut (h2.15/h2.34/h2.35/h2.37): ONE seam registering both surfaces

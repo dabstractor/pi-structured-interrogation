@@ -751,7 +751,7 @@
           "type": "Milestone",
           "id": "P1.M6",
           "title": "Suspend/resume ecosystem",
-          "status": "Planned",
+          "status": "Ready",
           "description": "PRD M6 (h2.48): ctrl+shift+q + /interrogate + suspend widget, agent reopen action, discuss-in-chat handoff with setEditorText, editor-text preservation. Proves AC-4.",
           "tasks": [
             {
@@ -803,14 +803,14 @@
               "type": "Task",
               "id": "P1.M6.T2",
               "title": "Agent-driven surfaces: reopen + discuss-in-chat",
-              "status": "Planned",
+              "status": "Ready",
               "description": "reopen:true action wiring, per-question discuss handoff preloading the main editor, main-editor preservation verification.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M6.T2.S1",
                   "title": "Wire reopen:true to the resume path",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 0.5,
                   "dependencies": [
                     "P1.M6.T1.S1",
@@ -827,7 +827,7 @@
                   "type": "Subtask",
                   "id": "P1.M6.T2.S2",
                   "title": "Discuss-in-chat handoff (ctrl+shift+e)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M6.T1.S1"
@@ -843,7 +843,7 @@
                   "type": "Subtask",
                   "id": "P1.M6.T2.S3",
                   "title": "Main editor draft preservation across suspend/resume",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 0.5,
                   "dependencies": [
                     "P1.M6.T1.S1"

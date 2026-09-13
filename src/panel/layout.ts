@@ -89,6 +89,18 @@ export function truncateVisible(text: string, maxWidth: number): string {
 }
 
 /**
+ * Transient footer flash line (h2.37 empty-state feedback, e.g. "nothing to
+ * submit", P1.M3.T2.S2): ONE dimmed, two-space-inset line rendered directly
+ * above the footer, visibleWidth-bounded so a long message can never wrap.
+ * Lifetime/expiry is panel-owned (flash() timer); this is the pure line
+ * builder.
+ */
+export function renderFlashLine(text: string, theme: Theme, width: number): string {
+  const budget = Math.max(1, width - 2); // two-column inset (options-region alignment)
+  return theme.fg("dim", `  ${truncateVisible(text, budget - 2)}`);
+}
+
+/**
  * First sentence of a description: text up to (and including) the first
  * `.`, `?`, or `!` that is followed by a space or end-of-string; the whole
  * description when no such terminator exists.

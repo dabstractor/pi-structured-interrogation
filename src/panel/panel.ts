@@ -42,7 +42,14 @@ import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { getState, type InterrogationState } from "../state.js";
-import { renderFooter, renderHeader, renderHintLine, renderQuestionLine } from "./layout.js";
+import { panelActions, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
+import {
+  renderFlashLine,
+  renderFooter,
+  renderHeader,
+  renderHintLine,
+  renderQuestionLine,
+} from "./layout.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
 
 // --------------------------------------------------------------------- types
@@ -88,6 +95,15 @@ export interface OpenPanelOptions {
   drafts?: DraftStore;
   /** Key dispatch seam — optional until P1.M3.T3.S1 (keys.ts) lands it. */
   keys?: KeyHandler;
+  /**
+   * Delivery surface for the panel submit action (P1.M3.T2.S2) — the real
+   * pi sendMessage + idle probe. Optional until a later task wires the
+   * production transport; without it the submit key is inert (tests pass
+   * mocks).
+   */
+  delivery?: SubmitDeps;
+  /** Ripple-confirm seam override — default is the always-true no-op. */
+  confirmRipple?: RippleConfirmFn;
   /** Question id to focus on open; defaults to first open question. */
   focusQuestionId?: string;
 }
@@ -119,6 +135,24 @@ const ACTIVE_STATUSES: readonly string[] = ["open", "answered", "submitted", "re
 const ESCAPE = "\u001b";
 const CTRL_D_FALLBACK = "\u0004";
 const CTRL_L_FALLBACK = "\u000c";
+const CTRL_S_FALLBACK = "\u0013";
+
+/**
+ * TEMPORARY minimal-matcher key bytes (P1.M3.T2.S2) — h2.34 marks arrows,
+ * enter, and esc FIXED (never config-driven); tab/shift+tab follow the
+ * config.ts DEFAULTS (keys.prevQuestion "tab" / keys.nextQuestion
+ * "shift+tab"). keys.ts (P1.M3.T3.S1) owns final dispatch and deletes all
+ * of this — including these constants.
+ */
+const ARROW_UP = ["\u001b[A", "\u001bOA"];
+const ARROW_DOWN = ["\u001b[B", "\u001bOB"];
+const SHIFT_TAB = "\u001b[Z";
+const DIGIT = /^[1-9]$/;
+/** Footer flash lifetime (h2.37 transient states ~2.5s). */
+const FLASH_MS = 2500;
+
+/** Default ripple seam — always-true no-op until P1.M5.T4.S1 swaps it. */
+const defaultRippleConfirm: RippleConfirmFn = () => true;
 
 /**
  * Map a config accelerator string ("ctrl+d" form) to the raw control byte
@@ -142,6 +176,8 @@ export interface InterrogationPanelArgs {
   config: InterrogatorConfig;
   drafts?: DraftStore;
   keys?: KeyHandler;
+  delivery?: SubmitDeps;
+  confirmRipple?: RippleConfirmFn;
   focusQuestionId?: string;
 }
 
@@ -195,11 +231,37 @@ export class InterrogationPanel implements Component {
   /** Deep view scroll offset (driven by M5 navigation; rendered in S1). */
   scrollOffset = 0;
 
+  /**
+   * Transient footer flash (h2.37 empty-state feedback, e.g. "nothing to
+   * submit"): set via flash(), auto-cleared after {@link FLASH_MS} by its
+   * own timer (which re-invalidates once). The timer is cleared in dispose()
+   * so a suspended panel never repaints.
+   */
+  footerFlash: { text: string; timer?: ReturnType<typeof setTimeout> } | undefined;
+
+  /** Submit transport seam — inert matcher branch when undefined. */
+  readonly delivery: SubmitDeps | undefined;
+
+  /**
+   * Ripple-confirm seam (P1.M5.T4.S1 swaps the default). Public field so
+   * M5 can reassign it without reconstructing the panel.
+   */
+  rippleConfirm: RippleConfirmFn;
+
   private readonly tui: TUI;
   private readonly theme: Theme;
   private readonly done: (result: null) => void;
-  private readonly state: InterrogationState;
-  private readonly config: InterrogatorConfig;
+  /**
+   * Public readonly so the named actions (actions.ts, P1.M3.T2.S2) can read
+   * the engine off the panel instance — the action surface takes `(panel)`
+   * by contract. Mutation goes through state's own primitives only.
+   */
+  readonly state: InterrogationState;
+  /**
+   * Public readonly — actions read digitQuickSelect off it. Config is a
+   * read-only input; a config reload constructs a fresh panel.
+   */
+  readonly config: InterrogatorConfig;
   private readonly drafts: DraftStore | undefined;
   private readonly keys: KeyHandler | undefined;
   /**
@@ -212,6 +274,7 @@ export class InterrogationPanel implements Component {
   private readonly labels: Record<KeyAction, string>;
   private readonly deepKey: string;
   private readonly overviewKey: string;
+  private readonly submitKey: string;
   private cached: string[] | undefined;
   private lastWidth = -1;
   /** Guard so a second done() after suspend cannot re-resolve (idempotent). */
@@ -232,6 +295,9 @@ export class InterrogationPanel implements Component {
     this.labels = resolveKeyLabels(args.config);
     this.deepKey = ctrlSequence(args.config.keys.deep, CTRL_D_FALLBACK);
     this.overviewKey = ctrlSequence(args.config.keys.overview, CTRL_L_FALLBACK);
+    this.submitKey = ctrlSequence(args.config.keys.submit, CTRL_S_FALLBACK);
+    this.delivery = args.delivery;
+    this.rippleConfirm = args.confirmRipple ?? defaultRippleConfirm;
     this.currentId = pickInitialQuestionId(args.state, args.focusQuestionId);
 
     // Contract 7 — state is the source of truth: any mutation invalidates the
@@ -268,6 +334,47 @@ export class InterrogationPanel implements Component {
     if (this.resolved) return;
     if (this.keys !== undefined && this.keys(data, this)) return;
 
+    // ------------------------------------------------------------- TEMPORARY
+    // Minimal built-in matcher (P1.M3.T2.S2) — deleted wholesale by keys.ts
+    // (P1.M3.T3.S1). Delegates ONLY to the named actions in actions.ts.
+    // Arrows are matched BEFORE any esc logic below (they are ESC-prefixed
+    // 3-byte sequences the esc branch must never eat).
+    if (this.view === "short") {
+      if (ARROW_UP.includes(data)) {
+        panelActions.optionUp(this);
+        return;
+      }
+      if (ARROW_DOWN.includes(data)) {
+        panelActions.optionDown(this);
+        return;
+      }
+      if (this.config.digitQuickSelect && DIGIT.test(data)) {
+        panelActions.digit(this, Number(data));
+        return;
+      }
+      if (data === "\r" || data === "\n") {
+        panelActions.accept(this);
+        return;
+      }
+      // Config defaults (h2.34): prevQuestion "tab", nextQuestion
+      // "shift+tab". Hardcoded here only because the minimal matcher cannot
+      // express accelerator strings — keys.ts reads config.keys directly.
+      if (data === "\t") {
+        panelActions.prevQuestion(this);
+        return;
+      }
+      if (data === SHIFT_TAB) {
+        panelActions.nextQuestion(this);
+        return;
+      }
+    }
+    // Submit is view-agnostic; inert until a delivery surface is provided.
+    if (data === this.submitKey && this.delivery !== undefined) {
+      panelActions.submit(this, this.delivery);
+      return;
+    }
+    // ----------------------------------------------- end TEMPORARY matcher
+
     if (data === this.deepKey) {
       if (this.view === "deep") {
         this.setView("short");
@@ -297,15 +404,47 @@ export class InterrogationPanel implements Component {
     this.done(null);
   }
 
-  /** Teardown: drop the state subscription (safe to call twice). */
+  /**
+   * Ripple-confirm invocation point — accept calls this before re-answering
+   * an answered/submitted question. The stored seam receives the panel so
+   * the M5 flow can drive its own UI against it.
+   */
+  confirmRippleEdit(questionId: string, proposed: { value: string; at: string }): boolean {
+    return this.rippleConfirm(this, questionId, proposed);
+  }
+
+  /**
+   * Set the transient footer flash (h2.37) — one line above the footer,
+   * auto-cleared after ~2.5s. Cancel any live timer first so back-to-back
+   * flashes never stack; the expiry callback skips invalidate after suspend.
+   */
+  flash(text: string): void {
+    if (this.footerFlash?.timer !== undefined) clearTimeout(this.footerFlash.timer);
+    const timer = setTimeout(() => {
+      this.footerFlash = undefined;
+      if (!this.resolved) this.invalidate();
+    }, FLASH_MS);
+    this.footerFlash = { text, timer };
+    this.invalidate();
+  }
+
+  /** Teardown: drop the state subscription and the flash timer (idempotent). */
   dispose(): void {
     this.state.off("changed", this.onChanged);
+    if (this.footerFlash?.timer !== undefined) clearTimeout(this.footerFlash.timer);
+    this.footerFlash = undefined;
   }
 
   private setView(view: PanelView): void {
     if (this.view === view) return;
     this.view = view;
     this.invalidate();
+  }
+
+  /** The flash line for the current render pass, or undefined when unset. */
+  private flashLine(width: number): string | undefined {
+    if (this.footerFlash === undefined) return undefined;
+    return renderFlashLine(this.footerFlash.text, this.theme, width);
   }
 
   /**
@@ -336,6 +475,10 @@ export class InterrogationPanel implements Component {
           }),
         );
       }
+      // Transient flash line sits directly above the footer (h2.37), one
+      // visibleWidth-bounded dim line; timer expiry clears it.
+      const flash = this.flashLine(width);
+      if (flash !== undefined) lines.push(flash);
       lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
       return lines;
     }
@@ -501,6 +644,8 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       config: opts.config,
       drafts: opts.drafts,
       keys: opts.keys,
+      delivery: opts.delivery,
+      confirmRipple: opts.confirmRipple,
       focusQuestionId: opts.focusQuestionId,
     });
     currentPanel = panel;

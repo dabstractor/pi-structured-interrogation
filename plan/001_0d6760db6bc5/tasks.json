@@ -450,7 +450,7 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Short view rendering + navigation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Short-form question display with unmistakable recommendation marks, option navigation, digits quick-select, enter accept-advance, tab question navigation.",
               "subtasks": [
                 {
@@ -474,7 +474,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S2",
                   "title": "Navigation: option movement, digits, enter accept+advance, tab freedom",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T2.S1"

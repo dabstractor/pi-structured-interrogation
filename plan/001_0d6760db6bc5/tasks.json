@@ -68,7 +68,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "InterrogationState core: types, map/order, rev/epoch, change events",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -85,7 +85,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Merge rules 1-4 + status transitions",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"
@@ -102,7 +102,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S3",
                   "title": "dependsOn evaluator + transitive ripple closure",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"

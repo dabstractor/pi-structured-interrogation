@@ -23,6 +23,7 @@
 import { buildSubmission, deliverSubmission } from "../delivery.js";
 import { computeDiff } from "../snapshots.js";
 import type { Question, SerializedState } from "../state.js";
+import { countUnansweredGate, gateGroupNames } from "./gate.js";
 import type { InterrogationPanel } from "./panel.js";
 import { initialCursorIndex } from "./short-view.js";
 
@@ -300,6 +301,21 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   if (diff.changed.length === 0) {
     panel.flash("nothing to submit");
     return true; // held note stays held — nothing shipped (R3)
+  }
+  // Soft-gate submit warning (P1.M5.T3.S1, Q32=B / h2.56): DISPLAY-ONLY.
+  // Count unanswered gate-group questions; when config.gateWarnings is on
+  // and n > 0, arm the panel's dismissible footer warning. The submission
+  // then proceeds through the EXISTING path completely unchanged — the
+  // warning never gates, vetoes, or delays anything (h2.56). Set BEFORE
+  // deliverSubmission so it survives even if delivery throws in a future
+  // host; invalidate defensively so the line shows even without change
+  // events. The zero-pending early-return above shows NO warning (nothing
+  // was submitted).
+  const ordered = panel.state.orderedQuestions();
+  const unansweredGate = countUnansweredGate(ordered, gateGroupNames(ordered));
+  if (unansweredGate > 0 && panel.config.gateWarnings) {
+    panel.gateWarning = { count: unansweredGate };
+    panel.invalidate();
   }
   // R3 (h2.32): the batch note rides the NEXT submission. Store wins (the
   // suspend/resume-safe copy, P1.M4.T2.S1); the panel field is the

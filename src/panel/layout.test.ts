@@ -18,7 +18,9 @@ import { resolveKeyLabels } from "../config.js";
 import type { Question, QuestionStatus, SerializedState } from "../state.js";
 import {
   firstSentence,
+  renderFlashLine,
   renderFooter,
+  renderGateWarningLine,
   renderHeader,
   renderHintLine,
   renderNoteHeader,
@@ -385,5 +387,100 @@ describe("renderNoteHeader", () => {
       expect(line).not.toContain("\n");
       expect(visibleWidth(line)).toBeLessThanOrEqual(w);
     }
+  });
+});
+
+// ------------------------------------------------------- renderGateWarningLine
+
+describe("renderGateWarningLine (P1.M5.T3.S1)", () => {
+  test("mirrors renderFlashLine styling: 2-space inset, dim, exact text", () => {
+    const text = "⚠ 2 foundational unanswered — later answers may shift";
+    expect(renderGateWarningLine(text, theme, 120)).toBe(`  ${text}`);
+    expect(renderGateWarningLine(text, theme, 120)).toBe(
+      renderFlashLine(text, theme, 120),
+    );
+  });
+
+  test("truncates to width - 2 with a single ellipsis, never wrapping", () => {
+    const long = `⚠ ${"x".repeat(200)} foundational`;
+    const line = renderGateWarningLine(long, theme, 40);
+    expect(line).not.toContain("\n");
+    expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+    expect(line.endsWith("…")).toBe(true);
+  });
+
+  test("handles degenerate widths without crashing (exact renderFlashLine mirror)", () => {
+    for (const w of [40, 4, 3, 2, 1, 0]) {
+      const text = "⚠ 1 foundational";
+      // The PRP contract is "mirror renderFlashLine exactly" — assert the
+      // mirror itself so the two degrade identically at pathological widths.
+      expect(renderGateWarningLine(text, theme, w)).toBe(renderFlashLine(text, theme, w));
+      expect(renderGateWarningLine(text, theme, w)).not.toContain("\n");
+    }
+  });
+});
+
+// -------------------------------------------- dim variants (P1.M5.T3.S1)
+
+/** Real-ANSI dim theme: `fg("dim", s)` wraps in ANSI dim codes (width-invisible). */
+const ansiDimTheme = {
+  fg: (name: string, s: string) => (name === "dim" ? `\u001b[2m${s}\u001b[0m` : s),
+  bold: (s: string) => s,
+} as unknown as Theme;
+
+const DIM_START = "\u001b[2m";
+const DIM_END = "\u001b[0m";
+
+describe("renderQuestionLine dim param", () => {
+  test("dim=false output is byte-identical to the pre-gate renderer", () => {
+    const question = mkQuestion("q1", { group: "storage" });
+    expect(renderQuestionLine(question, 1, theme, 80, false)).toBe(
+      renderQuestionLine(question, 1, theme, 80),
+    );
+  });
+
+  test("dim=true wraps the FINISHED line in the dim class (content identical)", () => {
+    const question = mkQuestion("q1", { group: "storage" });
+    // Invariant: with the SAME theme, dim=true is exactly the undimmed
+    // finished line wrapped once — no content, truncation, or inner-styling
+    // difference (inner dim/bold wraps compose unchanged inside the outer).
+    const undimmed = renderQuestionLine(question, 1, ansiDimTheme, 80, false);
+    const dimmed = renderQuestionLine(question, 1, ansiDimTheme, 80, true);
+    expect(dimmed).toBe(`${DIM_START}${undimmed}${DIM_END}`);
+    // Status markers survive inside the wrap.
+    const marked = mkQuestion("q1", { status: "reasked" });
+    expect(renderQuestionLine(marked, 1, ansiDimTheme, 80, true)).toBe(
+      `${DIM_START}${renderQuestionLine(marked, 1, ansiDimTheme, 80, false)}${DIM_END}`,
+    );
+    // With the identity theme the wrap is transparent: dim=true output is
+    // byte-identical to dim=false (and to the pre-gate 4-arg call).
+    expect(renderQuestionLine(question, 1, theme, 80, true)).toBe(
+      renderQuestionLine(question, 1, theme, 80, false),
+    );
+  });
+
+  test("dim=true never breaks width accounting (ANSI-transparent wrap)", () => {
+    const question = mkQuestion("q1", { group: "g" });
+    for (const w of WIDTHS) {
+      const line = renderQuestionLine(question, 1, ansiDimTheme, w, true);
+      expect(visibleWidth(line)).toBeLessThanOrEqual(w);
+    }
+  });
+});
+
+describe("renderHintLine dim param", () => {
+  test("dim=false output unchanged; no-description still omits the line", () => {
+    const question = mkQuestion("q1", { description: "First sentence. More detail." });
+    expect(renderHintLine(question, theme, 80, false)).toEqual(
+      renderHintLine(question, theme, 80),
+    );
+    expect(renderHintLine(mkQuestion("q1"), theme, 80, true)).toEqual([]);
+  });
+
+  test("dim=true wraps the finished line in the dim class", () => {
+    const question = mkQuestion("q1", { description: "First sentence. More detail." });
+    const [undimmed] = renderHintLine(question, ansiDimTheme, 80, false);
+    const [dimmed] = renderHintLine(question, ansiDimTheme, 80, true);
+    expect(dimmed).toBe(`${DIM_START}${undimmed}${DIM_END}`);
   });
 });

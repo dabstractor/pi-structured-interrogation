@@ -911,3 +911,97 @@ describe("submit — batch note (R3, P1.M4.T2.S2)", () => {
     expect(drafts.setNote).not.toHaveBeenCalled();
   });
 });
+
+// --------------------------------- submit soft-gate warning (P1.M5.T3.S1)
+
+describe("submit — soft-gate warning (display-only, P1.M5.T3.S1)", () => {
+  /** Gate fixture: foundation group carries the gate; later group exists. */
+  const GATE_FIXTURE: Array<{ id: string; overrides?: Partial<Question> }> = [
+    { id: "g1", overrides: { group: "foundation", gate: true } },
+    { id: "g2", overrides: { group: "foundation" } },
+    { id: "n1", overrides: { group: "later" } },
+  ];
+
+  test("test_warning_gate_unanswered_sets_warning_AND_delivers_unchanged", () => {
+    const state = seed(GATE_FIXTURE);
+    state.applyAnswer("n1", { value: "a", at: T0 }); // only a later-group answer pending
+    const { panel } = makePanel(state);
+    const { deps, sendMessage } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    // h2.56: the submission ALWAYS ships — one delivery, snapshot, epoch.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.snapshots.length).toBe(1);
+    expect(state.epoch).toBe(2);
+    // AND the dismissible warning is armed with the unanswered-gate count.
+    expect(panel.gateWarning).toEqual({ count: 2 });
+  });
+
+  test("test_warning_respects_gateWarnings_false", () => {
+    const state = seed(GATE_FIXTURE);
+    state.applyAnswer("n1", { value: "a", at: T0 });
+    const config = { ...DEFAULT_CONFIG, gateWarnings: false } as InterrogatorConfig;
+    const { panel } = makePanel(state, {}, config);
+    const { deps, sendMessage } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1); // delivery unchanged
+    expect(panel.gateWarning).toBeNull(); // no warning line
+  });
+
+  test("test_warning_all_gate_answered_no_warning", () => {
+    const state = seed(GATE_FIXTURE);
+    state.applyAnswer("g1", { value: "a", at: T0 });
+    state.applyAnswer("g2", { value: "a", at: T0 });
+    state.applyAnswer("n1", { value: "a", at: T0 });
+    const { panel } = makePanel(state);
+    const { deps, sendMessage } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(panel.gateWarning).toBeNull();
+  });
+
+  test("test_warning_zero_pending_shows_no_warning", () => {
+    const state = seed(GATE_FIXTURE); // nothing answered anywhere
+    const { panel } = makePanel(state);
+    const { deps, sendMessage } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(panel.footerFlash?.text).toBe("nothing to submit"); // flash, not warning
+    expect(panel.gateWarning).toBeNull(); // nothing was submitted → no warning
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  test("test_warning_moot_withdrawn_gate_questions_do_not_count", () => {
+    const state = seed([
+      { id: "g1", overrides: { group: "foundation", gate: true, status: "moot" } },
+      { id: "g2", overrides: { group: "foundation", status: "withdrawn" } },
+      { id: "n1", overrides: { group: "later" } },
+    ]);
+    state.applyAnswer("n1", { value: "a", at: T0 });
+    const { panel } = makePanel(state);
+    const { deps } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+    expect(panel.gateWarning).toBeNull(); // n = 0 → no warning
+  });
+
+  test("test_warning_ungrouped_gate_bucket_counts", () => {
+    const state = seed([
+      { id: "u1", overrides: { gate: true } },
+      { id: "n1", overrides: { group: "later" } },
+    ]);
+    state.applyAnswer("n1", { value: "a", at: T0 });
+    const { panel } = makePanel(state);
+    const { deps, sendMessage } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(panel.gateWarning).toEqual({ count: 1 });
+  });
+});

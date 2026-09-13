@@ -101,6 +101,20 @@ export function renderFlashLine(text: string, theme: Theme, width: number): stri
 }
 
 /**
+ * Soft-gate submit warning line (P1.M5.T3.S1, h2.56): `⚠ {n} foundational
+ * unanswered — later answers may shift`, rendered in the SAME slot as
+ * {@link renderFlashLine} (directly above the footer) with mirrored styling
+ * — one dimmed, two-space-inset, visibleWidth-bounded line. Unlike a flash
+ * it does NOT auto-expire: the panel clears it on the next keypress (any
+ * key dismisses). The caller passes the text from gate.ts
+ * gateWarningLine(count); this is the pure line builder.
+ */
+export function renderGateWarningLine(text: string, theme: Theme, width: number): string {
+  const budget = Math.max(1, width - 2); // two-column inset (mirrors renderFlashLine)
+  return theme.fg("dim", `  ${truncateVisible(text, budget - 2)}`);
+}
+
+/**
  * First sentence of a description: text up to (and including) the first
  * `.`, `?`, or `!` that is followed by a space or end-of-string; the whole
  * description when no such terminator exists.
@@ -247,8 +261,18 @@ const MARKER_REASON_CAP = 24;
  * @param position  1-based position in state.order
  * @param theme     pi theme (group dimmed, title bold)
  * @param width     total render width budget (inset applied internally)
+ * @param dim       soft-gate dimming (P1.M5.T3.S1): wrap the FINISHED line
+ *                  (after truncation — the width accounting stays honest) in
+ *                  theme.fg("dim", …). Display-only — content, markers, and
+ *                  alignment are byte-identical either way. Default false.
  */
-export function renderQuestionLine(q: Question, position: number, theme: Theme, width: number): string {
+export function renderQuestionLine(
+  q: Question,
+  position: number,
+  theme: Theme,
+  width: number,
+  dim = false,
+): string {
   const groupLabel = q.group ?? UNGROUPED_LABEL;
   const titleTxt = q.title ?? q.prompt;
   const plain = `${groupLabel} · Q${position}/${q.id} ${titleTxt}`;
@@ -276,9 +300,16 @@ export function renderQuestionLine(q: Question, position: number, theme: Theme, 
     left = theme.fg("dim", groupLabel) + theme.bold(leftPlain.slice(groupLabel.length));
   }
 
-  if (markers === "") return `  ${left}`;
-  const gap = Math.max(0, budget - visibleWidth(leftPlain) - markerW);
-  return `  ${left}${" ".repeat(gap)}${markers}`;
+  function finish(): string {
+    if (markers === "") return `  ${left}`;
+    const gap = Math.max(0, budget - visibleWidth(leftPlain) - markerW);
+    return `  ${left}${" ".repeat(gap)}${markers}`;
+  }
+  // Dim wrap AFTER truncation/composition: theme.fg is ANSI-transparent to
+  // visibleWidth, so wrapping the finished line keeps all accounting honest
+  // (layout.ts module contract — never slice, always wrap finished text).
+  if (!dim) return finish();
+  return theme.fg("dim", finish());
 }
 
 /**
@@ -287,10 +318,13 @@ export function renderQuestionLine(q: Question, position: number, theme: Theme, 
  * question has no description — the line is omitted entirely, it never
  * renders empty.
  */
-export function renderHintLine(q: Question, theme: Theme, width: number): string[] {
+export function renderHintLine(q: Question, theme: Theme, width: number, dim = false): string[] {
   if (q.description === undefined || q.description === "") return [];
   const budget = Math.max(1, width - 2); // inset 2
-  return [`  ${theme.fg("dim", truncateVisible(firstSentence(q.description), budget))}`];
+  const line = `  ${theme.fg("dim", truncateVisible(firstSentence(q.description), budget))}`;
+  // Dim wrap the FINISHED line (after truncation) — soft-gate dimming is a
+  // color-class-only change (P1.M5.T3.S1).
+  return [dim ? theme.fg("dim", line) : line];
 }
 
 /**

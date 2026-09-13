@@ -278,3 +278,63 @@ describe("width invariants (60/80/120)", () => {
     }
   });
 });
+
+// ------------------------------------- soft-gate dimmed flag (P1.M5.T3.S1)
+
+describe("renderShortViewOptions dimmed — soft-gate dimming (P1.M5.T3.S1)", () => {
+  test("dimmed:true wraps EVERY line; content byte-identical to undimmed", () => {
+    const question = choiceQ();
+    const cursor = initialCursorIndex(question);
+    const plain = renderShortViewOptions({ question, cursorIndex: cursor, theme: dimTheme, width: 80 });
+    const dimmed = renderShortViewOptions({ question, cursorIndex: cursor, theme: dimTheme, width: 80, dimmed: true });
+    expect(dimmed).toHaveLength(plain.length);
+    dimmed.forEach((line, i) => {
+      // Exact wrap invariant: DIM + (same-theme undimmed line) + RESET —
+      // cursor ▸, ★, ramification teaser all inside the wrap untouched.
+      expect(line).toBe(`${DIM}${plain[i]}${RESET}`);
+    });
+  });
+
+  test("dimmed defaults to false — output byte-identical to dimmed:false", () => {
+    const question = choiceQ();
+    const cursor = initialCursorIndex(question);
+    const implicit = renderShortViewOptions({ question, cursorIndex: cursor, theme, width: 80 });
+    const explicitFalse = renderShortViewOptions({ question, cursorIndex: cursor, theme, width: 80, dimmed: false });
+    expect(implicit).toEqual(explicitFalse);
+  });
+
+  test("dimmed:true on a text question wraps affordance + preview lines", () => {
+    const question = textQ({ status: "answered", answer: { value: "notes", text: "line one\nline two", at: "t" } });
+    const plain = renderShortViewOptions({ question, cursorIndex: 0, theme: dimTheme, width: 80 });
+    const dimmed = renderShortViewOptions({ question, cursorIndex: 0, theme: dimTheme, width: 80, dimmed: true });
+    expect(dimmed).toHaveLength(plain.length);
+    dimmed.forEach((line, i) => expect(line).toBe(`${DIM}${plain[i]}${RESET}`));
+  });
+
+  test("dimmed:true on moot/withdrawn may double-dim (acceptable) without width change", () => {
+    const moot = choiceQ({ status: "moot", answer: { value: "dep", at: "t" } });
+    const plain = renderShortViewOptions({ question: moot, cursorIndex: 0, theme: dimTheme, width: 80 });
+    const dimmed = renderShortViewOptions({ question: moot, cursorIndex: 0, theme: dimTheme, width: 80, dimmed: true });
+    dimmed.forEach((line, i) => expect(line).toBe(`${DIM}${plain[i]}${RESET}`));
+    for (const line of dimmed) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(80);
+    }
+
+    const withdrawn = choiceQ({ status: "withdrawn" });
+    const wPlain = renderShortViewOptions({ question: withdrawn, cursorIndex: 0, theme: dimTheme, width: 80 });
+    const wd = renderShortViewOptions({ question: withdrawn, cursorIndex: 0, theme: dimTheme, width: 80, dimmed: true });
+    expect(wd).toHaveLength(1);
+    expect(wd[0]).toBe(`${DIM}${wPlain[0]}${RESET}`);
+  });
+
+  test("dimmed:true keeps width invariants at every tested width", () => {
+    const question = choiceQ();
+    for (const w of [60, 80, 120]) {
+      const lines = renderShortViewOptions({ question, cursorIndex: 0, theme: dimTheme, width: w, dimmed: true });
+      for (const line of lines) {
+        expect(line).not.toContain("\n");
+        expect(visibleWidth(line)).toBeLessThanOrEqual(w);
+      }
+    }
+  });
+});

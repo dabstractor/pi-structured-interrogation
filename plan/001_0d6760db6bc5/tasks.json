@@ -637,7 +637,7 @@
           "type": "Milestone",
           "id": "P1.M5",
           "title": "Deep view, overview, gate, ripples",
-          "status": "Planned",
+          "status": "Ready",
           "description": "PRD M5 (h2.48): scrollable deep view with sticky option headers and select-from-deep, overview list with jump, soft gate dimming + submit warning, dependsOn moot marks + FR-18 ripple confirm. Proves AC-5, 6, 7.",
           "tasks": [
             {
@@ -696,14 +696,14 @@
               "type": "Task",
               "id": "P1.M5.T3",
               "title": "Soft gate semantics",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Gate group focus-first, non-gate dimming (still answerable), dismissible submit warning.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T3.S1",
                   "title": "Gate group: focus, dimming, submit warning",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T2.S2"
@@ -722,14 +722,14 @@
               "type": "Task",
               "id": "P1.M5.T4",
               "title": "Ripple confirm (FR-18)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Edit-time confirmation when changing an answered question invalidates other answered/submitted questions via dependsOn.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T4.S1",
                   "title": "Invalidation confirm: enter=keep, esc=cancel",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S3",
@@ -765,7 +765,7 @@
                   "type": "Subtask",
                   "id": "P1.M6.T1.S1",
                   "title": "Suspend (done(null)) + widget + resume rehydration",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T1.S1",

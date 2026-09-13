@@ -55,11 +55,18 @@ import { createEditorComponent, TextField, type EditorFactory } from "./text-fie
 import {
   renderFlashLine,
   renderFooter,
+  renderGateWarningLine,
   renderHeader,
   renderHintLine,
   renderNoteHeader,
   renderQuestionLine,
 } from "./layout.js";
+import {
+  effectiveGroup,
+  gateGroupNames,
+  gateWarningLine,
+  pickGateInitialQuestionId,
+} from "./gate.js";
 import { buildDeepContent, deepSeedCursorIndex, renderDeepWindow } from "./deep-view.js";
 import { buildOverviewContent, clampOverviewScroll } from "./overview.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
@@ -292,6 +299,19 @@ export class InterrogationPanel implements Component {
    */
   footerFlash: { text: string; timer?: ReturnType<typeof setTimeout> } | undefined;
 
+  /**
+   * Active soft-gate submit warning (P1.M5.T3.S1, Q32=B / h2.56): set by the
+   * submit action AFTER a real delivery is committed (never on the
+   * zero-pending path) when `config.gateWarnings` is on and gate-group
+   * questions remain unanswered. Display-only — it NEVER blocks, delays, or
+   * vetoes a submission. Non-expiring (unlike {@link footerFlash}); any key
+   * dismisses it: handleInput stage 0 clears the field and CONTINUES normal
+   * key processing, so the dismissing key still performs its own action
+   * (dismiss + act). Rendered in the shared line above the footer, where it
+   * wins over a still-live flash while active (h2.37: flashes never stack).
+   */
+  gateWarning: { count: number } | null = null;
+
   /** Submit transport seam — inert matcher branch when undefined. */
   readonly delivery: SubmitDeps | undefined;
 
@@ -403,7 +423,12 @@ export class InterrogationPanel implements Component {
     this.labels = resolveKeyLabels(args.config);
     this.delivery = args.delivery;
     this.rippleConfirm = args.confirmRipple ?? defaultRippleConfirm;
-    this.currentId = pickInitialQuestionId(args.state, args.focusQuestionId);
+    // Initial focus (FR-1, P1.M5.T3.S1): focusQuestionId → gate group's
+    // first answerable question → gate group's first question → first open →
+    // first. With NO gate group declared the ladder degenerates to the
+    // pre-gate behavior exactly (gate.ts pickGateInitialQuestionId tail).
+    const ordered = args.state.orderedQuestions();
+    this.currentId = pickGateInitialQuestionId(ordered, gateGroupNames(ordered), args.focusQuestionId);
 
     // Contract 7 — state is the source of truth: any mutation invalidates the
     // cached lines so renderers stay dumb. Unsubscribed in dispose().
@@ -458,6 +483,15 @@ export class InterrogationPanel implements Component {
    */
   handleInput(data: string): boolean {
     if (this.resolved) return false;
+    // Stage 0 — gate-warning dismissal (P1.M5.T3.S1, FR-9): ANY key clears
+    // the warning and STILL acts. Clear + continue, never return: consuming
+    // the key here would swallow the dismissing keypress (e.g. the first ↑
+    // after submit would only dismiss) — "any key dismisses" means dismiss
+    // AND act.
+    if (this.gateWarning !== null) {
+      this.gateWarning = null;
+      this.invalidate();
+    }
     const key = parseKey(data);
     // "\n" is a newline request (R4: ctrl+j / Ghostty shift+enter mapping),
     // never a stage transition — legacy parseKey resolves it to "enter", so
@@ -743,6 +777,19 @@ export class InterrogationPanel implements Component {
   }
 
   /**
+   * The one transient line above the footer (shared slot, h2.37: flashes
+   * never stack). The soft-gate submit warning (P1.M5.T3.S1) wins while
+   * active — it is more important than a 2.5s flash; once dismissed, a
+   * still-live flash resumes showing.
+   */
+  private footerNoticeLine(width: number): string | undefined {
+    if (this.gateWarning !== null) {
+      return renderGateWarningLine(gateWarningLine(this.gateWarning.count), this.theme, width);
+    }
+    return this.flashLine(width);
+  }
+
+  /**
    * Short view: real header/question/hint/footer lines (S2) around the
    * options region rendered by renderShortViewOptions (P1.M3.T2.S1). The
    * deep (P1.M5.T1.S1) and overview (P1.M5.T2.S1) branches render their own
@@ -760,8 +807,8 @@ export class InterrogationPanel implements Component {
       const snapshot = this.state.serialize();
       const lines: string[] = [renderNoteHeader(this.theme, width)];
       lines.push(...this.textField.render(width));
-      const flash = this.flashLine(width);
-      if (flash !== undefined) lines.push(flash);
+      const notice = this.footerNoticeLine(width);
+      if (notice !== undefined) lines.push(notice);
       lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
       return lines;
     }
@@ -771,17 +818,24 @@ export class InterrogationPanel implements Component {
       const ordered = this.state.orderedQuestions();
       const idx =
         this.currentId !== undefined ? ordered.findIndex((q) => q.id === this.currentId) : -1;
+      // Soft-gate dimming (P1.M5.T3.S1, R1): when a gate group exists and
+      // the CURRENT question is not in it, its question/hint/option lines
+      // render dimmed — display ONLY, every interaction unchanged. No gate
+      // group → dimmed stays false → output byte-identical to pre-gate.
+      const gateGroups = gateGroupNames(ordered);
       const lines = [header.line];
       if (idx >= 0) {
         const current = ordered[idx];
-        lines.push(renderQuestionLine(current, idx + 1, this.theme, width));
-        lines.push(...renderHintLine(current, this.theme, width));
+        const dimmed = gateGroups.size > 0 && !gateGroups.has(effectiveGroup(current));
+        lines.push(renderQuestionLine(current, idx + 1, this.theme, width, dimmed));
+        lines.push(...renderHintLine(current, this.theme, width, dimmed));
         lines.push(
           ...renderShortViewOptions({
             question: current,
             cursorIndex: this.cursorIndex,
             theme: this.theme,
             width,
+            dimmed,
           }),
         );
         // Editor region (h2.29, 3 lines default): the embedded editor shows
@@ -795,10 +849,10 @@ export class InterrogationPanel implements Component {
           lines.push(...this.textField.render(width));
         }
       }
-      // Transient flash line sits directly above the footer (h2.37), one
-      // visibleWidth-bounded dim line; timer expiry clears it.
-      const flash = this.flashLine(width);
-      if (flash !== undefined) lines.push(flash);
+      // Transient line directly above the footer (h2.37): the gate-warning
+      // line when active, else the flash line; timer expiry clears flashes.
+      const notice = this.footerNoticeLine(width);
+      if (notice !== undefined) lines.push(notice);
       lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
       return lines;
     }
@@ -820,8 +874,8 @@ export class InterrogationPanel implements Component {
         });
         lines.push(...renderDeepWindow(content, this.cursorIndex, this.scrollOffset, this.theme, width));
       }
-      const flash = this.flashLine(width);
-      if (flash !== undefined) lines.push(flash);
+      const notice = this.footerNoticeLine(width);
+      if (notice !== undefined) lines.push(notice);
       lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
       return lines;
     }
@@ -847,8 +901,8 @@ export class InterrogationPanel implements Component {
         const end = Math.min(content.lines.length, offset + content.viewportHeight);
         for (let i = offset; i < end; i++) lines.push(content.lines[i]!);
       }
-      const flash = this.flashLine(width);
-      if (flash !== undefined) lines.push(flash);
+      const notice = this.footerNoticeLine(width);
+      if (notice !== undefined) lines.push(notice);
       lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
       return lines;
     }
@@ -856,17 +910,10 @@ export class InterrogationPanel implements Component {
 }
 
 /**
- * Initial focus selection: explicit focusQuestionId when the question exists,
- * else the first status-"open" question, else the first question.
+ * Replaced by gate.ts pickGateInitialQuestionId (P1.M5.T3.S1): the panel
+ * constructor now seeds focus through the gate-aware ladder, which
+ * degenerates to this exact behavior when no gate group is declared.
  */
-function pickInitialQuestionId(state: InterrogationState, focusQuestionId?: string): string | undefined {
-  const ordered = state.orderedQuestions();
-  if (focusQuestionId !== undefined && ordered.some((q) => q.id === focusQuestionId)) {
-    return focusQuestionId;
-  }
-  const firstOpen = ordered.find((q) => q.status === "open");
-  return (firstOpen ?? ordered[0])?.id;
-}
 
 /** First upserted id that is still in an active status (h2.37 reopen focus). */
 function firstActiveUpsertedId(state: InterrogationState, ids: string[]): string | undefined {

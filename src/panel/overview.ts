@@ -55,6 +55,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { UNGROUPED_LABEL, type Question } from "../state.js";
+import { gateGroupNames } from "./gate.js";
 import { truncateVisible } from "./layout.js";
 import type { InterrogationPanel } from "./panel.js";
 
@@ -186,11 +187,11 @@ export function buildOverviewContent(input: OverviewInput): OverviewContent {
   const { ordered, cursorIndex, theme, width } = input;
   const budget = Math.max(1, width - INSET.length);
 
-  // ONE pre-pass for gate groups: any question with gate === true marks its
-  // EFFECTIVE group; the group's header then carries ▲ for all its rows.
-  const gateGroups = new Set(
-    ordered.filter((q) => q.gate === true).map((q) => q.group ?? UNGROUPED_LABEL),
-  );
+  // ONE pre-pass for gate groups (P1.M5.T3.S1): any question with gate ===
+  // true marks its EFFECTIVE group; the group's header then carries ▲ for
+  // all its rows. Detection lives in gate.ts gateGroupNames — the single
+  // home of the rule the panel's dimming/warning share.
+  const gateGroups = gateGroupNames(ordered);
 
   const lines: string[] = [];
   const questionRowLine: number[] = [];

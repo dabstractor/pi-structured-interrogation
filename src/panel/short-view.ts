@@ -110,6 +110,17 @@ export interface ShortViewInput {
   theme: Theme;
   /** Full panel render width; content budget = width - 2 (inset). */
   width: number;
+  /**
+   * Soft-gate dimming (P1.M5.T3.S1): when true, every produced line is
+   * wrapped in theme.fg("dim", …) at the very END of the builder — a single
+   * color-class-only seam AFTER all content is composed, so glyphs, order,
+   * prefixes, ★/✎ logic, and truncation stay byte-identical; only the color
+   * class changes. Already-dim lines (moot/withdrawn variants) may
+   * double-dim — visually harmless (dim over dim) and width-neutral, since
+   * theme.fg is ANSI-transparent to visibleWidth. Default false (no gate →
+   * no wrapping → byte-identical output).
+   */
+  dimmed?: boolean;
 }
 
 /**
@@ -132,11 +143,12 @@ export interface ShortViewInput {
  * Every returned line satisfies `visibleWidth ≤ width`.
  */
 export function renderShortViewOptions(input: ShortViewInput): string[] {
-  const { question: q, cursorIndex, theme, width } = input;
+  const { question: q, cursorIndex, theme, width, dimmed } = input;
   const budget = Math.max(1, width - INSET.length); // inset 2
 
   if (q.status === "withdrawn") {
-    return [`${INSET}${theme.fg("dim", WITHDRAWN_LINE)}`];
+    const line = `${INSET}${theme.fg("dim", WITHDRAWN_LINE)}`;
+    return [dimmed ? theme.fg("dim", line) : line];
   }
 
   const dimAll = q.status === "moot";
@@ -147,15 +159,16 @@ export function renderShortViewOptions(input: ShortViewInput): string[] {
     lines.push(textAffordanceLine(cursorIndex, theme, budget, dimAll));
     const preview = answerPreviewLine(q, theme, budget, dimAll);
     if (preview !== undefined) lines.push(preview);
-    return lines;
+  } else {
+    const options = q.options ?? [];
+    for (let i = 0; i < options.length; i++) {
+      lines.push(optionLine(q, options[i], i, cursorIndex, theme, budget, dimAll));
+    }
+    lines.push(explainLine(options.length, cursorIndex, theme, dimAll));
   }
-
-  const options = q.options ?? [];
-  for (let i = 0; i < options.length; i++) {
-    lines.push(optionLine(q, options[i], i, cursorIndex, theme, budget, dimAll));
-  }
-  lines.push(explainLine(options.length, cursorIndex, theme, dimAll));
-  return lines;
+  // Soft-gate dimming seam (P1.M5.T3.S1): one wrap pass over the FINISHED
+  // lines — content composed exactly as before, only the color class added.
+  return dimmed ? lines.map((line) => theme.fg("dim", line)) : lines;
 }
 
 // ----------------------------------------------------------- line builders

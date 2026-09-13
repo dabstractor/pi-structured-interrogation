@@ -15,7 +15,7 @@
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
-import { DEFAULT_CONFIG } from "../config.js";
+import { DEFAULT_CONFIG, resolveKeyLabels } from "../config.js";
 import {
   createInterrogationState,
   resetState,
@@ -34,6 +34,8 @@ import {
   type PanelHost,
   type PiUISurface,
 } from "./panel.js";
+import { renderFooter, renderHeader, renderHintLine, renderQuestionLine } from "./layout.js";
+import { renderShortViewOptions } from "./short-view.js";
 import {
   editInExternalEditor,
   type ExternalEditorResult,
@@ -1355,5 +1357,172 @@ describe("deep view (P1.M5.T1.S1)", () => {
     const lines = panel.render(80);
     expect(lines[0]).toBe("┌ NOTE — ships with next submission ┐");
     expect(lines.join("\n")).not.toContain("Fast, embedded, single-writer.");
+  });
+});
+
+// ------------------------------------------- gate group (P1.M5.T3.S1)
+
+describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
+  const DOWN = "\u001b[B";
+  const NEXT_Q = "\u001b[Z"; // shift+tab — DEFAULT_CONFIG.keys.nextQuestion
+  const ENTER = "\r";
+
+  /** Real-ANSI dim theme so panel-level dim wrapping is observable. */
+  const ansiTheme = {
+    fg: (name: string, s: string) => (name === "dim" ? `\u001b[2m${s}\u001b[0m` : s),
+    bold: (s: string) => s,
+  } as unknown as Theme;
+
+  /** Fixture: "foundation" carries a gate:true question; "later" exists. */
+  function gateState(withGate = true): InterrogationState {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(
+      choiceQ("g1", {
+        group: "foundation",
+        gate: withGate ? true : undefined,
+        description: "Foundation hint.",
+      }),
+    );
+    state.upsertQuestion(choiceQ("g2", { group: "foundation" }));
+    state.upsertQuestion(choiceQ("n1", { group: "later", description: "Later hint." }));
+    state.upsertQuestion(choiceQ("n2", { group: "later" }));
+    return state;
+  }
+
+  test("test_gate_panel_opens_on_gate_groups_first_answerable_question", () => {
+    const panel = new InterrogationPanel(panelArgsFor(gateState()));
+    expect(panel.currentId).toBe("g1"); // FR-1: first answerable member of the gate group
+  });
+
+  test("test_gate_skips_withdrawn_moot_members_for_focus", () => {
+    const state = gateState();
+    state.setStatus("g1", "withdrawn");
+    expect(new InterrogationPanel(panelArgsFor(state)).currentId).toBe("g2");
+
+    state.setStatus("g2", "moot"); // ALL gate members now withdrawn/moot
+    expect(new InterrogationPanel(panelArgsFor(state)).currentId).toBe("g1"); // fall back to gate group's FIRST question
+  });
+
+  test("test_gate_answered_members_still_count_as_answerable_focus_targets", () => {
+    const state = gateState();
+    state.applyAnswer("g1", { value: "a", at: "t" }); // answered = pending, NOT withdrawn/moot
+    expect(new InterrogationPanel(panelArgsFor(state)).currentId).toBe("g1");
+  });
+
+  test("test_gate_no_gate_declared_lands_on_first_open_unchanged", () => {
+    const state = gateState(false);
+    expect(new InterrogationPanel(panelArgsFor(state)).currentId).toBe("g1");
+    state.setStatus("g1", "answered"); // pre-gate ladder: first status-"open"
+    expect(new InterrogationPanel(panelArgsFor(state)).currentId).toBe("g2");
+  });
+
+  test("test_gate_focusQuestionId_beats_gate_focus", () => {
+    const panel = new InterrogationPanel(panelArgsFor(gateState(), { focusQuestionId: "n2" }));
+    expect(panel.currentId).toBe("n2"); // explicit agent override wins (AC-1)
+  });
+
+  test("test_gate_gate_group_renders_NORMAL_nondimmed", () => {
+    const state = gateState();
+    const panel = new InterrogationPanel(panelArgsFor(state, { theme: ansiTheme }));
+    expect(panel.currentId).toBe("g1");
+    const lines = panel.render(80);
+    // Current question IS in the gate group → rendering completely unchanged
+    // (h2.29): identical to the explicit dim=false renderer call.
+    expect(lines[1]).toBe(renderQuestionLine(state.getQuestion("g1")!, 1, ansiTheme, 80, false));
+    expect(lines[2]).toBe(renderHintLine(state.getQuestion("g1")!, ansiTheme, 80, false)[0]);
+  });
+
+  test("test_gate_nongate_questions_render_dimmed_but_fully_answerable", () => {
+    const state = gateState();
+    const panel = new InterrogationPanel(panelArgsFor(state, { theme: ansiTheme }));
+    panel.handleInput(NEXT_Q); // → g2 (still gate group "foundation")
+    panel.handleInput(NEXT_Q); // → n1 (later group, non-gate)
+    expect(panel.currentId).toBe("n1");
+
+    const lines = panel.render(80);
+    const n1 = state.getQuestion("n1")!;
+    const n1Index = state.orderedQuestions().findIndex((q) => q.id === "n1");
+    // Question line, hint line, and option lines all carry the dim wrap.
+    expect(lines[1]).toBe(renderQuestionLine(n1, n1Index + 1, ansiTheme, 80, true));
+    expect(lines[2]).toBe(renderHintLine(n1, ansiTheme, 80, true)[0]);
+    expect(lines[3]).toBe(
+      renderShortViewOptions({
+        question: n1,
+        cursorIndex: panel.cursorIndex,
+        theme: ansiTheme,
+        width: 80,
+        dimmed: true,
+      })[0],
+    );
+
+    // R1/AC-1: dimmed is display-only — the question is fully answerable.
+    panel.handleInput(ENTER);
+    expect(state.getQuestion("n1")?.status).toBe("answered");
+  });
+
+  test("test_gate_no_gate_renders_byte_identical_to_pregate_golden", () => {
+    const state = gateState(false);
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    const lines = panel.render(80);
+    const snapshot = state.serialize();
+    const ordered = state.orderedQuestions();
+    const idx = ordered.findIndex((q) => q.id === panel.currentId);
+    const current = ordered[idx]!;
+    // Golden: the exact pre-gate composition — every renderer called with no
+    // dim flag, header + question + hint + options + footer.
+    const expected = [
+      renderHeader(snapshot, stubTheme, 80).line,
+      renderQuestionLine(current, idx + 1, stubTheme, 80),
+      ...renderHintLine(current, stubTheme, 80),
+      ...renderShortViewOptions({
+        question: current,
+        cursorIndex: panel.cursorIndex,
+        theme: stubTheme,
+        width: 80,
+      }),
+      renderFooter(snapshot, "short", resolveKeyLabels(DEFAULT_CONFIG), stubTheme, 80),
+    ];
+    expect(lines).toEqual(expected);
+  });
+
+  test("test_gate_warning_renders_above_footer_and_wins_over_flash", () => {
+    const state = gateState();
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.gateWarning = { count: 2 };
+    const lines = panel.render(80);
+    expect(lines[lines.length - 2]).toBe(
+      "  ⚠ 2 foundational unanswered — later answers may shift",
+    );
+    expect(lines[lines.length - 1]).toContain("└"); // footer still last
+
+    // Shared slot rule: the warning wins over a still-live flash (h2.37).
+    panel.flash("nothing to submit");
+    try {
+      const linesWithFlash = panel.render(80);
+      expect(linesWithFlash[linesWithFlash.length - 2]).toContain("foundational unanswered");
+      expect(linesWithFlash.join("\n")).not.toContain("nothing to submit");
+    } finally {
+      panel.dispose(); // clear the flash timer
+    }
+  });
+
+  test("test_gate_any_key_dismisses_the_warning_and_still_acts", () => {
+    const state = gateState();
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.gateWarning = { count: 1 };
+
+    // Dismiss + act: ↓ clears the warning AND moves the option cursor.
+    const cursorBefore = panel.cursorIndex;
+    panel.handleInput(DOWN);
+    expect(panel.gateWarning).toBeNull();
+    expect(panel.cursorIndex).toBe(cursorBefore + 1);
+
+    // Dismiss-only: a key with no binding still clears it (any key).
+    panel.gateWarning = { count: 1 };
+    panel.handleInput("z");
+    expect(panel.gateWarning).toBeNull();
+
+    // Dismissed → the next render no longer carries the warning line.
+    expect(panel.render(80).join("\n")).not.toContain("foundational unanswered");
   });
 });

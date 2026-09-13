@@ -260,7 +260,7 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "delivery.ts — submissions and completion records",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Delta message builder (~2 lines + reminder), sendMessage plumbing with triggerTurn, one-time completion record.",
               "subtasks": [
                 {
@@ -285,7 +285,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "sendMessage plumbing: triggerTurn + streaming delivery",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1",
@@ -303,7 +303,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S3",
                   "title": "Completion record builder (the one full injection)",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1"

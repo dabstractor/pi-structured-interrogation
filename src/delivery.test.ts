@@ -1,18 +1,24 @@
 /**
- * Unit tests for src/delivery.ts (P1.M2.T1.S1).
+ * Unit tests for src/delivery.ts (P1.M2.T1.S1 builder + P1.M2.T1.S2 transport).
  *
  * Follows snapshots.test.ts conventions: fresh InterrogationState per test,
  * fixtures built via createInterrogationState + applyAnswer + computeDiff,
  * no pi runtime imports. Verifies content format (h3.6), ≤3-line budget
  * truncation, epoch semantics (pre-bump label, one snapshot + one bump),
  * note passthrough, and `(changed)` markers on editedArchived entries.
+ *
+ * The S2 suite (deliverSubmission) follows fallback.test.ts mock conventions:
+ * plain vi.fn() mocks stand in for runtime deps — no pi runtime anywhere.
  */
 import * as fs from "node:fs";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   SUBMISSION_LIST_MAX_CHARS,
   SUBMISSION_REMINDER,
   buildSubmission,
+  deliverSubmission,
+  type DeliveryOptions,
+  type SendableMessage,
   type SubmissionMessage,
 } from "./delivery";
 import { computeDiff, type SubmissionCardData } from "./snapshots";
@@ -222,15 +228,137 @@ describe("buildSubmission — details", () => {
 });
 
 describe("module hygiene", () => {
-  test("delivery.ts imports only local data-layer modules (no pi/UI/transport)", () => {
+  test("builder half stays transport-free; pi import is type-only (S2 appended)", () => {
     const src = fs.readFileSync(new URL("./delivery.ts", import.meta.url), "utf8");
+
+    // Exactly three imports: two local data-layer modules + ONE type-only pi
+    // import (Pick<ExtensionAPI, "sendMessage"> needs the type; the module
+    // must keep zero runtime pi dependency).
     const importLines = src.split("\n").filter((l) => l.startsWith("import"));
-    expect(importLines).toHaveLength(2);
-    for (const line of importLines) {
+    expect(importLines).toHaveLength(3);
+    expect(importLines).toContain(
+      'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";',
+    );
+    const localImports = importLines.filter((l) => !l.includes("@earendil-works"));
+    expect(localImports).toHaveLength(2);
+    for (const line of localImports) {
       expect(line).toMatch(/^import (?:type )?\{.*\} from "\.\/(snapshots|state)\.js";$/s);
     }
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+    // S1's builder half (everything above the TRANSPORT section marker) never
+    // touches transport: sendMessage/triggerTurn live only in deliverSubmission.
+    const marker = src.indexOf("// ==== TRANSPORT");
+    expect(marker).toBeGreaterThan(0);
+    const builderHalf = src.slice(0, marker);
+    const code = builderHalf.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(code).not.toContain("sendMessage");
     expect(code).not.toContain("triggerTurn");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// P1.M2.T1.S2 — deliverSubmission (transport half)
+// ---------------------------------------------------------------------------
+
+describe("deliverSubmission (P1.M2.T1.S2 transport)", () => {
+  /**
+   * Minimal SubmissionMessage fixture — deliverSubmission must treat this as
+   * opaque plumbing payload, so a hand-built literal (no state machinery)
+   * is the sharpest possible purity test.
+   */
+  function fixture(): SendableMessage {
+    return {
+      customType: "interrogation-submission",
+      content: "Submitted 1: q1: SQLite\nConsider how these affect your other questions.",
+      display: true,
+      details: {
+        changed: [],
+        epoch: 1,
+        card: { changed: [], epoch: 1, remainOpen: 0 },
+      },
+    };
+  }
+
+  test("idle_ctx_uses_triggerTurn_followUp_options", () => {
+    const msg = fixture();
+    const sendMessage = vi.fn();
+
+    deliverSubmission({ sendMessage }, msg, { isIdle: () => true });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(msg, {
+      triggerTurn: true,
+      deliverAs: "followUp",
+    });
+    const opts = sendMessage.mock.calls[0]?.[1] as DeliveryOptions | undefined;
+    expect(opts).toEqual({ triggerTurn: true, deliverAs: "followUp" });
+  });
+
+  test("busy_ctx_uses_steer_and_omits_triggerTurn", () => {
+    const msg = fixture();
+    const sendMessage = vi.fn();
+
+    deliverSubmission({ sendMessage }, msg, { isIdle: () => false });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(msg, { deliverAs: "steer" });
+    const opts = sendMessage.mock.calls[0]?.[1] as DeliveryOptions | undefined;
+    expect(opts).toEqual({ deliverAs: "steer" });
+    expect("triggerTurn" in (opts ?? {})).toBe(false); // meaningless while busy — omitted
+    expect(Object.keys(opts ?? {})).toEqual(["deliverAs"]); // exact option object
+  });
+
+  test("no_ctx_defaults_to_triggerTurn_followUp", () => {
+    const msg = fixture();
+    const sendMessage = vi.fn();
+
+    deliverSubmission({ sendMessage }, msg);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(msg, {
+      triggerTurn: true,
+      deliverAs: "followUp",
+    });
+  });
+
+  test("ctx_without_isIdle_defaults_to_triggerTurn_followUp", () => {
+    const msg = fixture();
+    const sendMessage = vi.fn();
+
+    deliverSubmission({ sendMessage }, msg, {});
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(msg, {
+      triggerTurn: true,
+      deliverAs: "followUp",
+    });
+  });
+
+  test("message_passed_by_reference_unmutated_single_call_no_other_pi_api", () => {
+    const msg = fixture();
+    const before = structuredClone(msg);
+    const sendMessage = vi.fn();
+    const pi = { sendMessage }; // mock exposes ONLY sendMessage — any other
+    // pi API access would be a TypeError, so one call + these asserts pin it.
+
+    deliverSubmission(pi, msg, { isIdle: () => false });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[0]).toBe(msg); // same reference, not a copy
+    expect(msg).toEqual(before); // deep-unmutated
+    expect(msg).not.toBe(before); // (clone really was a distinct object)
+  });
+
+  test("sendMessage_errors_propagate_not_swallowed", () => {
+    const msg = fixture();
+    const sendMessage = vi.fn(() => {
+      throw new Error("invalid state");
+    });
+
+    expect(() => deliverSubmission({ sendMessage }, msg, { isIdle: () => false })).toThrow(
+      "invalid state",
+    );
+    expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 });

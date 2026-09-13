@@ -1,8 +1,8 @@
 /**
- * src/delivery.ts — Submission delta builder (P1.M2.T1.S1; submit flow per
- * spec h3.6).
+ * src/delivery.ts — Submission delta builder (P1.M2.T1.S1) + transport
+ * (P1.M2.T1.S2; submit flow per spec h3.6).
  *
- * Two responsibilities, both UI-free (h2.13 discipline — no pi APIs here):
+ * Two builder responsibilities, UI-free (h2.13 discipline):
  *
  * 1. {@link buildSubmission} — turn a computed diff ({@link computeDiff}
  *    output from snapshots.ts) plus an optional batch note into the compact
@@ -20,12 +20,15 @@
  * happened at edit time). buildSubmission does NOT flush; it receives
  * post-flush state.
  *
- * TRANSPORT: this module never calls pi.sendMessage or triggerTurn — that is
- * P1.M2.T1.S2's job, which will call pi.sendMessage with this builder's
- * return value ({triggerTurn: true, deliverAs: "steer"}). Keeping the
- * builder half framework-free makes it importable and unit-testable with a
- * bare InterrogationState.
+ * TRANSPORT (P1.M2.T1.S2, section at the bottom of this file):
+ * {@link deliverSubmission} hands a built message to pi.sendMessage with the
+ * exact options that make the model actually reply — the ONLY turn-triggering
+ * path in the extension (h2.0 §1: no tool call ever waits on the user). The
+ * builder half above stays transport-free (h2.13) and unit-testable with a
+ * bare InterrogationState; the TRANSPORT section marker below separates the
+ * two halves (delivery.test.ts module hygiene enforces that split).
  */
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { takeSnapshot, type DiffEntry, type SubmissionCardData } from "./snapshots.js";
 import type { InterrogationState } from "./state.js";
 
@@ -142,4 +145,99 @@ export function buildSubmission(
   if (typeof note === "string" && note.length > 0) details.note = note;
 
   return { customType: "interrogation-submission", content, display: true, details };
+}
+
+// ==== TRANSPORT (P1.M2.T1.S2) ==============================================
+// Everything above builds the message; everything below delivers it. The
+// marker is a structural contract: the builder half stays free of
+// sendMessage/triggerTurn (enforced by delivery.test.ts module hygiene).
+
+/**
+ * The union of message shapes this module can deliver to the agent. Today
+ * that is just {@link SubmissionMessage}; P1.M2.T1.S3 (completion record)
+ * widens this alias to a union — keeping the alias means the widening touches
+ * exactly one line and every consumer route stays {@link deliverSubmission}.
+ */
+export type SendableMessage = SubmissionMessage;
+
+/**
+ * pi.sendMessage options, mirrored from ExtensionAPI (types.d.ts:
+ * `{ triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" }`)
+ * so the delivery matrix below has a named, testable type.
+ */
+export type DeliveryOptions = {
+  triggerTurn?: boolean;
+  deliverAs?: "steer" | "followUp" | "nextTurn";
+};
+
+/**
+ * Deliver an interrogation submission/completion message to the agent.
+ *
+ * pi.sendMessage does NOT trigger an agent reply by default — custom
+ * messages (role "custom") merely enter the LLM context. Since our
+ * interrogate tool is non-blocking (h2.0 core commitment 1: no tool call
+ * ever waits on the user), answers flow back later as small delta messages
+ * that must TRIGGER a new reply — and this function is the ONLY place in the
+ * extension that triggers a turn. Callers (P1.M2.T3.S1 debug submit command;
+ * P1.M3.T2.S2 panel ctrl+s via lifecycle) must route ALL submissions through
+ * here so the turn-trigger contract stays in one tested place.
+ *
+ * Delivery matrix (extensions.md "pi.sendMessage", pi-api-validation.md
+ * Mismatch 2):
+ *
+ * | agent state                     | options                                |
+ * |---------------------------------|----------------------------------------|
+ * | busy (`ctx.isIdle() === false` —| `{ deliverAs: "steer" }`               |
+ * | running, retrying, auto-        | queues the message; delivered after    |
+ * | compacting, queued continuation | the current assistant turn finishes    |
+ * | — "busy" is broader than just   | its tool calls, before the next LLM    |
+ * | streaming per ctx.isIdle docs)  | call. No triggerTurn: the agent is     |
+ * |                                 | already running, so triggering is      |
+ * |                                 | meaningless — the key is omitted.      |
+ * | idle, or idle-status unknown    | `{ triggerTurn: true,                  |
+ * | (no ctx / isIdle missing)       |   deliverAs: "followUp" }`             |
+ * |                                 | followUp delivers once the agent has   |
+ * |                                 | no pending tool calls; triggerTurn     |
+ * |                                 | fires the LLM response immediately.    |
+ * |                                 | This is also the safe default when     |
+ * |                                 | idle-status is unknown — followUp is   |
+ * |                                 | valid in both states.                  |
+ *
+ * `"nextTurn"` is NEVER used: it never triggers or interrupts anything —
+ * a submission delivered as nextTurn would leave the session dead until the
+ * next user message (the exact trap of Mismatch 2).
+ *
+ * Contract:
+ * - `msg` is passed through UNMUTATED and by reference — this function is
+ *   pure plumbing and must not touch InterrogationState (buildSubmission
+ *   already did snapshot+bumpEpoch).
+ * - Exactly ONE pi.sendMessage call per invocation; nothing else on `pi` is
+ *   touched (no appendEntry, no sendUserMessage — the delta is a custom
+ *   message, not a user message).
+ * - Fire-and-forget, returns void, NO error-swallowing try/catch: if
+ *   pi.sendMessage throws (e.g. invalid state), the error propagates so the
+ *   panel/debug caller's error handling surfaces it.
+ *
+ * @param pi  narrowest transport surface — `Pick<ExtensionAPI,
+ *            "sendMessage">` — so unit tests pass plain `{ sendMessage }`
+ *            mocks without constructing a full ExtensionAPI
+ * @param msg built message (S1's buildSubmission, or S3's completion record)
+ * @param ctx optional idle probe; `{ isIdle?: () => boolean }` mirrors
+ *            ExtensionContext.isIdle (false = busy: processing an agent run,
+ *            automatic retry, auto-compaction retry, or queued continuation
+ *            — steer is correct in all of those cases)
+ */
+export function deliverSubmission(
+  pi: Pick<ExtensionAPI, "sendMessage">,
+  msg: SendableMessage,
+  ctx?: { isIdle?: () => boolean },
+): void {
+  const busy = typeof ctx?.isIdle === "function" ? ctx.isIdle() === false : false;
+  // Exact option objects per the matrix above — no extra/missing keys;
+  // tests assert deep equality (busy branch must NOT carry triggerTurn).
+  const options: DeliveryOptions = busy
+    ? { deliverAs: "steer" }
+    : { triggerTurn: true, deliverAs: "followUp" };
+  pi.sendMessage(msg, options);
+  // Fire-and-forget: no await, no try/catch — let caller error handling see throws.
 }

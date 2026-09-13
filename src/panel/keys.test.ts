@@ -78,6 +78,9 @@ function makePanel(
     },
     suspendCalls: 0,
     invalidate: vi.fn(),
+    // Wired default action (M4.T1.S3) calls this — a resolved async stub so
+    // the fire-and-forget `void p.openExternalEditor()` never rejects.
+    openExternalEditor: vi.fn(async () => {}),
   };
   return panel as unknown as PanelStub;
 }
@@ -442,9 +445,11 @@ describe("defaultRoutedActions — seam defaults", () => {
     actions.onBreakOut(panel); // suspend terminus (M6 refines)
     expect(panel.suspendCalls).toBe(1);
 
-    // Inert seams must not throw (M4/M6 wire them later).
+    // Inert seams must not throw (M4.T2.S2/M6 wire them later); the wired
+    // external-editor seam fire-and-forgets into the panel method.
     expect(() => actions.onBatchNote(panel)).not.toThrow();
     expect(() => actions.onDiscuss(panel)).not.toThrow();
     expect(() => actions.onExternalEditor(panel)).not.toThrow();
+    expect(panel.openExternalEditor).toHaveBeenCalledTimes(1);
   });
 });

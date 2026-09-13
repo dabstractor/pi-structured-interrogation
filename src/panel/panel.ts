@@ -41,6 +41,10 @@
  */
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { parseKey, type Component, type TUI } from "@earendil-works/pi-tui";
+import {
+  editInExternalEditor,
+  resolveExternalEditorCommand,
+} from "../external-editor.js";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { getState, type InterrogationState } from "../state.js";
 import { nextUnanswered, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
@@ -308,6 +312,13 @@ export class InterrogationPanel implements Component {
   private lastWidth = -1;
   /** Guard so a second done() after suspend cannot re-resolve (idempotent). */
   private resolved = false;
+
+  /**
+   * Re-entrancy guard for the ctrl+g external-editor handoff — a second
+   * trigger while one round-trip is in flight is a no-op (the TUI is
+   * stopped anyway; the flag makes the guard testable).
+   */
+  private externalEditorInFlight = false;
 
   private readonly onChanged = (): void => {
     this.invalidate();
@@ -583,6 +594,54 @@ export class InterrogationPanel implements Component {
     this.focus = "options";
     this.textField.blur();
     this.invalidate(); // drop the editor region from the layout
+  }
+
+  /**
+   * [Mode A] ctrl+g external-editor handoff (h2.31, P1.M4.T1.S3) — the
+   * action behind the router's `onExternalEditor` seam (keys.ts, wired by
+   * M4.T1.S3). Mirrors pi's own extension-editor.js envelope: read the
+   * draft BEFORE suspending, stop the TUI, round-trip the text through
+   * $VISUAL → $EDITOR → nano (win32: notepad — see external-editor.ts)
+   * with inherited stdio, and ONLY on a clean exit (code 0) replace the
+   * field text (BOM-stripped, one trailing newline dropped) and sync the
+   * draft slot + DraftStore seam.
+   *
+   * The `finally` ALWAYS restarts the TUI and repaints — a failed readback
+   * or a rejected editor promise must never leave the terminal dead or the
+   * in-flight flag stuck — and the internal catch keeps the router's
+   * fire-and-forget (`void p.openExternalEditor()`) rejection-free.
+   *
+   * Deliberately does NOT blur, change focus, or touch {@link advanceArmed}
+   * (h2.31: "the text replaces the field", full stop — enter semantics
+   * belong to the two-stage contract in {@link saveTextDraft}).
+   */
+  async openExternalEditor(): Promise<void> {
+    if (this.externalEditorInFlight) return;
+    this.externalEditorInFlight = true;
+    const draft = this.textField.getText(); // read BEFORE suspending (pi's order)
+    this.tui.stop();
+    try {
+      const result = await editInExternalEditor({
+        command: resolveExternalEditorCommand(),
+        content: draft,
+      });
+      if (result.status === "complete") {
+        const id = this.currentId;
+        this.textField.setText(result.content);
+        if (id !== undefined) {
+          this.draftSlots.set(id, { value: id, text: result.content });
+          this.drafts?.setDraft(id, result.content);
+        }
+        this.invalidate();
+      }
+    } catch {
+      // Log-safe swallow (host discipline): a failed readback must not
+      // reject through the router's `void openExternalEditor()`.
+    } finally {
+      this.externalEditorInFlight = false;
+      this.tui.start();
+      this.tui.requestRender(true);
+    }
   }
 
   /** The flash line for the current render pass, or undefined when unset. */

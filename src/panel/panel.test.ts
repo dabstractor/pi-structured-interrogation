@@ -14,7 +14,7 @@
  */
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, EditorComponent, TUI } from "@earendil-works/pi-tui";
-import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG } from "../config.js";
 import {
   createInterrogationState,
@@ -28,11 +28,28 @@ import {
   InterrogationPanel,
   maybeAutoOpen,
   openPanel,
+  type DraftStore,
   type InterrogationPanelArgs,
   type OpenPanelOptions,
   type PanelHost,
   type PiUISurface,
 } from "./panel.js";
+import {
+  editInExternalEditor,
+  type ExternalEditorResult,
+} from "../external-editor.js";
+
+/**
+ * P1.M4.T1.S3 — the external-editor round-trip is mocked at the module
+ * boundary (the real spawn-based module has its own external-editor.test.ts
+ * coverage); these tests own the PANEL lifecycle: suspend/resume order,
+ * clean-exit-only apply, failure no-ops, and the re-entrancy guard.
+ */
+vi.mock("../external-editor.js", () => ({
+  editInExternalEditor: vi.fn(),
+  resolveExternalEditorCommand: vi.fn(() => "stub-editor"),
+}));
+const editMock = vi.mocked(editInExternalEditor);
 
 // ------------------------------------------------------------------ fixtures
 
@@ -840,5 +857,133 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     panel.currentId = "c1";
     panel.focusTextField();
     expect(panel.render(80)).toContain(" e1");
+  });
+});
+
+// --------------------------------------- external editor handoff (P1.M4.T1.S3)
+
+interface EditorHarness {
+  panel: InterrogationPanel;
+  tui: { stop: Mock; start: Mock; requestRender: Mock };
+  drafts: { getDraft: Mock; setDraft: Mock; getNote: Mock; setNote: Mock };
+  editor: ReturnType<typeof fakePanelEditor>;
+}
+
+/** Panel on a text question, text focus, with controllable tui/drafts/editor. */
+function makeEditorHarness(): EditorHarness {
+  const state = createInterrogationState("goal");
+  state.upsertQuestion(textQ("q1"));
+  const tui = { stop: vi.fn(), start: vi.fn(), requestRender: vi.fn() };
+  const drafts = { getDraft: vi.fn(), setDraft: vi.fn(), getNote: vi.fn(() => ""), setNote: vi.fn() };
+  const editor = fakePanelEditor();
+  const panel = new InterrogationPanel(
+    panelArgsFor(state, {
+      tui: tui as unknown as TUI,
+      drafts: drafts as unknown as DraftStore,
+      editorFactory: () => editor,
+      focusQuestionId: "q1",
+    }),
+  );
+  panel.focus = "text";
+  return { panel, tui, drafts, editor };
+}
+
+/** The panel's private h2.45 draft slot map (direct state assertion). */
+function draftSlotsOf(panel: InterrogationPanel): Map<string, { value: string; text: string }> {
+  return (panel as unknown as { draftSlots: Map<string, { value: string; text: string }> })
+    .draftSlots;
+}
+
+describe("openExternalEditor — ctrl+g handoff (P1.M4.T1.S3)", () => {
+  beforeEach(() => {
+    editMock.mockReset();
+  });
+
+  test("test_clean_exit_replaces_field_syncs_drafts_and_resumes_tui", async () => {
+    const h = makeEditorHarness();
+    h.editor.setText("draft text");
+    editMock.mockResolvedValue({ status: "complete", content: "edited" });
+
+    await h.panel.openExternalEditor();
+
+    // Suspend envelope: stop BEFORE the round-trip, start + repaint after.
+    expect(h.tui.stop).toHaveBeenCalledTimes(1);
+    expect(h.tui.start).toHaveBeenCalledTimes(1);
+    expect(h.tui.requestRender).toHaveBeenCalledWith(true);
+    expect(h.tui.stop.mock.invocationCallOrder[0]).toBeLessThan(
+      editMock.mock.invocationCallOrder[0],
+    );
+    expect(editMock.mock.invocationCallOrder[0]).toBeLessThan(
+      h.tui.start.mock.invocationCallOrder[0],
+    );
+    // Round-trip args: resolved command + the pre-suspend draft.
+    expect(editMock).toHaveBeenCalledWith({ command: "stub-editor", content: "draft text" });
+    // Clean-exit-only apply: field text + h2.45 slot + DraftStore seam.
+    expect(h.editor.setText).toHaveBeenCalledWith("edited");
+    expect(draftSlotsOf(h.panel).get("q1")).toEqual({ value: "q1", text: "edited" });
+    expect(h.drafts.setDraft).toHaveBeenCalledWith("q1", "edited");
+    // h2.31: the text replaces the field — nothing else moves.
+    expect(h.panel.focus).toBe("text");
+    expect(h.panel.advanceArmed).toBe(false);
+  });
+
+  test("test_failed_edit_leaves_field_untouched_but_still_resumes_tui", async () => {
+    const h = makeEditorHarness();
+    h.editor.setText("draft text");
+    h.editor.setText.mockClear(); // the seed call above is not the panel's apply
+    editMock.mockResolvedValue({ status: "failed" });
+
+    await h.panel.openExternalEditor();
+
+    expect(h.editor.setText).not.toHaveBeenCalled();
+    expect(h.drafts.setDraft).not.toHaveBeenCalled();
+    expect(draftSlotsOf(h.panel).size).toBe(0);
+    expect(h.tui.start).toHaveBeenCalledTimes(1); // finally ALWAYS restarts
+    expect(h.tui.requestRender).toHaveBeenCalledWith(true);
+  });
+
+  test("test_rejected_round_trip_does_not_escape_and_clears_the_guard", async () => {
+    const h = makeEditorHarness();
+    editMock.mockRejectedValue(new Error("readback exploded"));
+
+    await expect(h.panel.openExternalEditor()).resolves.toBeUndefined(); // no unhandled rejection
+    expect(h.tui.start).toHaveBeenCalledTimes(1); // terminal never left dead
+
+    editMock.mockResolvedValue({ status: "failed" });
+    await h.panel.openExternalEditor();
+    expect(editMock).toHaveBeenCalledTimes(2); // in-flight flag was cleared
+  });
+
+  test("test_second_ctrl_g_while_in_flight_is_ignored", async () => {
+    const h = makeEditorHarness();
+    let resolveEdit!: (result: ExternalEditorResult) => void;
+    editMock.mockReturnValue(
+      new Promise<ExternalEditorResult>((resolve) => {
+        resolveEdit = resolve;
+      }),
+    );
+
+    const first = h.panel.openExternalEditor();
+    const second = h.panel.openExternalEditor(); // while the first is pending
+    expect(editMock).toHaveBeenCalledTimes(1); // guard: second is a no-op
+
+    resolveEdit({ status: "complete", content: "late" });
+    await Promise.all([first, second]);
+    expect(h.editor.setText).toHaveBeenCalledTimes(1); // first still applies
+    expect(h.tui.start).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_ctrl_g_through_handleInput_fires_the_wired_default_action", async () => {
+    const h = makeEditorHarness();
+    h.editor.setText("typed draft");
+    editMock.mockResolvedValue({ status: "complete", content: "edited draft" });
+
+    h.panel.handleInput("\u0007"); // ctrl+g — default router consumes in text focus
+    expect(editMock).toHaveBeenCalledTimes(1); // sync dispatch into the void'd call
+    expect(editMock).toHaveBeenCalledWith({ command: "stub-editor", content: "typed draft" });
+
+    await flush(); // let the fire-and-forget envelope settle
+    expect(h.editor.setText).toHaveBeenCalledWith("edited draft");
+    expect(h.tui.start).toHaveBeenCalledTimes(1);
   });
 });

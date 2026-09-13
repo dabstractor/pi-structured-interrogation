@@ -90,7 +90,7 @@ export interface RoutedActions {
   onBreakOut(p: InterrogationPanel): void;
   /** Discuss in chat. M6.T2.S2 wires; default no-op. */
   onDiscuss(p: InterrogationPanel): void;
-  /** External editor (text-focus context only). M4.T1.S3 wires; default no-op. */
+  /** External editor (text-focus context only). Wired by M4.T1.S3. */
   onExternalEditor(p: InterrogationPanel): void;
 }
 
@@ -251,8 +251,11 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
     onDiscuss: () => {
       // M6.T2.S2 wires the discuss flow.
     },
-    onExternalEditor: () => {
-      // M4.T1.S3 wires the external-editor handoff.
+    onExternalEditor: (p) => {
+      // Wired by M4.T1.S3 (h2.31): fire-and-forget — the router is sync and
+      // never awaits (pi's extension-editor.js uses the same `void` pattern;
+      // openExternalEditor catches internally, so nothing rejects).
+      void p.openExternalEditor();
     },
   };
 }

@@ -531,7 +531,7 @@
               "type": "Task",
               "id": "P1.M4.T1",
               "title": "Free-text field (panel/text-field.ts)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Editor composition (composed vs stock), focus model with two-stage enter, external editor integration.",
               "subtasks": [
                 {
@@ -572,7 +572,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S3",
                   "title": "ctrl+g external editor ($VISUAL/$EDITOR, nano fallback)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M4.T1.S1"

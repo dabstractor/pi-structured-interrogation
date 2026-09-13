@@ -425,20 +425,26 @@ describe("extension factory wiring (index.ts)", () => {
     const mod = await import("./index.js");
     const commands: unknown[] = [];
     const tools: unknown[] = [];
+    const shortcuts: unknown[] = [];
     const fakePi = {
       registerCommand: (name: string, _opts: unknown) => commands.push(name),
       registerTool: (tool: unknown) => tools.push(tool),
+      registerShortcut: (key: string, _opts: unknown) => shortcuts.push(key), // P1.M6.T1.S2
       on: (_event: string, _handler: unknown) => undefined, // lifecycle subscriptions (P1.M2.T2.S1)
     } as unknown as ExtensionAPI;
     await mod.default(fakePi);
     // T1 contract preserved (ping first), plus the P1.M2.T3.S1 debug
-    // commands registered after the lifecycle wiring (h2.50).
+    // commands registered after the lifecycle wiring (h2.50), plus the
+    // P1.M6.T1.S2 /interrogate toggle (last — inside the factory closure).
     expect(commands).toEqual([
       "interrogate-ping",
       "interrogate-debug-upsert",
       "interrogate-debug-submit",
       "interrogate-debug-state",
+      "interrogate",
     ]);
+    // Global break-out/resume shortcut registered with the RAW config value.
+    expect(shortcuts).toEqual([DEFAULT_CONFIG.keys.breakOut]);
     expect(tools).toHaveLength(1);
     expect((tools[0] as { name: string }).name).toBe("interrogate");
     expect((tools[0] as { description: string }).description).toBe(INTERROGATE_TOOL_DESCRIPTION);

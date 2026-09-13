@@ -26,6 +26,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createCompletionTrigger } from "./completion.js";
+import { registerInterrogateCommand } from "./command.js";
 import { loadConfig } from "./config.js";
 import { registerDebugCommands } from "./debug-commands.js";
 import { DraftStore } from "./draft-store.js";
@@ -84,4 +85,11 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // persistence.ts (P1.M7.T1) must not serialize it.
   const drafts = new DraftStore();
   maybeAutoOpen(pi, config, panelHost, drafts);
+
+  // P1.M6.T1.S2 — /interrogate toggle command + the global break-out/resume
+  // shortcut (h2.15/h2.34/h2.35/h2.37): ONE seam registering both surfaces
+  // over the panel host's phase API. Shares this closure's config (raw
+  // keys.breakOut for the shortcut), panelHost (toggle state source), and
+  // drafts (signature-stability pass-through; S1's resume reuses lastOpts).
+  registerInterrogateCommand(pi, config, panelHost, drafts);
 }

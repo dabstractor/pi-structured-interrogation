@@ -758,7 +758,7 @@
               "type": "Task",
               "id": "P1.M6.T1",
               "title": "Suspend/resume core + widget",
-              "status": "Ready",
+              "status": "Complete",
               "description": "done(null) suspend, setWidget reminder, resume rehydration with drafts + focus restore, /interrogate command and global shortcut.",
               "subtasks": [
                 {
@@ -784,7 +784,7 @@
                   "type": "Subtask",
                   "id": "P1.M6.T1.S2",
                   "title": "/interrogate command + global ctrl+shift+q + empty state",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M6.T1.S1"

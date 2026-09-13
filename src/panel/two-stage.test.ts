@@ -340,6 +340,53 @@ describe("two-stage enter — note mode (R3)", () => {
     // stage-1 interception must run first.
     expect(keys).not.toHaveBeenCalled();
   });
+
+  test("test_note_draft_survives_esc_exit_and_reseeds_on_reentry", () => {
+    // h2.32 + FR-16: esc exits note mode WITHOUT destroying the draft —
+    // exit writes through to the store, and re-entry re-seeds from it.
+    const state = seedOpen(["q1"]);
+    const { panel, drafts } = makePanel(state);
+    panel.enterNoteMode(); // ctrl+shift+m open path (P1.M4.T2.S2)
+    expect(panel.focus).toBe("note");
+    expect(panel.textField.focused).toBe(true);
+    panel.textField.setText("cross-cutting context");
+
+    panel.handleInput("\u001b"); // esc — router descent, note exit first
+
+    expect(panel.focus).toBe("options");
+    expect(panel.batchNote).toBe("cross-cutting context"); // write-through
+    expect(drafts.setNote).toHaveBeenCalledWith("cross-cutting context");
+    expect(panel.advanceArmed).toBe(false); // esc never arms the advance
+
+    // Re-open (e.g. after suspend/resume): the store copy wins the seed.
+    drafts.getNote.mockReturnValue("cross-cutting context");
+    panel.enterNoteMode();
+    expect(panel.focus).toBe("note");
+    expect(panel.textField.getText()).toBe("cross-cutting context");
+  });
+
+  test("test_ctrl_shift_m_repress_exits_note_mode_preserving_draft", () => {
+    const state = seedOpen(["q1"]);
+    const { panel, drafts } = makePanel(state);
+    panel.enterNoteMode();
+    panel.textField.setText("kept");
+
+    panel.handleInput("\u001b[109;6u"); // ctrl+shift+m re-press (kitty CSI-u)
+
+    expect(panel.focus).toBe("options");
+    expect(panel.batchNote).toBe("kept");
+    expect(drafts.setNote).toHaveBeenCalledWith("kept");
+  });
+
+  test("test_unmatched_input_types_into_the_note_field", () => {
+    // Note mode is the SAME editor on note duty: unmatched input forwards
+    // to it exactly like text focus (only config intercepts are consumed).
+    const state = seedOpen(["q1"]);
+    const { panel, editor } = makePanel(state);
+    panel.enterNoteMode();
+    expect(panel.handleInput("x")).toBe(true);
+    expect(editor.handleInput).toHaveBeenCalledWith("x");
+  });
 });
 
 describe("two-stage enter — refocus seeding + draft survival", () => {

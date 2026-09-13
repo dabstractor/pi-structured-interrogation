@@ -53,13 +53,13 @@ export const SUBMISSION_LIST_MAX_CHARS = 240;
 
 /**
  * The pi.sendMessage payload for an interrogation submission. Content is
- * ALWAYS exactly 2 lines (≤3-line budget h3.6); the user-only diff card is
- * rendered from `details.card` by registerMessageRenderer (P1.M7.T3.S1),
- * never from content.
+ * 2 lines without a note, 3 with (≤3-line budget h3.6): the optional third
+ * `NOTE: {note}` line is MODEL-VISIBLE per h2.32/R3 — the user-only diff
+ * card is still rendered from `details` (P1.M7.T3.S1), never from content.
  */
 export interface SubmissionMessage {
   customType: "interrogation-submission";
-  /** 2 lines: `Submitted {k}: {entries}` + the fixed reminder. */
+  /** 2 lines, + a third `NOTE: {note}` line only when a note ships (h2.32). */
   content: string;
   display: true;
   details: {
@@ -79,11 +79,16 @@ export interface SubmissionMessage {
  * (h3.6, Mode A). Pure formatting + the snapshot/bump side effects; no
  * transport, no UI.
  *
- * Content format (h3.6, 2 lines, note intentionally details-only):
+ * Content format (h3.6 ≤3-line budget; the note line is MODEL-VISIBLE per
+ * h2.32/R3 — the shipped "note intentionally details-only" choice is
+ * superseded: h3.6's "≤3-line custom message" headroom is exactly what the
+ * optional third line uses, so content stays 2 lines whenever no note
+ * ships):
  *
  * ```
  * Submitted {k}: {id}: {to}; {id}: {to} (changed)…
  * Consider how these affect your other questions.
+ * [NOTE: {note}]                      ← third line ONLY when a note ships
  * ```
  *
  * - Line 1 entries come from `diff.changed` (`{id}: {to}`, `to` is already
@@ -94,6 +99,13 @@ export interface SubmissionMessage {
  *   dropped from the end (never below 1) and `+{m} more` summarizes them;
  *   `{k}` still reports the true change count. Zero changes →
  *   `Submitted 0: (no changes)`. The reminder line is never truncated.
+ * - The optional third `NOTE:` line appears ONLY when `note` is a non-empty
+ *   string (hard requirement R3, h2.32: the note reaches the model in the
+ *   delta). Newlines inside the note collapse to `" / "` and the line is
+ *   never truncated (same rule as the reminder line);
+ *   {@link SUBMISSION_LIST_MAX_CHARS} budgets line 1 ONLY — the note never
+ *   participates in the truncation loop. `details.note` ALSO stays for the
+ *   user-only card renderer (P1.M7.T3.S1).
  * - details: `{changed, note?, epoch, card}` — `epoch` is the PRE-bump
  *   epoch (same as diff.epoch and the snapshot label); `note` is omitted
  *   when undefined/empty; `card` is the SubmissionCardData as passed.
@@ -110,7 +122,8 @@ export interface SubmissionMessage {
  *
  * @param state post-flush interrogation state (receives snapshot + bump)
  * @param diff computeDiff output describing this submission
- * @param note optional batch note (details-only passthrough)
+ * @param note optional batch note — appended as the model-visible `NOTE:`
+ *             content line AND kept on `details.note` (h2.32/R3)
  * @returns the message for P1.M2.T1.S2 to hand to pi.sendMessage
  */
 export function buildSubmission(
@@ -137,7 +150,16 @@ export function buildSubmission(
   }
   if (dropped > 0) list += `; +${dropped} more`;
 
-  const content = `Submitted ${k}: ${k === 0 ? "(no changes)" : list}\n${SUBMISSION_REMINDER}`;
+  // Optional third content line (h2.32/R3): the note is MODEL-VISIBLE, not
+  // just details. Newlines collapse to " / "; never truncated (same rule
+  // as the reminder line). The SUBMISSION_LIST_MAX_CHARS loop above budgets
+  // line 1 ONLY — the note never participates in truncation.
+  const noteLine =
+    typeof note === "string" && note.length > 0
+      ? `\nNOTE: ${note.replace(/\n+/g, " / ")}`
+      : "";
+
+  const content = `Submitted ${k}: ${k === 0 ? "(no changes)" : list}\n${SUBMISSION_REMINDER}${noteLine}`;
 
   // Side-effect tail (order is the contract — h2.39 / snapshots.ts JSDoc):
   // ring snapshot at the pre-bump epoch, then exactly one epoch bump.

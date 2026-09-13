@@ -21,6 +21,7 @@ import {
   renderFooter,
   renderHeader,
   renderHintLine,
+  renderNoteHeader,
   renderQuestionLine,
   statusMarkers,
   truncateVisible,
@@ -355,5 +356,34 @@ describe("width invariants (40/60/80/120)", () => {
     });
     const { line } = renderHeader(state, theme, 120);
     expect(line).toContain("1/2 answered · 0 re-asked"); // total = order.length
+  });
+});
+
+// ------------------------------------------------------------ renderNoteHeader
+
+describe("renderNoteHeader", () => {
+  test("exact h2.32 header string at comfortable width", () => {
+    expect(renderNoteHeader(theme, 80)).toBe("┌ NOTE — ships with next submission ┐");
+  });
+
+  test("degrades WHOLE to ┌ NOTE ┐ below the full string width (never truncates)", () => {
+    // Full header needs 37 columns; 36 must drop the whole title.
+    expect(renderNoteHeader(theme, 36)).toBe("┌ NOTE ┐");
+    expect(renderNoteHeader(theme, 30)).toBe("┌ NOTE ┐");
+  });
+
+  test("extreme narrow stays 1-line and non-crashing", () => {
+    expect(renderNoteHeader(theme, 8)).toBe("┌ NOTE ┐");
+    expect(renderNoteHeader(theme, 4)).toBe("┌┐");
+    expect(renderNoteHeader(theme, 1)).toBe("┌");
+    expect(renderNoteHeader(theme, 0)).toBe("┌");
+  });
+
+  test("1 line, never wrapping, at every tested width (width-invariant sweep)", () => {
+    for (const w of [...WIDTHS, 36, 30, 9, 2]) {
+      const line = renderNoteHeader(theme, w);
+      expect(line).not.toContain("\n");
+      expect(visibleWidth(line)).toBeLessThanOrEqual(w);
+    }
   });
 });

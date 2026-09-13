@@ -78,6 +78,10 @@ function makePanel(
     },
     suspendCalls: 0,
     invalidate: vi.fn(),
+    // Batch-note toggle seams (R3, P1.M4.T2.S2): the default action calls
+    // exactly one of these per dispatch (focus === "note" ? exit : enter).
+    enterNoteMode: vi.fn(),
+    exitNoteMode: vi.fn(),
     // Wired default action (M4.T1.S3) calls this — a resolved async stub so
     // the fire-and-forget `void p.openExternalEditor()` never rejects.
     openExternalEditor: vi.fn(async () => {}),
@@ -445,11 +449,66 @@ describe("defaultRoutedActions — seam defaults", () => {
     actions.onBreakOut(panel); // suspend terminus (M6 refines)
     expect(panel.suspendCalls).toBe(1);
 
-    // Inert seams must not throw (M4.T2.S2/M6 wire them later); the wired
-    // external-editor seam fire-and-forgets into the panel method.
-    expect(() => actions.onBatchNote(panel)).not.toThrow();
+    // Wired seams: the batch-note toggle hits the panel methods (R3), the
+    // wired external-editor seam fire-and-forgets into the panel method.
     expect(() => actions.onDiscuss(panel)).not.toThrow();
+    actions.onBatchNote(panel); // options focus → open
+    expect(panel.enterNoteMode).toHaveBeenCalledTimes(1);
+    expect(panel.exitNoteMode).not.toHaveBeenCalled();
+    const inNote = makePanel({ focus: "note" });
+    actions.onBatchNote(inNote); // re-press → exit
+    expect(inNote.exitNoteMode).toHaveBeenCalledTimes(1);
+    expect(inNote.enterNoteMode).not.toHaveBeenCalled();
     expect(() => actions.onExternalEditor(panel)).not.toThrow();
     expect(panel.openExternalEditor).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ------------------------------------------------- batch note (R3) dispatch
+
+describe("batch note (R3, P1.M4.T2.S2) — ctrl+shift+m toggle + esc exit", () => {
+  test("test_ctrl_shift_m_intercept_fires_in_every_focus_incl_note", () => {
+    // The re-press exit depends on the intercept firing while focus is
+    // already "note" (it precedes text-forwarding in the resolution order).
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    for (const focus of ["options", "text", "note"] as PanelFocus[]) {
+      actions.onBatchNote.mockClear();
+      const panel = makePanel({ focus });
+      expect(route(DEFAULT_DATA.batchNote, panel)).toBe(true);
+      expect(actions.onBatchNote).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test("test_esc_in_note_focus_exits_note_mode_before_view_descent", () => {
+    // FR-16 + h2.32: esc in note focus is the innermost esc action — it
+    // exits note mode and must NOT descend the view ladder nor suspend.
+    const actions = defaultRoutedActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ view: "deep", focus: "note" });
+    expect(route(ESCAPE, panel)).toBe(true);
+    expect(panel.exitNoteMode).toHaveBeenCalledTimes(1);
+    expect(panel.view).toBe("deep"); // ladder untouched
+    expect(panel.suspendCalls).toBe(0);
+  });
+
+  test("test_esc_outside_note_focus_still_descends_to_suspend", () => {
+    const actions = defaultRoutedActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel(); // short view, options focus
+    expect(route(ESCAPE, panel)).toBe(true);
+    expect(panel.suspendCalls).toBe(1);
+    expect(panel.exitNoteMode).not.toHaveBeenCalled();
+    expect(panel.enterNoteMode).not.toHaveBeenCalled();
+  });
+
+  test("test_digits_are_never_quick_select_while_typing_a_note", () => {
+    // R3: the note field is the SAME editor — typing digits into it is
+    // legitimate, so quick-select must not intercept (h2.34 scoping).
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ focus: "note" });
+    expect(route("7", panel)).toBe(false);
+    expect(actions.digit).not.toHaveBeenCalled();
   });
 });

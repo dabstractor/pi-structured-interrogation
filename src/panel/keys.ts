@@ -26,10 +26,13 @@
  * shadow them by construction. They are checked BEFORE every config
  * accelerator — arrows first, because arrow sequences are ESC-prefixed and
  * an esc branch checked earlier would eat them. `enter` interception applies
- * only when focus is on the options region; in text focus `enter` FORWARDS
- * so the text field (P1.M4.T1.S2) can implement its two-stage save — this is
- * the single exception to the intercept rule. `esc` descends the view ladder
- * and finally suspends without destroying anything (FR-16).
+ * only when focus is on the options region; in text/note focus `enter`
+ * FORWARDS so the embedded field (P1.M4.T1.S2) can implement its two-stage
+ * save — this is the single exception to the intercept rule (note focus is
+ * intercepted even earlier, at the panel level: stage-1 saves + exits).
+ * `esc` descends the view ladder — exiting note mode first when note focus
+ * is active (h2.32) — and finally suspends without destroying anything
+ * (FR-16).
  *
  * ## Mode A — single dispatch + collision ordering
  *
@@ -45,8 +48,9 @@
  *      deep, overview, focusText, batchNote, submit, breakOut, discuss,
  *      externalEditor (only when focus === "text"), prevQuestion,
  *      nextQuestion, then digits 1–9 (only when digitQuickSelect AND focus
- *      is NOT "text" — typing digits into an answer is legitimate; h2.34
- *      scopes quick-select to the short-form options focus)
+ *      is NOT "text"/"note" — typing digits into an answer or a note is
+ *      legitimate; h2.34 scopes quick-select to the short-form options
+ *      focus)
  *   5. no match → return false (forward to embedded editor / default nav)
  *
  * Accelerator validation: config strings arrive RESOLVED (defaults merged by
@@ -84,7 +88,10 @@ export interface RoutedActions {
   onOverview(p: InterrogationPanel): void;
   /** Focus the text editor. Default: focus = "text" (M4 refines). */
   onFocusText(p: InterrogationPanel): void;
-  /** Batch note (R3). M4.T2.S2 wires; default no-op. */
+  /**
+   * Batch note (R3, h2.32): toggle note mode — enterNoteMode from any
+   * focus/view, exitNoteMode on re-press. Implemented by the default set.
+   */
   onBatchNote(p: InterrogationPanel): void;
   /** Break out. Default: suspend (M6 refines + global shortcut half). */
   onBreakOut(p: InterrogationPanel): void;
@@ -193,13 +200,17 @@ export function resolveBindings(config: InterrogatorConfig): Record<KeyAction, K
 
 /**
  * The esc-descent ladder (fixed; FR-16 — backing out never destroys state):
- * deep → short; overview → deepSticky ? deep : short; short → suspend
- * (done(null): the editor region is restored and the host flips to
- * suspended, but state and drafts survive). Descending from deep does NOT
- * clear deepSticky — only ENTERING deep sets it (mirrors panel.ts).
+ * note focus → exit note mode FIRST (the innermost level — h2.32: esc exits
+ * note mode; the panel's write-through exit keeps the draft); deep → short;
+ * overview → deepSticky ? deep : short; short → suspend (done(null): the
+ * editor region is restored and the host flips to suspended, but state and
+ * drafts survive). Descending from deep does NOT clear deepSticky — only
+ * ENTERING deep sets it (mirrors panel.ts).
  */
 function escapeDescend(panel: InterrogationPanel): void {
-  if (panel.view === "deep") {
+  if (panel.focus === "note") {
+    panel.exitNoteMode();
+  } else if (panel.view === "deep") {
     panel.setView("short");
   } else if (panel.view === "overview") {
     panel.setView(panel.deepSticky ? "deep" : "short");
@@ -242,8 +253,12 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
     onFocusText: (p) => {
       p.focus = "text"; // M4.T1.S2 refines (draft seeding, composed editor)
     },
-    onBatchNote: () => {
-      // M4.T2.S2 wires the batch-note flow.
+    onBatchNote: (p) => {
+      // R3/h2.32 toggle (P1.M4.T2.S2): open from ANY focus/view; re-press
+      // while in note mode exits. Both directions write through the
+      // DraftStore seam — the panel methods own the draft bookkeeping.
+      if (p.focus === "note") p.exitNoteMode();
+      else p.enterNoteMode();
     },
     onBreakOut: (p) => {
       p.suspend(); // M6.T1.S2 adds the global registerShortcut half
@@ -332,8 +347,9 @@ export function buildKeyRouter(
     if (matchesKey(data, b.nextQuestion)) return actions.nextQuestion(panel);
 
     // Digits are printable — NEVER intercepted while the user types an
-    // answer (focus === "text"); quick-select is an options-focus affordance.
-    if (config.digitQuickSelect && panel.focus !== "text") {
+    // answer (focus === "text") or a note (focus === "note", R3 — the SAME
+    // editor on note duty); quick-select is an options-focus affordance.
+    if (config.digitQuickSelect && panel.focus !== "text" && panel.focus !== "note") {
       const k = parseKey(data);
       if (k !== undefined && k >= "1" && k <= "9") return actions.digit(panel, Number(k));
     }

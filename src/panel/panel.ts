@@ -55,6 +55,7 @@ import {
   renderFooter,
   renderHeader,
   renderHintLine,
+  renderNoteHeader,
   renderQuestionLine,
 } from "./layout.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
@@ -262,8 +263,10 @@ export class InterrogationPanel implements Component {
   advanceArmed = false;
 
   /**
-   * Batch note text (R3) — written by enter in note focus
-   * ({@link saveNote}); the ctrl+shift+m open path is P1.M4.T2.S2.
+   * Batch note text (R3) — written by {@link exitNoteMode} (enter, esc, and
+   * ctrl+shift+m re-press all write through) and read at submit time as the
+   * fallback when no DraftStore seam carries a note. Cleared by the submit
+   * action AFTER the note ships (h2.32 "cleared after shipping").
    */
   batchNote = "";
 
@@ -451,17 +454,19 @@ export class InterrogationPanel implements Component {
     }
     // (c) Stage 1: enter in text/note focus saves and blurs — never reaches
     // the editor (no stock submitValue, no onSubmit) and never the router
-    // (in note focus the router would read enter as options accept).
+    // (in note focus the router would read enter as options accept). Note
+    // exit = exitNoteMode: the SAME write-through as esc/re-press (h2.32).
     if (enter && (this.focus === "text" || this.focus === "note")) {
-      if (this.focus === "note") this.saveNote();
+      if (this.focus === "note") this.exitNoteMode();
       else this.saveTextDraft();
       return true;
     }
     if (this.keys(data, this)) return true;
-    // Unmatched input reaches the embedded editor ONLY while text focus is
-    // active (h2.34: config intercepts fired first inside the router — the
-    // router consumed every panel key, even in text focus).
-    if (this.focus === "text") {
+    // Unmatched input reaches the embedded editor while text OR note focus
+    // is active (h2.34: config intercepts fired first inside the router —
+    // the router consumed every panel key, even in editor focus). Note mode
+    // is the SAME editor on note duty (R3), so it forwards identically.
+    if (this.focus === "text" || this.focus === "note") {
       this.textField.handleInput(data);
       return true;
     }
@@ -487,18 +492,6 @@ export class InterrogationPanel implements Component {
     this.advanceArmed = true;
   }
 
-  /**
-   * Stage 1 for the batch note (R3): save via the seam + panel field and
-   * exit note mode. Deliberately does NOT arm the advance flag — a note is
-   * not a question answer. (The ctrl+shift+m open path is P1.M4.T2.S2; this
-   * is the enter-to-save-and-exit path it will plug into.)
-   */
-  private saveNote(): void {
-    const text = this.textField.getText();
-    this.batchNote = text;
-    this.drafts?.setNote(text);
-    this.blurTextField();
-  }
 
   /**
    * Stage 2 target: the accept-advance algorithm (h2.38) via the shared
@@ -610,6 +603,48 @@ export class InterrogationPanel implements Component {
   }
 
   /**
+   * [Mode A] Enter note mode (R3 / FR-13, h2.32) — ctrl+shift+m swaps the
+   * editor area into note duty AT ANY TIME: from options focus, text focus,
+   * and any view (short/deep/overview — buildLines renders the same swap in
+   * all of them). The SAME embedded TextField instance is reused — never a
+   * second editor — and {@link TextField.seed} loads the freshest draft
+   * idempotently with zero editor-history pollution: the DraftStore seam's
+   * note first (the suspend/resume-safe copy, P1.M4.T2.S1), then the panel
+   * field, then "".
+   *
+   * Hold-until-ship semantics (h2.32): the note is HELD — question
+   * navigation, view toggles, upserts, and suspend/resume leave it alone —
+   * until the NEXT real submission, where it rides the delta as a `NOTE:`
+   * line, lands on `details.note` for the user-only diff card
+   * (P1.M7.T3.S1), and is then cleared ("cleared after shipping"). A
+   * zero-pending submit ships nothing and therefore holds the note. enter
+   * saves + exits; esc / re-press exit via {@link exitNoteMode}, whose
+   * write-through keeps the draft (FR-16).
+   */
+  enterNoteMode(): void {
+    this.focus = "note";
+    this.textField.seed(this.drafts?.getNote() || this.batchNote || "");
+    this.textField.focus();
+    this.invalidate(); // the note header + editor region appear immediately
+  }
+
+  /**
+   * Exit note mode — the single landing spot for ALL three exits: enter
+   * (stage-1 save in {@link handleInput}), esc (the router's esc-descent
+   * ladder), and the ctrl+shift+m re-press (keys.ts onBatchNote toggle).
+   * FR-16: exit never destroys state — the field text is WRITTEN THROUGH
+   * to the DraftStore seam + panel field BEFORE blurring, so the draft
+   * survives the exit and re-seeds on re-entry. Deliberately does NOT arm
+   * the advance flag — a note is not a question answer.
+   */
+  exitNoteMode(): void {
+    const text = this.textField.getText();
+    this.batchNote = text;
+    this.drafts?.setNote(text);
+    this.blurTextField(); // focus = "options" + editor blur + invalidate
+  }
+
+  /**
    * [Mode A] ctrl+g external-editor handoff (h2.31, P1.M4.T1.S3) — the
    * action behind the router's `onExternalEditor` seam (keys.ts, wired by
    * M4.T1.S3). Mirrors pi's own extension-editor.js envelope: read the
@@ -671,6 +706,19 @@ export class InterrogationPanel implements Component {
    * unknown/absent currentId renders header + footer only (empty region).
    */
   private buildLines(width: number): string[] {
+    // Note mode (R3, h2.32): the editor area is REPLACED — note header +
+    // the SAME embedded editor + flash + footer; the question/hint/options
+    // region vanishes entirely. View-agnostic: note mode may be entered
+    // from short, deep, or overview and renders the identical swap.
+    if (this.focus === "note") {
+      const snapshot = this.state.serialize();
+      const lines: string[] = [renderNoteHeader(this.theme, width)];
+      lines.push(...this.textField.render(width));
+      const flash = this.flashLine(width);
+      if (flash !== undefined) lines.push(flash);
+      lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
+      return lines;
+    }
     if (this.view === "short") {
       const snapshot = this.state.serialize();
       const header = renderHeader(snapshot, this.theme, width);

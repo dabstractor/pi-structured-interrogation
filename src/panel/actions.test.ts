@@ -805,3 +805,103 @@ function useFakeTimers(): void {
     vi.useFakeTimers();
   });
 }
+
+// --------------------------------- submit — batch note (R3, P1.M4.T2.S2)
+
+describe("submit — batch note (R3, P1.M4.T2.S2)", () => {
+  function makeDraftStoreSpy(note = "") {
+    return {
+      getDraft: vi.fn(),
+      setDraft: vi.fn(),
+      getNote: vi.fn(() => note),
+      setNote: vi.fn(),
+      shipDrafts: vi.fn(() => new Map<string, { value: string; text: string }>()),
+    };
+  }
+
+  type SubmittedMsg = { content: string; details: { note?: string } };
+
+  test("test_r3_submit_with_held_note_ships_NOTE_line_and_clears_after", () => {
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 }); // pending → real submission
+    const drafts = makeDraftStoreSpy("picked B because of the deploy");
+    const { panel } = makePanel(state, { drafts });
+    const { deps, sendMessage } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    const msg = sendMessage.mock.calls[0][0] as SubmittedMsg;
+    const lines = msg.content.split("\n");
+    expect(lines).toHaveLength(3); // h3.6 ≤3-line budget, note = third line
+    expect(lines[2]).toBe("NOTE: picked B because of the deploy"); // model-visible
+    expect(msg.details.note).toBe("picked B because of the deploy"); // card keeps it
+    // h2.32 "cleared after shipping" — AFTER delivery, never before.
+    expect(drafts.setNote).toHaveBeenCalledWith("");
+    expect(panel.batchNote).toBe("");
+    expect(drafts.setNote.mock.invocationCallOrder[0]).toBeGreaterThan(
+      sendMessage.mock.invocationCallOrder[0],
+    );
+    // S1's shipDrafts flush is untouched and still adjacent.
+    expect(drafts.shipDrafts).toHaveBeenCalledWith(["q1"]);
+  });
+
+  test("test_r3_store_note_wins_over_stale_panel_field", () => {
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    const drafts = makeDraftStoreSpy("store copy");
+    const { panel } = makePanel(state, { drafts });
+    panel.batchNote = "stale field copy";
+    const { deps, sendMessage } = makeDeps(true);
+
+    submit(panel, deps);
+
+    const msg = sendMessage.mock.calls[0][0] as SubmittedMsg;
+    expect(msg.content).toContain("NOTE: store copy");
+    expect(msg.content).not.toContain("stale field copy");
+  });
+
+  test("test_r3_panel_field_is_the_fallback_without_a_store", () => {
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    const { panel } = makePanel(state); // NO drafts seam (pre-S1 shape)
+    panel.batchNote = "field note";
+    const { deps, sendMessage } = makeDeps(true);
+
+    submit(panel, deps);
+
+    const msg = sendMessage.mock.calls[0][0] as SubmittedMsg;
+    expect(msg.content.split("\n")).toHaveLength(3);
+    expect(msg.details.note).toBe("field note");
+    expect(panel.batchNote).toBe(""); // cleared even without a store
+  });
+
+  test("test_r3_zero_pending_submit_holds_the_note", () => {
+    const state = seed(BASIC); // nothing answered → zero pending
+    const drafts = makeDraftStoreSpy("held");
+    const { panel } = makePanel(state, { drafts });
+    panel.batchNote = "held";
+    const { deps, sendMessage } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(panel.footerFlash?.text).toBe("nothing to submit");
+    expect(sendMessage).not.toHaveBeenCalled(); // nothing shipped…
+    expect(drafts.setNote).not.toHaveBeenCalled(); // …so nothing cleared
+    expect(panel.batchNote).toBe("held"); // R3: ships with the NEXT submission
+  });
+
+  test("test_r3_empty_note_keeps_two_line_content_and_never_clears", () => {
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    const drafts = makeDraftStoreSpy("");
+    const { panel } = makePanel(state, { drafts });
+    const { deps, sendMessage } = makeDeps(true);
+
+    submit(panel, deps);
+
+    const msg = sendMessage.mock.calls[0][0] as SubmittedMsg;
+    expect(msg.content.split("\n")).toHaveLength(2); // no NOTE line
+    expect("note" in msg.details).toBe(false);
+    expect(drafts.setNote).not.toHaveBeenCalled();
+  });
+});

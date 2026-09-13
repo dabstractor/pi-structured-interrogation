@@ -188,6 +188,27 @@ export function renderHeader(state: SerializedState, theme: Theme, width: number
 }
 
 /**
+ * Note-mode header (h2.32, R3/FR-13): `┌ NOTE — ships with next submission ┐`.
+ *
+ * Title line of the ctrl+shift+m editor-area swap: the batch note is held
+ * (exit never destroys it — FR-16) and ships as the model-visible `NOTE:`
+ * content line of the NEXT submission, cleared after shipping (h2.32).
+ * Styling mirrors {@link renderHeader}'s degraded branch — dim title inside
+ * the same `┌ … ┐` border grammar. Degrades WHOLE (never truncates): below
+ * the full string's width it collapses to `┌ NOTE ┐`, then to the minimal
+ * non-crashing border (M7.T5 owns real narrow fallbacks).
+ *
+ * @param theme  pi theme (title dimmed)
+ * @param width  total render width budget for the line
+ */
+export function renderNoteHeader(theme: Theme, width: number): string {
+  const title = "NOTE — ships with next submission";
+  if (width >= `┌ ${title} ┐`.length) return `┌ ${theme.fg("dim", title)} ┐`;
+  if (width >= "┌ NOTE ┐".length) return `┌ ${theme.fg("dim", "NOTE")} ┐`;
+  return width >= 2 ? "┌┐" : "┌";
+}
+
+/**
  * Status marker fragment for the question line's right side, e.g.
  * `" ⟳ re-asked"` (leading space separator; "" when no marker applies).
  * Markers: `⟳ re-asked`, `✎ text answer`, `⊘ moot` (+ reason from the

@@ -285,20 +285,27 @@ function stepQuestion(panel: InterrogationPanel, delta: number): boolean {
  * accept).
  *
  * - Zero pending → footer flash "nothing to submit" (h2.37) and NOTHING
- *   else: no snapshot, no epoch bump, no delivery.
+ *   else: no snapshot, no epoch bump, no delivery — and a held batch note
+ *   stays held (R3: it ships with the NEXT submission).
  * - Otherwise → buildSubmission (which performs takeSnapshot + bumpEpoch
- *   itself, EXACTLY once — callers must never snapshot/bump around it) and
- *   deliverSubmission (exactly one sendMessage; idle probe picks the
- *   triggerTurn vs steer branch).
+ *   itself, EXACTLY once — callers must never snapshot/bump around it) with
+ *   the held batch note as the model-visible `NOTE:` line + `details.note`
+ *   (h2.32/R3), then deliverSubmission (exactly one sendMessage; idle probe
+ *   picks the triggerTurn vs steer branch), then the note is CLEARED
+ *   (h2.32 "cleared after shipping") — only a real delivery clears it.
  */
 export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   const pre = submissionBaseline(panel);
   const diff = computeDiff(pre, panel.state.serialize());
   if (diff.changed.length === 0) {
     panel.flash("nothing to submit");
-    return true;
+    return true; // held note stays held — nothing shipped (R3)
   }
-  const msg = buildSubmission(panel.state, diff);
+  // R3 (h2.32): the batch note rides the NEXT submission. Store wins (the
+  // suspend/resume-safe copy, P1.M4.T2.S1); the panel field is the
+  // pre-store fallback for tests/seams without a DraftStore.
+  const note = panel.drafts?.getNote() || panel.batchNote;
+  const msg = buildSubmission(panel.state, diff, note || undefined);
   // R4/h2.45: text drafts ship with the answers, then their slots are
   // destroyed. Placed AFTER buildSubmission (the message is built from
   // state, not drafts) so every path is failure-safe; the zero-pending
@@ -307,6 +314,13 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // SubmitDeps satisfies Pick<ExtensionAPI, "sendMessage"> structurally
   // (unknown-typed params accept any message/options shape).
   deliverSubmission(deps, msg, { isIdle: deps.isIdle });
+  // h2.32 "cleared after shipping": note clearing happens AFTER delivery —
+  // the zero-pending early-return above never reaches this, so a note with
+  // nothing else to submit is held, never dropped.
+  if (note) {
+    panel.drafts?.setNote("");
+    panel.batchNote = "";
+  }
   return true;
 }
 

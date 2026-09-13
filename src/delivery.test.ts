@@ -632,3 +632,57 @@ describe("SendableMessage widening (P1.M2.T1.S3)", () => {
     expect(sendMessage).toHaveBeenCalledWith(msg, { triggerTurn: true, deliverAs: "followUp" });
   });
 });
+
+// ------------- buildSubmission NOTE: content line (h2.32/R3, P1.M4.T2.S2)
+
+describe("buildSubmission — NOTE: content line (h2.32/R3, P1.M4.T2.S2)", () => {
+  /** Fresh 1-answer diff (state is reset by beforeEach). */
+  function answeredDiff(): SubmissionCardData {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("SQLite"));
+    return diffFrom(prev);
+  }
+
+  test("non_empty_note_appends_third_content_line_and_keeps_details_note", () => {
+    const diff = answeredDiff();
+    const msg = buildSubmission(state, diff, "picked sqlite — deploy is friday");
+
+    const lines = msg.content.split("\n");
+    expect(lines).toHaveLength(3); // h3.6 ≤3-line budget: 2 without, 3 with note
+    expect(lines[0]).toBe("Submitted 1: q1: SQLite"); // line 1 untouched
+    expect(lines[1]).toBe(SUBMISSION_REMINDER); // line 2 untouched
+    expect(lines[2]).toBe("NOTE: picked sqlite — deploy is friday"); // MODEL-visible
+    expect(msg.details.note).toBe("picked sqlite — deploy is friday"); // card keeps it
+  });
+
+  test("newlines_in_the_note_collapse_to_slash_separator_and_never_truncate", () => {
+    const diff = answeredDiff();
+    const longNote = `multi\n\nline ${"x".repeat(400)}`; // beyond any budget
+
+    const msg = buildSubmission(state, diff, longNote);
+
+    const lines = msg.content.split("\n");
+    expect(lines).toHaveLength(3); // \n and \n\n each collapse — never split
+    expect(lines[2]!.startsWith("NOTE: multi / line ")).toBe(true);
+    expect(lines[2]!.endsWith("x")).toBe(true); // never truncated
+  });
+
+  test("empty_or_undefined_note_keeps_exactly_two_lines", () => {
+    const diff = answeredDiff();
+    expect(buildSubmission(state, diff, "").content.split("\n")).toHaveLength(2);
+    expect(buildSubmission(state, diff).content.split("\n")).toHaveLength(2);
+  });
+
+  test("zero_changes_with_note_still_carries_the_NOTE_line", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize(); // nothing answered → zero changes
+    const diff = diffFrom(prev);
+
+    const msg = buildSubmission(state, diff, "hold");
+
+    const lines = msg.content.split("\n");
+    expect(lines[0]).toBe("Submitted 0: (no changes)");
+    expect(lines[2]).toBe("NOTE: hold");
+  });
+});

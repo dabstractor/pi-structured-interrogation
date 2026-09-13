@@ -987,3 +987,108 @@ describe("openExternalEditor — ctrl+g handoff (P1.M4.T1.S3)", () => {
     expect(h.tui.start).toHaveBeenCalledTimes(1);
   });
 });
+
+// --------------------------------------------- note mode (R3, P1.M4.T2.S2)
+
+/** Real DraftStore class, aliased against the panel's DraftStore interface. */
+import { DraftStore as RealDraftStore } from "../draft-store.js";
+
+/** kitty CSI-u ctrl+shift+m (keys.test.ts DEFAULT_DATA convention). */
+const BATCH_NOTE = "\u001b[109;6u";
+
+describe("note mode (R3, P1.M4.T2.S2)", () => {
+  function makeDrafts(getNote = "") {
+    return {
+      getDraft: vi.fn(),
+      setDraft: vi.fn(),
+      getNote: vi.fn(() => getNote),
+      setNote: vi.fn(),
+    };
+  }
+
+  test("test_ctrl_shift_m_enters_note_mode_and_swaps_editor_area", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+
+    expect(panel.handleInput(BATCH_NOTE)).toBe(true); // routed toggle → open
+
+    expect(panel.focus).toBe("note");
+    expect(panel.textField.focused).toBe(true);
+    const lines = panel.render(80);
+    expect(lines[0]).toBe("┌ NOTE — ships with next submission ┐"); // exact h2.32
+    expect(lines).toContain(" e1"); // the SAME embedded editor renders
+    expect(lines.at(-1)).toContain("answered"); // footer still terminates
+    // The question/hint/options region is REPLACED — no question line.
+    expect(lines.join("\n")).not.toContain("prompt:q1");
+  });
+
+  test("test_note_mode_swaps_from_deep_view_too", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_D); // deep view (M5 placeholder region)
+    expect(panel.view).toBe("deep");
+
+    panel.handleInput(BATCH_NOTE); // note mode from deep — same swap
+    const lines = panel.render(80);
+    expect(lines[0]).toBe("┌ NOTE — ships with next submission ┐");
+    expect(lines.join("\n")).not.toContain("[deep] placeholder");
+  });
+
+  test("test_repress_exits_preserving_draft_and_reentry_reseeds_from_store", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDrafts();
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts: drafts as unknown as DraftStore }),
+    );
+    panel.handleInput(BATCH_NOTE);
+    (panel.textField.editor as unknown as { setText: Mock }).setText("note body");
+
+    panel.handleInput(BATCH_NOTE); // re-press exits — write-through (FR-16)
+    expect(panel.focus).toBe("options");
+    expect(panel.batchNote).toBe("note body");
+    expect(drafts.setNote).toHaveBeenCalledWith("note body");
+    expect(panel.textField.focused).toBe(false);
+
+    // Re-entry re-seeds from the store (store wins over the panel field).
+    drafts.getNote.mockReturnValue("note body");
+    panel.enterNoteMode();
+    expect(panel.focus).toBe("note");
+    expect(panel.textField.getText()).toBe("note body");
+  });
+
+  test("test_esc_exits_note_mode_and_unmatched_input_types_into_it", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.enterNoteMode();
+    const editor = panel.textField.editor as unknown as { handleInput: Mock };
+
+    expect(panel.handleInput("x")).toBe(true); // typing reaches the note editor
+    expect(editor.handleInput).toHaveBeenCalledWith("x");
+
+    expect(panel.handleInput(ESCAPE)).toBe(true); // router descent → note exit
+    expect(panel.focus).toBe("options");
+    expect(panel.textField.focused).toBe(false);
+  });
+
+  test("test_note_survives_suspend_resume_via_store_seam_money_test", () => {
+    // ONE store, TWO panel sessions (the R4 money-test shape): session 1
+    // exits note mode (write-through), is dropped; session 2 re-seeds.
+    const store = new RealDraftStore();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const p1 = new InterrogationPanel(panelArgsFor(state, { drafts: store }));
+    p1.enterNoteMode();
+    p1.textField.setText("resume-safe note");
+    p1.handleInput(ESCAPE);
+    expect(store.getNote()).toBe("resume-safe note");
+
+    const p2 = new InterrogationPanel(panelArgsFor(state, { drafts: store }));
+    p2.enterNoteMode();
+    expect(p2.focus).toBe("note");
+    expect(p2.textField.getText()).toBe("resume-safe note"); // preserved (R4)
+  });
+});

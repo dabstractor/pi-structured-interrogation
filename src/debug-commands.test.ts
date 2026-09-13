@@ -370,3 +370,85 @@ describe("same-code-path proof (Level 4)", () => {
     expect(viaHandler).toEqual(viaExecutor);
   });
 });
+
+// ------------- note= token (R3, P1.M4.T2.S2) — scripted AC coverage
+
+describe("/interrogate-debug-submit — note= token (R3, P1.M4.T2.S2)", () => {
+  test("note_token_ships_the_NOTE_line_sets_details_note_and_reports_clearing", async () => {
+    const { invoke, ctx, sendMessage } = makeHarness();
+    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    ctx.ui.notify.mockClear();
+
+    await invoke("interrogate-debug-submit", "q1=postgres,note=hold this for me");
+
+    // The note id never reaches the state engine (not recorded, not unknown).
+    expect(ctx.ui.notify.mock.calls[0]).toEqual([
+      "interrogate-debug-submit: recorded: q1; unknown: (none)",
+      "info",
+    ]);
+    expect(getState()!.getQuestion("note")).toBeUndefined();
+
+    // Model-visible NOTE: line + details.note for the card renderer.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const msg = sendMessage.mock.calls[0][0] as {
+      content: string;
+      details: { note?: string; changed: Array<{ id: string }> };
+    };
+    expect(msg.content).toContain("\nNOTE: hold this for me");
+    expect(msg.content.split("\n")).toHaveLength(3);
+    expect(msg.details.note).toBe("hold this for me");
+    expect(msg.details.changed.map((e) => e.id)).toEqual(["q1"]); // note never an entry
+
+    // Cleared-after-shipping report mirrors the panel contract (h2.32).
+    expect(ctx.ui.notify.mock.calls[1]).toEqual([
+      'interrogate-debug-submit: submitted epoch 2; note cleared: "hold this for me"',
+      "info",
+    ]);
+  });
+
+  test("no_note_token_keeps_the_unchanged_notify_format", async () => {
+    const { invoke, ctx, sendMessage } = makeHarness();
+    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    ctx.ui.notify.mockClear();
+
+    await invoke("interrogate-debug-submit", "q1=postgres");
+
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content.split("\n")).toHaveLength(2); // no NOTE line
+    expect(ctx.ui.notify.mock.calls[1]).toEqual([
+      "interrogate-debug-submit: submitted epoch 2",
+      "info",
+    ]);
+  });
+
+  test("empty_note_value_is_no_note_at_all", async () => {
+    const { invoke, ctx, sendMessage } = makeHarness();
+    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    ctx.ui.notify.mockClear();
+
+    await invoke("interrogate-debug-submit", "q1=postgres,note=");
+
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content.split("\n")).toHaveLength(2);
+    expect(ctx.ui.notify.mock.calls[1][0]).not.toContain("note cleared");
+  });
+
+  test("note_only_args_submit_a_zero_change_delta_carrying_the_note", async () => {
+    const { invoke, ctx, sendMessage } = makeHarness();
+    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    ctx.ui.notify.mockClear();
+
+    await invoke("interrogate-debug-submit", "note=zero pending context");
+
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toBe(
+      "Submitted 0: (no changes)\n" +
+        "Consider how these affect your other questions.\n" +
+        "NOTE: zero pending context",
+    );
+    expect(ctx.ui.notify.mock.calls[0]).toEqual([
+      "interrogate-debug-submit: recorded: (none); unknown: (none)",
+      "info",
+    ]);
+  });
+});

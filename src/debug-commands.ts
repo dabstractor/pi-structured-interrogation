@@ -20,8 +20,13 @@
  *   {@link buildSubmission} (which ITSELF performs takeSnapshot + bumpEpoch
  *   in its strict order — calling them here too would double-bump) →
  *   {@link deliverSubmission} with a forced-idle probe so the submission
- *   triggers a real agent turn exactly like a panel ctrl+s (h3.6). NOTE for
- *   testers: `triggerTurn: true` starts a real agent turn in a live session.
+ *   triggers a real agent turn exactly like a panel ctrl+s (h3.6). A
+ *   `note=<text>` pair is the batch note (R3, h2.32): lifted out BEFORE the
+ *   flush so the id never reaches the state engine, passed to
+ *   buildSubmission (model-visible `NOTE:` line + details.note), and the
+ *   success notify reports it cleared — mirroring the panel's
+ *   cleared-after-shipping contract. NOTE for testers: `triggerTurn: true`
+ *   starts a real agent turn in a live session.
  * - `/interrogate-debug-state` — buildStatusLine + one line per question.
  *
  * TUI-only convenience. All commands are harmless with empty state: errors
@@ -122,7 +127,7 @@ export function registerDebugCommands(
   // ---------------------------------------------------------------- submit
   pi.registerCommand("interrogate-debug-submit", {
     description:
-      "Debug: record answers then run the full submission path (diff → buildSubmission snapshot+epoch bump → deliver; triggers an agent turn). Usage: /interrogate-debug-submit id=value[,id=value...]",
+      "Debug: record answers then run the full submission path (diff → buildSubmission snapshot+epoch bump → deliver; triggers an agent turn). Usage: /interrogate-debug-submit id=value[,id=value...][,note=text] — note=... ships a batch note (R3) with this submission instead of answering a question.",
     handler: async (args, ctx) => {
       // Parse first (never touch state on malformed input). pi's notify
       // level enum is "info" | "warning" | "error" — "warning" is the warn.
@@ -141,6 +146,14 @@ export function registerDebugCommands(
         return;
       }
 
+      // R3 debug coverage: a `note=<text>` pair is the batch note, not an
+      // answer id — lift it out BEFORE the flush so the id never reaches the
+      // state engine (an unknown-id "note" would otherwise be collected);
+      // an empty value is no note at all.
+      const notePair = pairs.find((p) => p.id === "note");
+      const answers = pairs.filter((p) => p.id !== "note");
+      const note = notePair !== undefined && notePair.value !== "" ? notePair.value : undefined;
+
       // PRE-flush baseline: computeDiff must describe the flush as a diff
       // against the state BEFORE any applyAnswer (ordering contract — a
       // post-bump snapshot is NOT the baseline). serialize() is a deep copy,
@@ -153,7 +166,7 @@ export function registerDebugCommands(
       // NOT flush).
       const unknown: string[] = [];
       const recorded: string[] = [];
-      for (const { id, value } of pairs) {
+      for (const { id, value } of answers) {
         if (state.getQuestion(id) === undefined) {
           unknown.push(id);
           continue;
@@ -171,13 +184,19 @@ export function registerDebugCommands(
       // takeSnapshot + bumpEpoch itself, exactly once; do NOT duplicate.
       try {
         const diff = computeDiff(pre, state.serialize());
-        const msg = buildSubmission(state, diff);
+        const msg = buildSubmission(state, diff, note);
         // Force the idle branch of the delivery matrix → { triggerTurn:
         // true, deliverAs: "followUp" } so the debug submission triggers an
         // agent turn exactly like a real panel submission (h3.6). NOTE: in
         // a live session this starts a real agent turn — that is the point.
         deliverSubmission(pi, msg, { isIdle: () => true });
-        ctx.ui.notify(`interrogate-debug-submit: submitted epoch ${state.epoch}`, "info");
+        // R3 cleared-after-shipping report: the note rode THIS submission
+        // (model-visible NOTE: line + details.note) and is now consumed.
+        ctx.ui.notify(
+          `interrogate-debug-submit: submitted epoch ${state.epoch}` +
+            (note !== undefined ? `; note cleared: "${note}"` : ""),
+          "info",
+        );
       } catch (err) {
         ctx.ui.notify(`interrogate-debug-submit: ${(err as Error).message}`, "error");
       }

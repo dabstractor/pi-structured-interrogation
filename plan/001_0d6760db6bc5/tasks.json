@@ -144,7 +144,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Schema + action routing + validation",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1",
@@ -161,7 +161,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "rev/epoch stale guards (throw with current state)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1",
@@ -180,7 +180,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S3",
                   "title": "Caps engine: formula, truncation warnings",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1",

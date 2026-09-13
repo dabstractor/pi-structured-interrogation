@@ -88,6 +88,14 @@ export interface DraftStore {
   /** Batch note (R3) — "" when unset. */
   getNote(): string;
   setNote(text: string): void;
+  // ---- extended lifecycle API (P1.M4.T2.S1) — OPTIONAL members so existing
+  // test stubs stay valid; the real src/draft-store.ts implements them all.
+  /** ✎-marker data (short view): true only for a slot with NON-empty text. */
+  hasDraft?(questionId: string): boolean;
+  /** NO-OP unless opts.explicit === true (R4: destroy only on explicit user action). */
+  clearDraft?(questionId: string, opts?: { explicit?: boolean }): boolean;
+  /** Submit flush: remove + return shipped entries (all slots when ids omitted). */
+  shipDrafts?(ids?: string[]): Map<string, { value: string; text: string }>;
 }
 
 /** Key dispatch seam — implemented by P1.M3.T3.S1 (keys.ts). */
@@ -290,7 +298,12 @@ export class InterrogationPanel implements Component {
    * read-only input; a config reload constructs a fresh panel.
    */
   readonly config: InterrogatorConfig;
-  private readonly drafts: DraftStore | undefined;
+  /**
+   * Public readonly — the submit action (actions.ts) flushes shipped
+   * questions' drafts through it (shipDrafts, R4/h2.45). The store itself
+   * is owned by the extension closure (index.ts), never constructed here.
+   */
+  readonly drafts: DraftStore | undefined;
   /**
    * Embedded free-text editor (P1.M4.T1.S1) — exactly ONE per panel
    * lifetime, instantiated in the constructor (inside the live custom()
@@ -919,12 +932,16 @@ export function maybeAutoOpen(
   pi: Pick<ExtensionAPI, "on">,
   config: InterrogatorConfig,
   host: PanelHost,
+  drafts?: DraftStore,
 ): void {
   void pi.on("tool_execution_end", (event, ctx) => {
     if (event.toolName !== "interrogate" || event.isError) return;
     if (host.isOpen()) return;
     const state = getState();
     if (state === undefined) return;
-    openPanel(ctx, { config, state });
+    // The SAME store instance rides every (re)open — lastOpts spread in
+    // handleUpserted reuses it on the suspended-reopen path, so drafts
+    // survive suspend/resume (R4, h2.0 commitment 6).
+    openPanel(ctx, { config, state, drafts });
   });
 }

@@ -662,7 +662,7 @@ function textQ(id: string, overrides: Partial<Question> = {}): Question {
  * Stateful fake composed editor — the same structural contract pi-vim etc.
  * satisfies (plain literal implementing EditorComponent).
  */
-function fakePanelEditor(): EditorComponent & { handleInput: Mock } {
+function fakePanelEditor(): EditorComponent & { handleInput: Mock; setText: Mock } {
   let text = "";
   return {
     getText: vi.fn(() => text),
@@ -672,7 +672,7 @@ function fakePanelEditor(): EditorComponent & { handleInput: Mock } {
     handleInput: vi.fn(),
     render: vi.fn(() => ["e1", "e2", "e3"]),
     focused: false,
-  } as unknown as EditorComponent & { handleInput: Mock };
+  } as unknown as EditorComponent & { handleInput: Mock; setText: Mock };
 }
 
 /** Direct-construction args with a deterministic fake composed editor. */

@@ -524,7 +524,7 @@
           "type": "Milestone",
           "id": "P1.M4",
           "title": "Text field + sacred drafts",
-          "status": "Planned",
+          "status": "Ready",
           "description": "PRD M4 (h2.48): text-field.ts composing the user's active editor via getEditorComponent() with stock fallback, two-stage enter, ctrl+g $EDITOR, per-question drafts + batch note. Proves R4 draft survival.",
           "tasks": [
             {
@@ -589,14 +589,14 @@
               "type": "Task",
               "id": "P1.M4.T2",
               "title": "Draft store + batch note (R3/R4)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Per-question draft slots with survival semantics, panel-local batch note shipped as NOTE: line.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T2.S1",
                   "title": "Draft store: per-question slots + survival guarantees",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1",
@@ -614,7 +614,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T2.S2",
                   "title": "Batch note: ctrl+shift+m mode + NOTE: delivery",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M4.T1.S1",
@@ -644,14 +644,14 @@
               "type": "Task",
               "id": "P1.M5.T1",
               "title": "Deep view (panel/deep-view.ts)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Full-replacement scrollable pane: full description, every option as sticky header with ramification text, selectable.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T1.S1",
                   "title": "Scrollable deep view with sticky headers + select-from-deep",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T2.S1",

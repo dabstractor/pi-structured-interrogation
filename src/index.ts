@@ -28,6 +28,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createCompletionTrigger } from "./completion.js";
 import { loadConfig } from "./config.js";
 import { registerDebugCommands } from "./debug-commands.js";
+import { DraftStore } from "./draft-store.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
 import { createInterrogateTool } from "./tool.js";
@@ -75,5 +76,12 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // lifecycle.dismissPanel() from the completion flow — and reopens when a
   // later upsert lands while suspended (h2.37). Panel host + auto-open:
   const panelHost = createPanelHost(lifecycle);
-  maybeAutoOpen(pi, config, panelHost);
+  // P1.M4.T2.S1 — R4 draft store (h2.45): ONE instance per extension
+  // activation, held in this closure and passed to every openPanel. Panel
+  // components are destroyed on suspend/re-instantiation; this store is
+  // not — that lifetime asymmetry IS the suspend/resume survival mechanism.
+  // Restart loses drafts BY DESIGN (Q6=B): nothing here touches disk, and
+  // persistence.ts (P1.M7.T1) must not serialize it.
+  const drafts = new DraftStore();
+  maybeAutoOpen(pi, config, panelHost, drafts);
 }

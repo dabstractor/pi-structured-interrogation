@@ -35,6 +35,7 @@ import {
   type SubmitDeps,
 } from "./actions.js";
 import { InterrogationPanel, type InterrogationPanelArgs } from "./panel.js";
+import { DraftStore } from "../draft-store.js";
 
 // ------------------------------------------------------------------ fixtures
 
@@ -549,6 +550,76 @@ describe("submit — flush pending answers", () => {
     expect(state.snapshots.length).toBe(snapsAfterFirst);
     expect(state.epoch).toBe(epochAfterFirst);
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("submit — draft flush (R4, P1.M4.T2.S1)", () => {
+  /** Stub DraftStore with spies, per panel.test.ts convention. */
+  function makeDraftStoreSpy() {
+    return {
+      getDraft: vi.fn(),
+      setDraft: vi.fn(),
+      getNote: vi.fn(() => ""),
+      setNote: vi.fn(),
+      clearDraft: vi.fn(() => false),
+      clearAll: vi.fn(),
+      shipDrafts: vi.fn(() => new Map<string, { value: string; text: string }>()),
+    };
+  }
+
+  test("test_i_submit_with_non_empty_diff_ships_exactly_diff_changed", () => {
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 }); // pending → diff.changed = ["q1"]
+    const drafts = makeDraftStoreSpy();
+    const { panel } = makePanel(state, { drafts });
+    const { deps } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(drafts.shipDrafts).toHaveBeenCalledTimes(1);
+    expect(drafts.shipDrafts).toHaveBeenCalledWith(["q1"]);
+  });
+
+  test("test_i_zero_pending_submit_never_touches_drafts", () => {
+    const state = seed(BASIC); // nothing answered → zero pending
+    const drafts = makeDraftStoreSpy();
+    const { panel } = makePanel(state, { drafts });
+    const { deps } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+    expect(panel.footerFlash?.text).toBe("nothing to submit");
+    expect(drafts.shipDrafts).not.toHaveBeenCalled();
+    expect(drafts.clearDraft).not.toHaveBeenCalled();
+    expect(drafts.clearAll).not.toHaveBeenCalled();
+  });
+
+  test("test_i_suspend_resume_money_test_two_sessions_one_store", () => {
+    // THE R4 test: ONE store (the extension-closure singleton), TWO panel
+    // sessions. Session 1 writes a text draft through the seam, then is
+    // dropped (suspend). Session 2 — a fresh panel instance rehydrated from
+    // the same store (the resume seeding path, panel.ts currentText) — sees
+    // the draft. Submit then ships and destroys exactly the changed id.
+    const store = new DraftStore();
+
+    // Session 1 (open): user types in the text field → stage-1 save seam.
+    const state1 = seed(BASIC);
+    const panel1 = makePanel(state1, { drafts: store }).panel;
+    store.setDraft("q1", "typed text"); // panel1.saveTextDraft() lands here
+    expect(store.getDraft("q1")).toBe("typed text");
+    void panel1; // ...panel suspended & destroyed; the STORE is not
+
+    // Session 2 (resume): fresh panel, same store instance.
+    const state2 = state1;
+    const panel2 = makePanel(state2, { drafts: store }).panel;
+    expect(store.getDraft("q1")).toBe("typed text"); // survival by construction
+    void panel2;
+
+    // Resume-session submit: q1 answered → shipped ids exactly ["q1"].
+    state2.applyAnswer("q1", { value: "a", at: T0 });
+    const { deps } = makeDeps(true);
+    expect(submit(panel2, deps)).toBe(true);
+    expect(store.getDraft("q1")).toBeUndefined(); // shipped → destroyed
+    expect(store.getDraft("q2")).toBeUndefined(); // never drafted
   });
 });
 

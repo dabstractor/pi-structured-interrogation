@@ -299,6 +299,11 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
     return true;
   }
   const msg = buildSubmission(panel.state, diff);
+  // R4/h2.45: text drafts ship with the answers, then their slots are
+  // destroyed. Placed AFTER buildSubmission (the message is built from
+  // state, not drafts) so every path is failure-safe; the zero-pending
+  // early-return above never reaches this.
+  panel.drafts?.shipDrafts?.(diff.changed.map((c) => c.id));
   // SubmitDeps satisfies Pick<ExtensionAPI, "sendMessage"> structurally
   // (unknown-typed params accept any message/options shape).
   deliverSubmission(deps, msg, { isIdle: deps.isIdle });

@@ -29,6 +29,7 @@ import { createCompletionTrigger } from "./completion.js";
 import { loadConfig } from "./config.js";
 import { registerDebugCommands } from "./debug-commands.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
+import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
 import { createInterrogateTool } from "./tool.js";
 
 export default async function interrogatorExtension(pi: ExtensionAPI): Promise<void> {
@@ -67,4 +68,12 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // the tool executor / submission path so keyboard-driven runs are evidence
   // about the production path. Uses the same single-loaded config.
   registerDebugCommands(pi, config);
+
+  // P1.M3.T1.S1 — panel host: opens on the first interrogate upsert in TUI
+  // mode (fire-and-forget custom(), h2.0 commitment 1), persists while the
+  // agent is idle, suspends via done(null) (h2.35) — also reachable through
+  // lifecycle.dismissPanel() from the completion flow — and reopens when a
+  // later upsert lands while suspended (h2.37). Panel host + auto-open:
+  const panelHost = createPanelHost(lifecycle);
+  maybeAutoOpen(pi, config, panelHost);
 }

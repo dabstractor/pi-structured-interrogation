@@ -403,14 +403,14 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Panel host (panel.ts)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "ctx.ui.custom non-overlay host with fire-and-forget contract, view/focus state machine, draft store handle, done(null) suspend, header/footer rendering.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "custom() host: fire-and-forget open, view switching, done(null) suspend",
-                  "status": "Ready",
+                  "status": "Failed",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S6",
@@ -430,7 +430,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S2",
                   "title": "Header, question line, footer with config-driven labels",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1",
@@ -457,7 +457,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "Short form renderer: options, ★ marks, preselect, ✎ affordance",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S2"

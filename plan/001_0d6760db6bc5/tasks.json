@@ -751,7 +751,7 @@
           "type": "Milestone",
           "id": "P1.M6",
           "title": "Suspend/resume ecosystem",
-          "status": "Ready",
+          "status": "Complete",
           "description": "PRD M6 (h2.48): ctrl+shift+q + /interrogate + suspend widget, agent reopen action, discuss-in-chat handoff with setEditorText, editor-text preservation. Proves AC-4.",
           "tasks": [
             {
@@ -803,7 +803,7 @@
               "type": "Task",
               "id": "P1.M6.T2",
               "title": "Agent-driven surfaces: reopen + discuss-in-chat",
-              "status": "Ready",
+              "status": "Complete",
               "description": "reopen:true action wiring, per-question discuss handoff preloading the main editor, main-editor preservation verification.",
               "subtasks": [
                 {
@@ -843,7 +843,7 @@
                   "type": "Subtask",
                   "id": "P1.M6.T2.S3",
                   "title": "Main editor draft preservation across suspend/resume",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 0.5,
                   "dependencies": [
                     "P1.M6.T1.S1"
@@ -870,14 +870,14 @@
               "type": "Task",
               "id": "P1.M7.T1",
               "title": "Persistence (persistence.ts)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Debounced interrogation-state entry mirror + shutdown flush; branch-correct reconstruction on session_start/session_tree with auto-open.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M7.T1.S1",
                   "title": "Debounced state mirror + shutdown flush",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1"
@@ -893,7 +893,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T1.S2",
                   "title": "Reconstruction on session_start + session_tree, auto-open",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M7.T1.S1",

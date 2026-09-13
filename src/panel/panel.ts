@@ -194,6 +194,15 @@ export interface PiUISurface {
      * guards (`?.`), same pattern as setWidget.
      */
     setEditorText?(text: string): void;
+    /**
+     * Editor text read-back (h2.35 verify-in-test, P1.M6.T2.S3) — the
+     * belt-and-braces counterpart of setEditorText; only
+     * editor-preservation.ts's fallback helpers read main-editor text
+     * (never the production suspend path — native preservation is
+     * verified). Optional: test fakes / RPC surfaces omit it; every call
+     * site guards (`?.`), same pattern as setWidget/setEditorText.
+     */
+    getEditorText?(): string;
   };
   mode?: string;
 }

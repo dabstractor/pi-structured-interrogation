@@ -81,6 +81,7 @@ import {
 import { buildDeepContent, deepSeedCursorIndex, renderDeepWindow } from "./deep-view.js";
 import { buildOverviewContent, clampOverviewScroll } from "./overview.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
+import { updateSuspendWidget, WIDGET_KEY } from "./suspend.js";
 
 // --------------------------------------------------------------------- types
 
@@ -178,6 +179,13 @@ export interface PiUISurface {
      * registered → the panel silently uses the stock pi-tui Editor.
      */
     getEditorComponent?(): EditorFactory | undefined;
+    /**
+     * Keyed widget line above the restored editor (h2.3) — the suspend
+     * reminder surface; `undefined` content clears the widget. OPTIONAL so
+     * existing test fakes and RPC surfaces stay valid; every call site
+     * guards (directly or via suspend.ts updateSuspendWidget).
+     */
+    setWidget?(key: string, content: string[] | undefined, options?: { placement?: string }): void;
   };
   mode?: string;
 }
@@ -1030,6 +1038,11 @@ let activePi: PiUISurface | undefined;
 let lastOpts: OpenPanelOptions | undefined;
 /** State instance currently wired for questions-upserted (for re-subscribe). */
 let upsertState: InterrogationState | undefined;
+/**
+ * Pre-suspend focus memory (P1.M6.T1.S1) — captured at the suspend choke
+ * points BEFORE the panel reference is dropped; consumed by resumeOpenPanel.
+ */
+let lastFocusId: string | undefined;
 
 /**
  * custom() resolution / rejection landing spot. ANY resolution counts as
@@ -1064,6 +1077,10 @@ function handleUpserted(ids: string[]): void {
 /** Force-close the current panel (no-op when nothing is open). */
 function suspendCurrent(): void {
   if (phase !== "open") return;
+  // Focus memory BEFORE dispose (P1.M6.T1.S1): the host-forced path (lifecycle
+  // dismiss / host.suspend()) nulls currentPanel below, and the floating .then
+  // cannot recover the id afterwards — capture it here while it is live.
+  if (currentPanel !== undefined) lastFocusId = currentPanel.currentId;
   const panel = currentPanel;
   phase = "suspended";
   currentPanel = undefined;
@@ -1075,10 +1092,15 @@ function suspendCurrent(): void {
 function resetHostRecord(): void {
   upsertState?.off("questions-upserted", handleUpserted);
   upsertState = undefined;
+  // Full close (h2.0 commitment 3 tail): clear the reminder widget BEFORE
+  // dropping the surface — activePi is nulled below, so this is the last
+  // chance to leave no stale "…to resume /interrogate" line behind.
+  activePi?.ui.setWidget?.(WIDGET_KEY, undefined);
   phase = "closed";
   currentPanel = undefined;
   activePi = undefined;
   lastOpts = undefined;
+  lastFocusId = undefined;
 }
 
 /**
@@ -1172,18 +1194,41 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   if (promise === undefined || typeof promise.then !== "function") return false;
 
   phase = "open";
+  // A live panel makes the reminder stale — clear it NOW, before `return
+  // true`: openPanel is synchronous until the promise resolves, so waiting
+  // for .then would leave the line up while the panel is live.
+  activePi?.ui.setWidget?.(WIDGET_KEY, undefined);
   void promise
     .then(() => {
       // Belt-and-braces cleanup: pi disposes the component on done(), but the
       // host must not depend on it — drop the state subscription ourselves
       // (dispose is idempotent). Dispose BEFORE markSuspended clears the
       // panel reference.
+      // Focus memory BEFORE markSuspended (P1.M6.T1.S1): currentPanel is
+      // still live on the user-done path here. On the host-forced path
+      // (suspendCurrent) currentPanel is already undefined — lastFocusId was
+      // captured there, and the `!== undefined` guard below keeps it intact.
+      if (currentPanel !== undefined) lastFocusId = currentPanel.currentId;
       currentPanel?.dispose();
       markSuspended();
+      // Suspend choke point (h2.3/h2.35): EVERY custom() resolution lands
+      // here with one rule — suspended ∧ open>0 → show the reminder line,
+      // else clear it. Covers suspend with open questions, completion with
+      // 0 open, and lifecycle dismiss (updateSuspendWidget guards the
+      // optional setWidget itself).
+      if (activePi !== undefined && lastOpts !== undefined) {
+        updateSuspendWidget(activePi, lastOpts.state, lastOpts.config);
+      }
     })
     .catch(() => {
+      // Crashed panel: same suspend semantics — capture focus, then apply
+      // the identical widget rule (symmetric with .then).
+      if (currentPanel !== undefined) lastFocusId = currentPanel.currentId;
       currentPanel?.dispose();
       markSuspended(); // log-safe swallow: a crashed panel must not wedge the host
+      if (activePi !== undefined && lastOpts !== undefined) {
+        updateSuspendWidget(activePi, lastOpts.state, lastOpts.config);
+      }
     });
   return true;
 }
@@ -1191,6 +1236,35 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
 /** Force-close the current panel through the host (dismiss-path entry point). */
 export function suspendPanel(host: PanelHost): void {
   host.suspend();
+}
+
+/**
+ * Explicit resume entry (P1.M6.T1.S1; suspend.ts resumePanel delegates here,
+ * consumed by P1.M6.T1.S2 / M6.T2.S1 / M6.T2.S2): reopen the suspended panel
+ * like the upsert path (h2.37) but restore the PRE-SUSPEND focus —
+ * {@link lastFocusId} when it still names an active question (ACTIVE_STATUSES),
+ * else the first active question in state order (the firstActiveUpsertedId
+ * pattern). The upsert-driven auto-reopen (handleUpserted) keeps its own
+ * first-upserted focus — this entry is ONLY for explicit resume.
+ *
+ * Reuses lastOpts (same state/config/drafts instances — R4 survival) and
+ * openPanel itself; no duplicated open logic. Returns true when the panel
+ * (re)opened; false when nothing is resumable (never opened / host reset),
+ * the panel is already open (single-instance guard), or the mode guard
+ * blocked it.
+ */
+export function resumeOpenPanel(pi: PiUISurface): boolean {
+  if (lastOpts === undefined) return false;
+  const state = lastOpts.state;
+  let focusId = lastFocusId;
+  if (focusId !== undefined) {
+    const q = state.getQuestion(focusId);
+    if (q === undefined || !ACTIVE_STATUSES.includes(q.status)) focusId = undefined;
+  }
+  if (focusId === undefined) {
+    focusId = firstActiveUpsertedId(state, state.orderedQuestions().map((q) => q.id));
+  }
+  return openPanel(pi, { ...lastOpts, focusQuestionId: focusId });
 }
 
 /**

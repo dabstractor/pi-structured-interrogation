@@ -1,0 +1,782 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "pi-interrogator v1.0 — structured interrogation extension for pi",
+      "status": "Ready",
+      "description": "Build the complete pi-interrogator extension per spec/: one non-blocking `interrogate` tool (upsert/read/reopen/answers), a persistent replace-editor answer panel (short form, deep view, overview, gate dimming, ripple confirms, sacred drafts), delta-based submissions that trigger agent replies, rev+epoch staleness guards, auto-close on agent_settled with one-time completion injection, suspend/resume ecosystem with widget, branch-correct persistence/reconstruction, non-TUI fallback, and full config/remappable keymaps. Greenfield TypeScript package loaded by pi 0.85.1 via jiti. Research findings: plan/001_0d6760db6bc5/architecture/ (pi-api-validation.md, reference-patterns.md, environment-and-conflicts.md, system-context.md, external-deps.md).",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Tool + state core (no UI)",
+          "status": "Planned",
+          "description": "PRD M1 (h2.48): scaffold the package, config loader, the full state engine (state machine, merge rules, rev/epoch, snapshots, dependsOn evaluator), and the interrogate tool with schema, guards, caps, read formatting, non-TUI fallback digest, and tool-row renderers. Ends runnable: model upserts/reads in a scratch session; guards reject stale calls; caps truncate with warnings; details carry full state.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Extension scaffold and config foundation",
+              "status": "Planned",
+              "description": "package.json (pi manifest), tsconfig, vitest, src/index.ts factory, and config.ts with defaults + settings.json loading.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Package scaffold + index.ts factory smoke-load",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.12", "h2.13", "h2.15", "h2.47", "h2.49", "h2.3"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: repo is greenfield (no package.json/src). Follow external-deps.md §Package skeleton EXACTLY: package.json with name pi-interrogator, type module, main/exports ./src/index.ts, pi.extensions manifest, engines node>=22.19.0, peerDeps @earendil-works/pi-coding-agent + typebox, devDeps incl. typescript ^5 and vitest ^1, scripts test/typecheck. Imports per examples: `import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'` — bare `typebox` (NOT @sinclair/typebox), StringEnum from @earendil-works/pi-ai.\n2. INPUT: nothing (first subtask). spec/ files are READ-ONLY context.\n3. LOGIC: create package.json, tsconfig.json (strict, moduleResolution bundler, noEmit), vitest.config.ts, src/index.ts exporting `export default function (pi: ExtensionAPI): void {}` with a single pi.registerCommand('interrogate-ping') notify stub proving registration. Run npm install, `npm run typecheck`, and smoke-load with `pi -e src/index.ts` then /interrogate-ping.\n4. OUTPUT: loadable extension skeleton all later subtasks register into; vitest runs zero tests green. consume by P1.M1.T1.S2 and every later module.\n5. DOCS: [Mode A] JSDoc header on src/index.ts describing the extension per h2.0 core commitments. No separate docs subtask."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S2",
+                  "title": "config.ts — defaults, settings load, deep-merge",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.18", "h2.52", "h2.34", "h2.23"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: pi has NO ctx.settings API (pi-api-validation.md §Mismatch 4). Read config manually like pi-file-injector: fs-parse `~/.pi/agent/settings.json` (use getAgentDir() exported by @earendil-works/pi-coding-agent) then `<cwd>/.pi/settings.json`, deep-merge project over global, take the `interrogator` key. Defaults from h2.52 config reference verbatim: keys {deep ctrl+d, overview ctrl+l, focusText ctrl+t, batchNote ctrl+shift+m, submit ctrl+s, breakOut ctrl+shift+q, discuss ctrl+shift+e, externalEditor ctrl+g, prevQuestion tab, nextQuestion shift+tab}, caps {description 1200, ramification 600, options 7, questions 40, goal 400, contextBudgetPct 4}, toggles {gateWarnings true, roundDetection true, digitQuickSelect true}, editorMode composed.\n2. INPUT: scaffold from P1.M1.T1.S1.\n3. LOGIC: export type InterrogatorConfig + `loadConfig(cwd): InterrogatorConfig` (deep-merge, tolerant of missing files/keys) + `resolveKeyLabels(config)` producing display labels for every user-visible string that names a key (footer, widget, dialogs — h2.52 last line: never hardcode a key label).\n4. OUTPUT: `loadConfig` + `resolveKeyLabels` consumed by tool.ts caps (P1.M1.T3.S3), panel keys.ts (P1.M3.T3.S1), footer/widget strings (P1.M3.T1.S2, P1.M6.T1.S1), detect.ts toggle (P1.M7.T4.S1).\n5. DOCS: [Mode A] JSDoc on loadConfig documenting every config key = the config reference source of truth for README (P1.M7.T7.S1)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "State engine (state.ts)",
+              "status": "Planned",
+              "description": "In-memory single source of truth: question map/order, status machine, rev/epoch counters, merge rules, dependsOn evaluator, snapshot ring + diffs, change events.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "InterrogationState core: types, map/order, rev/epoch, change events",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.17", "h2.38", "h2.39", "h2.13"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: state.ts never touches UI; emits change events consumed by panel/widget/renderers (h2.13). Node EventEmitter suffices. Never cache state across session_shutdown (h2.43).\n2. INPUT: scaffold from P1.M1.T1.S1.\n3. LOGIC: export types per h2.17: QuestionStatus = open|answered|submitted|reasked|moot|withdrawn|closed; Question {id, title?, prompt, description?, type: choice|text, options?: {value,label,ramification?}[], recommendation?, group?, gate?, dependsOn?: {id,equals?,notEquals?}[], rev, status, answer?: {value, text?, at}}; InterrogationState class {goal, epoch (starts 1), questions: Map<string,Question>, order: string[], snapshots: Snapshot[]} with: createInterrogationState(), upsert entry points (applied by S2), bumpRev(id), bumpEpoch(), getQuestion, orderedQuestions, groupSummaries, serialize() -> plain JSON (details-compatible) and static deserialize(). Emit events: 'changed', 'questions-upserted', 'epoch-bumped', 'completed-cleared'. rev starts 1 per question; user answers do NOT bump rev (h2.39).\n4. OUTPUT: state singleton accessor + serialize/deserialize consumed by tool.ts details (P1.M1.T3.S4), persistence mirror (P1.M7.T1.S1), reconstruction (P1.M7.T1.S2), panel rendering.\n5. DOCS: [Mode A] JSDoc on InterrogationState documenting the status machine diagram from h2.38."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S2",
+                  "title": "Merge rules 1-4 + status transitions",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T2.S1"],
+                  "prd_selectors": ["h2.21", "h2.38", "h2.8", "h3.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: merge rules are the contract the model relies on for re-asks; withdrawal keeps the question in the map for audit (h2.38, Q34=A).\n2. INPUT: InterrogationState from P1.M1.T2.S1.\n3. LOGIC: implement applyUpsert(incoming: Question[], ctx) per h2.21 by id: (1) same option values -> silent text/description/ramification update, answer kept, rev+1; (2) changed options -> answer reset, status reasked, rev+1 (panel draft preserved — drafts live panel-side, state must not clear them; expose questionRevBumped event so panel knows); (3) new id -> appended, status open, rev 1; (4) existing id omitted -> status withdrawn, kept in map with reason. Also: user answer path markAnswered(id, answer) -> status answered(pending); markSubmitted(ids) -> submitted; closeSubmitted(ids) -> closed(archived); editing a closed answer re-marks answered(pending) (FR-2, Q24=B). Withdraw/moot are terminal-until-re-upsert; re-upsert of withdrawn id with rev+1 reopens per h2.38.\n4. OUTPUT: applyUpsert + transition methods consumed by tool.ts (P1.M1.T3.S1), auto-close (P1.M2.T2.S1), panel submit flush, reconstruction replay (P1.M7.T1.S2).\n5. DOCS: [Mode A] JSDoc on applyUpsert enumerating the 4 rules verbatim from h2.21."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S3",
+                  "title": "dependsOn evaluator + transitive ripple closure",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T2.S1"],
+                  "prd_selectors": ["h3.2", "h2.38", "h2.17", "h2.57"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: conditions evaluate locally and instantly (FR-17); ripple = transitive closure over reverse dependsOn edges (Q39=B, defaulted decision — user may veto, keep the UX exactly as specified).\n2. INPUT: Question.dependsOn shape from P1.M1.T2.S1; current answers.\n3. LOGIC: export evaluateDependsOn(state): for each question with dependsOn, condition met iff every {id, equals?, notEquals?} is satisfied by the dependency's current answer (unanswered dependency = unmet unless no condition given); unmet -> status moot with reason string like `moot: storage=sqlite` (h2.29 overview format); re-met -> back to open (h2.38). Export computeRipple(state, changedId): transitive set of question ids whose dependsOn chain (any depth) passes through changedId and would newly unmet — used by the FR-18 confirm to list answered/submitted victims only. Idempotent; cheap; callable after every answer change and after reconstruction.\n4. OUTPUT: evaluateDependsOn + computeRipple consumed by panel ripple confirm (P1.M5.T4.S1), overview moot markers (P1.M5.T2.S1), reconstruction step 5 (P1.M7.T1.S2).\n5. DOCS: [Mode A] JSDoc on computeRipple with a 3-level transitive example."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S4",
+                  "title": "Snapshot ring + diff computation",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S1"],
+                  "prd_selectors": ["h2.39", "h2.46", "h2.36"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: snapshots power diff cards and post-hoc recovery; NOT user-facing undo in v1 (h2.39). Bounded ring of 10.\n2. INPUT: InterrogationState from P1.M1.T2.S1.\n3. LOGIC: snapshot() on every submission (before epoch bump), keep last 10. Export computeDiff(prev, next): {changed: [{id, title, from, to}][]} where from/to are answer value/label summaries and edited-archived answers appear with `(changed)` marker data (AC-13). Also digestSince(epochFrom): compact one-line-per-submission delta digest used in stale-guard rejection messages (h3.8 'Changes since epoch N').\n4. OUTPUT: computeDiff + digestSince consumed by delivery delta builder (P1.M2.T1.S1), stale guards (P1.M1.T3.S2), submission card renderer (P1.M7.T3.S1).\n5. DOCS: [Mode A] JSDoc on computeDiff documenting the SubmissionCardData shape {changed[], note?, epoch, remainOpen}."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T3",
+              "title": "interrogate tool (tool.ts)",
+              "status": "Planned",
+              "description": "typebox schema, four action shapes, rev/epoch guards (throw), caps engine, read/status formatting, non-TUI fallback digest + answers action, registration with resident text and compact render rows.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S1",
+                  "title": "Schema + action routing + validation",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S1", "P1.M1.T1.S2"],
+                  "prd_selectors": ["h2.19", "h2.20", "h2.17"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: use `import { Type } from 'typebox'` (bare — pi 0.85.1 dep, NOT @sinclair/typebox) and `StringEnum` from @earendil-works/pi-ai for the type enum (Google compat) — see external-deps.md.\n2. INPUT: state methods from P1.M1.T2.S1/S2; config from P1.M1.T1.S2.\n3. LOGIC: build InterrogateParams exactly per h2.19 (OptionSchema, QuestionSchema with optional rev, top-level goal/epoch/questions/reopen/answers). Route four action shapes per h2.20: questions present -> upsert; empty object -> read; reopen:true -> reopen; answers present -> record (non-TUI only, ignored in TUI). Validate: type=choice requires options with unique values; recommendation must match an option value; ids non-empty; question count <= caps.questions (truncate-with-warning, never reject, per h2.23).\n4. OUTPUT: exported parseInterrogateParams(args) + action discriminator consumed by P1.M1.T3.S2-S5 and debug commands (P1.M2.T3.S1).\n5. DOCS: [Mode A] JSDoc on InterrogateParams noting the four action shapes."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S2",
+                  "title": "rev/epoch stale guards (throw with current state)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S1", "P1.M1.T2.S2", "P1.M1.T2.S4"],
+                  "prd_selectors": ["h2.22", "h3.8", "h2.39", "h2.10"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: pi sets isError ONLY when execute THROWS (pi-api-validation.md, extensions.md:2068). The rejection message must carry current state so the model self-heals in one round trip (AC-8).\n2. INPUT: parsed params from P1.M1.T3.S1; state revs/epoch from P1.M1.T2.S1; digestSince from P1.M1.T2.S4.\n3. LOGIC: upsert touching existing question ids requires each question's current rev (param rev) AND top-level epoch matching session epoch; answers[] requires epoch. On mismatch throw Error with message exactly shaped per h3.8: `STALE: {id} is at rev {n} (you sent {m}); session epoch is {e} (you sent {x}). Current {id}: {text}. Changes since epoch {x}: {delta digest}. Re-apply against current state.` Read ({}) is never guarded. Guards apply in both TUI and non-TUI.\n4. OUTPUT: guard functions consumed by upsert + answers paths (P1.M1.T3.S1 routing); verified by AC-8.\n5. DOCS: [Mode A] JSDoc on the guard explaining throw-to-isError semantics for future maintainers."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S3",
+                  "title": "Caps engine: formula, truncation warnings",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S1", "P1.M1.T1.S2"],
+                  "prd_selectors": ["h2.23", "h2.52"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: soft caps only — over-budget content truncates with an explicit warning in the tool result, NEVER a hard reject (h2.23). ctx.model.contextWindow is accessible in tool execute ctx (pi-api-validation.md).\n2. INPUT: config caps from P1.M1.T1.S2; question batch from params.\n3. LOGIC: export applyCaps(questions, goal, config, contextWindow): per-question description <= max(cap.description, budget/questionCount) chars where totalDescriptionBudget = min(contextBudgetPct/100 x contextWindow x 4 chars-per-token, 60000); ramification <= cap.ramification; options truncated to cap.options (keep recommendation); questions hard-listed at cap.questions count with warning; goal <= cap.goal. Return {questions, goal, warnings: string[]} with warnings like `q7 description truncated at 2100 chars — restructure if essential`.\n4. OUTPUT: applyCaps consumed by upsert path; warnings appended to result text (P1.M1.T3.S4).\n5. DOCS: [Mode A] JSDoc on applyCaps with the formula and config override names."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S4",
+                  "title": "Read action, status line, result details snapshot",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S1"],
+                  "prd_selectors": ["h2.20", "h2.28", "h3.7", "h2.40"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: tool-result details are the CANONICAL persistence layer (h2.40 layer 2) — every interrogate result carries the full post-call state; branch-correct by construction.\n2. INPUT: state serialize() from P1.M1.T2.S1; caps warnings from P1.M1.T3.S3.\n3. LOGIC: build results: upsert -> status line + 'Questions visible to the user.' + end-your-turn instruction (h3.5: `End your turn with a one-line note; do not call further tools.`) + caps warnings; read -> goal, epoch, group summary, per-question one-liners {id, title, status, rev, answer?} ~1 line each (h3.7); shared statusLine format `{answered}/{total} answered · {reasked} re-asked · {moot} moot · epoch {n}` (h2.28). Every result: content text + details {state: serialize(), epoch, statusLine, action}.\n4. OUTPUT: buildResult helpers consumed by P1.M1.T3.S5/S6, lifecycle, reconstruction (P1.M7.T1.S2 scans toolResult details.state).\n5. DOCS: [Mode A] JSDoc documenting the details contract (details.state is canonical)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S5",
+                  "title": "Non-TUI fallback digest + answers action",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S1", "P1.M1.T3.S2"],
+                  "prd_selectors": ["h2.26", "h3.3", "h2.20"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: guard with ctx.mode !== 'tui' || !ctx.hasUI (modes: tui|rpc|json|print; hasUI false in print/json — pi-api-validation.md §Context).\n2. INPUT: parsed params + guards from P1.M1.T3.S1/S2; state transitions from P1.M1.T2.S2.\n3. LOGIC: in non-TUI, upsert result contains a numbered markdown digest (id, title, prompt, options with ★ marks, recommendation) and the result text instructs the model to relay it verbatim in chat (h2.26). answers[] action: epoch-guarded record of user's chat answers via markAnswered + markSubmitted-equivalent (delivered immediately since user already spoke), returns status line. Read/completion identical to TUI. Completion record still injected once at close.\n4. OUTPUT: fallback formatting consumed by tool execute; AC-11 verifies via `pi -p`.\n5. DOCS: [Mode A] JSDoc on the fallback digest format."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S6",
+                  "title": "Tool registration: resident text, guidelines, render rows, index wiring",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S1", "P1.M1.T3.S4"],
+                  "prd_selectors": ["h2.24", "h2.25", "h2.15", "h2.3", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: promptGuidelines: string[] and promptSnippet are CONFIRMED registerTool fields (pi-api-validation.md §registerTool); description is always resident for active tools — no extra injection API needed (per-request injection is vetoed anyway, h2.4).\n2. INPUT: result builders from P1.M1.T3.S4; fallback from P1.M1.T3.S5.\n3. LOGIC: registerTool with name 'interrogate', description = the <=120-word resident text VERBATIM from h2.24, promptGuidelines = the 2 bullets verbatim from h2.24, parameters = InterrogateParams. renderCall: one-line row `interrogate {n} questions {+m new ~k updated}`; renderResult: status line + epoch, expanded shows full state summary (h2.25) — return Text components (todo.ts:216-234 pattern). Wire registration in src/index.ts; execute returns immediately (non-blocking: panel opening is event-driven via state 'questions-upserted' -> lifecycle, NEVER awaited in execute — system-context.md §Verified architectural pattern). Naming per h2.3: tool interrogate, customTypes interrogation-submission / interrogation-completion, entry interrogation-state.\n4. OUTPUT: registered tool consumed by everything downstream; lifecycle subscribes to state events (P1.M2.T2.S1).\n5. DOCS: [Mode A] JSDoc on the tool registration quoting the resident description contract (<=120 words)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Delivery + lifecycle core (no panel)",
+          "status": "Planned",
+          "description": "PRD M2 (h2.48): delivery.ts delta/completion messages, lifecycle auto-close on agent_settled + completion injection, debug commands for scripted AC verification (state-level, via -p fallback path). Proves AC-2, 3, 13, 14 semantics without UI.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "delivery.ts — submissions and completion records",
+              "status": "Planned",
+              "description": "Delta message builder (~2 lines + reminder), sendMessage plumbing with triggerTurn, one-time completion record.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "Submission delta builder",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S2", "P1.M1.T2.S4"],
+                  "prd_selectors": ["h3.6", "h2.36", "h2.28", "h2.10"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: deltas are ~2 lines + reminder line (commitment 2); the user-only card is drawn from details by a renderer, not from content (Q2=A).\n2. INPUT: computeDiff output + batchNote from P1.M1.T2.S4; epoch from state.\n3. LOGIC: export buildSubmission(state, diff, note): {customType: 'interrogation-submission', content: `Submitted {k}: {id→value list, changed marked} (state epoch {n})\\nConsider how these affect your other questions.` (<=3 lines total, h3.6), display: true, details: {changed: [{id,title,from,to}], note?, epoch, card: FullCardData}}. Side effects ordered per h3.6: flush pending answers into state (ripple confirms already done at edit time), THEN build, THEN epoch++ and snapshot for revert-style diffs.\n4. OUTPUT: message object consumed by P1.M2.T1.S2 (send) and card renderer (P1.M7.T3.S1).\n5. DOCS: [Mode A] JSDoc on buildSubmission documenting content-length budget (<=3 lines)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S2",
+                  "title": "sendMessage plumbing: triggerTurn + streaming delivery",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T1.S1", "P1.M1.T3.S6"],
+                  "prd_selectors": ["h3.6", "h2.15", "h2.0", "h2.53"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: pi.sendMessage does NOT trigger an agent reply by default — CRITICAL: pass options {triggerTurn: true, deliverAs: 'followUp'}; when the agent is streaming at submit time use deliverAs 'steer' (pi-api-validation.md §Mismatch 2, TD types.d.ts:971-981). Custom messages are role custom and DO participate in LLM context (model sees the delta).\n2. INPUT: message object from P1.M2.T1.S1; registered tool from P1.M1.T3.S6.\n3. LOGIC: export deliverSubmission(pi, msg): pi.sendMessage(msg, ctx.isIdle?.() === false ? {deliverAs: 'steer'} : {triggerTurn: true, deliverAs: 'followUp'}). Verify with ctx.isIdle()/mode guards. No tool call ever waits on the user (commitment 1) — this is the only turn-triggering path.\n4. OUTPUT: deliverSubmission consumed by panel ctrl+s (P1.M3.T2.S2 via lifecycle) and debug submit (P1.M2.T3.S1).\n5. DOCS: [Mode A] JSDoc on deliverSubmission explaining triggerTurn semantics."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S3",
+                  "title": "Completion record builder (the one full injection)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T1.S1"],
+                  "prd_selectors": ["h2.46", "h3.9", "h2.36", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: the full record is injected into the conversation EXACTLY ONCE, at completion (commitment 2); per-request injection vetoed (h2.4).\n2. INPUT: full state from P1.M1.T2.S1; snapshot history from P1.M1.T2.S4.\n3. LOGIC: export buildCompletion(state): {customType: 'interrogation-completion', content: the record format VERBATIM from h2.46 (INTERROGATION COMPLETE — {goal} / grouped per-question answers with ★-if-recommendation-followed and free text / NOTES: batch notes in order / Withdrawn-moot: ids+reasons), display: true, details: recap card data (goal, every question+final answer grouped, timestamps; expanded adds withdrawn/moot reasons)}.\n4. OUTPUT: consumed by completion trigger (P1.M2.T2.S2) and recap renderer (P1.M7.T3.S2).\n5. DOCS: [Mode A] JSDoc quoting the record format."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T2",
+              "title": "lifecycle.ts — auto-close and completion trigger",
+              "status": "Planned",
+              "description": "Per-run upsert tracking via tool_execution events, close pass on agent_settled, one-time completion injection with panel-dismiss hook.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S1",
+                  "title": "Auto-close engine (agent_settled close pass)",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T2.S2", "P1.M1.T3.S6"],
+                  "prd_selectors": ["h2.44", "h3.0", "h2.16", "h2.38", "h2.51"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: event ordering risk (h2.51) is handled by per-run flags: args arrive on tool_execution_start (pi-api-validation.md §Events), result on tool_execution_end {toolCallId, toolName, result, isError}. agent_settled abort semantics are UNDOCUMENTED — verify empirically with a scripted abort and keep the close pass idempotent (pi-api-validation.md §Unknown 1).\n2. INPUT: state transitions closeSubmitted/markReasked from P1.M1.T2.S2; registered tool from P1.M1.T3.S6.\n3. LOGIC: implement h2.44 algorithm exactly: on submission delivery set submittedRun=false; on tool_execution_start/end for interrogate with questions action, mark each touched submitted question reasked and submittedRun=true; on agent_settled: for each q submitted-at-current-epoch, if not reasked this run -> status closed(archived); aborted runs count as settled (agent_settled fires). Subscribe in index.ts. Expose lifecycle.onPanelDismiss hook (no-op until M3) so completion can dismiss the panel later.\n4. OUTPUT: close-pass engine consumed by completion trigger (P1.M2.T2.S2); proves AC-3 state semantics.\n5. DOCS: [Mode A] JSDoc on the auto-close algorithm including the abort caveat."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S2",
+                  "title": "Completion trigger + one-time injection",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T2.S1", "P1.M2.T1.S2", "P1.M2.T1.S3"],
+                  "prd_selectors": ["h3.9", "h2.46", "h2.44", "h2.37"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: completion fires when the last open question closes after an agent_settled with no re-ask (FR-5); injection uses the same sendMessage options contract as submissions but must NOT triggerTurn if the agent is mid-reply — deliver via followUp (P1.M2.T1.S2 plumbing).\n2. INPUT: close pass from P1.M2.T2.S1; buildCompletion from P1.M2.T1.S3; deliverSubmission from P1.M2.T1.S2.\n3. LOGIC: after each close pass, if no questions remain in {open, reasked, answered, submitted, moot}: deliver completion message ONCE (guard with a completed flag on state), invoke lifecycle.onPanelDismiss() (stub here, real panel in P1.M3.T1.S1), clear in-memory state but KEEP session entries for audit (h3.9). Edge per h2.37: 0 open + pending submissions -> completion waits until close pass after the next agent reply.\n4. OUTPUT: completion flow consumed by panel (dismiss) and AC-14; entry audit trail preserved for renderers (P1.M7.T3.S2).\n5. DOCS: [Mode A] JSDoc on the completion invariant (fires exactly once)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T3",
+              "title": "Debug commands for scripted verification",
+              "status": "Planned",
+              "description": "PRD h2.50 Testing: /interrogate-debug-upsert, /interrogate-debug-submit, /interrogate-debug-state driving the same code paths as the tool, enabling AC verification without model dependence.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T3.S1",
+                  "title": "/interrogate-debug-upsert|submit|state commands",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S6", "P1.M2.T1.S2"],
+                  "prd_selectors": ["h2.50", "h2.10"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: scripted model turns are unreliable (h2.50) — debug commands invoke the SAME parse/guard/state/delivery functions as tool.ts execute (import them; do not duplicate logic). registerCommand handler signature: (args: string, ctx) with ctx.ui.notify available (pi-api-validation.md §registerCommand).\n2. INPUT: parseInterrogateParams from P1.M1.T3.S1; guards/caps/result builders from P1.M1.T3.S2-S4; deliverSubmission from P1.M2.T1.S2.\n3. LOGIC: /interrogate-debug-upsert <json> -> run upsert path, notify status line + guard errors; /interrogate-debug-submit [id=value,...] -> flush given answers as pending then run the full submission path (delta + sendMessage + epoch bump); /interrogate-debug-state -> notify status line + per-question one-liners. TUI-only convenience; harmless if state empty.\n4. OUTPUT: commands used by P1.M7.T6.S1 scripted AC runbook (AC-2, 3, 8, 13, 14 state-level) and manual testing throughout M3-M6.\n5. DOCS: [Mode A] command JSDoc; README dev section will sweep them (P1.M7.T7.S1)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M3",
+          "title": "Panel short form (replace-editor)",
+          "status": "Planned",
+          "description": "PRD M3 (h2.48): panel.ts hosting via ctx.ui.custom fire-and-forget, header/goal/footer, short-view rendering with ★ recommendation marks and preselect, digits/enter accept-advance, tab navigation, config-driven keys.ts. Proves AC-1 (minus gate dimming) and part of AC-5.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M3.T1",
+              "title": "Panel host (panel.ts)",
+              "status": "Planned",
+              "description": "ctx.ui.custom non-overlay host with fire-and-forget contract, view/focus state machine, draft store handle, done(null) suspend, header/footer rendering.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S1",
+                  "title": "custom() host: fire-and-forget open, view switching, done(null) suspend",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T3.S6", "P1.M2.T2.S1"],
+                  "prd_selectors": ["h2.29", "h3.5", "h2.13", "h2.0", "h2.35", "h2.37"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: ctx.ui.custom(factory) BLOCKS until done() — open it fire-and-forget and NEVER await inside tool execute (system-context.md §Verified architectural pattern; questionnaire.ts:131-137 is the component reference: factory (tui, theme, keybindings, done) returns {render(width): string[], invalidate(), handleInput(data)}; cache lines, tui.requestRender() on change). Non-overlay default = replaces the bottom editor region, transcript visible above (pi-api-validation.md §custom).\n2. INPUT: state events from P1.M1.T2.S1; lifecycle hooks from P1.M2.T2.S1/S2.\n3. LOGIC: InterrogationPanel component class: closure/class state {view: short|deep|overview, focus: options|text|note, currentId, deepSticky}; draft store handle (implemented P1.M4.T2.S1 — accept a DraftStore interface param for now); handleInput delegates via keys.ts (P1.M3.T3.S1); done(null) = suspend contract (M6 consumes); lifecycle.openPanel(ctx) called on state 'questions-upserted' when ctx.mode==='tui' (model upsert while suspended REOPENS panel, h2.37); expose panel.done for suspend and lifecycle.onPanelDismiss for completion. Panel persists while idle (commitment 1).\n4. OUTPUT: openPanel/suspendPanel used by lifecycle, /interrogate command (P1.M6.T1.S2), reopen (P1.M6.T2.S1), reconstruction auto-open (P1.M7.T1.S2).\n5. DOCS: [Mode A] JSDoc on the fire-and-forget contract (why we never await)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S2",
+                  "title": "Header, question line, footer with config-driven labels",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T1.S1", "P1.M1.T1.S2"],
+                  "prd_selectors": ["h2.29", "h2.8", "h3.1", "h2.52"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: every display string naming a key is generated from resolved config (h2.52 last line) — use resolveKeyLabels from P1.M1.T1.S2; theme.fg helpers for dimming (reference-patterns.md §3).\n2. INPUT: panel component from P1.M3.T1.S1; config/key labels from P1.M1.T1.S2; statusLine format from P1.M1.T3.S4.\n3. LOGIC: render per h2.29 layout: header 1 line `┌ interrogation · {goal} ── {statusCounts} ┐` (goal truncated to fit, full text in deep view, FR-30); question line `{group label} · Q{n}/{id} {title} [status markers]`; dimmed first-sentence hint; footer 1 line with progress `3/12 answered · 2 re-asked ·` + the 3-4 keys relevant to current screen. Width budgeting per questionnaire.ts (inset 2). char-safe truncation with ellipsis.\n4. OUTPUT: header/footer render functions consumed by short/deep/overview views; AC-1 chat-visible-above + AC-12 label reflection.\n5. DOCS: [Mode A] JSDoc on the layout contract (1-line header/footer budgets)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T2",
+              "title": "Short view rendering + navigation",
+              "status": "Planned",
+              "description": "Short-form question display with unmistakable recommendation marks, option navigation, digits quick-select, enter accept-advance, tab question navigation.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S1",
+                  "title": "Short form renderer: options, ★ marks, preselect, ✎ affordance",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T1.S2"],
+                  "prd_selectors": ["h2.29", "h3.1", "h2.54", "h2.9"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: R2 hard requirement — unmistakable recommendation marks: ★ AND preselected (Q15=A, no bulk-accept). Markers vocabulary (h2.29): · open, ★ answered, ⟳ re-asked, ⊘ moot, ⊗ withdrawn, ✎ has text answer.\n2. INPUT: header/footer from P1.M3.T1.S2; question data from state.\n3. LOGIC: render short form per h2.29: question one-liner; first sentence of description dimmed beneath; options list with cursor `▸`, recommendation marked `★ sqlite` and preselected as initial cursor position; `✎ explain…` affordance line beneath options (focus target for P1.M4.T1.S2); type=text questions render the text-field affordance as primary. Dim moot questions with reason.\n4. OUTPUT: short-view render consumed by panel; foundation for deep view (P1.M5.T1.S1) and AC-5 return-to-short.\n5. DOCS: [Mode A] JSDoc on marker glyphs."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S2",
+                  "title": "Navigation: option movement, digits, enter accept+advance, tab freedom",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T2.S1"],
+                  "prd_selectors": ["h3.1", "h2.34", "h2.9", "h2.54", "h2.21"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: R1 hard requirement — forward/back among questions at ALL times, nothing locks the user onto a question (FR-9); enter = accept + advance (Q14=A); up/down are FIXED (not rebindable) per h2.34, as are enter and esc. Implement navigation as NAMED ACTION handlers (optionUp, optionDown, digitN, accept, prevQuestion, nextQuestion) independent of raw-key parsing — keys.ts (P1.M3.T3.S1) binds configured keys to these actions afterward.\n2. INPUT: short view from P1.M3.T2.S1; action-handler surface defined here.\n3. LOGIC: option cursor up/down; digits 1-9 quick-select when digitQuickSelect on; accept on an option -> markAnswered (draft value committed to state as answered(pending)) and advance to next unanswered question (wrap at end); prev/next question freely including answered/moot; accept on an ANSWERED question routes through the ripple-confirm flow hook (implemented P1.M5.T4.S1 — call a no-op confirm callback until then). Submit action flushes pending answers via the submission path from P1.M2.T1.S2 — with zero pending: no-op footer flash `nothing to submit` (h2.37).\n4. OUTPUT: action handlers consumed by keys.ts dispatch (P1.M3.T3.S1); AC-1, AC-2 user-side, AC-13 edit-re-marks-pending.\n5. DOCS: [Mode A] JSDoc on the advance algorithm (next unanswered, wrap)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T3",
+              "title": "Key routing (panel/keys.ts)",
+              "status": "Planned",
+              "description": "Config-driven key dispatch with the intercept-before-forward rule and esc descent.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T3.S1",
+                  "title": "Config-driven dispatch: intercept-before-forward, esc descent",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T1.S1", "P1.M3.T2.S2", "P1.M1.T1.S2"],
+                  "prd_selectors": ["h2.34", "h2.9", "h2.52", "h2.31"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: the panel owns raw keyboard focus and consumes input BEFORE app keybindings (questionnaire.ts intercepts escape the same way — pi-api-validation.md). Panel-scoped defaults (ctrl+s/d/l/t/g, tab, digits) are safe INSIDE the panel despite pi built-in defaults; ctrl+shift+q is dual-registered (panel key + global registerShortcut, FREE per environment-and-conflicts.md keymap table). Key parsing: raw data strings; use matchesKey/Key from @earendil-works/pi-tui (questionnaire.ts:216-227 pattern).\n2. INPUT: config keymap from P1.M1.T1.S2; panel component from P1.M3.T1.S1; the NAMED ACTION handlers from P1.M3.T2.S2 (optionUp/optionDown/digitN/accept/prevQuestion/nextQuestion).\n3. LOGIC: buildKeyRouter(config, actions): given raw input data + current view/focus, resolve ONE action (prevQuestion, nextQuestion, deep, overview, focusText, batchNote, submit, breakOut, discuss, externalEditor, optionUp/Down, digitN, accept, escape) from CONFIG keys and invoke the corresponding handler; panel-level keys intercepted whenever panel is open INCLUDING text focus (h2.34 intercept rule); unmatched input forwards to the embedded editor when text-focused, else default nav. esc descends: deep→short, overview→panel, top→suspend (never destroys state, FR-16). Fixed keys: up/down/enter/esc.\n4. OUTPUT: keyRouter consumed by panel handleInput, text field (P1.M4.T1.S2), deep/overview views (P1.M5), suspend (P1.M6.T1.S1); AC-12 remappability core.\n5. DOCS: [Mode A] JSDoc on the intercept rule and the fixed-key list."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M4",
+          "title": "Text field + sacred drafts",
+          "status": "Planned",
+          "description": "PRD M4 (h2.48): text-field.ts composing the user's active editor via getEditorComponent() with stock fallback, two-stage enter, ctrl+g $EDITOR, per-question drafts + batch note. Proves R4 draft survival.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M4.T1",
+              "title": "Free-text field (panel/text-field.ts)",
+              "status": "Planned",
+              "description": "Editor composition (composed vs stock), focus model with two-stage enter, external editor integration.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T1.S1",
+                  "title": "Editor composition: getEditorComponent factory + stock fallback",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M3.T1.S1", "P1.M3.T3.S1"],
+                  "prd_selectors": ["h2.31", "h2.15", "h2.51", "h2.52"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: EditorFactory = (tui, theme: EditorTheme, keybindings) => EditorComponent (TD types.d.ts:62). Capture ctx.ui.getEditorComponent() ONCE per panel instantiation; if defined AND config.editorMode==='composed', instantiate it (user's pi-vim editor — vim modes work, Q17=A); else fall back to stock `new Editor(tui, editorTheme)` from @earendil-works/pi-tui (questionnaire.ts:146-158 pattern: EditorTheme {borderColor, selectList}, editor.onSubmit, render(width-2) with line prefixing, editor.handleInput(data) routing). editorMode config flag is the documented risk mitigation (h2.51 row 1).\n2. INPUT: panel component from P1.M3.T1.S1; key router from P1.M3.T3.S1; config from P1.M1.T1.S2.\n3. LOGIC: TextField wrapper: instantiate editor, seed with current draft, expose render(width), handleInput(data) (after keyRouter intercept), getText, setText, focus/blur; instantiation happens INSIDE the custom() factory so tui/theme/keybindings are live. Not focused by default; ctrl+t (config keys.focusText) or the ✎ affordance focuses it.\n4. OUTPUT: TextField consumed by panel (embedded editor region, 3 lines default per h2.29), batch note mode (P1.M4.T2.S2).\n5. DOCS: [Mode A] JSDoc on composed-vs-stock selection."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T1.S2",
+                  "title": "Two-stage enter, newlines, history isolation",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M4.T1.S1"],
+                  "prd_selectors": ["h2.31", "h3.1", "h2.34"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: two-stage enter (Q17=A): first enter saves the draft and returns focus to options; the NEXT enter advances — multi-line typing with shift+enter/ctrl+j is safe. Separate history: never call addToHistory (h2.31).\n2. INPUT: TextField from P1.M4.T1.S1; keyRouter from P1.M3.T3.S1.\n3. LOGIC: enter in text focus -> save {value,text} into the question's draft slot, blur to options focus, arm a one-shot 'advance on next enter' flag; shift+enter / ctrl+j insert newline; suppress any editor-internal history/submission side effects (stock Editor onSubmit repurposed as stage-1 save). Enter in NOTE mode saves batchNote and exits note mode.\n4. OUTPUT: focus lifecycle consumed by panel; AC-safe multi-line typing (R4 support).\n5. DOCS: [Mode A] JSDoc on the two-stage contract."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T1.S3",
+                  "title": "ctrl+g external editor ($VISUAL/$EDITOR, nano fallback)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M4.T1.S1"],
+                  "prd_selectors": ["h2.31", "h2.34"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: mirrors pi built-in app.editor.external (ctrl+g, environment-and-conflicts.md). pi suspends the TUI for the child process — spawn via node:child_process with stdio inherit; examples have no $EDITOR integration, so implement directly: temp file (os.tmpdir), seed with draft, spawn $VISUAL||$EDITOR||nano, on clean exit (code 0) replace field text (h2.31).\n2. INPUT: TextField from P1.M4.T1.S1; config keys.externalEditor from P1.M1.T1.S2.\n3. LOGIC: in text focus, config externalEditor key -> write draft to temp file, tui suspend/spawn/resume pattern (check @earendil-works/pi-tui for suspend support; otherwise the spawn inherently takes the terminal), read back on exit 0, setText + refresh; non-zero exit = no change. Clean up temp file.\n4. OUTPUT: external editing consumed by text field; matches user habit (externalEditor is nvim in this environment).\n5. DOCS: [Mode A] JSDoc noting $VISUAL/$EDITOR/nano precedence."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M4.T2",
+              "title": "Draft store + batch note (R3/R4)",
+              "status": "Planned",
+              "description": "Per-question draft slots with survival semantics, panel-local batch note shipped as NOTE: line.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T2.S1",
+                  "title": "Draft store: per-question slots + survival guarantees",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T1.S1", "P1.M1.T2.S2"],
+                  "prd_selectors": ["h2.45", "h2.9", "h2.21", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: R4 hard requirement (commitment 6) — drafts survive navigation, deep/overview toggles, upserts INCLUDING answer resets (merge rule 2), suspend/resume; destroyed ONLY by submission (text answers ship) or explicit user clear; NOT persisted across restarts (documented limitation, Q6=B). Hard-won ask_user lesson: state loss on revisit is disqualifying.\n2. INPUT: panel from P1.M3.T1.S1; state events (questionRevBumped) from P1.M1.T2.S2.\n3. LOGIC: DraftStore {questionId -> {value, text}} + batchNote, held in EXTENSION memory outside the component (so suspend/resume re-instantiation keeps them); API: getDraft(id), setDraft(id, partial), clearDraft(id, {explicit}), shipDrafts(ids) (called by submit flush), preserve on rev bumps. Surface draft presence via ✎ marker data for short view.\n4. OUTPUT: DraftStore consumed by panel instantiation (P1.M3.T1.S1 param), suspend/resume (P1.M6.T1.S1), submit flush (P1.M2.T1.S1 ordering).\n5. DOCS: [Mode A] JSDoc enumerating the survival matrix (navigation/toggles/upserts/suspend = preserve; submit/clear = destroy)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T2.S2",
+                  "title": "Batch note: ctrl+shift+m mode + NOTE: delivery",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M4.T1.S1", "P1.M4.T2.S1", "P1.M2.T1.S1"],
+                  "prd_selectors": ["h2.32", "h3.1", "h2.9", "h3.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: R3 hard requirement — batch note opens a note field at ANY time, is HELD, and ships as a `NOTE:` line with the NEXT submission (not immediately). Same embedded editor instance swaps into note mode; header shows `NOTE — ships with next submission` (h2.32).\n2. INPUT: TextField from P1.M4.T1.S1; DraftStore.batchNote from P1.M4.T2.S1; submission builder note param from P1.M2.T1.S1.\n3. LOGIC: config keys.batchNote toggles note mode (editor area swap, esc/re-press exits, draft preserved between opens); on submit, note ships as NOTE: line in delta content + card, then cleared (h2.32 'cleared after shipping').\n4. OUTPUT: note mode consumed by panel + delivery; AC coverage via debug submit with note.\n5. DOCS: [Mode A] JSDoc on hold-until-ship semantics."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M5",
+          "title": "Deep view, overview, gate, ripples",
+          "status": "Planned",
+          "description": "PRD M5 (h2.48): scrollable deep view with sticky option headers and select-from-deep, overview list with jump, soft gate dimming + submit warning, dependsOn moot marks + FR-18 ripple confirm. Proves AC-5, 6, 7.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M5.T1",
+              "title": "Deep view (panel/deep-view.ts)",
+              "status": "Planned",
+              "description": "Full-replacement scrollable pane: full description, every option as sticky header with ramification text, selectable.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M5.T1.S1",
+                  "title": "Scrollable deep view with sticky headers + select-from-deep",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M3.T2.S1", "P1.M3.T3.S1"],
+                  "prd_selectors": ["h2.29", "h3.1", "h2.54", "h2.30"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: deep view is a FULL replacement of the Q&A section between header and footer (Q19/Q20 merged decision); sticky while the panel is open; up/down SCROLL here (they do not navigate questions in deep view) — h2.29. Rendering risk (h2.51 row 2): cap + ellipsize; overview list is the escape hatch.\n2. INPUT: short view + panel from P1.M3.T2.S1/P1.M3.T1.S1; keyRouter from P1.M3.T3.S1.\n3. LOGIC: config keys.deep toggles (sticky flag on panel state): render full description on top, then each option as sticky section header (`▸ sqlite`) followed by ramification text, wrapped; up/down scroll the pane (bounded), option headers remain visible via sticky logic within the viewport budget; highlight + enter selects -> returns to short form AND advances to next unanswered (Q14). Goal full text shown here (FR-30). esc returns to short form (descends, no destroy).\n4. OUTPUT: deep view consumed by panel view switching; AC-5 (scroll all ramifications, select from deep, return+advance).\n5. DOCS: [Mode A] JSDoc on sticky-header scroll budget."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M5.T2",
+              "title": "Overview list (panel/overview.ts)",
+              "status": "Planned",
+              "description": "ctrl+l full list of all questions with status markers, group headers, gate mark, enter jumps.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M5.T2.S1",
+                  "title": "Overview list with markers + jump",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T2.S1"],
+                  "prd_selectors": ["h2.29", "h3.1", "h2.38"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: markers (h2.29): · open, ★ answered, ⟳ re-asked, ⊘ moot (+reason, dimmed), ⊗ withdrawn, ✎ has text answer; group headers; gate group marked ▲. Pagination for height <12 lands in P1.M7.T5.S1.\n2. INPUT: short view from P1.M3.T2.S1; evaluateDependsOn moot reasons from P1.M1.T2.S3.\n3. LOGIC: config keys.overview opens the list (esc returns); render all questions in order with markers + group headers + ▲ gate mark; cursor up/down (or config question nav keys), enter jumps to that question in short form (focus restored); withdrawn/moot rows dimmed with reason text.\n4. OUTPUT: overview consumed by panel; AC-6 shows ⊘; navigation-freedom surface (R1).\n5. DOCS: [Mode A] JSDoc on marker semantics."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M5.T3",
+              "title": "Soft gate semantics",
+              "status": "Planned",
+              "description": "Gate group focus-first, non-gate dimming (still answerable), dismissible submit warning.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M5.T3.S1",
+                  "title": "Gate group: focus, dimming, submit warning",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T2.S2"],
+                  "prd_selectors": ["h2.29", "h3.1", "h2.56", "h2.9"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: Q32=B soft gate — display gating NEVER commit gating (staging philosophy h2.56): all groups visible and answerable at all times (R1); gate group renders normal, later groups DIMMED but navigable/answerable.\n2. INPUT: navigation from P1.M3.T2.S2; config gateWarnings from P1.M1.T1.S2.\n3. LOGIC: identify gate group (any question with gate:true marks its group, h2.19); panel opens focused on gate group if declared, else first group (FR-1); non-gate groups dimmed via theme; on submit with gate questions unanswered AND gateWarnings on -> dismissible footer warning `⚠ {n} foundational unanswered — later answers may shift` (any key dismisses; submission proceeds regardless — display-only).\n4. OUTPUT: gate rendering consumed by short/overview views; AC-1 gate-focused + dimmed-but-answerable.\n5. DOCS: [Mode A] JSDoc on soft-gate vs commit-gating."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M5.T4",
+              "title": "Ripple confirm (FR-18)",
+              "status": "Planned",
+              "description": "Edit-time confirmation when changing an answered question invalidates other answered/submitted questions via dependsOn.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M5.T4.S1",
+                  "title": "Invalidation confirm: enter=keep, esc=cancel",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S3", "P1.M3.T2.S2"],
+                  "prd_selectors": ["h2.33", "h3.2", "h2.57", "h2.10"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: Q39=B (defaulted, user-specified UX): on committing an answer change to an ANSWERED question, if the transitive dependsOn ripple hits answered/submitted questions, footer becomes `⚠ Invalidates {n} answered questions ({ids}) — enter=keep, esc=cancel`; esc reverts the edit with NO state change; enter applies. No drill-down in v1.\n2. INPUT: computeRipple from P1.M1.T2.S3; accept/advance flow from P1.M3.T2.S2 (which stubbed this callback).\n3. LOGIC: intercept the accept-commit for answered questions: compute ripple victims (answered/submitted only); if any, enter confirm mode (footer swap, esc=cancel restores prior selection, enter=applies + re-runs evaluateDependsOn so victims grey as moot with reasons instantly, FR-17); zero victims -> apply directly. Text-answer edits use the same gate on stage-1 save.\n4. OUTPUT: confirm flow consumed by accept paths; AC-7 (esc cancels with no state change; enter applies).\n5. DOCS: [Mode A] JSDoc on the forced accept/cancel contract."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M6",
+          "title": "Suspend/resume ecosystem",
+          "status": "Planned",
+          "description": "PRD M6 (h2.48): ctrl+shift+q + /interrogate + suspend widget, agent reopen action, discuss-in-chat handoff with setEditorText, editor-text preservation. Proves AC-4.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M6.T1",
+              "title": "Suspend/resume core + widget",
+              "status": "Planned",
+              "description": "done(null) suspend, setWidget reminder, resume rehydration with drafts + focus restore, /interrogate command and global shortcut.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M6.T1.S1",
+                  "title": "Suspend (done(null)) + widget + resume rehydration",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M3.T1.S1", "P1.M4.T2.S1"],
+                  "prd_selectors": ["h2.35", "h3.10", "h3.1", "h2.0", "h2.3"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: done(null) resolves the custom() promise and the editor region is restored automatically (pi-api-validation.md §custom); state + drafts live in extension memory outside the component so re-instantiation rehydrates. setWidget(key, string[]|undefined) confirmed, keyed 'interrogator' (pi-api-validation.md §setWidget).\n2. INPUT: panel suspend contract from P1.M3.T1.S1; DraftStore from P1.M4.T2.S1; key labels from P1.M1.T1.S2.\n3. LOGIC: suspendPanel(): panel.done(null), then ctx.ui.setWidget('interrogator', ['{n} open · {m} answered — {configured breakOut key} to resume /interrogate']) — string EXACTLY per h2.3/h2.35, generated from resolved config; resumePanel(): clear widget (setWidget(key, undefined)), re-instantiate panel from state + drafts, focus restored to last currentId. Widget visible whenever suspended with open questions; cleared on completion and on full close. esc at top level = same suspend path (FR-16).\n4. OUTPUT: suspend/resume consumed by /interrogate command (P1.M6.T1.S2), reopen (P1.M6.T2.S1), discuss (P1.M6.T2.S2); AC-4 panel-side.\n5. DOCS: [Mode A] JSDoc on widget string generation."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M6.T1.S2",
+                  "title": "/interrogate command + global ctrl+shift+q + empty state",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M6.T1.S1"],
+                  "prd_selectors": ["h2.35", "h2.37", "h2.15", "h2.34"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: registerShortcut('ctrl+shift+q') is FREE (no pi default, no installed extension claims it — environment-and-conflicts.md keymap table); registerCommand handler (args: string, ctx) with ctx.ui.notify. The shortcut must ALSO be handled inside the open panel via keyRouter (app shortcut may not fire while the custom component holds focus).\n2. INPUT: suspend/resume from P1.M6.T1.S1; keyRouter from P1.M3.T3.S1; config from P1.M1.T1.S2.\n3. LOGIC: /interrogate toggles panel (open->suspend, suspended->resume); with no state -> ctx.ui.notify('No active interrogation — ask the agent to interrogate you', 'info') (h2.37); registerShortcut global breakOut -> resume when suspended, suspend when open (idempotent guards); command available in TUI only (ctx.mode check).\n4. OUTPUT: command + shortcut consumed by users; AC-4 break-out/resume cycle.\n5. DOCS: [Mode A] JSDoc on dual registration (global + panel-scoped)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M6.T2",
+              "title": "Agent-driven surfaces: reopen + discuss-in-chat",
+              "status": "Planned",
+              "description": "reopen:true action wiring, per-question discuss handoff preloading the main editor, main-editor preservation verification.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M6.T2.S1",
+                  "title": "Wire reopen:true to the resume path",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": ["P1.M6.T1.S1", "P1.M1.T3.S1"],
+                  "prd_selectors": ["h3.10", "h3.0", "h2.35"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: FR-6/Q12 — agent-judgment reopen via {reopen:true}, NO deterministic guard; the suspend widget is always visible while suspended so the user is never stranded. Tool execute returns a confirmation status line; resume happens through the same lifecycle path as the hotkey.\n2. INPUT: action routing from P1.M1.T3.S1; resumePanel from P1.M6.T1.S1.\n3. LOGIC: reopen action -> if TUI and state non-empty: resumePanel (or no-op notify if already open); return status line confirmation. Non-TUI: informative no-op status.\n4. OUTPUT: reopen action complete; consumed by AC-4 agent-side step.\n5. DOCS: [Mode A] JSDoc one-liner on judgment-trusted reopen."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M6.T2.S2",
+                  "title": "Discuss-in-chat handoff (ctrl+shift+e)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M6.T1.S1"],
+                  "prd_selectors": ["h2.35", "h3.1", "h2.55"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: Q36 — suspend + ctx.ui.setEditorText quoting the question; the user then submits normally (their turn, their words). setEditorText confirmed (pi-api-validation.md §ctx.ui).\n2. INPUT: suspend from P1.M6.T1.S1; current question + options from state; keyRouter from P1.M3.T3.S1.\n3. LOGIC: config keys.discuss -> suspendPanel() then ctx.ui.setEditorText with EXACTLY the h2.35 template: `> {prompt}` / options one per line with ★ marked / `(discussing q{id} — agent: side-chat freely; reopen panel when done)`. Works from any view (current question context).\n4. OUTPUT: handoff consumed by panel; AC-4 side-chat entry.\n5. DOCS: [Mode A] JSDoc quoting the preload template."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M6.T2.S3",
+                  "title": "Main editor draft preservation across suspend/resume",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": ["P1.M6.T1.S1"],
+                  "prd_selectors": ["h2.35", "h2.10", "h2.51"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD claims pi's editor instance persists across custom() sessions — VERIFY in test (h2.35, h2.51 risk table). ctx.ui.getEditorText/setEditorText exist as belt-and-braces (pi-api-validation.md).\n2. INPUT: suspend/resume from P1.M6.T1.S1.\n3. LOGIC: empirical check: type text in main editor, open interrogation, suspend, resume, assert main editor text intact (manual + scripted via debug command). If NOT preserved by pi: snapshot getEditorText() on suspend and setEditorText() restore on resume (guarded to avoid clobbering when the user typed during the side chat — only restore if unchanged-empty). Record the finding.\n4. OUTPUT: preservation guarantee consumed by AC-4 (main editor draft also intact).\n5. DOCS: [Mode A] code comment + finding recorded for README limitations section (P1.M7.T7.S1)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M7",
+          "title": "Persistence, renderers, polish, verification, docs",
+          "status": "Planned",
+          "description": "PRD M7 (h2.48): persistence.ts (mirror, reconstruction, auto-open), compaction adaptation, message/entry renderers (cards), round detection, terminal fallbacks, config validation, AC runbook 1-14, changeset-level docs. Proves AC-8, 9, 10, 11, 12.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M7.T1",
+              "title": "Persistence (persistence.ts)",
+              "status": "Planned",
+              "description": "Debounced interrogation-state entry mirror + shutdown flush; branch-correct reconstruction on session_start/session_tree with auto-open.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T1.S1",
+                  "title": "Debounced state mirror + shutdown flush",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S1"],
+                  "prd_selectors": ["h2.40", "h2.16", "h3.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: pi.appendEntry(customType, data) creates custom entries NOT in LLM context, user-visible via entry renderer, restorable via sessionManager (pi-api-validation.md §Messaging). Mirror is the FALLBACK when compaction drops the tool-result entry (h2.40 layer 3, Q37 residue).\n2. INPUT: state serialize() from P1.M1.T2.S1; state change events.\n3. LOGIC: on every state mutation, debounce 2s then pi.appendEntry('interrogation-state', {state: serialize(), epoch, at}); on session_shutdown flush immediately (event reason quit|reload|new|resume|fork); entries accumulate as audit trail (never rewritten).\n4. OUTPUT: mirror entries consumed by reconstruction fallback (P1.M7.T1.S2) and entry renderer (P1.M7.T3.S2).\n5. DOCS: [Mode A] JSDoc on the three storage layers (h2.40)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T1.S2",
+                  "title": "Reconstruction on session_start + session_tree, auto-open",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M7.T1.S1", "P1.M6.T1.S1"],
+                  "prd_selectors": ["h2.41", "h2.43", "h3.11", "h3.4", "h2.16"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: todo.ts:110-127 pattern — scan ctx.sessionManager.getBranch() (RAW branch, compaction NOT applied, so compacted-away tool results are still reachable) for the LAST toolResult message with toolName 'interrogate' and details.state; ALSO subscribe session_tree (branch navigation mid-session fires it, not session_start — research addition, h2.43 intent). Custom-entry fallback scans for type custom + customType 'interrogation-state' newest-first.\n2. INPUT: mirror from P1.M7.T1.S1; deserialize from P1.M1.T2.S1; resumePanel from P1.M6.T1.S1.\n3. LOGIC: implement h2.41 steps: base = latest interrogate tool-result details.state on current branch, else newest interrogation-state entry, else none; replay subsequent interrogation-submission custom messages applying details.changed (answers, epochs); if non-empty question set: TUI -> auto-open panel with state restored, NO drafts (documented, FR-28); non-TUI -> mark fallback active; recompute dependsOn moot-ness (evaluateDependsOn, idempotent). Never cache across session_shutdown.\n4. OUTPUT: reconstruction consumed by restart flow; AC-9 (panel reopens with questions/answers; drafts gone).\n5. DOCS: [Mode A] JSDoc on the reconstruction algorithm incl. session_tree."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M7.T2",
+              "title": "Compaction preservation (FR-29, adapted)",
+              "status": "Planned",
+              "description": "session_before_compact handler preserving interrogation substance through /compact, via the verified API contract.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T2.S1",
+                  "title": "session_before_compact handler with preservation instructions",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M7.T1.S1"],
+                  "prd_selectors": ["h2.42", "h3.4", "h2.53"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD ADAPTATION (pi-api-validation.md §Mismatch 1): SessionBeforeCompactResult = {cancel?, compaction?} — there is NO customInstructions return field in pi 0.85.1 (unlike session_before_tree). Therefore implement FR-29 via the custom-compaction.ts pattern: on session_before_compact with an active interrogation, run the summarization ourselves (ctx.modelRegistry + serializeConversation + convertToLlm per examples/extensions/custom-compaction.ts:23-45) with the PRD's preservation text PREPENDED to the summarizer prompt; return {compaction: {summary, firstKeptEntryId, tokensBefore, usage}}. On ANY failure return undefined (default compaction runs) — never block compaction.\n2. INPUT: mirror entries from P1.M7.T1.S1 (also flushed fresh pre-compaction so post-compaction read() reconstructs from the mirror regardless).\n3. LOGIC: preservation instructions VERBATIM from h2.42: 'Preserve verbatim: the user's stated goals and plan constraints from all messages (including side conversations), all interrogation answers and later changes, the interrogation goal, and the fact that current interrogation state is available via interrogate({}).' Append a fresh interrogation-state entry before returning. AbortSignal-respecting; config toggle to disable (defaults on).\n4. OUTPUT: compaction survival; AC-10 (/compact mid-interrogation -> summary preserves user plan statements; subsequent read returns full state).\n5. DOCS: [Mode A] JSDoc documenting the adaptation rationale (PRD assumed an instructions-return that the API does not offer)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M7.T3",
+              "title": "Cards: message/entry renderers (renderers.ts)",
+              "status": "Planned",
+              "description": "interrogation-submission diff card (user-only), interrogation-completion recap card, interrogation-state dimmed mirror row.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T3.S1",
+                  "title": "Submission diff card renderer",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T1.S1"],
+                  "prd_selectors": ["h2.36", "h2.25", "h3.6"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: registerMessageRenderer(customType, (message, {expanded, outputPad}, theme) => Component) — match by exact customType (pi-api-validation.md §renderers; message-renderer.ts:15-35 pattern: Box + Text, theme.fg helpers, wrapTextWithAnsi/visibleWidth/truncateToWidth utilities).\n2. INPUT: SubmissionCardData shape from P1.M2.T1.S1 (details.card).\n3. LOGIC: renderer for 'interrogation-submission': compact by default — each changed answer `{title}: {old} → {new (changed)}` + any NOTE: line + `{open} remain open`; expanded shows the full submission. Card is USER-ONLY visual (the model reads content, never the card).\n4. OUTPUT: renderer registration in index.ts; AC-2 user-only card, AC-13 changed-marker highlight.\n5. DOCS: [Mode A] JSDoc on collapsed/expanded budgets."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T3.S2",
+                  "title": "Completion recap card + state entry renderer",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T1.S3", "P1.M7.T1.S1"],
+                  "prd_selectors": ["h2.36", "h2.46", "h2.40"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: registerEntryRenderer<T>(customType, (entry, {expanded}, theme) => Component) — entries are durable, NOT sent to the LLM (pi-api-validation.md; entry-renderer.ts:18-31 pattern).\n2. INPUT: recap card data from P1.M2.T1.S3; mirror entries from P1.M7.T1.S1.\n3. LOGIC: 'interrogation-completion' message renderer: recap card — goal, every question with final answer (grouped), timestamps; expanded shows withdrawn/moot with reasons (h2.36). 'interrogation-state' entry renderer: dimmed one-line mirror marker `· interrogation state @ epoch {n}` (audit trail, not interactive).\n4. OUTPUT: renderers registered; AC-14 recap card in transcript.\n5. DOCS: [Mode A] JSDoc on card data contracts."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M7.T4",
+              "title": "Plain-text round detection (detect.ts)",
+              "status": "Planned",
+              "description": "FR-26: light heuristic detecting numbered question blocks in assistant replies, throttled notify, never transforms content.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T4.S1",
+                  "title": "Round heuristic + throttled notify",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T2.S1"],
+                  "prd_selectors": ["h2.27", "h3.3", "h2.52"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: turn_end carries event.message (completed assistant message — reference-patterns.md §5); detection runs after agent_settled; needs the per-run upsert flag from P1.M2.T2.S1 to suppress when the model used interrogate.\n2. INPUT: upsert-run flag from P1.M2.T2.S1; config roundDetection from P1.M1.T1.S2.\n3. LOGIC: TUI only, config toggle (default on): if final assistant message contains >=3 lines matching /^\\s*(?:Q?\\d+[\\).:]|[❓\\-•*])\\s+.+\\?/ AND no interrogate upsert occurred this run -> ctx.ui.notify('Question round detected in chat — /interrogate to move it into the panel'); throttle once per 3 turns; NEVER transforms content.\n4. OUTPUT: detect hook wired in index.ts; nudges model behavior via user action only.\n5. DOCS: [Mode A] JSDoc on the regex + throttle."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M7.T5",
+              "title": "Terminal fallbacks + config surface validation",
+              "status": "Planned",
+              "description": "Height/width adaptive rendering; full remappability proof (AC-12) across footer, widget, dialogs.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T5.S1",
+                  "title": "Adaptive rendering: <24 rows, <12 rows, <60 cols",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T1.S2", "P1.M5.T1.S1", "P1.M5.T2.S1"],
+                  "prd_selectors": ["h2.30", "h2.29"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: render(width) receives the width budget; height probing via tui (questionnaire.ts sizes editor by content; non-overlay custom() height budget is undocumented — probe empirically, pi-api-validation.md §Unknown 2).\n2. INPUT: header/footer from P1.M3.T1.S2; deep view from P1.M5.T1.S1; overview from P1.M5.T2.S1.\n3. LOGIC: height <24 rows -> suppress hint line (deep view still available, full replacement); height <12 -> overview paginates 5 rows; width <60 -> option labels truncate with …, ramifications wrap, footer shows max 2 keys (submit, deep) per h2.30.\n4. OUTPUT: fallback rules consumed by all views; low-height remote sessions usable (goal, h2.6 problem statement).\n5. DOCS: [Mode A] JSDoc threshold table."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T5.S2",
+                  "title": "Config surface validation: every hotkey remappable (R5/AC-12)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S2", "P1.M3.T3.S1", "P1.M6.T1.S2"],
+                  "prd_selectors": ["h2.52", "h2.34", "h2.9", "h2.10"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: environment-and-conflicts.md keymap table — avoid ctrl+b family (patty-bg-tasks), ctrl+shift+s/w (pi-web-access), ctrl+shift+f, ctrl+shift+up/down, ctrl+m; user keybindings.json rebinds only editor cursor/pageUp keys.\n2. INPUT: config from P1.M1.T1.S2; keyRouter from P1.M3.T3.S1; command/shortcut from P1.M6.T1.S2.\n3. LOGIC: verify AC-12 end-to-end: remap every default (keys.* incl. breakOut global shortcut) via .pi/settings.json interrogator.keys; assert footer, widget line, ripple/confirm dialogs, and registered shortcut all reflect the remap (no hardcoded key labels anywhere — grep source for hardcoded 'ctrl+' strings outside config defaults). Document any key that CANNOT be remapped as a bug against commitment 7.\n4. OUTPUT: remappability guarantee; feeds README keymap table (P1.M7.T7.S2).\n5. DOCS: [Mode A] none beyond code — README sweep is P1.M7.T7.S2."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M7.T6",
+              "title": "Acceptance runbook execution (AC 1-14)",
+              "status": "Planned",
+              "description": "Execute the PRD acceptance criteria in order via debug commands (scripted) and manual TUI passes; fix defects found; record results.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T6.S1",
+                  "title": "Scripted ACs via debug commands + fixtures",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T3.S1", "P1.M7.T1.S2"],
+                  "prd_selectors": ["h2.10", "h2.50"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: h2.50 integration strategy — drive the tool path via debug commands in `pi -e src/index.ts` sessions; unit tests already cover state machine/merge/guards/caps/closure/reconstruction/digest (vitest, implied per-subtask).\n2. INPUT: debug commands from P1.M2.T3.S1; reconstruction from P1.M7.T1.S2.\n3. LOGIC: execute state-level ACs: AC-2 (delta <=3 lines + reminder, epoch bump, 28 open), AC-3 (close vs re-ask with draft preserved), AC-8 (stale upsert rejection + self-heal re-apply), AC-11 (pi -p digest + answers[] + consistency), AC-13 (archived edit re-pends + changed diff), AC-14 state side (completion record content + once-only). Record pass/fail per criterion with the FR it proves; fix defects in the owning module.\n4. OUTPUT: recorded results consumed by P1.M7.T6.S2 manual pass; defect fixes ripple to owning subtasks.\n5. DOCS: [Mode A] results recorded in-plan (notes), README limitations updated only if behavior deviates."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T6.S2",
+                  "title": "Manual TUI AC pass (panel, gate, ripples, suspend, restart)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M7.T6.S1", "P1.M7.T5.S1", "P1.M7.T5.S2", "P1.M5.T4.S1", "P1.M6.T2.S2", "P1.M7.T3.S1", "P1.M7.T3.S2", "P1.M7.T4.S1", "P1.M7.T2.S1"],
+                  "prd_selectors": ["h2.10", "h2.50", "h2.51"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: AC runbook per h2.50 — each AC cites the FR it proves; AC-4 includes verifying the MAIN editor draft survives suspend/resume (P1.M6.T2.S3 finding); AC-9 restart path via session resume.\n2. INPUT: all UI milestones M3-M6 + persistence/compaction/renderers from M7.\n3. LOGIC: manually execute AC-1 (30 questions/4 groups/gate), AC-4 (break out -> widget -> side chat full turn -> reopen -> drafts intact both sides), AC-5 (deep scroll + select), AC-6 (contrary gate answer -> instant moot + ⊘), AC-7 (ripple confirm esc/enter), AC-9 (restart pi mid-interrogation), AC-10 (/compact -> summary -> read full state), AC-12 (remap). Record results; fix defects in owning modules; re-run affected ACs.\n4. OUTPUT: all 14 ACs green — gate for the docs task.\n5. DOCS: [Mode A] runbook results appended to plan notes; README gets the verified keymap table (P1.M7.T7.S2)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M7.T7",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Mode B final sweep: README.md with install, config reference, keymap table + conflict-verification record, limitations; ensures the whole changeset ships with coherent docs.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T7.S1",
+                  "title": "README.md: install, config reference, usage, limitations",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M1.T2.S2", "P1.M1.T2.S3", "P1.M1.T2.S4", "P1.M1.T3.S1", "P1.M1.T3.S2", "P1.M1.T3.S3", "P1.M1.T3.S4", "P1.M1.T3.S5", "P1.M1.T3.S6", "P1.M2.T1.S1", "P1.M2.T1.S2", "P1.M2.T1.S3", "P1.M2.T2.S1", "P1.M2.T2.S2", "P1.M2.T3.S1", "P1.M3.T1.S1", "P1.M3.T1.S2", "P1.M3.T2.S1", "P1.M3.T2.S2", "P1.M3.T3.S1", "P1.M4.T1.S1", "P1.M4.T1.S2", "P1.M4.T1.S3", "P1.M4.T2.S1", "P1.M4.T2.S2", "P1.M5.T1.S1", "P1.M5.T2.S1", "P1.M5.T3.S1", "P1.M5.T4.S1", "P1.M6.T1.S1", "P1.M6.T1.S2", "P1.M6.T2.S1", "P1.M6.T2.S2", "P1.M6.T2.S3", "P1.M7.T1.S1", "P1.M7.T1.S2", "P1.M7.T2.S1", "P1.M7.T3.S1", "P1.M7.T3.S2", "P1.M7.T4.S1", "P1.M7.T5.S1", "P1.M7.T5.S2"],
+                  "prd_selectors": ["h2.49", "h2.52", "h2.48", "h2.47", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: README is the single doc deliverable in the PRD file checklist (h2.49); per-feature docs rode with subtasks as JSDoc (Mode A). Install path: local package reference '../../projects/pi-structured-interrogation' in ~/.pi/agent/settings.json packages, or pi -e src/index.ts (external-deps.md §Loading).\n2. INPUT: every implementing subtask above (dependencies list); JSDoc accumulated in src/.\n3. LOGIC: write README.md sections: what/why (problem h2.5 in three lines), install (both paths), the /interrogate + interrogate tool workflow for users AND a short model-behavior note, config reference (full h2.52 surface incl. caps formula parameters + toggles), keymap table (defaults + config keys + fixed keys), limitations VERBATIM from h2.4 + drafts-not-persisted + TUI-first/non-TUI digest + compaction adaptation note, dev section (npm run test/typecheck, debug commands from P1.M2.T3.S1, AC runbook pointer).\n4. OUTPUT: README.md complete; changeset ships coherent.\n5. DOCS: [Mode B] this IS the changeset-level docs task — runs last, depends on all implementing subtasks."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M7.T7.S2",
+                  "title": "Keymap conflict re-verification record in README",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S2", "P1.M3.T3.S1", "P1.M6.T1.S2", "P1.M7.T5.S2", "P1.M7.T7.S1"],
+                  "prd_selectors": ["h2.34", "h2.50", "h2.51", "h2.52"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD h2.34 requires the dev agent to re-verify conflicts at build time and record findings; baseline is environment-and-conflicts.md keymap table (pi defaults from docs/keybindings.md + installed extensions: patty-bg-tasks ctrl+b/ctrl+shift+b/x/j + shift+down; pi-web-access ctrl+shift+s/w; pi-vim editor-internal only).\n2. INPUT: config defaults from P1.M1.T1.S2; remappability validation from P1.M7.T5.S2; README from P1.M7.T7.S1.\n3. LOGIC: re-grep installed extensions' registerShortcut calls + pi docs/keybindings.md at build time; record the verified conflict table + avoided-keys list + the panel-intercept rationale (panel-scoped keys are safe because the custom component consumes input first) in README's keymap section.\n4. OUTPUT: README keymap section final; regression guard for future key additions.\n5. DOCS: [Mode B] part of the final docs sweep."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

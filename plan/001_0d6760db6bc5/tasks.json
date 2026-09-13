@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Extension scaffold and config foundation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "package.json (pi manifest), tsconfig, vitest, src/index.ts factory, and config.ts with defaults + settings.json loading.",
               "subtasks": [
                 {
@@ -42,7 +42,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "config.ts — defaults, settings load, deep-merge",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"

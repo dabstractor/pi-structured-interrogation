@@ -196,7 +196,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S4",
                   "title": "Read action, status line, result details snapshot",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"

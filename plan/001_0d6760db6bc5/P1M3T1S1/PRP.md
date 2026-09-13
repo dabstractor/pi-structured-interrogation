@@ -11,7 +11,7 @@ description: "Create src/panel/panel.ts: the InterrogationPanel component class 
 
 **Deliverable**: `src/panel/panel.ts` (InterrogationPanel class, `openPanel`, `suspendPanel`, `PanelHost` interface, `DraftStore` interface, `KeyHandler` type), `src/panel/panel.test.ts`, minimal wiring in `src/index.ts`.
 
-**Success Definition**: `npm test` + `npm run typecheck` green; unit tests prove fire-and-forget open (no await on the custom() promise), done(null) suspend, view switching with deepSticky per session, upsert-while-suspended reopen, and single-instance guard; `pi -e .` smoke-loads with the panel opening on an upsert (via debug command from P1.M2.T3.S1).
+**Success Definition**: `npm test` + `npm run typecheck` green; unit tests prove fire-and-forget open (no await on the custom() promise), done(null) suspend, view switching with deepSticky per session, upsert-while-suspended reopen, and single-instance guard; the panel host is exercised end-to-end in vitest with a fake tui (NO live `pi -e .` session — AUTOMATION-POLICY.md; the live smoke-load is a human check, recorded in MANUAL-TUI-AC-RUNBOOK.md).
 
 ## User Persona
 
@@ -136,7 +136,7 @@ The clean seam: extend `createLifecycle` is NOT allowed (don't modify M2 files b
 ### Success Criteria
 
 - [ ] `openPanel` never awaits the custom() promise (fire-and-forget with Mode A JSDoc explaining why).
-- [ ] Panel replaces editor region in a live TUI; transcript stays visible (non-overlay default — do NOT pass overlay options).
+- [ ] Panel replaces editor region, transcript stays visible (proven in vitest via the fake tui render surface; non-overlay default — do NOT pass overlay options).
 - [ ] `esc`/dismiss → `done(null)` → editor restored; host `isSuspended()` true; state untouched.
 - [ ] ctrl+d / ctrl+l switch views; deepSticky remembered within a session, reset after reopen.
 - [ ] Interrogate upsert while suspended → panel reopens (h2.37) focused on an upserted active question.
@@ -175,7 +175,7 @@ A fresh implementer needs: the custom() contract + fire-and-forget rationale, th
   pattern: existing pi.on / registerCommand usage; config loaded once, passed down
 
 - file: plan/001_0d6760db6bc5/P1M2T3S1/PRP.md
-  why: the debug commands being implemented in parallel — use them for manual smoke testing (/interrogate-debug-upsert)
+  why: the debug commands being implemented in parallel — reference for the same-path contract only. Per AUTOMATION-POLICY.md they are NOT to be driven live by automation; verify via vitest against the shared functions
   contract: executeInterrogate is the production upsert path; treat as available
 
 - file: src/config.ts
@@ -343,24 +343,32 @@ npx vitest run src/panel/panel.test.ts
 npm test               # full suite — must stay green (no regressions in M1/M2)
 ```
 
-### Level 3: Integration (live TUI smoke)
+### Level 3: Integration — SCRIPTED ONLY (AUTOMATION-POLICY.md)
+
+> **Never perform this live.** No `pi -e .` session, no `/interrogate-debug-upsert`
+> by hand, no calling the `interrogate` tool for real, no ending a turn to wait
+> for a user answer. Automated runs verify the same behaviors through vitest
+> against the same code paths:
 
 ```bash
-# In a terminal:
-pi -e .                # loads extension
-# then use the debug command from P1.M2.T3.S1:
-/interrogate-debug-upsert '{"goal":"pick db","questions":[{"id":"q1","title":"engine","options":[{"id":"sqlite","label":"sqlite"}]}]}'
-# EXPECT: panel replaces editor region (placeholder lines), transcript visible above.
-# Press ctrl+d → deep placeholder; ctrl+l → overview; esc → back to short.
-# Press esc (top level stub if wired, or call done path via test) → editor restored.
-# Repeat the debug upsert → panel stays/reopens (h2.37).
-# Type in main editor after suspend → text preserved.
+# Full suite (panel host behaviors are covered by src/panel/panel.test.ts:
+# fire-and-forget open, view switching, done(null) suspend, reopen while
+# suspended, single-instance guard, editor-region replacement via fake tui):
+npx vitest run src/panel/panel.test.ts
+npm test               # full suite — must stay green (no regressions in M1/M2)
 ```
 
-### Level 4: Domain-Specific Validation
+If a gap is found between what the old live smoke checked and what the tests
+cover, ADD/EXTEND THE TEST — do not fall back to a live session. Human-only
+live checks belong in MANUAL-TUI-AC-RUNBOOK.md, never in a pipeline run.
 
-- Manually verify the fire-and-forget invariant: while the panel is open, run any agent turn (`/interrogate-debug-state`) — nothing blocks.
-- Verify only ONE panel instance ever mounts (no double editor replacement) across repeated upserts.
+### Level 4: Domain-Specific Validation (scripted)
+
+- Fire-and-forget invariant: covered by panel.test.ts — the open path never
+  awaits the custom() promise and an agent turn during an open panel does not
+  block (assert via the fake tui/event surface, not a live session).
+- Single-instance guard: covered by panel.test.ts across repeated upserts
+  (no double editor replacement).
 
 ## Final Validation Checklist
 
@@ -368,7 +376,7 @@ pi -e .                # loads extension
 
 - [ ] `npm test` green (new + existing)
 - [ ] `npm run typecheck` clean
-- [ ] Live smoke: panel opens via `/interrogate-debug-upsert`, views toggle, esc suspends, re-upsert reopens
+- [ ] Panel host behaviors proven in vitest: open via upsert event, view switching, done(null) suspend, re-upsert reopen (h2.37), single-instance guard — no live TUI session used (AUTOMATION-POLICY.md)
 
 ### Feature Validation
 

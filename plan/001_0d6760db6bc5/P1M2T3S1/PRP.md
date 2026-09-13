@@ -11,7 +11,7 @@ description: "Create src/debug-commands.ts registering three TUI slash commands 
 
 **Deliverable**: `src/debug-commands.ts` exporting `registerDebugCommands(pi: Pick<ExtensionAPI, "registerCommand" | "sendMessage">, config: InterrogatorConfig): void`; `src/debug-commands.test.ts`; one-line wiring in `src/index.ts`.
 
-**Success Definition**: `npm test` + `npm run typecheck` green; the three commands load in a live `pi -e .` session; upsert/submit produce the identical state side effects (epoch bumps, snapshots, delivered messages) as the corresponding tool calls; state command prints status line + one-liner per question; all commands are harmless with empty state.
+**Success Definition**: `npm test` + `npm run typecheck` green; the three commands load and behave identically to the tool path, proven headlessly in vitest (fake ctx; NO live `pi -e .` session — AUTOMATION-POLICY.md); upsert/submit produce the identical state side effects (epoch bumps, snapshots, delivered messages) as the corresponding tool calls; state command prints status line + one-liner per question; all commands are harmless with empty state.
 
 ## User Persona
 
@@ -354,19 +354,24 @@ npm test
 # Expected: all pass, including pre-existing suites (regression: index.ts wiring compiles)
 ```
 
-### Level 3: Integration (live TUI)
+### Level 3: Integration — SCRIPTED ONLY (AUTOMATION-POLICY.md)
+
+> Supersedes the former live-TUI sequence: automated runs NEVER launch `pi -e .`,
+> NEVER call the `interrogate` tool for real, NEVER wait for user answers. The
+> same command handlers are exercised headlessly in vitest (fake ctx with
+> notify capture); the live TUI sequence remains available to humans via
+> MANUAL-TUI-AC-RUNBOOK.md.
 
 ```bash
-pi -e .
-# in session:
-/interrogate-debug-state            # → "no interrogation state (epoch 0)"
-/interrogate-debug-upsert '{"goal":"test","questions":[{"id":"q1","prompt":"DB?","type":"single","options":["sqlite","postgres"],"rev":1}]}'
-# → status line notify; auto-close lifecycle subscribes to the upsert events
-/interrogate-debug-state            # → q1 line, epoch 1
-/interrogate-debug-submit q1=postgres
-# → one submission message to the model, agent turn triggers, epoch 2
-/interrogate-debug-upsert '{"goal":"x","questions":[{"id":"q1","prompt":"DB?","type":"single","options":["a"],"rev":1}]}'  # stale: rev must be current
-# → StaleError message with current rev + digest (AC-8 observable)
+# Scripted equivalent (automation): invoke the SAME captured command handlers
+# in vitest with a fake ctx (notify captured) and assert the expected sequence:
+#   state cmd on empty state     -> "no interrogation state (epoch 0)"
+#   upsert cmd (q1 fixture)      -> status-line notify; lifecycle subscribed to upsert events
+#   state cmd                    -> q1 one-liner, epoch 1
+#   submit cmd q1=postgres       -> exactly one submission sendMessage + one epoch bump
+#   stale upsert (old rev)       -> StaleError message with current rev + digest (AC-8)
+# The live TUI form of this sequence (pi -e . + the slash commands) is a
+# HUMAN procedure — see MANUAL-TUI-AC-RUNBOOK.md; automation never runs it.
 ```
 
 ### Level 4: Domain-Specific
@@ -383,7 +388,7 @@ pi -e .
 
 - [ ] `npm run typecheck` clean
 - [ ] `npm test` all green (new suite + no regressions)
-- [ ] Level 3 live-session sequence works in `pi -e .`
+- [ ] Level 3 sequence proven headlessly in vitest (same handlers, fake ctx) — no live `pi -e .` session (AUTOMATION-POLICY.md)
 
 ### Feature Validation
 

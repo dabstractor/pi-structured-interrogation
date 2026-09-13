@@ -410,7 +410,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "custom() host: fire-and-forget open, view switching, done(null) suspend",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S6",

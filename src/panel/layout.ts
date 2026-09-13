@@ -115,6 +115,31 @@ export function renderGateWarningLine(text: string, theme: Theme, width: number)
 }
 
 /**
+ * Modal ripple-confirm footer (FR-18 / Q39=B, P1.M5.T4.S1):
+ * `⚠ Invalidates {n} answered questions ({ids}) — enter=keep, esc=cancel`.
+ *
+ * Replaces the standard footer WHOLESALE while a ripple confirm is pending
+ * (every view + note mode), so the keep/cancel decision is the only footer
+ * surface — one line, exactly like renderFooter at any width ≥ 40. Copy
+ * hardcodes enter/esc (FIXED keys, Mode A — never config-driven). `ids` is
+ * the victim list in computeRipple BFS order, comma-space joined. Styling
+ * mirrors the transient slot: two-column inset, ⚠ in accent + dim body,
+ * truncateVisible-bounded so a long victim list can never wrap.
+ *
+ * @param victims answered/submitted ripple ids (BFS order)
+ * @param theme   pi theme (⚠ accent, body dim)
+ * @param width   total render width budget for the line
+ */
+export function renderConfirmFooter(victims: string[], theme: Theme, width: number): string {
+  const plain = `⚠ Invalidates ${victims.length} answered questions (${victims.join(", ")}) — enter=keep, esc=cancel`;
+  const budget = Math.max(1, width - 2); // two-column inset (mirrors renderFlashLine)
+  const body = truncateVisible(plain, budget);
+  // Compose theme-wrapping AFTER truncation (module contract): accent ⚠,
+  // dim remainder — slicing the truncated PLAIN text is ANSI-safe.
+  return `  ${theme.fg("accent", body.slice(0, 1))}${theme.fg("dim", body.slice(1))}`;
+}
+
+/**
  * First sentence of a description: text up to (and including) the first
  * `.`, `?`, or `!` that is followed by a space or end-of-string; the whole
  * description when no such terminator exists.

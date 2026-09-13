@@ -18,6 +18,7 @@ import { resolveKeyLabels } from "../config.js";
 import type { Question, QuestionStatus, SerializedState } from "../state.js";
 import {
   firstSentence,
+  renderConfirmFooter,
   renderFlashLine,
   renderFooter,
   renderGateWarningLine,
@@ -482,5 +483,28 @@ describe("renderHintLine dim param", () => {
     const [undimmed] = renderHintLine(question, ansiDimTheme, 80, false);
     const [dimmed] = renderHintLine(question, ansiDimTheme, 80, true);
     expect(dimmed).toBe(`${DIM_START}${undimmed}${DIM_END}`);
+  });
+});
+
+describe("renderConfirmFooter", () => {
+  test("test_confirm_footer_exact_copy", () => {
+    expect(renderConfirmFooter(["q2", "q3"], theme, 80)).toBe(
+      "  ⚠ Invalidates 2 answered questions (q2, q3) — enter=keep, esc=cancel",
+    );
+  });
+
+  test("test_confirm_footer_single_victim_lists_one_id", () => {
+    const line = renderConfirmFooter(["q9"], theme, 80);
+    expect(line).toBe("  ⚠ Invalidates 1 answered questions (q9) — enter=keep, esc=cancel");
+  });
+
+  test("test_confirm_footer_truncates_and_stays_exactly_one_line", () => {
+    const victims = ["q2", "q3", "q4", "q5", "q6-with-a-very-long-id-suffix"];
+    for (const width of [40, 60, 80, 120]) {
+      const line = renderConfirmFooter(victims, theme, width);
+      expect(line.includes("\n")).toBe(false); // never wraps
+      expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+    }
+    expect(renderConfirmFooter(["q2", "q3"], theme, 40)).toContain("…");
   });
 });

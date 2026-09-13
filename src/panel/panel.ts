@@ -42,17 +42,28 @@
  * `createPanelHost` before each scenario.
  */
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import { parseKey, type Component, type TUI } from "@earendil-works/pi-tui";
+import { Key, matchesKey, parseKey, type Component, type TUI } from "@earendil-works/pi-tui";
 import {
   editInExternalEditor,
   resolveExternalEditorCommand,
 } from "../external-editor.js";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
-import { getState, type InterrogationState } from "../state.js";
+import { getState, type InterrogationState, type SerializedState } from "../state.js";
 import { nextUnanswered, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
+import {
+  applyConfirmedEdit,
+  applyTextConfirm,
+  beginTextConfirm,
+  cancelConfirm,
+  cancelTextConfirm,
+  createRippleConfirm,
+  rippleVictims,
+  type RippleConfirmState,
+} from "./ripple-confirm.js";
 import { buildKeyRouter, defaultRoutedActions } from "./keys.js";
 import { createEditorComponent, TextField, type EditorFactory } from "./text-field.js";
 import {
+  renderConfirmFooter,
   renderFlashLine,
   renderFooter,
   renderGateWarningLine,
@@ -178,9 +189,6 @@ const ACTIVE_STATUSES: readonly string[] = ["open", "answered", "submitted", "re
 
 /** Footer flash lifetime (h2.37 transient states ~2.5s). */
 const FLASH_MS = 2500;
-
-/** Default ripple seam — always-true no-op until P1.M5.T4.S1 swaps it. */
-const defaultRippleConfirm: RippleConfirmFn = () => true;
 
 /** Constructor dependencies for {@link InterrogationPanel}. */
 export interface InterrogationPanelArgs {
@@ -312,6 +320,19 @@ export class InterrogationPanel implements Component {
    */
   gateWarning: { count: number } | null = null;
 
+  /**
+   * Modal ripple-confirm state (FR-18 / Q39=B, P1.M5.T4.S1) — set by the
+   * default rippleConfirm seam (createRippleConfirm) when a pending answer
+   * edit would invalidate ≥ 1 answered/submitted questions, or by the text
+   * stage-1 gate in {@link saveTextDraft}. While non-null the mode is
+   * MODAL: handleInput consumes every key (only enter=keep / esc=cancel
+   * act), the footer is REPLACED by renderConfirmFooter in every view, and
+   * the transient notice slot (flash + gate warning) is suppressed. Null
+   * (the resting state) ⇒ every path behaves exactly as before this task.
+   * Mutated only by the ripple-confirm flow (src/panel/ripple-confirm.ts).
+   */
+  confirmMode: RippleConfirmState | null = null;
+
   /** Submit transport seam — inert matcher branch when undefined. */
   readonly delivery: SubmitDeps | undefined;
 
@@ -422,7 +443,7 @@ export class InterrogationPanel implements Component {
     this.keys = args.keys ?? buildKeyRouter(args.config, routed);
     this.labels = resolveKeyLabels(args.config);
     this.delivery = args.delivery;
-    this.rippleConfirm = args.confirmRipple ?? defaultRippleConfirm;
+    this.rippleConfirm = args.confirmRipple ?? createRippleConfirm();
     // Initial focus (FR-1, P1.M5.T3.S1): focusQuestionId → gate group's
     // first answerable question → gate group's first question → first open →
     // first. With NO gate group declared the ladder degenerates to the
@@ -457,8 +478,17 @@ export class InterrogationPanel implements Component {
    * [Mode A] Two-stage enter (h2.31 Q17=A, FR-12) — the load-bearing order
    * inside this method is:
    *
-   *   resolved guard → (a) one-shot disarm → (b) armed stage-2 enter →
-   *   (c) text/note stage-1 enter → keys seam → textField forwarding.
+   *   resolved guard → CONFIRM-MODE CHECK (modal, FR-18) → stage-0
+   *   gate-warning dismissal → (a) one-shot disarm → (b) armed stage-2
+   *   enter → (c) text/note stage-1 enter → keys seam → textField
+   *   forwarding.
+   *
+   * The CONFIRM-MODE CHECK (P1.M5.T4.S1) sits BEFORE everything else
+   * because the mode is MODAL: only enter (keep) / esc (cancel) act and
+   * every other key is a consumed no-op — including keys that would
+   * dismiss a gate warning or disarm the advance flag. Returning from the
+   * confirm branch also guarantees a confirm-enter can never double-fire
+   * as the armed stage-2 advance below.
    *
    * Stage 1 intercepts enter at the PANEL level (before the router and
    * before the embedded editor ever sees the byte) rather than via
@@ -483,6 +513,22 @@ export class InterrogationPanel implements Component {
    */
   handleInput(data: string): boolean {
     if (this.resolved) return false;
+    // CONFIRM MODE (FR-18 / Q39=B, P1.M5.T4.S1) — FIRST check after the
+    // resolved guard, BEFORE the gate-warning dismissal: while a pending
+    // answer edit awaits keep/cancel, no other key (including a gate-
+    // warning dismissal, an advance-flag disarm, or router/editor input)
+    // may act. "\n" (ctrl+j newline) is excluded from keep exactly as in
+    // the stage checks below; esc matches the router's fixed Key.escape.
+    if (this.confirmMode !== null) {
+      if (parseKey(data) === "enter" && data !== "\n") {
+        if (this.confirmMode.kind === "text") applyTextConfirm(this);
+        else applyConfirmedEdit(this);
+      } else if (matchesKey(data, Key.escape)) {
+        if (this.confirmMode.kind === "text") cancelTextConfirm(this);
+        else cancelConfirm(this);
+      }
+      return true; // modal: enter/esc acted; everything else is a consumed no-op
+    }
     // Stage 0 — gate-warning dismissal (P1.M5.T3.S1, FR-9): ANY key clears
     // the warning and STILL acts. Clear + continue, never return: consuming
     // the key here would swallow the dismissing keypress (e.g. the first ↑
@@ -543,8 +589,39 @@ export class InterrogationPanel implements Component {
     const text = this.textField.getText();
     const id = this.currentId;
     if (id !== undefined) {
-      this.draftSlots.set(id, { value: id, text });
-      this.drafts?.setDraft(id, text);
+      // FR-18 text gate (P1.M5.T4.S1): re-saving a draft on an
+      // answered/submitted question (recorded answer present — stage-1
+      // saves never APPLY answers, so the gate keys off the recorded
+      // q.answer) whose ripple would invalidate answered/submitted
+      // questions defers the save into the modal confirm. Zero victims →
+      // the unconditional tail below, byte-identical to pre-task behavior.
+      const q = this.state.getQuestion(id);
+      if (
+        q !== undefined &&
+        q.answer !== undefined &&
+        (q.status === "answered" || q.status === "submitted") &&
+        rippleVictims(this, id).length > 0
+      ) {
+        beginTextConfirm(this, text);
+        return; // deferred — commitTextDraft runs on confirm-enter
+      }
+    }
+    this.commitTextDraft(id, text);
+  }
+
+  /**
+   * The unconditional stage-1 tail shared by the direct save path and the
+   * ripple-confirm apply path (applyTextConfirm): write the panel-local
+   * slot ({value, text} per h2.45), persist via the DraftStore seam, blur
+   * back to options, and arm the one-shot advance flag. Never advances and
+   * never applies an answer (stage-1 semantics — h2.31). Takes the question
+   * id explicitly so a deferred confirm commits against the STASHED id even
+   * though the modal guarantees currentId cannot drift while it is open.
+   */
+  commitTextDraft(questionId: string | undefined, text: string): void {
+    if (questionId !== undefined) {
+      this.draftSlots.set(questionId, { value: questionId, text });
+      this.drafts?.setDraft(questionId, text);
     }
     this.blurTextField(); // focus = "options" + editor blur + invalidate
     this.advanceArmed = true;
@@ -783,10 +860,28 @@ export class InterrogationPanel implements Component {
    * still-live flash resumes showing.
    */
   private footerNoticeLine(width: number): string | undefined {
+    // Modal confirm (FR-18): the transient slot is suppressed entirely —
+    // the confirm footer replaces the footer line, and neither a live
+    // flash nor a gate warning may compete with the keep/cancel decision.
+    if (this.confirmMode !== null) return undefined;
     if (this.gateWarning !== null) {
       return renderGateWarningLine(gateWarningLine(this.gateWarning.count), this.theme, width);
     }
     return this.flashLine(width);
+  }
+
+  /**
+   * The footer line for the current pass. While confirmMode is active
+   * (FR-18) the standard footer is REPLACED wholesale — in every view and
+   * in note mode — by the single-line confirm footer, so the keep/cancel
+   * decision is always the only footer surface (exactly one line, never
+   * double-pushed).
+   */
+  private footerLine(snapshot: SerializedState, width: number): string {
+    if (this.confirmMode !== null) {
+      return renderConfirmFooter(this.confirmMode.victims, this.theme, width);
+    }
+    return renderFooter(snapshot, this.view, this.labels, this.theme, width);
   }
 
   /**
@@ -809,7 +904,7 @@ export class InterrogationPanel implements Component {
       lines.push(...this.textField.render(width));
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
-      lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
+      lines.push(this.footerLine(snapshot, width));
       return lines;
     }
     if (this.view === "short") {
@@ -853,7 +948,7 @@ export class InterrogationPanel implements Component {
       // line when active, else the flash line; timer expiry clears flashes.
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
-      lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
+      lines.push(this.footerLine(snapshot, width));
       return lines;
     }
     if (this.view === "deep") {
@@ -876,7 +971,7 @@ export class InterrogationPanel implements Component {
       }
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
-      lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
+      lines.push(this.footerLine(snapshot, width));
       return lines;
     }
     // Overview (P1.M5.T2.S1, FR-11) — the exhaustive tail of the view chain
@@ -903,7 +998,7 @@ export class InterrogationPanel implements Component {
       }
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
-      lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
+      lines.push(this.footerLine(snapshot, width));
       return lines;
     }
   }

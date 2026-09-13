@@ -20,6 +20,7 @@
  * ONLY to the accept-advance algorithm below (Q14=A: enter = accept +
  * advance).
  */
+import { evaluateDependsOn } from "../depends-on.js";
 import { buildSubmission, deliverSubmission } from "../delivery.js";
 import { computeDiff } from "../snapshots.js";
 import type { Question, SerializedState } from "../state.js";
@@ -232,6 +233,12 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
     if (!panel.confirmRippleEdit(q.id, proposed)) return true; // seam vetoed
   }
   panel.state.applyAnswer(q.id, proposed);
+  // FR-17 / AC-6 (P1.M5.T4.S1): instant-local moot re-derivation after
+  // EVERY panel-side apply — ripple victims grey out with reasons
+  // immediately, not just at snapshot/delivery time. Exactly once per
+  // commit, always AFTER applyAnswer and BEFORE the advance (freshly
+  // mootered questions must not be advance targets).
+  evaluateDependsOn(panel.state);
   advanceAfterAccept(panel);
   return true;
 }

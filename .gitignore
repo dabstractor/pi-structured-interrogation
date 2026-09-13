@@ -1,0 +1,17 @@
+# Build artifacts
+dist/
+build/
+
+# Dependencies
+node_modules/
+venv/
+
+# Environment files
+.env
+
+# OS-specific files
+.DS_Store
+*.log
+*.tmp
+*.bak
+*.swp

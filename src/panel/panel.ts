@@ -40,10 +40,10 @@
  * `createPanelHost` before each scenario.
  */
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import { parseKey, type Component, type TUI } from "@earendil-works/pi-tui";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { getState, type InterrogationState } from "../state.js";
-import type { RippleConfirmFn, SubmitDeps } from "./actions.js";
+import { nextUnanswered, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
 import { buildKeyRouter, defaultRoutedActions } from "./keys.js";
 import { createEditorComponent, TextField, type EditorFactory } from "./text-field.js";
 import {
@@ -62,6 +62,17 @@ export type PanelView = "short" | "deep" | "overview";
 
 /** Focus region inside the panel (short view h2.29 layout). */
 export type PanelFocus = "options" | "text" | "note";
+
+/**
+ * Panel-local draft record — the {value, text} shape per the h2.45 drafts
+ * lifecycle. Written by stage-1 enter (two-stage, h2.31); reconciled into
+ * the real DraftStore by P1.M4.T2.S1. The map is the always-fresh source
+ * for refocus seeding during the panel's lifetime.
+ */
+interface TextDraft {
+  value: string;
+  text: string;
+}
 
 /**
  * DraftStore seam — implemented by P1.M4.T2.S1. Accept a handle via
@@ -220,6 +231,31 @@ export class InterrogationPanel implements Component {
   scrollOffset = 0;
 
   /**
+   * Panel-local free-text drafts keyed by question id (h2.45): stage-1
+   * enter ({@link saveTextDraft}) writes {value, text} here synchronously,
+   * making it the freshest read for refocus seeding ({@link focusTextField}
+   * falls back to the DraftStore seam). Survives question navigation (R4) —
+   * it is NEVER cleared in this task; destruction/reconciliation rules
+   * belong to P1.M4.T2.S1.
+   */
+  private draftSlots = new Map<string, TextDraft>();
+
+  /**
+   * One-shot two-stage enter flag (h2.31, Mode A): armed by stage-1 (enter
+   * in text focus saved the draft), consumed by stage-2 (the NEXT enter
+   * advances to the next unanswered question). Any other input event
+   * disarms it (one-shot semantics — see handleInput). Public so tests can
+   * assert the flag directly.
+   */
+  advanceArmed = false;
+
+  /**
+   * Batch note text (R3) — written by enter in note focus
+   * ({@link saveNote}); the ctrl+shift+m open path is P1.M4.T2.S2.
+   */
+  batchNote = "";
+
+  /**
    * Transient footer flash (h2.37 empty-state feedback, e.g. "nothing to
    * submit"): set via flash(), auto-cleared after {@link FLASH_MS} by its
    * own timer (which re-invalidates once). The timer is cleared in dispose()
@@ -342,15 +378,61 @@ export class InterrogationPanel implements Component {
   }
 
   /**
-   * Key dispatch: the config-driven router (keys.ts, P1.M3.T3.S1) owns ALL
-   * of it — fixed arrows/esc/enter, the esc-descent ladder (short-view esc
+   * [Mode A] Two-stage enter (h2.31 Q17=A, FR-12) — the load-bearing order
+   * inside this method is:
+   *
+   *   resolved guard → (a) one-shot disarm → (b) armed stage-2 enter →
+   *   (c) text/note stage-1 enter → keys seam → textField forwarding.
+   *
+   * Stage 1 intercepts enter at the PANEL level (before the router and
+   * before the embedded editor ever sees the byte) rather than via
+   * editor.onSubmit because (1) composed editors (pi-vim) may not implement
+   * onSubmit at all, and (2) the stock Editor's submitValue() EMPTIES the
+   * buffer and TRIMS the text — interception keeps the editor content
+   * intact for seeding. This deliberately supersedes S1's "FUTURE
+   * M4.T1.S2: sets editor.onSubmit" note (double-fire risk; onSubmit stays
+   * unset). parseKey-exact matching ("enter", never raw data === "\r")
+   * makes newline input safe by construction: shift+enter (kitty
+   * "\x1b[13;2u" / xterm "\x1b[13;2~"), alt+enter ("\x1b\r") parse to
+   * modifier KeyIds and fall through to the editor, and ctrl+j ("\n") is
+   * excluded by raw byte (legacy parseKey resolves it to plain "enter").
+   * History isolation (h2.31): the embedded editor's history API is never
+   * invoked anywhere in this panel — its up/down history stays empty.
+   *
+   * The config-driven router (keys.ts, P1.M3.T3.S1) still owns everything
+   * else — fixed arrows/esc/enter, the esc-descent ladder (short-view esc
    * suspends, FR-16), and every config.keys accelerator via the h2.34
-   * intercept-before-forward rule (config keys are consumed even in text
-   * focus). Unmatched input is forwarded to the embedded editor when
-   * focus === "text" (P1.M4.T1.S1); otherwise it is ignored.
+   * intercept-before-forward rule. Unmatched input is forwarded to the
+   * embedded editor when focus === "text" (P1.M4.T1.S1); otherwise ignored.
    */
   handleInput(data: string): boolean {
     if (this.resolved) return false;
+    const key = parseKey(data);
+    // "\n" is a newline request (R4: ctrl+j / Ghostty shift+enter mapping),
+    // never a stage transition — legacy parseKey resolves it to "enter", so
+    // the raw byte is excluded here (kitty mode already yields "shift+enter").
+    const enter = key === "enter" && data !== "\n";
+    // (a) One-shot disarm: any input other than the stage-2 enter disarms
+    // before normal dispatch. A stage-1 enter IS "enter", so arming in (c)
+    // below is never undone by this check — order is load-bearing.
+    if (this.advanceArmed && !enter) this.advanceArmed = false;
+    // (b) Stage 2: the NEXT enter (options focus) advances to the next
+    // unanswered question. Runs BEFORE the keys seam so the armed enter
+    // cannot be shadowed by the router's enter→accept interception.
+    if (this.advanceArmed && enter && this.focus === "options") {
+      this.advanceArmed = false;
+      this.advanceToNextUnanswered();
+      this.invalidate();
+      return true;
+    }
+    // (c) Stage 1: enter in text/note focus saves and blurs — never reaches
+    // the editor (no stock submitValue, no onSubmit) and never the router
+    // (in note focus the router would read enter as options accept).
+    if (enter && (this.focus === "text" || this.focus === "note")) {
+      if (this.focus === "note") this.saveNote();
+      else this.saveTextDraft();
+      return true;
+    }
     if (this.keys(data, this)) return true;
     // Unmatched input reaches the embedded editor ONLY while text focus is
     // active (h2.34: config intercepts fired first inside the router — the
@@ -360,6 +442,54 @@ export class InterrogationPanel implements Component {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Stage 1 for question text (h2.31 two-stage enter): snapshot the editor
+   * text into the panel-local draft slot ({value, text} per h2.45 — final
+   * store reconciliation is P1.M4.T2.S1), persist via the DraftStore seam
+   * when present, blur back to options, and arm the one-shot advance flag.
+   * Never advances and never selects an option. See the [Mode A] JSDoc on
+   * {@link handleInput} for why the trigger is panel-level interception.
+   */
+  private saveTextDraft(): void {
+    const text = this.textField.getText();
+    const id = this.currentId;
+    if (id !== undefined) {
+      this.draftSlots.set(id, { value: id, text });
+      this.drafts?.setDraft(id, text);
+    }
+    this.blurTextField(); // focus = "options" + editor blur + invalidate
+    this.advanceArmed = true;
+  }
+
+  /**
+   * Stage 1 for the batch note (R3): save via the seam + panel field and
+   * exit note mode. Deliberately does NOT arm the advance flag — a note is
+   * not a question answer. (The ctrl+shift+m open path is P1.M4.T2.S2; this
+   * is the enter-to-save-and-exit path it will plug into.)
+   */
+  private saveNote(): void {
+    const text = this.textField.getText();
+    this.batchNote = text;
+    this.drafts?.setNote(text);
+    this.blurTextField();
+  }
+
+  /**
+   * Stage 2 target: the accept-advance algorithm (h2.38) via the shared
+   * nextUnanswered primitive from actions.ts — forward scan with wrap over
+   * open/reasked, staying on the current question when nothing qualifies
+   * (all answered). Mirrors actions.advanceAfterAccept without duplicating
+   * its logic (actions.ts is read-only for this task; nextUnanswered is its
+   * exported core). Assigning currentId re-seeds the cursor (R2).
+   */
+  private advanceToNextUnanswered(): void {
+    const ordered = this.state.orderedQuestions();
+    const from = ordered.findIndex((q) => q.id === this.currentId);
+    const nextId = nextUnanswered(ordered, from);
+    if (nextId !== undefined) this.currentId = nextId;
+    this.invalidate();
   }
 
   /**
@@ -426,19 +556,22 @@ export class InterrogationPanel implements Component {
   /**
    * Focus path for the router's onFocusText seam (keys.focusText / ctrl+t,
    * and the ✎ affordance route refined in the constructor): focus the
-   * embedded editor and seed the current draft. Seeding applies only when
-   * the field is empty so blur → re-focus never clobbers in-flight text;
-   * the DraftStore seam (P1.M4.T2.S1) supplies the persisted value — until
-   * it lands the seed is "".
+   * embedded editor and seed the current draft. P1.M4.T1.S2 refines S1's
+   * empty-only seeding (h2.31 seed-on-refocus): the freshest read is the
+   * panel-local slot written by stage-1 enter ({@link saveTextDraft}),
+   * falling back to the DraftStore seam (P1.M4.T2.S1 supplies it) and
+   * finally "". {@link TextField.seed} is idempotent — a same-question
+   * re-focus whose buffer already matches is a textual no-op — while a
+   * cross-question re-focus re-seeds instead of showing the previous
+   * question's leftover text.
    */
   focusTextField(): void {
     this.focus = "text";
     this.textField.focus();
-    if (this.textField.getText() === "") {
-      const draft =
-        this.currentId !== undefined ? this.drafts?.getDraft(this.currentId) : undefined;
-      this.textField.seed(draft ?? "");
-    }
+    const id = this.currentId;
+    const draft =
+      id !== undefined ? (this.draftSlots.get(id)?.text ?? this.drafts?.getDraft(id)) : undefined;
+    this.textField.seed(draft ?? "");
     this.invalidate(); // the editor region appears immediately
   }
 

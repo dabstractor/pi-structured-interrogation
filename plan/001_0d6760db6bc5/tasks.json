@@ -531,7 +531,7 @@
               "type": "Task",
               "id": "P1.M4.T1",
               "title": "Free-text field (panel/text-field.ts)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Editor composition (composed vs stock), focus model with two-stage enter, external editor integration.",
               "subtasks": [
                 {
@@ -556,7 +556,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S2",
                   "title": "Two-stage enter, newlines, history isolation",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M4.T1.S1"
@@ -572,7 +572,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S3",
                   "title": "ctrl+g external editor ($VISUAL/$EDITOR, nano fallback)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M4.T1.S1"
@@ -596,7 +596,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T2.S1",
                   "title": "Draft store: per-question slots + survival guarantees",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1",

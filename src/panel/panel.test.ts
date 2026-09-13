@@ -758,7 +758,7 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     expect(panel.textField.focused).toBe(false);
   });
 
-  test("test_refocus_keeps_in_flight_text_and_reseeds_empty_field", () => {
+  test("test_refocus_reseeds_saved_draft_over_stale_buffer", () => {
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
     const drafts = {
@@ -771,11 +771,14 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     panel.focusTextField();
     expect(panel.textField.getText()).toBe("saved draft");
 
-    // In-flight text survives blur → re-focus (never clobbered by seeding).
+    // P1.M4.T1.S2 refinement (h2.31 seed-on-refocus): re-focusing always
+    // seeds from the freshest draft read — a stale buffer (e.g. leftover
+    // text from another question after navigation) is re-seeded, while a
+    // same-value re-focus is a textual no-op inside TextField.seed.
     panel.blurTextField();
-    panel.textField.setText("in flight");
+    panel.textField.setText("stale buffer");
     panel.focusTextField();
-    expect(panel.textField.getText()).toBe("in flight");
+    expect(panel.textField.getText()).toBe("saved draft");
   });
 
   test("test_unmatched_input_forwards_only_in_text_focus", () => {

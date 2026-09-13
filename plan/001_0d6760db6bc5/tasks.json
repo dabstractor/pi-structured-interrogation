@@ -61,7 +61,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "State engine (state.ts)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "In-memory single source of truth: question map/order, status machine, rev/epoch counters, merge rules, dependsOn evaluator, snapshot ring + diffs, change events.",
               "subtasks": [
                 {
@@ -119,7 +119,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S4",
                   "title": "Snapshot ring + diff computation",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1"

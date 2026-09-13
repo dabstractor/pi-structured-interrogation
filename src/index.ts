@@ -17,11 +17,13 @@
  * (async factories are awaited by pi before session_start — docs/extensions.md
  * "The factory can be synchronous or asynchronous"), registers the
  * /interrogate-ping smoke-test command, and registers the `interrogate` tool
- * (h2.15) via createInterrogateTool. The panel host, lifecycle subscriptions,
- * message renderers, and completion flow land in later milestones.
+ * (h2.15) via createInterrogateTool, and wires the auto-close lifecycle engine
+ * (P1.M2.T2.S1 — h2.44 close pass on agent_settled). The panel host, message
+ * renderers, and completion flow land in later milestones.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "./config.js";
+import { createLifecycle } from "./lifecycle.js";
 import { createInterrogateTool } from "./tool.js";
 
 export default async function interrogatorExtension(pi: ExtensionAPI): Promise<void> {
@@ -35,4 +37,10 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   });
 
   pi.registerTool(createInterrogateTool(config));
+
+  // P1.M2.T2.S1 — auto-close engine (h2.44): subscribes tool_execution_start/end
+  // + agent_settled and runs the idempotent close pass after each settle.
+  // P1.M2.T2.S2 will pass onAfterClosePass here (completion-trigger seam).
+  const lifecycle = createLifecycle(pi);
+  void lifecycle;
 }

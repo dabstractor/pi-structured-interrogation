@@ -428,6 +428,7 @@ describe("extension factory wiring (index.ts)", () => {
     const fakePi = {
       registerCommand: (name: string, _opts: unknown) => commands.push(name),
       registerTool: (tool: unknown) => tools.push(tool),
+      on: (_event: string, _handler: unknown) => undefined, // lifecycle subscriptions (P1.M2.T2.S1)
     } as unknown as ExtensionAPI;
     await mod.default(fakePi);
     expect(commands).toEqual(["interrogate-ping"]); // T1 contract preserved

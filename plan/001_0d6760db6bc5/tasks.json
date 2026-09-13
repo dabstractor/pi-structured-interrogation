@@ -180,7 +180,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S3",
                   "title": "Caps engine: formula, truncation warnings",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1",
@@ -196,7 +196,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S4",
                   "title": "Read action, status line, result details snapshot",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -213,7 +213,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S5",
                   "title": "Non-TUI fallback digest + answers action",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1",

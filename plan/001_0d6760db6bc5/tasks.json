@@ -85,7 +85,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Merge rules 1-4 + status transitions",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"

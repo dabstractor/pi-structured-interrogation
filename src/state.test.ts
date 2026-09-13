@@ -239,6 +239,25 @@ describe("clearForCompletion", () => {
     expect(changed).toHaveLength(2);
     expect(changed[1].questions).toEqual({});
   });
+
+  test("sets the one-time completed flag; serialize round-trips it (P1.M2.T2.S2)", () => {
+    expect(state.completed).toBe(false); // fresh default
+    state.upsertQuestion(q({ id: "q1" }));
+    state.clearForCompletion();
+    expect(state.completed).toBe(true);
+
+    const snap = state.serialize();
+    expect(snap.completed).toBe(true);
+    const revived = InterrogationState.deserialize(snap);
+    expect(revived.completed).toBe(true); // M7.T1 restores the guard
+  });
+
+  test("deserialize tolerates a missing completed field (legacy payload → false)", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const legacy = JSON.parse(JSON.stringify(state.serialize())) as Record<string, unknown>;
+    delete legacy.completed;
+    expect(InterrogationState.deserialize(legacy).completed).toBe(false);
+  });
 });
 
 describe("serialize/deserialize round-trip", () => {

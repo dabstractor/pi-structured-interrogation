@@ -17,13 +17,17 @@
  * (async factories are awaited by pi before session_start — docs/extensions.md
  * "The factory can be synchronous or asynchronous"), registers the
  * /interrogate-ping smoke-test command, and registers the `interrogate` tool
- * (h2.15) via createInterrogateTool, and wires the auto-close lifecycle engine
- * (P1.M2.T2.S1 — h2.44 close pass on agent_settled). The panel host, message
- * renderers, and completion flow land in later milestones.
+ * (h2.15) via createInterrogateTool, wires the auto-close lifecycle engine
+ * (P1.M2.T2.S1 — h2.44 close pass on agent_settled), and plugs the one-time
+ * completion trigger into its onAfterClosePass seam (P1.M2.T2.S2 — h3.9:
+ * inject the full interrogation-completion record once, dismiss the panel,
+ * clear in-memory state). The panel host and message renderers land in later
+ * milestones.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createCompletionTrigger } from "./completion.js";
 import { loadConfig } from "./config.js";
-import { createLifecycle } from "./lifecycle.js";
+import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { createInterrogateTool } from "./tool.js";
 
 export default async function interrogatorExtension(pi: ExtensionAPI): Promise<void> {
@@ -40,7 +44,21 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
 
   // P1.M2.T2.S1 — auto-close engine (h2.44): subscribes tool_execution_start/end
   // + agent_settled and runs the idempotent close pass after each settle.
-  // P1.M2.T2.S2 will pass onAfterClosePass here (completion-trigger seam).
-  const lifecycle = createLifecycle(pi);
-  void lifecycle;
+  // P1.M2.T2.S2 — completion trigger (h3.9) plugged into onAfterClosePass:
+  // injects the one full interrogation-completion record, dismisses the
+  // panel, then clears in-memory state (exactly once per interrogation).
+  //
+  // Circularity note: the trigger needs the lifecycle (dismissPanel) and the
+  // engine needs the trigger (onAfterClosePass). Resolved with a late-binding
+  // shim — the shim closure reads the `lifecycle` binding lazily at call
+  // time, by which point the assignment below has completed (no close pass
+  // can run before this factory returns, so the binding is never undefined).
+  let lifecycle: Lifecycle;
+  lifecycle = createLifecycle(pi, {
+    onAfterClosePass: createCompletionTrigger(pi, {
+      lifecycle: {
+        dismissPanel: () => lifecycle.dismissPanel(),
+      },
+    }),
+  });
 }

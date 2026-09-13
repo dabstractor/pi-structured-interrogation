@@ -93,6 +93,14 @@ export interface SerializedState {
   order: string[];
   /** Questions keyed by id (the runtime Map is converted; never store the Map). */
   questions: Record<string, Question>;
+  /**
+   * One-time completion guard (P1.M2.T2.S2): true once the completion flow
+   * cleared this state. serialize() ALWAYS populates it; the field is typed
+   * optional so hand-built fixtures (results/snapshots tests) stay valid and
+   * legacy payloads remain deserialize-tolerant (missing → false). M7.T1
+   * reconstruction restores it to keep exactly-once across restart.
+   */
+  completed?: boolean;
 }
 
 /**
@@ -212,6 +220,16 @@ export class InterrogationState extends EventEmitter {
 
   /** Session epoch; starts at 1, bumps on every submission (h2.39). */
   epoch = 1;
+
+  /**
+   * One-time completion guard (P1.M2.T2.S2). Default false; set true inside
+   * {@link clearForCompletion} — the ONLY live-session assignment site, so
+   * the invariant "cleared ⇒ completed" can never diverge. Deserialization
+   * restores it from persisted state at construction time (M7.T1) — that is
+   * reconstruction, not a live mutation. A NEW interrogation (fresh state)
+   * starts false and may complete again.
+   */
+  completed = false;
 
   /** Full-state snapshots taken on submissions (ring trimming is P1.M1.T2.S4). */
   readonly snapshots: Snapshot[] = [];
@@ -372,6 +390,9 @@ export class InterrogationState extends EventEmitter {
   clearForCompletion(): void {
     this.questions.clear();
     this.order = [];
+    // One-time guard (P1.M2.T2.S2): cleared ⇒ completed, atomically — this
+    // is the ONLY live-session assignment site for the flag.
+    this.completed = true;
     this.emit("completed-cleared");
     this.emitChanged();
   }
@@ -392,6 +413,7 @@ export class InterrogationState extends EventEmitter {
       epoch: this.epoch,
       order: [...this.order],
       questions,
+      completed: this.completed,
     });
   }
 
@@ -409,6 +431,9 @@ export class InterrogationState extends EventEmitter {
     const state = new InterrogationState(String(raw.goal ?? ""));
     state.epoch =
       typeof raw.epoch === "number" && Number.isFinite(raw.epoch) ? raw.epoch : 1;
+    // Tolerant restore of the one-time guard (M7.T1 reconstruction seam);
+    // anything but literal true falls back to the fresh-state default.
+    state.completed = raw.completed === true;
 
     const seen = new Set<string>();
     if (isObj(raw.questions)) {

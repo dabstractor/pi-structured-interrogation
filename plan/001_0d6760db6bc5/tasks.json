@@ -253,7 +253,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Delivery + lifecycle core (no panel)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "PRD M2 (h2.48): delivery.ts delta/completion messages, lifecycle auto-close on agent_settled + completion injection, debug commands for scripted AC verification (state-level, via -p fallback path). Proves AC-2, 3, 13, 14 semantics without UI.",
           "tasks": [
             {
@@ -322,7 +322,7 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "lifecycle.ts — auto-close and completion trigger",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Per-run upsert tracking via tool_execution events, close pass on agent_settled, one-time completion injection with panel-dismiss hook.",
               "subtasks": [
                 {
@@ -348,7 +348,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "Completion trigger + one-time injection",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1",
@@ -369,14 +369,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Debug commands for scripted verification",
-              "status": "Planned",
+              "status": "Ready",
               "description": "PRD h2.50 Testing: /interrogate-debug-upsert, /interrogate-debug-submit, /interrogate-debug-state driving the same code paths as the tool, enabling AC verification without model dependence.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "/interrogate-debug-upsert|submit|state commands",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S6",
@@ -410,7 +410,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "custom() host: fire-and-forget open, view switching, done(null) suspend",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S6",

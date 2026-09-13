@@ -39,6 +39,12 @@ const CTRL_D = "\u0004";
 const CTRL_L = "\u000c";
 const ESCAPE = "\u001b";
 
+/** Identity theme so S2 layout renderers run in tests (stub per tool.test.ts). */
+const stubTheme = {
+  fg: (_name: string, s: string) => s,
+  bold: (s: string) => s,
+} as unknown as Theme;
+
 const OPTS_AB = [
   { value: "a", label: "Alpha" },
   { value: "b", label: "Beta" },
@@ -105,7 +111,7 @@ function makeMockPi(mode: string | undefined = "tui"): MockPi {
       const done = (result: null | undefined): void => resolve(result);
       const component = factory(
         { requestRender } as unknown as TUI,
-        {} as unknown as Theme,
+        stubTheme,
         {} as unknown as KeybindingsManager,
         done,
       );
@@ -380,9 +386,12 @@ describe("view switching (built-in S1 bindings)", () => {
     const panel = firstCall(mock).component;
 
     const short = panel.render(80);
-    expect(short[0]).toContain("interrogation header (TODO S2)");
+    expect(short[0]).toMatch(/^┌ interrogation ·?/); // S2 header
+    expect(short[0]).toContain("0/1 answered · 0 re-asked");
+    expect(short.some((l) => l.includes("prompt:q1"))).toBe(true); // question line
     expect(short.some((l) => l.startsWith("focus: "))).toBe(true);
-    expect(short[short.length - 1]).toContain("footer (TODO S2)");
+    expect(short).toContain("options region (TODO M3.T2)"); // M3.T2.S1 seam intact
+    expect(short[short.length - 1]).toMatch(/^└ .*⏎ ┘$/); // S2 footer
 
     panel.handleInput(CTRL_D);
     const deep = panel.render(80);
@@ -457,7 +466,7 @@ describe("upsert + state integration", () => {
     state.upsertQuestion(choiceQ("q1"));
     const panel = new InterrogationPanel({
       tui: { requestRender } as unknown as TUI,
-      theme: {} as unknown as Theme,
+      theme: stubTheme,
       done: () => {},
       state,
       config: DEFAULT_CONFIG,
@@ -486,7 +495,7 @@ describe("upsert + state integration", () => {
     const make = (focusQuestionId?: string): InterrogationPanel =>
       new InterrogationPanel({
         tui: { requestRender } as unknown as TUI,
-        theme: {} as unknown as Theme,
+        theme: stubTheme,
         done: () => {},
         state,
         config: DEFAULT_CONFIG,
@@ -501,7 +510,7 @@ describe("upsert + state integration", () => {
     expect(
       new InterrogationPanel({
         tui: { requestRender } as unknown as TUI,
-        theme: {} as unknown as Theme,
+        theme: stubTheme,
         done: () => {},
         state: empty,
         config: DEFAULT_CONFIG,
@@ -515,7 +524,7 @@ describe("upsert + state integration", () => {
     state.upsertQuestion(choiceQ("q1"));
     const panel = new InterrogationPanel({
       tui: { requestRender } as unknown as TUI,
-      theme: {} as unknown as Theme,
+      theme: stubTheme,
       done: () => {},
       state,
       config: DEFAULT_CONFIG,

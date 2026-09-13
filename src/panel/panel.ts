@@ -16,10 +16,11 @@
  * - A questions-upserted event while suspended reopens the panel on a fresh
  *   instance rehydrated from state (deepSticky resets — it is per panel
  *   session, h2.29), focused on the first upserted currently-active question.
- * - Rendering in THIS task is structural placeholder only (header/question/
- *   options/footer labels are P1.M3.T1.S2; deep/overview renderers are M5).
- *   What the host owns: render caching + invalidate + requestRender
- *   discipline, view state, and correct component plumbing.
+ * - Rendering: the short view's header/question/hint/footer lines are real
+ *   config-driven layout renderers (src/panel/layout.ts, P1.M3.T1.S2); the
+ *   options region stays a placeholder for P1.M3.T2.S1 and deep/overview
+ *   renderers are M5. What the host owns: render caching + invalidate +
+ *   requestRender discipline, view state, and correct component plumbing.
  *
  * Seam map (interfaces only here — no stub implementations beyond tests):
  * - `DraftStore` → implemented by P1.M4.T2.S1 (accepted via openPanel options).
@@ -37,8 +38,9 @@
  */
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
-import type { InterrogatorConfig } from "../config.js";
+import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { getState, type InterrogationState } from "../state.js";
+import { renderFooter, renderHeader, renderHintLine, renderQuestionLine } from "./layout.js";
 
 // --------------------------------------------------------------------- types
 
@@ -172,6 +174,14 @@ export class InterrogationPanel implements Component {
   private readonly config: InterrogatorConfig;
   private readonly drafts: DraftStore | undefined;
   private readonly keys: KeyHandler | undefined;
+  /**
+   * Key display labels, memoized ONCE at construction from
+   * resolveKeyLabels(config) (h2.52 — no hardcoded key names anywhere in
+   * rendering). Config is a read-only input; a config reload constructs a
+   * fresh panel (reopen rehydrates from options), so per-session memoization
+   * never serves stale labels across reloads.
+   */
+  private readonly labels: Record<KeyAction, string>;
   private readonly deepKey: string;
   private readonly overviewKey: string;
   private cached: string[] | undefined;
@@ -191,6 +201,7 @@ export class InterrogationPanel implements Component {
     this.config = args.config;
     this.drafts = args.drafts;
     this.keys = args.keys;
+    this.labels = resolveKeyLabels(args.config);
     this.deepKey = ctrlSequence(args.config.keys.deep, CTRL_D_FALLBACK);
     this.overviewKey = ctrlSequence(args.config.keys.overview, CTRL_L_FALLBACK);
     this.currentId = pickInitialQuestionId(args.state, args.focusQuestionId);
@@ -208,7 +219,7 @@ export class InterrogationPanel implements Component {
   render(width: number): string[] {
     if (this.cached !== undefined && width === this.lastWidth) return this.cached;
     this.lastWidth = width;
-    this.cached = this.buildLines();
+    this.cached = this.buildLines(width);
     return this.cached;
   }
 
@@ -269,16 +280,29 @@ export class InterrogationPanel implements Component {
     this.invalidate();
   }
 
-  /** Structural S1 placeholders — replaced wholesale by S2 (short) and M5. */
-  private buildLines(): string[] {
+  /**
+   * Short view (S2): real header/question/hint/footer lines around the
+   * still-placeholder options region (P1.M3.T2.S1 owns that region). Deep/
+   * overview remain M5 placeholders. State is re-read on every rebuild —
+   * the panel is a view; state is the source of truth (contract 7).
+   */
+  private buildLines(width: number): string[] {
     if (this.view === "short") {
-      return [
-        "interrogation header (TODO S2)",
-        "question line (TODO S2)",
-        "options region (TODO M3.T2)",
-        `focus: ${this.focus}`,
-        "footer (TODO S2)",
-      ];
+      const snapshot = this.state.serialize();
+      const header = renderHeader(snapshot, this.theme, width);
+      const ordered = this.state.orderedQuestions();
+      const idx =
+        this.currentId !== undefined ? ordered.findIndex((q) => q.id === this.currentId) : -1;
+      const lines = [header.line];
+      if (idx >= 0) {
+        const current = ordered[idx];
+        lines.push(renderQuestionLine(current, idx + 1, this.theme, width));
+        lines.push(...renderHintLine(current, this.theme, width));
+      }
+      lines.push("options region (TODO M3.T2)");
+      lines.push(`focus: ${this.focus}`);
+      lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
+      return lines;
     }
     if (this.view === "deep") {
       return ["[deep] placeholder (TODO M5.T1)", `scrollOffset: ${this.scrollOffset}`];

@@ -4,5 +4,5 @@ faadcc5ef5eb spec/architecture.md
 fa476345e446 spec/tool-protocol.md
 540f7b94c7f0 spec/ui-spec.md
 f4ed96fb8060 spec/state-and-persistence.md
-dc36f649cfd9 spec/implementation-plan.md
+adb5287658fe spec/implementation-plan.md
 d6dbc053bd10 spec/decisions.md

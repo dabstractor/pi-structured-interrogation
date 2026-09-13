@@ -101,7 +101,8 @@ export interface RoutedActions {
   onBatchNote(p: InterrogationPanel): void;
   /** Break out. Default: suspend (M6 refines + global shortcut half). */
   onBreakOut(p: InterrogationPanel): void;
-  /** Discuss in chat. M6.T2.S2 wires; default no-op. */
+  /** Discuss in chat. Wired host-side at panel.ts's router-construction
+   * site (P1.M6.T2.S2 — the closure needs the PiUISurface); default no-op. */
   onDiscuss(p: InterrogationPanel): void;
   /** External editor (text-focus context only). Wired by M4.T1.S3. */
   onExternalEditor(p: InterrogationPanel): void;
@@ -270,7 +271,9 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
       p.suspend(); // M6.T1.S2 adds the global registerShortcut half
     },
     onDiscuss: () => {
-      // M6.T2.S2 wires the discuss flow.
+      // Wired host-side: panel.ts refines this seam with discussInChat
+      // (./discuss.js — P1.M6.T2.S2); the closure needs the PiUISurface,
+      // so keys.ts itself stays UI-free. Default stays a no-op.
     },
     onExternalEditor: (p) => {
       // Wired by M4.T1.S3 (h2.31): fire-and-forget — the router is sync and

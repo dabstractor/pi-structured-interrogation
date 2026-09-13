@@ -827,7 +827,7 @@
                   "type": "Subtask",
                   "id": "P1.M6.T2.S2",
                   "title": "Discuss-in-chat handoff (ctrl+shift+e)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M6.T1.S1"

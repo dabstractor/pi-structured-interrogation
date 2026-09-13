@@ -60,6 +60,7 @@ import {
   rippleVictims,
   type RippleConfirmState,
 } from "./ripple-confirm.js";
+import { discussInChat } from "./discuss.js";
 import { buildKeyRouter, defaultRoutedActions } from "./keys.js";
 import { createEditorComponent, TextField, type EditorFactory } from "./text-field.js";
 import {
@@ -186,6 +187,13 @@ export interface PiUISurface {
      * guards (directly or via suspend.ts updateSuspendWidget).
      */
     setWidget?(key: string, content: string[] | undefined, options?: { placement?: string }): void;
+    /**
+     * Editor preload (h2.35 discuss handoff) — the ONLY sanctioned writer
+     * of main-editor text from the panel (discuss.ts discussInChat).
+     * Optional: test fakes / RPC surfaces stay valid — every call site
+     * guards (`?.`), same pattern as setWidget.
+     */
+    setEditorText?(text: string): void;
   };
   mode?: string;
 }
@@ -218,6 +226,12 @@ export interface InterrogationPanelArgs {
   editorFactory?: EditorFactory | undefined;
   /** Live keybindings manager from pi's custom() body (composed editors). */
   keybindings?: KeybindingsManager;
+  /**
+   * PiUISurface carrier (P1.M6.T2.S2) — captured once per openPanel (same
+   * pattern as editorFactory) so the host can refine the discuss seam at
+   * the router-construction site: keys.ts itself stays UI-free.
+   */
+  pi?: PiUISurface;
 }
 
 /**
@@ -448,6 +462,16 @@ export class InterrogationPanel implements Component {
     // the embedded editor, not just flip the focus flag.
     const routed = defaultRoutedActions(args.delivery);
     routed.onFocusText = (p) => p.focusTextField();
+    // Host-side refinement of the discuss seam (P1.M6.T2.S2): discussInChat
+    // needs the PiUISurface to preload the editor (h2.35), so the closure
+    // is injected HERE — keys.ts stays UI-free. args.keys (host override)
+    // still wins wholesale below.
+    if (args.pi !== undefined) {
+      const pi = args.pi;
+      routed.onDiscuss = (p) => {
+        discussInChat(pi, p);
+      };
+    }
     this.keys = args.keys ?? buildKeyRouter(args.config, routed);
     this.labels = resolveKeyLabels(args.config);
     this.delivery = args.delivery;
@@ -1176,6 +1200,7 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       theme,
       keybindings,
       editorFactory,
+      pi,
       done,
       state: opts.state,
       config: opts.config,

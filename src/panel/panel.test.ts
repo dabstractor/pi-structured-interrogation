@@ -377,7 +377,7 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(reopened.deepSticky).toBe(false);
   });
 
-  test("test_builtins_render_placeholder_lines_per_view", () => {
+  test("test_builtins_render_real_lines_per_view", () => {
     createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();
     const state = createInterrogationState("goal");
@@ -389,8 +389,10 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(short[0]).toMatch(/^┌ interrogation ·?/); // S2 header
     expect(short[0]).toContain("0/1 answered · 0 re-asked");
     expect(short.some((l) => l.includes("prompt:q1"))).toBe(true); // question line
-    expect(short.some((l) => l.startsWith("focus: "))).toBe(true);
-    expect(short).toContain("options region (TODO M3.T2)"); // M3.T2.S1 seam intact
+    expect(short.some((l) => l.includes("▸ "))).toBe(true); // options region cursor (P1.M3.T2.S1)
+    expect(short.some((l) => l.includes("✎ explain…"))).toBe(true); // real options region
+    expect(short).not.toContain("options region (TODO M3.T2)"); // placeholder replaced
+    expect(short.some((l) => l.startsWith("focus: "))).toBe(false); // placeholder gone
     expect(short[short.length - 1]).toMatch(/^└ .*⏎ ┘$/); // S2 footer
 
     panel.handleInput(CTRL_D);
@@ -482,6 +484,30 @@ describe("upsert + state integration", () => {
     const rebuilt = panel.render(80);
     expect(rebuilt).not.toBe(first); // invalidated cache rebuilds
     expect(rebuilt).toEqual(first); // …to identical placeholder content
+  });
+
+  test("test_cursor_seeds_to_recommendation_and_resets_on_refocus", () => {
+    const requestRender = vi.fn();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1", { recommendation: "b" }));
+    state.upsertQuestion(choiceQ("q2", { recommendation: "a" }));
+    const panel = new InterrogationPanel({
+      tui: { requestRender } as unknown as TUI,
+      theme: stubTheme,
+      done: () => {},
+      state,
+      config: DEFAULT_CONFIG,
+      focusQuestionId: "q1",
+    });
+
+    expect(panel.cursorIndex).toBe(1); // ★ preselect on the recommended option (R2)
+    panel.cursorIndex = 0; // simulated navigation — real movement is P1.M3.T2.S2
+    panel.currentId = "q2";
+    expect(panel.cursorIndex).toBe(0); // question change re-seeds the cursor
+
+    state.upsertQuestion(choiceQ("q3", { recommendation: "ghost" }));
+    panel.currentId = "q3"; // recommendation missing from options → clamp 0
+    expect(panel.cursorIndex).toBe(0);
   });
 
   test("test_initial_focus_selection", () => {

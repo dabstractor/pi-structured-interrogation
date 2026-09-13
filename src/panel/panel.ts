@@ -17,10 +17,12 @@
  *   instance rehydrated from state (deepSticky resets — it is per panel
  *   session, h2.29), focused on the first upserted currently-active question.
  * - Rendering: the short view's header/question/hint/footer lines are real
- *   config-driven layout renderers (src/panel/layout.ts, P1.M3.T1.S2); the
- *   options region stays a placeholder for P1.M3.T2.S1 and deep/overview
- *   renderers are M5. What the host owns: render caching + invalidate +
- *   requestRender discipline, view state, and correct component plumbing.
+ *   config-driven layout renderers (src/panel/layout.ts, P1.M3.T1.S2) and
+ *   the options region renders via renderShortViewOptions
+ *   (src/panel/short-view.ts, P1.M3.T2.S1); deep/overview renderers are M5.
+ *   What the host owns: render caching + invalidate + requestRender
+ *   discipline, view state, cursorIndex seeding, and correct component
+ *   plumbing.
  *
  * Seam map (interfaces only here — no stub implementations beyond tests):
  * - `DraftStore` → implemented by P1.M4.T2.S1 (accepted via openPanel options).
@@ -41,6 +43,7 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { getState, type InterrogationState } from "../state.js";
 import { renderFooter, renderHeader, renderHintLine, renderQuestionLine } from "./layout.js";
+import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
 
 // --------------------------------------------------------------------- types
 
@@ -157,8 +160,33 @@ export class InterrogationPanel implements Component {
   view: PanelView = "short";
   /** Current focus region (h2.29 short layout). */
   focus: PanelFocus = "options";
-  /** Focused question id — set at construction, re-pointed by later tasks. */
-  currentId: string | undefined;
+  private currentIdValue: string | undefined;
+
+  /**
+   * Focused question id. Assigning it re-seeds {@link cursorIndex} to the
+   * ★ recommendation preselect (R2) — question changes never carry an old
+   * cursor over. Navigation (P1.M3.T2.S2) mutates cursorIndex directly.
+   */
+  get currentId(): string | undefined {
+    return this.currentIdValue;
+  }
+  set currentId(id: string | undefined) {
+    this.currentIdValue = id;
+    const q = id !== undefined ? this.state.getQuestion(id) : undefined;
+    this.cursorIndex = q !== undefined ? initialCursorIndex(q) : 0;
+  }
+
+  /**
+   * Cursor index within the short-view options region (P1.M3.T2.S1). Domain:
+   * choice questions 0..options.length (last index = the ✎ affordance);
+   * text questions 0 (the primary affordance). Seeded to the ★
+   * recommendation on every currentId change (R2 — the recommendation is
+   * the preselected cursor position; answers never pin the cursor).
+   * Lives ONLY on the panel instance: suspend keeps the live component's
+   * value; a fresh reopened instance re-seeds from state (h2.29/h2.35).
+   * Movement keys are NOT wired here — P1.M3.T2.S2 owns navigation.
+   */
+  cursorIndex = 0;
   /**
    * Once the user toggles deep, returning from overview restores deep.
    * Per panel session only — a fresh instance on reopen resets it (h2.29).
@@ -281,10 +309,11 @@ export class InterrogationPanel implements Component {
   }
 
   /**
-   * Short view (S2): real header/question/hint/footer lines around the
-   * still-placeholder options region (P1.M3.T2.S1 owns that region). Deep/
+   * Short view: real header/question/hint/footer lines (S2) around the
+   * options region rendered by renderShortViewOptions (P1.M3.T2.S1). Deep/
    * overview remain M5 placeholders. State is re-read on every rebuild —
-   * the panel is a view; state is the source of truth (contract 7).
+   * the panel is a view; state is the source of truth (contract 7). An
+   * unknown/absent currentId renders header + footer only (empty region).
    */
   private buildLines(width: number): string[] {
     if (this.view === "short") {
@@ -298,9 +327,15 @@ export class InterrogationPanel implements Component {
         const current = ordered[idx];
         lines.push(renderQuestionLine(current, idx + 1, this.theme, width));
         lines.push(...renderHintLine(current, this.theme, width));
+        lines.push(
+          ...renderShortViewOptions({
+            question: current,
+            cursorIndex: this.cursorIndex,
+            theme: this.theme,
+            width,
+          }),
+        );
       }
-      lines.push("options region (TODO M3.T2)");
-      lines.push(`focus: ${this.focus}`);
       lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
       return lines;
     }

@@ -690,9 +690,15 @@ describe("handleInput — config-driven router (keys.ts, P1.M3.T3.S1)", () => {
     expect(panel.view).toBe("overview");
     // Arrows are FIXED keys (h2.34): the router checks them before anything
     // else, in ANY view — only enter/digits/externalEditor carry focus
-    // gating. Deep-view scroll navigation (M5) refines on top.
-    panel.handleInput("\u001b[B"); // ↓ moves the cursor in overview too
-    expect(panel.cursorIndex).toBe(1);
+    // gating. View-gated TARGETS refine on top (deep P1.M5.T1.S1, overview
+    // P1.M5.T2.S1): in overview ↓ moves the overview CURSOR ROW — never the
+    // short-form option cursor and never currentId (h2.29).
+    panel.handleInput("\u001b[B"); // ↓ moves the overview cursor
+    expect(panel.overviewCursor).toBe(1);
+    expect(panel.cursorIndex).toBe(0); // option cursor untouched
+    panel.handleInput("\u001b[A"); // ↑ moves it back
+    expect(panel.overviewCursor).toBe(0);
+    expect(panel.currentId).toBe("q1");
   });
 
   test("test_matcher_submit_uses_the_delivery_seam_and_stays_inert_without_it", () => {

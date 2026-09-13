@@ -19,7 +19,9 @@
  * - Rendering: the short view's header/question/hint/footer lines are real
  *   config-driven layout renderers (src/panel/layout.ts, P1.M3.T1.S2) and
  *   the options region renders via renderShortViewOptions
- *   (src/panel/short-view.ts, P1.M3.T2.S1); deep/overview renderers are M5.
+ *   (src/panel/short-view.ts, P1.M3.T2.S1); the deep (P1.M5.T1.S1) and
+ *   overview (P1.M5.T2.S1) branches render their bounded content between
+ *   the shared header/footer.
  *   What the host owns: render caching + invalidate + requestRender
  *   discipline, view state, cursorIndex seeding, and correct component
  *   plumbing.
@@ -59,6 +61,7 @@ import {
   renderQuestionLine,
 } from "./layout.js";
 import { buildDeepContent, deepSeedCursorIndex, renderDeepWindow } from "./deep-view.js";
+import { buildOverviewContent, clampOverviewScroll } from "./overview.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
 
 // --------------------------------------------------------------------- types
@@ -243,6 +246,16 @@ export class InterrogationPanel implements Component {
   deepSticky = false;
   /** Deep view scroll offset (driven by M5 navigation; rendered in S1). */
   scrollOffset = 0;
+  /**
+   * Overview cursor — index into orderedQuestions() (NOT into rendered
+   * rows; group headers are not cursor targets). Seeded ONCE on the
+   * setView("overview") transition to the current question's index
+   * (P1.M5.T2.S1 — ctrl+l/esc round-trips stay where you were); moved only
+   * by the overview actions (overview.ts), never by renderers.
+   */
+  overviewCursor = 0;
+  /** Overview scroll offset in rendered LINES, clamped to keep the cursor row visible. */
+  overviewScroll = 0;
 
   /**
    * Panel-local free-text drafts keyed by question id (h2.45): stage-1
@@ -577,17 +590,26 @@ export class InterrogationPanel implements Component {
    */
   setView(view: PanelView): void {
     if (this.view === view) return;
-    const enteringDeep = view === "deep";
     this.view = view;
     // Deep entry (P1.M5.T1.S1): seed the selection to the ★ recommendation
     // (clamped into the deep cursor domain — no ✎ index) and reset the
     // scroll window ONCE per entry; deepSticky bookkeeping stays with the
     // router's onDeep/onOverview seams.
-    if (enteringDeep) {
+    if (view === "deep") {
       const q =
         this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;
       this.cursorIndex = deepSeedCursorIndex(q);
       this.scrollOffset = 0;
+    } else if (view === "overview") {
+      // Overview entry (P1.M5.T2.S1): seed the cursor to the CURRENT
+      // question's row index (ctrl+l → esc round-trips leave you where you
+      // were; 0 when absent) and reset the scroll window ONCE per entry —
+      // the unchanged-view no-op above guarantees once-only seeding.
+      const ordered = this.state.orderedQuestions();
+      const idx =
+        this.currentId !== undefined ? ordered.findIndex((q) => q.id === this.currentId) : -1;
+      this.overviewCursor = idx >= 0 ? idx : 0;
+      this.overviewScroll = 0;
     }
     this.invalidate();
   }
@@ -722,10 +744,12 @@ export class InterrogationPanel implements Component {
 
   /**
    * Short view: real header/question/hint/footer lines (S2) around the
-   * options region rendered by renderShortViewOptions (P1.M3.T2.S1). Deep/
-   * overview remain M5 placeholders. State is re-read on every rebuild —
-   * the panel is a view; state is the source of truth (contract 7). An
-   * unknown/absent currentId renders header + footer only (empty region).
+   * options region rendered by renderShortViewOptions (P1.M3.T2.S1). The
+   * deep (P1.M5.T1.S1) and overview (P1.M5.T2.S1) branches render their own
+   * bounded content between the shared header and the view-aware footer.
+   * State is re-read on every rebuild — the panel is a view; state is the
+   * source of truth (contract 7). An unknown/absent currentId renders
+   * header + footer only (empty region).
    */
   private buildLines(width: number): string[] {
     // Note mode (R3, h2.32): the editor area is REPLACED — note header +
@@ -801,7 +825,33 @@ export class InterrogationPanel implements Component {
       lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
       return lines;
     }
-    return ["[overview] placeholder (TODO M5.T2)"];
+    // Overview (P1.M5.T2.S1, FR-11) — the exhaustive tail of the view chain
+    // (note → short → deep → overview): shared header, the clamped
+    // OVERVIEW_HEIGHT-line window of the full question list, flash, and the
+    // view-aware footer. Renderers stay PURE: the scroll offset is clamped
+    // into a LOCAL (the actions own overviewScroll); group headers ride the
+    // content lines; the list is never filtered (R1/Q34=A).
+    {
+      const snapshot = this.state.serialize();
+      const header = renderHeader(snapshot, this.theme, width);
+      const lines = [header.line];
+      const ordered = this.state.orderedQuestions();
+      if (ordered.length > 0) {
+        const content = buildOverviewContent({
+          ordered,
+          cursorIndex: this.overviewCursor,
+          theme: this.theme,
+          width,
+        });
+        const offset = clampOverviewScroll(content, this.overviewScroll, this.overviewCursor);
+        const end = Math.min(content.lines.length, offset + content.viewportHeight);
+        for (let i = offset; i < end; i++) lines.push(content.lines[i]!);
+      }
+      const flash = this.flashLine(width);
+      if (flash !== undefined) lines.push(flash);
+      lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
+      return lines;
+    }
   }
 }
 

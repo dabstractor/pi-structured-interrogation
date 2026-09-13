@@ -425,7 +425,149 @@ describe("view switching (built-in S1 bindings)", () => {
 
     panel.handleInput(CTRL_L);
     const overview = panel.render(80);
-    expect(overview).toEqual(["[overview] placeholder (TODO M5.T2)"]);
+    // Real overview (P1.M5.T2.S1): header + marked list + view-aware footer.
+    expect(overview[0]).toMatch(/^┌ interrogation ·?/);
+    expect(overview.some((l) => l.includes("▸") && l.includes("prompt:q1"))).toBe(true); // cursor row
+    expect(overview.some((l) => l.includes("· "))).toBe(true); // open-question marker
+    expect(overview[overview.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer, still last
+    expect(overview).not.toContain("[overview] placeholder (TODO M5.T2)"); // placeholder replaced
+  });
+
+  // ------------------------------------------------ overview (P1.M5.T2.S1)
+
+  const UP = "\u001b[A";
+  const DOWN = "\u001b[B";
+  const ENTER = "\r";
+
+  function overviewState(): InterrogationState {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1", { group: "storage" }));
+    state.upsertQuestion(choiceQ("q2", { group: "storage", gate: true }));
+    state.upsertQuestion(choiceQ("q3", { group: "ui" }));
+    return state;
+  }
+
+  test("test_overview_entry_seeds_cursor_to_current_question", () => {
+    const state = overviewState();
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.currentId = "q2";
+
+    panel.handleInput(CTRL_L);
+    expect(panel.view).toBe("overview");
+    expect(panel.overviewCursor).toBe(1); // seeded ONCE to the current question
+    const lines = panel.render(80);
+    expect(lines.some((l) => l.includes("▸") && l.includes("prompt:q2"))).toBe(true);
+    // esc returns via the existing ladder (no sticky → short), nothing lost.
+    panel.handleInput(ESCAPE);
+    expect(panel.view).toBe("short");
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_overview_reentry_reseeds_cursor_from_current_after_jump", () => {
+    const state = overviewState();
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_L);
+    panel.overviewCursor = 2;
+    panel.handleInput(ENTER); // jump
+    expect(panel.view).toBe("short");
+    expect(panel.currentId).toBe("q3");
+    panel.handleInput(CTRL_L); // re-entry re-seeds from currentId — round-trip
+    expect(panel.overviewCursor).toBe(2);
+  });
+
+  test("test_overview_window_caps_lines_and_keeps_cursor_visible", () => {
+    const state = createInterrogationState("goal");
+    for (let i = 1; i <= 30; i++) state.upsertQuestion(choiceQ(`q${i}`, { group: "g" }));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_L);
+    for (let i = 0; i < 25; i++) panel.handleInput(DOWN); // cursor → q26
+    expect(panel.overviewCursor).toBe(25);
+    expect(panel.overviewScroll).toBeGreaterThan(0); // actions recompute the window
+
+    const lines = panel.render(80);
+    const body = lines.slice(1, lines.length - 1); // header/footer outside the window
+    expect(body.length).toBeLessThanOrEqual(20); // OVERVIEW_HEIGHT window cap
+    expect(body.some((l) => l.includes("▸") && l.includes("prompt:q26"))).toBe(true);
+    expect(lines[lines.length - 1]).toMatch(/^└ /);
+  });
+
+  test("test_overview_lists_all_statuses_with_markers_and_reason", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("open"));
+    state.upsertQuestion(choiceQ("answered", { title: "Answered Q" }));
+    state.upsertQuestion(choiceQ("reasked", { title: "Reasked Q" }));
+    state.upsertQuestion(choiceQ("moot", { title: "Moot Q" }));
+    state.upsertQuestion(choiceQ("gone", { title: "Withdrawn Q" }));
+    state.applyAnswer("answered", { value: "a", text: "elaborated", at: "t" });
+    state.applyAnswer("reasked", { value: "a", at: "t" });
+    state.setStatus("reasked", "reasked");
+    state.applyAnswer("moot", { value: "a", text: "moot: storage=sqlite", at: "t" });
+    state.setStatus("moot", "moot");
+    state.setStatus("gone", "withdrawn");
+
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_L);
+    const rendered = panel.render(80).join("\n");
+    // All five statuses render their markers — and NOTHING is filtered
+    // (R1/Q34=A: moot/withdrawn stay listed, the moot reason rides the row).
+    expect(rendered).toContain("· prompt:open");
+    expect(rendered).toContain("★ ✎ Answered Q");
+    expect(rendered).toContain("⟳ Reasked Q");
+    expect(rendered).toContain("⊘ Moot Q — moot: storage=sqlite");
+    expect(rendered).toContain("⊗ Withdrawn Q");
+  });
+
+  test("test_overview_group_headers_and_gate_mark", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("a1", { group: "storage" }));
+    state.upsertQuestion(choiceQ("a2", { group: "storage" }));
+    state.upsertQuestion(choiceQ("g1", { group: "gate grp", gate: true }));
+    state.upsertQuestion(choiceQ("u1")); // ungrouped → "(none)" bucket
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_L);
+    const lines = panel.render(80);
+    expect(lines).toContain("  storage");
+    expect(lines).toContain("  gate grp ▲"); // group-level ▲ from membership
+    expect(lines).toContain("  (none)");
+    // Exactly one header carries the ▲ mark.
+    expect(lines.filter((l) => l.includes("▲"))).toHaveLength(1);
+  });
+
+  test("test_overview_enter_jumps_preseeds_cursor_and_focus", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2", { recommendation: "b" }));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_L);
+    panel.overviewCursor = 1;
+
+    panel.handleInput(ENTER);
+    expect(panel.view).toBe("short");
+    expect(panel.currentId).toBe("q2");
+    expect(panel.focus).toBe("options");
+    expect(panel.cursorIndex).toBe(1); // ★ recommendation preselect (R2)
+    const short = panel.render(80);
+    expect(short.some((l) => l.includes("▸ ★ ") && l.includes("Beta"))).toBe(true);
+  });
+
+  test("test_overview_footer_lists_jump_and_back_keys", () => {
+    const state = overviewState();
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_L);
+    const lines = panel.render(120); // wide enough that no hint degrades away
+    expect(lines[lines.length - 1]).toContain("enter jump");
+    expect(lines[lines.length - 1]).toContain("esc back");
+  });
+
+  test("test_overview_empty_state_renders_header_and_footer_only", () => {
+    const state = createInterrogationState("goal");
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_L);
+    expect(panel.view).toBe("overview");
+    const lines = panel.render(80);
+    expect(lines).toHaveLength(2); // no flash yet — just header + footer
+    expect(lines[0]).toMatch(/^┌ /);
+    expect(lines[1]).toMatch(/^└ /);
   });
 });
 

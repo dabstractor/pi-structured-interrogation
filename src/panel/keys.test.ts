@@ -645,3 +645,139 @@ describe("deep view routing gates (P1.M5.T1.S1)", () => {
     expect(actions.onOverview).toHaveBeenCalledTimes(1);
   });
 });
+
+// ------------------------------------------- overview view-gating (P1.M5.T2.S1)
+
+describe("buildKeyRouter — overview view-gating (P1.M5.T2.S1)", () => {
+  function overviewQ(id: string): Question {
+    return {
+      id,
+      prompt: `p:${id}`,
+      type: "choice",
+      rev: 1,
+      status: "open",
+      options: [
+        { value: "a", label: "a" },
+        { value: "b", label: "b" },
+      ],
+      recommendation: "a",
+    };
+  }
+
+  /**
+   * Stub carrying the surface the REAL overview actions touch
+   * (overview.ts operates on the panel directly — the router hard-wires
+   * them for the overview view, so spies cannot stand in for up/down/
+   * enter here; mirrors makeDeepPanel above).
+   */
+  function makeOverviewPanel() {
+    const qs: Question[] = [overviewQ("q1"), overviewQ("q2"), overviewQ("q3")];
+    const panel = {
+      ...makePanel({ view: "overview" }),
+      currentId: "q1",
+      cursorIndex: 0,
+      overviewCursor: 0,
+      overviewScroll: 0,
+      lastWidth: 80,
+      theme: { fg: (_n: string, s: string) => s, bold: (s: string) => s },
+      config: { ...DEFAULT_CONFIG },
+      flash: vi.fn(),
+      blurTextField: vi.fn(),
+      viewLogs: [] as string[],
+      setView(v: PanelView) {
+        this.viewLogs.push(v);
+        this.view = v;
+      },
+      state: { orderedQuestions: () => qs },
+    };
+    return { panel: panel as unknown as InterrogationPanel & Record<string, unknown>, qs };
+  }
+
+  test("test_updown_in_overview_moves_cursor_row_not_option_cursor", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeOverviewPanel();
+
+    expect(route(UP, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.overviewCursor).toBe(0); // clamped at the top — consumed no-op
+    expect(route(DOWN, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.overviewCursor).toBe(1);
+    expect(route(DOWN, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(route(DOWN, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.overviewCursor).toBe(2); // clamped at the last question
+    // The short-view option cursor and question pointer are NEVER touched.
+    expect(panel.cursorIndex).toBe(0);
+    expect(panel.currentId).toBe("q1");
+    expect(actions.optionUp).not.toHaveBeenCalled();
+    expect(actions.optionDown).not.toHaveBeenCalled();
+  });
+
+  test("test_config_prev_next_in_overview_move_cursor_row", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeOverviewPanel();
+    panel.overviewCursor = 1;
+
+    // Contract 3: the config question-nav keys move the overview CURSOR.
+    expect(route(DEFAULT_DATA.prevQuestion, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.overviewCursor).toBe(0);
+    expect(route(DEFAULT_DATA.nextQuestion, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.overviewCursor).toBe(1);
+    // currentId untouched — only enter/esc leave the overview list.
+    expect(panel.currentId).toBe("q1");
+    expect(actions.prevQuestion).not.toHaveBeenCalled();
+    expect(actions.nextQuestion).not.toHaveBeenCalled();
+  });
+
+  test("test_enter_in_overview_jumps_to_short_form", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeOverviewPanel();
+    panel.overviewCursor = 1;
+
+    expect(route(ENTER, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.viewLogs).toEqual(["short"]); // jump target is ALWAYS short
+    expect(panel.currentId).toBe("q2"); // the selected question
+    expect(panel.overviewScroll).toBe(0); // scroll window reset
+    expect(actions.accept).not.toHaveBeenCalled(); // short accept untouched
+  });
+
+  test("test_enter_in_text_focus_still_forwards_in_overview", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeOverviewPanel();
+    panel.focus = "text";
+
+    expect(route(ENTER, panel as unknown as InterrogationPanel)).toBe(false);
+    expect(panel.viewLogs).toEqual([]); // no view change — forwarded
+  });
+
+  test("test_digits_do_not_quick_select_in_overview", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeOverviewPanel();
+
+    expect(route("3", panel as unknown as InterrogationPanel)).toBe(false);
+    expect(actions.digit).not.toHaveBeenCalled(); // no option accepted on q1
+    // Control: the SAME byte in the short form still quick-selects.
+    const short = makePanel({ view: "short" });
+    expect(route("3", short as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.digit).toHaveBeenCalledTimes(1);
+    expect(actions.digit).toHaveBeenCalledWith(short as unknown as InterrogationPanel, 3);
+  });
+
+  test("test_config_intercepts_still_fire_in_overview_view", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeOverviewPanel();
+
+    expect(route(DEFAULT_DATA.deep, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.onDeep).toHaveBeenCalledTimes(1);
+    expect(route(DEFAULT_DATA.overview, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.onOverview).toHaveBeenCalledTimes(1); // toggle back
+    expect(route(DEFAULT_DATA.submit, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.submit).toHaveBeenCalledTimes(1);
+    expect(route(DEFAULT_DATA.batchNote, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.onBatchNote).toHaveBeenCalledTimes(1); // note mode at ANY view
+  });
+});

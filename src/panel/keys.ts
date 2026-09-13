@@ -41,16 +41,20 @@
  * order below wins — this is documented, deliberate behavior, not an error.
  * Resolution order (load-bearing — do not reorder casually):
  *
- *   1. up / down                (fixed — option cursor)
+ *   1. up / down                (fixed — view-aware: overview cursor →
+ *      deep selection → short-form option cursor)
  *   2. esc                      (fixed — view-descent ladder, then suspend)
- *   3. enter                    (fixed — options focus only → accept)
+ *   3. enter                    (fixed — options focus only → view-aware:
+ *      overview jump → deep accept → short accept)
  *   4. config intercepts, in this order:
  *      deep, overview, focusText, batchNote, submit, breakOut, discuss,
  *      externalEditor (only when focus === "text"), prevQuestion,
- *      nextQuestion, then digits 1–9 (only when digitQuickSelect AND focus
- *      is NOT "text"/"note" — typing digits into an answer or a note is
+ *      nextQuestion (view-aware: overview cursor movers), then digits 1–9
+ *      (only when digitQuickSelect AND view !== "overview" AND focus is
+ *      NOT "text"/"note" — typing digits into an answer or a note is
  *      legitimate; h2.34 scopes quick-select to the short-form options
- *      focus)
+ *      focus, and a digit in overview must not accept an option on the
+ *      current question)
  *   5. no match → return false (forward to embedded editor / default nav)
  *
  * Accelerator validation: config strings arrive RESOLVED (defaults merged by
@@ -63,6 +67,7 @@ import { Key, matchesKey, parseKey, type KeyId } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { panelActions, type SubmitDeps } from "./actions.js";
 import { acceptFromDeep, deepSelectionDown, deepSelectionUp } from "./deep-view.js";
+import { overviewDown, overviewJump, overviewUp } from "./overview.js";
 import type { InterrogationPanel } from "./panel.js";
 
 /**
@@ -297,14 +302,18 @@ export function buildKeyRouter(
     if (panel.isResolved()) return false; // defensive; handleInput already guards
 
     // 1. Fixed arrows — BEFORE anything esc-related (arrows are ESC-prefixed).
-    //    Deep view (P1.M5.T1.S1, h2.29): ↑/↓ move the deep SELECTION and
-    //    scroll the pane — they never navigate options' question or fire the
-    //    short-view option cursor (question navigation is prev/next only).
+    //    ONE view-switch (overview P1.M5.T2.S1, deep P1.M5.T1.S1, h2.29):
+    //    ↑/↓ move the overview CURSOR ROW / the deep SELECTION — they never
+    //    navigate questions or fire the short-view option cursor (question
+    //    navigation is prev/next only; in overview even prev/next move the
+    //    cursor).
     if (matchesKey(data, Key.up)) {
+      if (panel.view === "overview") return overviewUp(panel);
       if (panel.view === "deep") return deepSelectionUp(panel);
       return actions.optionUp(panel);
     }
     if (matchesKey(data, Key.down)) {
+      if (panel.view === "overview") return overviewDown(panel);
       if (panel.view === "deep") return deepSelectionDown(panel);
       return actions.optionDown(panel);
     }
@@ -317,10 +326,13 @@ export function buildKeyRouter(
 
     // 3. Fixed enter — options focus only. In text focus enter FORWARDS so
     // the embedded text field implements its two-stage save (P1.M4.T1.S2).
-    // Deep view (P1.M5.T1.S1): enter accepts the highlighted option and
-    // returns to the short view (acceptFromDeep — text/moot/withdrawn are
-    // consumed no-ops there).
+    // Overview (P1.M5.T2.S1): enter JUMPS to the selected question in the
+    // short form (overviewJump — restores options focus, R2 preselect via
+    // the currentId setter). Deep view (P1.M5.T1.S1): enter accepts the
+    // highlighted option and returns to the short view (acceptFromDeep —
+    // text/moot/withdrawn are consumed no-ops there).
     if (panel.focus !== "text" && matchesKey(data, Key.enter)) {
+      if (panel.view === "overview") return overviewJump(panel);
       if (panel.view === "deep") return acceptFromDeep(panel);
       return actions.accept(panel);
     }
@@ -359,13 +371,28 @@ export function buildKeyRouter(
       actions.onExternalEditor(panel);
       return true;
     }
-    if (matchesKey(data, b.prevQuestion)) return actions.prevQuestion(panel);
-    if (matchesKey(data, b.nextQuestion)) return actions.nextQuestion(panel);
+    // prev/next are view-aware (contract 3): in overview the config
+    // question-nav keys move the CURSOR ROW — never currentId.
+    if (matchesKey(data, b.prevQuestion)) {
+      if (panel.view === "overview") return overviewUp(panel);
+      return actions.prevQuestion(panel);
+    }
+    if (matchesKey(data, b.nextQuestion)) {
+      if (panel.view === "overview") return overviewDown(panel);
+      return actions.nextQuestion(panel);
+    }
 
     // Digits are printable — NEVER intercepted while the user types an
     // answer (focus === "text") or a note (focus === "note", R3 — the SAME
-    // editor on note duty); quick-select is an options-focus affordance.
-    if (config.digitQuickSelect && panel.focus !== "text" && panel.focus !== "note") {
+    // editor on note duty), nor in the overview (a digit there would accept
+    // an option on the CURRENT question — not what the list is for);
+    // quick-select is a short-form options-focus affordance.
+    if (
+      config.digitQuickSelect &&
+      panel.view !== "overview" &&
+      panel.focus !== "text" &&
+      panel.focus !== "note"
+    ) {
       const k = parseKey(data);
       if (k !== undefined && k >= "1" && k <= "9") return actions.digit(panel, Number(k));
     }

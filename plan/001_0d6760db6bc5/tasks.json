@@ -671,14 +671,14 @@
               "type": "Task",
               "id": "P1.M5.T2",
               "title": "Overview list (panel/overview.ts)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "ctrl+l full list of all questions with status markers, group headers, gate mark, enter jumps.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T2.S1",
                   "title": "Overview list with markers + jump",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T2.S1"

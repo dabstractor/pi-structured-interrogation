@@ -58,6 +58,7 @@ import {
   renderNoteHeader,
   renderQuestionLine,
 } from "./layout.js";
+import { buildDeepContent, deepSeedCursorIndex, renderDeepWindow } from "./deep-view.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
 
 // --------------------------------------------------------------------- types
@@ -288,7 +289,12 @@ export class InterrogationPanel implements Component {
   rippleConfirm: RippleConfirmFn;
 
   private readonly tui: TUI;
-  private readonly theme: Theme;
+  /**
+   * Public readonly — the deep-view scroll actions (deep-view.ts) build the
+   * pane content off the panel to recompute scrollOffset; theme is a
+   * per-instance constant so exposing it is read-only by construction.
+   */
+  readonly theme: Theme;
   private readonly done: (result: null) => void;
   /**
    * Public readonly so the named actions (actions.ts, P1.M3.T2.S2) can read
@@ -325,7 +331,12 @@ export class InterrogationPanel implements Component {
    */
   private readonly labels: Record<KeyAction, string>;
   private cached: string[] | undefined;
-  private lastWidth = -1;
+  /**
+   * Last render width (-1 before the first render). Public so the deep-view
+   * scroll actions clamp offsets against the width the pane was last
+   * rendered at; renderDeepWindow re-clamps defensively on width changes.
+   */
+  lastWidth = -1;
   /** Guard so a second done() after suspend cannot re-resolve (idempotent). */
   private resolved = false;
 
@@ -566,7 +577,18 @@ export class InterrogationPanel implements Component {
    */
   setView(view: PanelView): void {
     if (this.view === view) return;
+    const enteringDeep = view === "deep";
     this.view = view;
+    // Deep entry (P1.M5.T1.S1): seed the selection to the ★ recommendation
+    // (clamped into the deep cursor domain — no ✎ index) and reset the
+    // scroll window ONCE per entry; deepSticky bookkeeping stays with the
+    // router's onDeep/onOverview seams.
+    if (enteringDeep) {
+      const q =
+        this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;
+      this.cursorIndex = deepSeedCursorIndex(q);
+      this.scrollOffset = 0;
+    }
     this.invalidate();
   }
 
@@ -757,7 +779,27 @@ export class InterrogationPanel implements Component {
       return lines;
     }
     if (this.view === "deep") {
-      return ["[deep] placeholder (TODO M5.T1)", `scrollOffset: ${this.scrollOffset}`];
+      const snapshot = this.state.serialize();
+      const header = renderHeader(snapshot, this.theme, width);
+      const lines = [header.line];
+      const q =
+        this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;
+      if (q !== undefined) {
+        const content = buildDeepContent({
+          question: q,
+          goal: this.state.goal,
+          cursorIndex: this.cursorIndex,
+          scrollOffset: this.scrollOffset,
+          theme: this.theme,
+          width,
+          maxChars: this.config.caps.ramification,
+        });
+        lines.push(...renderDeepWindow(content, this.cursorIndex, this.scrollOffset, this.theme, width));
+      }
+      const flash = this.flashLine(width);
+      if (flash !== undefined) lines.push(flash);
+      lines.push(renderFooter(snapshot, this.view, this.labels, this.theme, width));
+      return lines;
     }
     return ["[overview] placeholder (TODO M5.T2)"];
   }

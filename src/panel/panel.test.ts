@@ -417,8 +417,11 @@ describe("view switching (built-in S1 bindings)", () => {
 
     panel.handleInput(CTRL_D);
     const deep = panel.render(80);
-    expect(deep[0]).toContain("[deep] placeholder (TODO M5.T1)");
-    expect(deep.some((l) => l.includes("scrollOffset: 0"))).toBe(true);
+    // Real deep view (P1.M5.T1.S1): header + bounded pane + view-aware footer.
+    expect(deep[0]).toMatch(/^┌ interrogation ·?/);
+    expect(deep.some((l) => l.includes("▸"))).toBe(true); // option section header
+    expect(deep.some((l) => l.includes("goal"))).toBe(true); // FR-30 full goal
+    expect(deep[deep.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer, still last
 
     panel.handleInput(CTRL_L);
     const overview = panel.render(80);
@@ -1090,5 +1093,125 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     p2.enterNoteMode();
     expect(p2.focus).toBe("note");
     expect(p2.textField.getText()).toBe("resume-safe note"); // preserved (R4)
+  });
+});
+
+// ------------------------------------ deep view (FR-8, P1.M5.T1.S1)
+
+describe("deep view (P1.M5.T1.S1)", () => {
+  const UP = "\u001b[A";
+  const DOWN = "\u001b[B";
+  const ENTER = "\r";
+
+  /** Choice question with a recommendation and long ramification texts. */
+  function deepQ(id: string, overrides: Partial<Question> = {}): Question {
+    return {
+      id,
+      prompt: `prompt:${id}`,
+      description: "Context you should read before choosing.",
+      type: "choice",
+      rev: 1,
+      status: "open",
+      options: [
+        { value: "sqlite", label: "sqlite", ramification: "Fast, embedded, single-writer." },
+        { value: "postgres", label: "postgres", ramification: "Networked, concurrent writers." },
+      ],
+      recommendation: "sqlite",
+      ...overrides,
+    };
+  }
+
+  test("test_deep_view_renders_goal_description_headers_bounded", () => {
+    const state = createInterrogationState("Ship the widget");
+    state.upsertQuestion(deepQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+
+    panel.handleInput(CTRL_D);
+    const lines = panel.render(80);
+    expect(lines[0]).toMatch(/^┌ interrogation ·/); // header unchanged
+    expect(lines[lines.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer unchanged
+    // FR-30: FULL goal text rendered (not the header's truncated form).
+    expect(lines.join("\n")).toContain("Ship the widget");
+    expect(lines.join("\n")).toContain("Context you should read before choosing.");
+    // ★ header + all options in state order (R1).
+    expect(lines.join("\n")).toContain("★ sqlite");
+    expect(lines.join("\n")).toContain("postgres");
+    expect(lines.join("\n")).toContain("Fast, embedded, single-writer.");
+    // h2.51 row 2: header(1) + pane(≤ DEEP_VIEW_HEIGHT) + footer(1).
+    expect(lines.length).toBeLessThanOrEqual(1 + 20 + 1);
+  });
+
+  test("test_entering_deep_seeds_selection_and_scroll_once", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(deepQ("q1", { recommendation: "postgres" }));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    expect(panel.view).toBe("short");
+
+    panel.handleInput(CTRL_D); // entering deep seeds once
+    expect(panel.cursorIndex).toBe(1); // ★ preselect, clamped to option domain
+    expect(panel.scrollOffset).toBe(0);
+
+    panel.handleInput(UP); // move selection — NOT a re-seed
+    expect(panel.cursorIndex).toBe(0);
+    panel.handleInput(CTRL_D); // toggle back to short
+    panel.handleInput(CTRL_D); // re-enter → re-seeds from ★
+    expect(panel.cursorIndex).toBe(1);
+    expect(panel.scrollOffset).toBe(0);
+  });
+
+  test("test_ac5_scroll_select_enter_returns_and_advances", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(deepQ("q1"));
+    state.upsertQuestion(deepQ("q2"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+
+    panel.handleInput(CTRL_D);
+    expect(panel.view).toBe("deep");
+    const beforeId = panel.currentId;
+    panel.handleInput(DOWN); // deep ↓ moves the SELECTION
+    expect(panel.cursorIndex).toBe(1);
+    expect(panel.currentId).toBe(beforeId); // never changes the question
+
+    panel.handleInput(ENTER);
+    expect(panel.view).toBe("short"); // returned to the short form
+    expect(panel.state.getQuestion("q1")?.answer?.value).toBe("postgres");
+    expect(panel.state.getQuestion("q1")?.status).toBe("answered");
+    expect(panel.currentId).toBe("q2"); // advanced to next unanswered (Q14)
+    expect(panel.deepSticky).toBe(true);
+  });
+
+  test("test_deep_updown_clamp_and_esc_preserves_state", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(deepQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+
+    panel.handleInput(CTRL_D);
+    panel.handleInput(DOWN);
+    panel.handleInput(DOWN); // consumed no-op at the domain edge (no ✎ in deep)
+    expect(panel.cursorIndex).toBe(1);
+    panel.handleInput(UP);
+    expect(panel.cursorIndex).toBe(0);
+
+    panel.handleInput(ESCAPE); // FR-16: descends, destroys nothing
+    expect(panel.view).toBe("short");
+    expect(panel.deepSticky).toBe(true); // sticky preserved for the session
+    expect(panel.state.getQuestion("q1")?.status).toBe("open"); // nothing destroyed
+    // ctrl+l overview round-trip restores deep (deepSticky).
+    panel.handleInput(CTRL_L);
+    panel.handleInput(CTRL_L);
+    expect(panel.view).toBe("deep");
+  });
+
+  test("test_note_mode_still_wins_over_deep_pane", () => {
+    // FR-13 "at any time": note mode replaces the pane region even in deep.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(deepQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_D);
+    expect(panel.view).toBe("deep");
+    panel.handleInput("\u001b[109;6u"); // ctrl+shift+m → note mode
+    const lines = panel.render(80);
+    expect(lines[0]).toBe("┌ NOTE — ships with next submission ┐");
+    expect(lines.join("\n")).not.toContain("Fast, embedded, single-writer.");
   });
 });

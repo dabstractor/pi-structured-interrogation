@@ -223,7 +223,7 @@ export function accept(panel: InterrogationPanel): boolean {
  * applyAnswer (status → answered, the pending state per h2.38), then
  * advance.
  */
-function acceptOptionIndex(panel: InterrogationPanel, q: Question, optionIndex: number): boolean {
+export function acceptOptionIndex(panel: InterrogationPanel, q: Question, optionIndex: number): boolean {
   const opt = q.options?.[optionIndex];
   if (opt === undefined) return false;
   const proposed = { value: opt.value, at: new Date().toISOString() };

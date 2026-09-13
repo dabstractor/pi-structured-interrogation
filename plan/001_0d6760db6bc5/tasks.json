@@ -644,14 +644,14 @@
               "type": "Task",
               "id": "P1.M5.T1",
               "title": "Deep view (panel/deep-view.ts)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Full-replacement scrollable pane: full description, every option as sticky header with ramification text, selectable.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T1.S1",
                   "title": "Scrollable deep view with sticky headers + select-from-deep",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T2.S1",
@@ -671,14 +671,14 @@
               "type": "Task",
               "id": "P1.M5.T2",
               "title": "Overview list (panel/overview.ts)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "ctrl+l full list of all questions with status markers, group headers, gate mark, enter jumps.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T2.S1",
                   "title": "Overview list with markers + jump",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T2.S1"
@@ -696,14 +696,14 @@
               "type": "Task",
               "id": "P1.M5.T3",
               "title": "Soft gate semantics",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Gate group focus-first, non-gate dimming (still answerable), dismissible submit warning.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T3.S1",
                   "title": "Gate group: focus, dimming, submit warning",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T2.S2"

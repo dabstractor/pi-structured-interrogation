@@ -62,6 +62,7 @@
 import { Key, matchesKey, parseKey, type KeyId } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { panelActions, type SubmitDeps } from "./actions.js";
+import { acceptFromDeep, deepSelectionDown, deepSelectionUp } from "./deep-view.js";
 import type { InterrogationPanel } from "./panel.js";
 
 /**
@@ -296,8 +297,17 @@ export function buildKeyRouter(
     if (panel.isResolved()) return false; // defensive; handleInput already guards
 
     // 1. Fixed arrows — BEFORE anything esc-related (arrows are ESC-prefixed).
-    if (matchesKey(data, Key.up)) return actions.optionUp(panel);
-    if (matchesKey(data, Key.down)) return actions.optionDown(panel);
+    //    Deep view (P1.M5.T1.S1, h2.29): ↑/↓ move the deep SELECTION and
+    //    scroll the pane — they never navigate options' question or fire the
+    //    short-view option cursor (question navigation is prev/next only).
+    if (matchesKey(data, Key.up)) {
+      if (panel.view === "deep") return deepSelectionUp(panel);
+      return actions.optionUp(panel);
+    }
+    if (matchesKey(data, Key.down)) {
+      if (panel.view === "deep") return deepSelectionDown(panel);
+      return actions.optionDown(panel);
+    }
 
     // 2. Fixed esc — the view-descent ladder, terminus suspend (FR-16).
     if (matchesKey(data, Key.escape)) {
@@ -307,7 +317,13 @@ export function buildKeyRouter(
 
     // 3. Fixed enter — options focus only. In text focus enter FORWARDS so
     // the embedded text field implements its two-stage save (P1.M4.T1.S2).
-    if (panel.focus !== "text" && matchesKey(data, Key.enter)) return actions.accept(panel);
+    // Deep view (P1.M5.T1.S1): enter accepts the highlighted option and
+    // returns to the short view (acceptFromDeep — text/moot/withdrawn are
+    // consumed no-ops there).
+    if (panel.focus !== "text" && matchesKey(data, Key.enter)) {
+      if (panel.view === "deep") return acceptFromDeep(panel);
+      return actions.accept(panel);
+    }
 
     // 4. Config-driven panel-level intercepts — valid whenever the panel is
     // open INCLUDING focus === "text" (h2.34 intercept rule). Order here is

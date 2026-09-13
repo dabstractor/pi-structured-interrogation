@@ -12,6 +12,7 @@
 import { Key, matchesKey, type KeyId } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
+import type { Question } from "../state.js";
 import {
   buildKeyRouter,
   defaultRoutedActions,
@@ -510,5 +511,137 @@ describe("batch note (R3, P1.M4.T2.S2) — ctrl+shift+m toggle + esc exit", () =
     const panel = makePanel({ focus: "note" });
     expect(route("7", panel)).toBe(false);
     expect(actions.digit).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------- deep-view routing gates (P1.M5.T1.S1)
+
+describe("deep view routing gates (P1.M5.T1.S1)", () => {
+  /**
+   * Stub carrying the surface the REAL deep actions touch (deep-view.ts
+   * operates on the panel directly — the router hard-wires them for the
+   * deep view, so spies cannot stand in for up/down/enter here).
+   */
+  function makeDeepPanel() {
+    const applied: Array<{ id: string; value: string }> = [];
+    const q: Question = {
+      id: "q1",
+      prompt: "p",
+      type: "choice",
+      rev: 1,
+      status: "open",
+      options: [
+        { value: "a", label: "a" },
+        { value: "b", label: "b" },
+      ],
+      recommendation: "a",
+    };
+    const panel = {
+      ...makePanel({ view: "deep" }),
+      currentId: "q1",
+      cursorIndex: 0,
+      scrollOffset: 0,
+      lastWidth: 80,
+      theme: { fg: (_n: string, s: string) => s, bold: (s: string) => s },
+      config: { ...DEFAULT_CONFIG },
+      viewLogs: [] as string[],
+      setView(v: PanelView) {
+        this.viewLogs.push(v);
+        this.view = v;
+      },
+      state: {
+        goal: "goal",
+        getQuestion: () => q,
+        orderedQuestions: () => [q],
+        applyAnswer: (id: string, a: { value: string }) => {
+          applied.push({ id, value: a.value });
+          // Mirrors InterrogationState.applyAnswer: fresh answer object +
+          // status flip (acceptFromDeep's veto detection reads the assign).
+          q.answer = { ...a, at: "t" };
+          q.status = "answered";
+        },
+      },
+      confirmRippleEdit: () => true,
+    };
+    return { panel: panel as unknown as InterrogationPanel & Record<string, unknown>, applied, q };
+  }
+
+  test("test_up_in_deep_moves_selection_not_option_cursor", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeDeepPanel();
+    panel.cursorIndex = 1;
+
+    expect(route(UP, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.cursorIndex).toBe(0); // deep selection moved up
+    expect(actions.optionUp).not.toHaveBeenCalled(); // short-view cursor untouched
+  });
+
+  test("test_down_in_deep_moves_selection_within_option_domain", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeDeepPanel();
+
+    expect(route(DOWN, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.cursorIndex).toBe(1);
+    expect(route(DOWN, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.cursorIndex).toBe(1); // clamped — no ✎ index in deep
+    expect(actions.optionDown).not.toHaveBeenCalled();
+  });
+
+  test("test_updown_in_short_still_route_to_option_actions", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ view: "short" }); // no deep surface needed
+
+    expect(route(UP, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.optionUp).toHaveBeenCalledTimes(1);
+    expect(route(DOWN, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.optionDown).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_enter_in_deep_accepts_and_returns_to_short", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel, applied } = makeDeepPanel();
+    panel.cursorIndex = 1;
+
+    expect(route(ENTER, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(applied).toEqual([{ id: "q1", value: "b" }]); // highlighted option
+    expect(panel.viewLogs).toEqual(["short"]); // returned to the short form
+    expect(actions.accept).not.toHaveBeenCalled(); // short-view accept untouched
+  });
+
+  test("test_enter_in_text_focus_still_forwards_in_deep", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeDeepPanel();
+    panel.focus = "text";
+
+    expect(route(ENTER, panel as unknown as InterrogationPanel)).toBe(false);
+    expect(panel.viewLogs).toEqual([]); // no view change — forwarded
+  });
+
+  test("test_esc_in_deep_descends_to_short_via_ladder", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeDeepPanel();
+
+    expect(route(ESCAPE, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.view).toBe("short"); // ladder descent, unchanged semantics
+    expect(actions.all.reduce((n, m) => n + m.mock.calls.length, 0)).toBe(0);
+  });
+
+  test("test_config_intercepts_still_fire_in_deep_view", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeDeepPanel();
+
+    expect(route(DEFAULT_DATA.deep, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.onDeep).toHaveBeenCalledTimes(1); // toggle back to short
+    expect(route(DEFAULT_DATA.submit, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.submit).toHaveBeenCalledTimes(1);
+    expect(route(DEFAULT_DATA.overview, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.onOverview).toHaveBeenCalledTimes(1);
   });
 });

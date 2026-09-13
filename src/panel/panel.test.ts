@@ -13,7 +13,7 @@
  * test re-arms it via createPanelHost(...) first.
  */
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import type { Component, EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG } from "../config.js";
 import {
@@ -28,6 +28,7 @@ import {
   InterrogationPanel,
   maybeAutoOpen,
   openPanel,
+  type InterrogationPanelArgs,
   type OpenPanelOptions,
   type PanelHost,
   type PiUISurface,
@@ -630,5 +631,211 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     expect(mock.calls.length).toBe(2);
     expect(host.isOpen()).toBe(true);
     expect(mock.calls[1].component.currentId).toBe("q2"); // first open question
+  });
+});
+
+// ------------------------------------------------- embedded editor (P1.M4.T1.S1)
+
+/** Text-question fixture (primary affordance renders the editor region). */
+function textQ(id: string, overrides: Partial<Question> = {}): Question {
+  return { ...choiceQ(id), type: "text", options: undefined, ...overrides };
+}
+
+/**
+ * Stateful fake composed editor — the same structural contract pi-vim etc.
+ * satisfies (plain literal implementing EditorComponent).
+ */
+function fakePanelEditor(): EditorComponent & { handleInput: Mock } {
+  let text = "";
+  return {
+    getText: vi.fn(() => text),
+    setText: vi.fn((t: string) => {
+      text = t;
+    }),
+    handleInput: vi.fn(),
+    render: vi.fn(() => ["e1", "e2", "e3"]),
+    focused: false,
+  } as unknown as EditorComponent & { handleInput: Mock };
+}
+
+/** Direct-construction args with a deterministic fake composed editor. */
+function panelArgsFor(
+  state: InterrogationState,
+  extra: Partial<InterrogationPanelArgs> = {},
+): InterrogationPanelArgs {
+  return {
+    tui: { requestRender: vi.fn() } as unknown as TUI,
+    theme: stubTheme,
+    done: () => {},
+    state,
+    config: DEFAULT_CONFIG,
+    editorFactory: () => fakePanelEditor(),
+    ...extra,
+  };
+}
+
+describe("embedded editor — construction + wiring (P1.M4.T1.S1)", () => {
+  test("test_panel_constructs_text_field_unfocused_default", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+
+    expect(panel.focus).toBe("options");
+    expect(panel.textField).toBeDefined();
+    expect(panel.textField.focused).toBe(false);
+    expect((panel.textField.editor as { focused?: boolean }).focused).toBe(false);
+  });
+
+  test("test_composed_factory_invoked_once_at_construction_with_live_args", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const keybindings = {} as unknown as KeybindingsManager;
+    const factory = vi.fn(() => fakePanelEditor());
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, {
+        tui,
+        keybindings,
+        editorFactory: factory,
+        config: { ...DEFAULT_CONFIG, editorMode: "composed" },
+      }),
+    );
+
+    // Exactly ONE instantiation, with the constructor's live tui/theme/kb.
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(factory).toHaveBeenCalledWith(tui, expect.any(Object), keybindings);
+    // Repeated renders/keystrokes never re-instantiate (one per lifetime).
+    panel.render(80);
+    panel.handleInput("x");
+    panel.render(80);
+    expect(factory).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_openPanel_captures_editor_factory_once_per_open", () => {
+    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    const mock = makeMockPi();
+    const factory = vi.fn(() => fakePanelEditor());
+    const pi = {
+      ...mock.pi,
+      ui: { ...mock.pi.ui, getEditorComponent: () => factory },
+    } as PiUISurface & Pick<ExtensionAPI, "on">;
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+
+    expect(openPanel(pi, optsFor(state))).toBe(true);
+    // Captured at openPanel time, invoked once inside the custom() body.
+    expect(factory).toHaveBeenCalledTimes(1);
+    mock.calls[0]?.component.render(80);
+    expect(factory).toHaveBeenCalledTimes(1); // renders never re-instantiate
+  });
+});
+
+describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
+  test("test_ctrl_t_via_router_seam_focuses_and_seeds", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = {
+      getDraft: vi.fn((id: string) => (id === "q1" ? "saved draft" : undefined)),
+      setDraft: vi.fn(),
+      getNote: () => "",
+      setNote: vi.fn(),
+    };
+    const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
+
+    panel.handleInput("\u0014"); // ctrl+t = config.keys.focusText
+    expect(panel.focus).toBe("text");
+    expect(panel.textField.focused).toBe(true);
+    expect(panel.textField.getText()).toBe("saved draft");
+  });
+
+  test("test_blurTextField_returns_focus_to_options", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.focusTextField();
+    panel.blurTextField();
+    expect(panel.focus).toBe("options");
+    expect(panel.textField.focused).toBe(false);
+  });
+
+  test("test_refocus_keeps_in_flight_text_and_reseeds_empty_field", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = {
+      getDraft: vi.fn((id: string) => (id === "q1" ? "saved draft" : undefined)),
+      setDraft: vi.fn(),
+      getNote: () => "",
+      setNote: vi.fn(),
+    };
+    const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
+    panel.focusTextField();
+    expect(panel.textField.getText()).toBe("saved draft");
+
+    // In-flight text survives blur → re-focus (never clobbered by seeding).
+    panel.blurTextField();
+    panel.textField.setText("in flight");
+    panel.focusTextField();
+    expect(panel.textField.getText()).toBe("in flight");
+  });
+
+  test("test_unmatched_input_forwards_only_in_text_focus", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    const editor = panel.textField.editor as unknown as { handleInput: Mock };
+
+    // Options focus: unmatched input does NOT reach the editor.
+    expect(panel.handleInput("x")).toBe(false);
+    expect(editor.handleInput).not.toHaveBeenCalled();
+
+    // Text focus: unmatched input reaches the editor and reports consumed.
+    panel.focusTextField();
+    expect(panel.handleInput("x")).toBe(true);
+    expect(editor.handleInput).toHaveBeenCalledWith("x");
+  });
+
+  test("test_router_consumed_keys_never_reach_text_field", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    // Explicit seam consuming everything — the h2.34 intercept-before-forward
+    // rule: config keys fire (and stop) even while text focus is active.
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, {
+        keys: (data) => data === "X",
+        editorFactory: () => fakePanelEditor(),
+      }),
+    );
+    panel.focusTextField();
+    const editor = panel.textField.editor as unknown as { handleInput: Mock };
+
+    expect(panel.handleInput("X")).toBe(true);
+    expect(editor.handleInput).not.toHaveBeenCalled();
+    // Unmatched input still forwards.
+    expect(panel.handleInput("y")).toBe(true);
+    expect(editor.handleInput).toHaveBeenCalledWith("y");
+  });
+
+  test("test_editor_region_renders_for_text_questions_and_text_focus", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("c1"));
+    state.upsertQuestion(textQ("t1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+
+    // Choice question, options focus → no editor lines.
+    panel.invalidate();
+    expect(panel.render(80)).not.toContain(" e1");
+
+    // Text question is the primary affordance → editor region always shows.
+    panel.currentId = "t1";
+    panel.invalidate(); // currentId changes are invalidation-free (M3 nav owns that)
+    const withText = panel.render(80);
+    expect(withText).toContain(" e1");
+    expect(withText).toContain(" e2");
+    expect(withText).toContain(" e3");
+
+    // Choice question under text focus → editor region shows.
+    panel.currentId = "c1";
+    panel.focusTextField();
+    expect(panel.render(80)).toContain(" e1");
   });
 });

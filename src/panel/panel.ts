@@ -45,6 +45,7 @@ import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../co
 import { getState, type InterrogationState } from "../state.js";
 import type { RippleConfirmFn, SubmitDeps } from "./actions.js";
 import { buildKeyRouter, defaultRoutedActions } from "./keys.js";
+import { createEditorComponent, TextField, type EditorFactory } from "./text-field.js";
 import {
   renderFlashLine,
   renderFooter,
@@ -125,6 +126,12 @@ export interface PiUISurface {
         done: (result: T) => void,
       ) => Component & { dispose?(): void },
     ): Promise<T | undefined>;
+    /**
+     * Composed-editor factory seam (h2.31) — captured ONCE per openPanel.
+     * Optional: undefined whenever no composed editor (pi-vim etc.) is
+     * registered → the panel silently uses the stock pi-tui Editor.
+     */
+    getEditorComponent?(): EditorFactory | undefined;
   };
   mode?: string;
 }
@@ -153,6 +160,13 @@ export interface InterrogationPanelArgs {
   delivery?: SubmitDeps;
   confirmRipple?: RippleConfirmFn;
   focusQuestionId?: string;
+  /**
+   * Composed-editor factory — the host captures `pi.ui.getEditorComponent()`
+   * once per openPanel (P1.M4.T1.S1); undefined → stock Editor fallback.
+   */
+  editorFactory?: EditorFactory | undefined;
+  /** Live keybindings manager from pi's custom() body (composed editors). */
+  keybindings?: KeybindingsManager;
 }
 
 /**
@@ -237,6 +251,13 @@ export class InterrogationPanel implements Component {
    */
   readonly config: InterrogatorConfig;
   private readonly drafts: DraftStore | undefined;
+  /**
+   * Embedded free-text editor (P1.M4.T1.S1) — exactly ONE per panel
+   * lifetime, instantiated in the constructor (inside the live custom()
+   * body). Never focused at construction; the router's onFocusText seam
+   * (ctrl+t / ✎ accept) drives focus + draft seeding.
+   */
+  readonly textField: TextField;
   /** The config-driven dispatcher — always present (router is the default). */
   private readonly keys: KeyHandler;
   /**
@@ -263,10 +284,35 @@ export class InterrogationPanel implements Component {
     this.state = args.state;
     this.config = args.config;
     this.drafts = args.drafts;
+    // P1.M4.T1.S1 — ONE embedded editor per panel lifetime. The composed
+    // factory (pi.ui.getEditorComponent(), captured once per openPanel by
+    // the host) is invoked HERE inside the live custom() body so tui/theme/
+    // keybindings are the instances pi passed in; stock Editor otherwise
+    // (editorMode "stock" or no factory — h2.51 risk row 1 mitigation).
+    this.textField = new TextField({
+      editor: createEditorComponent(
+        args.editorFactory,
+        args.config,
+        args.tui,
+        args.theme,
+        // pi's custom() body always hands the live keybindings manager here;
+        // the optional-args case is direct construction (tests), where no
+        // composed factory is invoked against a real manager.
+        args.keybindings as KeybindingsManager,
+      ),
+      theme: args.theme,
+      onInvalidate: () => this.invalidate(),
+    });
+
     // Key dispatch ALWAYS flows through the config-driven router (keys.ts,
     // P1.M3.T3.S1): the seam default wires the named actions + view-toggle
     // seams; an explicit args.keys (host override) replaces it wholesale.
-    this.keys = args.keys ?? buildKeyRouter(args.config, defaultRoutedActions(args.delivery));
+    // Host-side refinement of the onFocusText seam (keys.ts itself is
+    // untouched): ctrl+t / the ✎ affordance accept path now focus + seed
+    // the embedded editor, not just flip the focus flag.
+    const routed = defaultRoutedActions(args.delivery);
+    routed.onFocusText = (p) => p.focusTextField();
+    this.keys = args.keys ?? buildKeyRouter(args.config, routed);
     this.labels = resolveKeyLabels(args.config);
     this.delivery = args.delivery;
     this.rippleConfirm = args.confirmRipple ?? defaultRippleConfirm;
@@ -300,12 +346,20 @@ export class InterrogationPanel implements Component {
    * of it — fixed arrows/esc/enter, the esc-descent ladder (short-view esc
    * suspends, FR-16), and every config.keys accelerator via the h2.34
    * intercept-before-forward rule (config keys are consumed even in text
-   * focus). Unmatched input is ignored here for now; P1.M4.T1.S2 forwards it
-   * to the embedded editor when focus === "text".
+   * focus). Unmatched input is forwarded to the embedded editor when
+   * focus === "text" (P1.M4.T1.S1); otherwise it is ignored.
    */
-  handleInput(data: string): void {
-    if (this.resolved) return;
-    this.keys(data, this);
+  handleInput(data: string): boolean {
+    if (this.resolved) return false;
+    if (this.keys(data, this)) return true;
+    // Unmatched input reaches the embedded editor ONLY while text focus is
+    // active (h2.34: config intercepts fired first inside the router — the
+    // router consumed every panel key, even in text focus).
+    if (this.focus === "text") {
+      this.textField.handleInput(data);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -348,6 +402,9 @@ export class InterrogationPanel implements Component {
     this.state.off("changed", this.onChanged);
     if (this.footerFlash?.timer !== undefined) clearTimeout(this.footerFlash.timer);
     this.footerFlash = undefined;
+    // Tolerant teardown: a composed editor may own timers/subscriptions.
+    const editor = this.textField.editor as { dispose?: () => void };
+    if (typeof editor.dispose === "function") editor.dispose();
   }
 
   /** True once suspend() resolved custom() (the router's defensive guard). */
@@ -364,6 +421,35 @@ export class InterrogationPanel implements Component {
     if (this.view === view) return;
     this.view = view;
     this.invalidate();
+  }
+
+  /**
+   * Focus path for the router's onFocusText seam (keys.focusText / ctrl+t,
+   * and the ✎ affordance route refined in the constructor): focus the
+   * embedded editor and seed the current draft. Seeding applies only when
+   * the field is empty so blur → re-focus never clobbers in-flight text;
+   * the DraftStore seam (P1.M4.T2.S1) supplies the persisted value — until
+   * it lands the seed is "".
+   */
+  focusTextField(): void {
+    this.focus = "text";
+    this.textField.focus();
+    if (this.textField.getText() === "") {
+      const draft =
+        this.currentId !== undefined ? this.drafts?.getDraft(this.currentId) : undefined;
+      this.textField.seed(draft ?? "");
+    }
+    this.invalidate(); // the editor region appears immediately
+  }
+
+  /**
+   * Blur path back to the options region (two-stage enter wiring is
+   * P1.M4.T1.S2; the router/actions call this once landed).
+   */
+  blurTextField(): void {
+    this.focus = "options";
+    this.textField.blur();
+    this.invalidate(); // drop the editor region from the layout
   }
 
   /** The flash line for the current render pass, or undefined when unset. */
@@ -399,6 +485,16 @@ export class InterrogationPanel implements Component {
             width,
           }),
         );
+        // Editor region (h2.29, 3 lines default): the embedded editor shows
+        // while text focus is active or the current question is a text
+        // question (its primary affordance per short-view.ts). Sync the
+        // wrapper flag with panel focus first so non-router focus paths
+        // (actions.ts ✎ accept sets panel.focus directly) keep the editor's
+        // own focused flag truthful.
+        if (this.focus === "text" && !this.textField.focused) this.textField.focus();
+        if (this.focus === "text" || current.type === "text") {
+          lines.push(...this.textField.render(width));
+        }
       }
       // Transient flash line sits directly above the footer (h2.37), one
       // visibleWidth-bounded dim line; timer expiry clears it.
@@ -552,6 +648,11 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   activePi = pi;
   lastOpts = opts;
 
+  // Capture the composed-editor factory ONCE per panel instantiation
+  // (h2.31) — never inside render or per keystroke. Undefined is a normal
+  // state (no composed editor registered) → stock Editor fallback, silent.
+  const editorFactory = pi.ui.getEditorComponent?.();
+
   // (Re)arm the host-level upsert subscription on THIS state instance —
   // exactly one live subscription at any time (off-then-on of the same
   // handler cannot stack).
@@ -560,10 +661,12 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   opts.state.on("questions-upserted", handleUpserted);
 
   // FIRE-AND-FORGET — see the Mode A JSDoc above. NEVER await this promise.
-  const promise = pi.ui.custom<null>((tui, theme, _keybindings, done) => {
+  const promise = pi.ui.custom<null>((tui, theme, keybindings, done) => {
     const panel = new InterrogationPanel({
       tui,
       theme,
+      keybindings,
+      editorFactory,
       done,
       state: opts.state,
       config: opts.config,

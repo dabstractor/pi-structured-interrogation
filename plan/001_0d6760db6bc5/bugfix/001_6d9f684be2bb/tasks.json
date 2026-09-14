@@ -1,0 +1,345 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Restore interrogation correctness — 12-defect bugfix changeset",
+      "status": "Planned",
+      "description": "Fix all 8 major and 4 minor defects from the post-validation bug hunt, restoring spec-conformant behavior across the goal lifecycle, second-interrogation completion, submission delta contract, non-TUI parity, panel resumability, dependsOn freshness, restart fidelity, and draft preservation. Baseline: 930 tests / 43 files green, tsc --noEmit clean (architecture/test-infrastructure.md) — every subtask keeps both green via TDD.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Core tool/state lifecycle: goal updates, new-interrogation reset, epoch guard",
+          "status": "Planned",
+          "description": "Make the goal updatable and cap-enforced (BUG-001/BUG-009), let a second interrogation in a session complete by resetting the completed singleton (BUG-002), and require epoch on upserts touching existing questions (BUG-010).",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Goal becomes updatable with enforced 400-char cap (BUG-001, BUG-009)",
+              "status": "Planned",
+              "description": "FR-30 requires an agent-supplied, updatable goal. Today InterrogationState.goal is readonly with no setter and the tool's upsert path silently drops parsed.action.goal on later upserts, while applyCaps' truncated goal is discarded on the create path. Add a setGoal mutation seam and wire the tool to store the CAPPED goal on both create and update.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "state.ts: mutable goal via setGoal() mutation primitive",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.2", "h2.2/h3.0", "h2.3/h3.8", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/core-modules.md §BUG-001 — src/state.ts:218 `readonly goal: string` assigned once in constructor (line ~242); no setter exists. serialize() (state.ts:412) already carries goal; all consumers (panel/layout.ts:209 header, results.ts:125 read digest, fallback.ts:125 digest, delivery.ts:336/395 completion record) read live state on the `changed` event, so a mutation that emits `changed` propagates everywhere with zero further wiring.\n2. INPUT: none — this is the foundation primitive. Existing class API in core-modules.md §state.ts exported API.\n3. LOGIC: In src/state.ts replace `readonly goal` with a private field + public `get goal(): string` (keeps every existing `state.goal` read site compiling), add `setGoal(goal: string): void` that assigns and funnels through `emitChanged()` (mutation discipline: only mutation paths emit `changed`). Keep constructor assignment. Do NOT touch rev/epoch (goal is not epoch territory). Mock nothing — pure module, state.test.ts conventions (createInterrogationState + assert on serialize()/events).\n4. OUTPUT: `InterrogationState.setGoal(goal)` for consumption by P1.M1.T1.S2 (tool wiring). Serialization shape unchanged ({goal, epoch, order, questions, completed}).\n5. DOCS: [Mode A] Update the JSDoc on the goal field/setGoal and the class-level 'Mutation discipline' comment in src/state.ts (goal is no longer 'fixed for the lifetime of the state'); no user-facing config surface change."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S2",
+                  "title": "tool.ts: apply capped goal on create AND update upserts",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.0", "h2.3/h3.8", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/core-modules.md §BUG-001/§BUG-009 — src/tool.ts:248 `const state = existing ?? createInterrogationState(parsed.action.goal ?? \"\")` ignores the goal on later upserts (the tool.ts:198–201 doc comment even asserts goal is FIXED — rewrite it), and tool.ts:252–261 discards `capped.goal` from applyCaps (caps.ts:130 returns {questions, goal, warnings}; warning `goal truncated at {n} chars`). tool.test.ts:145–154 asserts the BUGGY goal-fixed behavior — rewrite those assertions to expect updates (tests are the contract; PRD h2.2/h3.0 governs).\n2. INPUT: `setGoal(goal)` from P1.M1.T1.S1; `applyCaps(...)` CapsResult already computed in the upsert case at tool.ts:252.\n3. LOGIC: In the upsert case: on the CREATE path construct the state with `capped.goal` (not raw); on the REUSE path, when `parsed.action.goal !== undefined`, call `state.setGoal(capped.goal)`. Goal applies only on upsert actions (a goal-only {} call is a read — leave that routing untouched). Keep assertFresh ordering (guards before mutation). Mock nothing — tool.test.ts pattern: executeInterrogate with tuiCtx()/printCtx() stubs, resetState() in beforeEach.\n4. OUTPUT: executeInterrogate upsert results reflect the updated/capped goal in details.state.goal; getState().goal matches capped goal (≤400 chars when over-budget, warning present). Consumed by P1.M1.T2.S1 (fresh-state swap reuses the same capped-goal handling).\n5. DOCS: [Mode A] src/tool-schema.ts goal field description: append that the goal is updatable on any upsert call; update the stale 'goal is FIXED' doc comment in src/tool.ts."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "Second interrogation in a session completes (BUG-002)",
+              "status": "Planned",
+              "description": "The one-time completion guard state.completed is set by clearForCompletion() but never reset: the tool's upsert path reuses the completed singleton, so every later interrogation short-circuits attemptCompletion with 'already-completed'. Swap in a fresh singleton when an upsert arrives on a completed state.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "Fresh-state swap on upsert after completion (epoch restarts at 1)",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S2"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.1", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/core-modules.md §BUG-002 + delivery-completion.md #4/#5 — completion.ts:~118 guard `if (state.completed === true) return {fired:false, reason:'already-completed'}`; `completed=true` set ONLY inside clearForCompletion (state.ts:394) and restored by deserialize (exactly-once across restart is intended — do NOT weaken that). Resetting in place is awkward: `snapshots` is a readonly array and goal/epoch retention is deliberate. Spec (spec-contracts.md §'Second interrogation'): epoch-on-new-interrogation is UNSPECIFIED; state-and-persistence.md §Auto-close says completion CLEARS in-memory state, and reconstruction takes the LATEST interrogate toolResult as base — so a fresh singleton (epoch 1, completed=false, empty snapshots) is the natural reading; this changeset pins that decision (recorded in the final docs task P1.M5.T2.S2).\n2. INPUT: capped goal handling from P1.M1.T1.S2; singleton seams getState/setState/resetState (state.ts) and createInterrogationState.\n3. LOGIC: In src/tool.ts upsert case, BEFORE assertFresh/applyCaps: if `existing !== undefined && existing.completed === true`, mint a fresh state via createInterrogationState (goal = capped/new goal if sent, else RETAIN existing.serialize().goal — FR-30 anchors re-asks and a blank header helps nobody; comment the choice) and `setState(...)`; proceed with the normal upsert flow on the new state (assertFresh trivially passes: epoch 1, no existing questions). Panel/lifecycle need no wiring: applyUpsert fires questions-upserted → panel.ts handleUpserted reopens (no open-count guard). Mock nothing — reproduce the PRD h2.2/h3.1 steps-to-reproduce as the failing test first (upsert → answer → submit → close+attemptCompletion {fired:true}; NEW question upsert → answer → submit → close+attemptCompletion must be {fired:true}, currently 'already-completed').\n4. OUTPUT: N interrogations per session each fire their completion record exactly once; details.state of the new interrogation carries epoch restarting at 1 and completed=false. Consumed by P1.M3.T3.S2 (evaluateDependsOn wiring covers the fresh-state path too).\n5. DOCS: [Mode A] Update the upsert-case doc comment in src/tool.ts (singleton lifetime: completed singleton is replaced, not reused); changeset-level README/decisions notes go to P1.M5.T2 (Mode B)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T3",
+              "title": "Epoch required on upserts touching existing questions (BUG-010)",
+              "status": "Planned",
+              "description": "tool-protocol Guards (Q38=A) require any questions/answers call to carry the session epoch, but assertFresh only rejects a SENT mismatching epoch — an upsert touching existing ids that omits epoch entirely passes with only per-question rev protection.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S1",
+                  "title": "assertFresh: reject epoch-less upserts touching existing ids",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.3", "h2.3/h3.9", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/core-modules.md §BUG-010 — src/guards.ts:213–235 assertFresh: record path (217–222) already throws plain Error('answers requires epoch: ...') on MISSING epoch (follow that precedent — plain Error, not StaleError, since there is no digest to show); upsert path final check (line ~234) `if (sentEpoch !== undefined && sentEpoch !== state.epoch)` is opt-in. tool-schema.ts:108 `epoch: Type.Optional(...)` stays optional at the schema level — first-call upserts (brand-new interrogation, no existing ids) must remain epoch-less-friendly.\n2. INPUT: ParsedAction from tool-schema (epoch?: number on upsert/record); InterrogationState question map via getQuestion.\n3. LOGIC: In guards.ts upsert branch: if the parsed batch touches ≥1 id that already exists in state (`state.getQuestion(id) !== undefined`) and `parsed.epoch === undefined`, throw Error with a self-heal message that INCLUDES the current epoch, e.g. 'STALE: upsert touching existing questions requires the session epoch (current {state.epoch}). Re-send with epoch.' Keep the existing rev checks and sent-epoch mismatch behavior untouched; read/reopen remain never-guarded. Mock nothing — guards.test.ts pattern (construct state via createInterrogationState + upsertQuestion, assert thrown Error message).\n4. OUTPUT: assertFresh enforces epoch presence on existing-id upserts; tool.test.ts gains the executor-level case (upsert q1 rev-echoed without epoch → isError). No downstream consumer changes.\n5. DOCS: [Mode A] src/tool-schema.ts epoch field description: replace 'REQUIRED with questions/answers' with the precise rule (required when upserting existing questions and when recording answers; optional for a first upsert); note it in assertFresh's JSDoc."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Submission delta contract: epoch segment, raw values, draft-safe submit",
+          "status": "Planned",
+          "description": "Restore the h3.6 delta content contract (BUG-003), carry raw answer values on DiffEntry so reconstruction can be exact (BUG-007 enabler), and stop submit from destroying un-shipped drafts / misreporting agent resets (BUG-008).",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Submission content includes '(state epoch {n})' (BUG-003)",
+              "status": "Planned",
+              "description": "architecture.md 'Key flows → Submit' specifies content = 'Submitted {k}: {id→value list, changed marked} (state epoch {n})' + reminder. buildSubmission omits the epoch from content entirely, so every post-submission re-ask echoing its last-known epoch is guaranteed STALE.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "buildSubmission: append post-bump epoch to the content line",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.2", "h2.2/h3.2", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #1/#3 — src/delivery.ts:129–175 buildSubmission(state, diff: SubmissionCardData, note?): SubmissionMessage; content at line 162 = `Submitted ${k}: ${k===0 ? '(no changes)' : list}\\n${SUBMISSION_REMINDER}${noteLine}`; reminder const at line 43. Side-effect tail takeSnapshot→bumpEpoch at 166–167. CRITICAL SEMANTIC: n must be the POST-BUMP epoch (state.epoch+1 / diff.epoch+1) — that is the epoch the model must echo to re-ask in one round trip (PRD h2.2/h3.2 repro: echoing the pre-bump 1 gets 'session epoch is 2 (you sent 1)'). The budget loop (lines ~145–157) measures `Submitted ${k}: ${list}` — fold the suffix into the measurement so truncation still respects SUBMISSION_LIST_MAX_CHARS.\n2. INPUT: SubmissionCardData (snapshots.ts) already carries `epoch` (pre-bump); state param available pre-bump.\n3. LOGIC: In src/delivery.ts compute the post-bump epoch (diff.epoch + 1) and format line 1 as `Submitted {k}: {list} (state epoch {n})`, including the k===0 '(no changes)' case (a zero-change submit still bumps epoch). Reminder + NOTE lines unchanged. details unchanged. delivery.test.ts asserts byte-exact content — update assertions intentionally (TDD: write the new-format assertion first, watch it fail, then fix).\n4. OUTPUT: SubmissionMessage.content carries the echoable epoch; consumed by the model in-conversation and asserted by delivery tests. P1.M2.T3.S1 (draft-safe submit) builds on this stable format.\n5. DOCS: none — no user-facing/config/API surface change beyond message text already governed by spec/architecture.md 'Key flows → Submit'; README-level notes go to P1.M5.T2 (Mode B)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T2",
+              "title": "DiffEntry carries the raw answer value (BUG-007 foundation)",
+              "status": "Planned",
+              "description": "reconstruction needs exact answer values, but DiffEntry {id,title,from,to,editedArchived} only carries label-preferred display summaries. Add the raw post-change value at the source so submission details can replay exactly.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S1",
+                  "title": "snapshots.ts computeEntries: add raw `value` to DiffEntry",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.2", "h2.2/h3.6", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #2/#13 — src/snapshots.ts:31–55 DiffEntry = {id, title, from, to, editedArchived}; from/to produced by module-PRIVATE answerSummary (~86–100: choice → option LABEL whose value === answer.value, fallback raw; text → raw; missing → '(unanswered)'). computeEntries (148–167) emits an entry iff answerSignature(before) !== answerSignature(after). No raw value exists anywhere on DiffEntry today.\n2. INPUT: computeEntries' before/after Question pair; QuestionAnswer {value, text?, at}.\n3. LOGIC: In src/snapshots.ts extend DiffEntry with `value?: string` = the POST-change raw answer value (after.answer?.value; leave undefined when unanswered) and populate it in computeEntries. Do NOT change from/to (renderers and the user-only diff card keep label summaries) or the signature comparison. Type-only ripple: snapshots.test.ts, delivery.test.ts fixtures. Keep legacy tolerance in mind: history written before this change has no `value` — that is P1.M5.T1.S1's fallback concern, not yours.\n4. OUTPUT: SubmissionMessage.details.changed[].value flows into session history; consumed by P1.M5.T1.S1 (reconstruct.replaySubmission prefers it over the label `to`).\n5. DOCS: [Mode A] JSDoc on DiffEntry in src/snapshots.ts documenting value (raw, machine-readable, for reconstruction) vs to (label-preferred, display-only)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T3",
+              "title": "Draft-safe submit: ship only user-pending answers, drop agent resets from the delta (BUG-008)",
+              "status": "Planned",
+              "description": "Submit flushes drafts via shipDrafts(diff.changed.map(c => c.id)) — after an agent re-ask (merge rule 2) reset an answered question, its preserved draft is destroyed without shipping and the delta tells the model the user retracted it ('q1: (unanswered)'). R4/commitment 6 make draft loss on revisit disqualifying.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T3.S1",
+                  "title": "actions.ts submit: shipDrafts(pendingIds) and filter agent-reset entries",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M2.T1.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.7", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/panel-ui.md §BUG-008 — src/panel/actions.ts submit flow 309–377: `pendingIds` = status 'answered' ids computed at ~343 (pre-markSubmitted) — exactly the ids the user is shipping; markSubmitted(pendingIds) at ~350; buildSubmission(state, diff, note) at ~352 with the diff computed at ~312 vs submissionBaseline (latest snapshot); `panel.drafts?.shipDrafts?.(diff.changed.map(c => c.id))` at 355 destroys slots for ids the user never shipped. Merge rule 2 (merge.ts:181–193) resets answer→undefined + status 'reasked', so the id re-enters diff.changed as from:'old answer' → to:'(unanswered)'. DraftStore API: shipDrafts(ids?) deletes+returns slots; getDraft/hasDraft available (draft-store.ts).\n2. INPUT: SubmissionCardData from computeDiff (snapshots.ts); pendingIds already in scope in submit; buildSubmission content format stable from P1.M2.T1.S1.\n3. LOGIC: In src/panel/actions.ts: (a) ship drafts ONLY for ids that actually shipped — `shipDrafts(pendingIds.filter(id => panel.drafts?.hasDraft(id)))` (or equivalent) so re-asked ids' preserved drafts survive per R4; (b) filter agent-caused resets out of the SubmissionCardData passed to buildSubmission: drop entries where `!pendingIds.includes(e.id) && e.to === '(unanswered)'` (answer signature went answered→unanswered without a pending user answer — by construction the agent's rule-2 reset; entries for genuinely pending ids and editedArchived entries stay). Keep k consistent with the filtered list (buildSubmission derives k from diff.changed.length). Do NOT reorder the side-effect tail (snapshot→bumpEpoch happens inside buildSubmission; still exactly once). Mock nothing — panel/actions.test.ts + panel.test.ts MockPi conventions; reproduce PRD h2.2/h3.7 steps as the failing test (getDraft('q1') survives submit; shipped content contains no 'q1: (unanswered)').\n4. OUTPUT: submit preserves drafts of un-shipped re-asked ids and the model-visible delta lists only user shipments. No downstream consumer changes (renderers read details.card which keeps user-caused entries).\n5. DOCS: none — behavior now matches ui-spec 'Draft preservation (R4)' verbatim; no repo doc describes the submit internals."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M3",
+          "title": "Non-TUI parity and dependsOn freshness (BUG-004, BUG-012, BUG-006)",
+          "status": "Planned",
+          "description": "Chat-recorded answers must respect terminal statuses and reach submitted→closed→completed in print/rpc/json modes, and dependsOn moot-ness must re-evaluate after every upsert including removed dependencies.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M3.T1",
+              "title": "recordAnswers refuses terminal-status questions (BUG-012)",
+              "status": "Planned",
+              "description": "The non-TUI answers[] path flips withdrawn/moot (terminal-until-re-upsert) questions back to 'answered', bypassing the state machine every other path enforces.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S1",
+                  "title": "fallback.ts: skip moot/withdrawn/closed ids, report an `ignored` bucket",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.3", "h2.3/h3.11"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #9/#10 — src/fallback.ts:197–222 recordAnswers(state, answers): only unknown-id check (getQuestion === undefined → unknown); state.ts applyAnswer (339–346) unconditionally sets status 'answered'. Terminal set per state machine: moot/withdrawn are terminal-until-re-upsert (state-and-persistence.md §1; SKIP_EVALUATION = {withdrawn, closed} in depends-on.ts); closed reopens only via re-upsert. Panel's accept path already treats moot/withdrawn as consumed no-ops — match that.\n2. INPUT: AnswerInput[] from tool-schema; QuestionStatus union from state.ts.\n3. LOGIC: In src/fallback.ts recordAnswers: ids resolving to a question whose status ∈ {moot, withdrawn, closed} are NOT applied — collect them in a new `ignored: string[]` bucket (return {recorded, unknown, ignored}); keep snapshot+bumpEpoch exactly once per call, driven only by recorded.length > 0 (a fully-ignored call should not burn an epoch — mirror the TUI zero-pending early-return semantics; assert it). Fix the docstring (line ~168) that falsely claims 'markSubmitted-equivalent' — it becomes truthful in P1.M3.T2.S1; for now describe actual behavior. Wire the bucket into src/tool.ts record case: append a line like `not recordable (moot/withdrawn/closed): id1, id2` when non-empty. Mock nothing — fallback.test.ts pure-function conventions (real InterrogationState + upsertQuestion + setStatus).\n4. OUTPUT: recordAnswers return shape {recorded, unknown, ignored} consumed by tool.ts record case (same subtask) and by P1.M3.T2.S1 which adds markSubmitted on the recorded bucket.\n5. DOCS: [Mode A] recordAnswers JSDoc in src/fallback.ts (terminal-status rule + buckets); no other surface."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T2",
+              "title": "Non-TUI interrogations close and complete (BUG-004)",
+              "status": "Planned",
+              "description": "FR-25: 'Completion record is still injected once at close' in non-TUI modes. Chat-recorded answers stay 'answered' forever, so the agent_settled close pass (archives only 'submitted') is a no-op and completion is unreachable.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S1",
+                  "title": "recordAnswers marks recorded ids submitted so the close pass fires",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M3.T1.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.3", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #2/#6/#7/#15 — fallback.ts recordAnswers applies answers then takeSnapshot+bumpEpoch, never merge.ts markSubmitted (254–258, thin setStatus 'submitted' wrapper). lifecycle.ts close pass (~203) filters status==='submitted' only; wiring index.ts:73 createLifecycle(pi, {onAfterClosePass: createCompletionTrigger(...)}) subscribes agent_settled with NO mode guard (event table: no TUI qualification). completion.ts predicate: BLOCKING = {open, reasked, answered, submitted, moot}; zero-question rule needs snapshots.length>0 || epoch>1 — recordAnswers' bump satisfies it. The debug-commands.ts:203 TUI path already calls markSubmitted — precedent. NOTE: the PRD's detect.ts mention is misdirected — detect.ts is the TUI-only round detector; non-TUI answers flow answers[] → tool.ts:325 → recordAnswers.\n2. INPUT: guarded recordAnswers loop + {recorded, unknown, ignored} from P1.M3.T1.S1; markSubmitted(state, ids) from src/merge.ts.\n3. LOGIC: In src/fallback.ts recordAnswers, after applying answers, call `markSubmitted(state, recorded)` so the docstring's 'the delivery step collapses into a submission' becomes literally true: the next agent_settled close pass archives them (closed) and attemptCompletion fires. Ordering: applyAnswer loop → markSubmitted(recorded) → takeSnapshot → bumpEpoch (one bump per call, recorded.length>0 only). Integration test (the PRD h2.2/h3.3 repro): print-mode ctx executeInterrogate upsert → executeInterrogate {answers, epoch} → simulate agent_settled close pass + attemptCompletion → {fired:true}; plus a mixed test (one recorded + one ignored) stays incomplete.\n4. OUTPUT: non-TUI sessions close submitted answers and inject the completion record exactly once at close (AC-11). No downstream consumer changes.\n5. DOCS: none — spec-conformant behavior (FR-25); README-level note goes to P1.M5.T2 (Mode B)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T3",
+              "title": "dependsOn moot-ness re-evaluated after upserts; removed dependencies reopen (BUG-006)",
+              "status": "Planned",
+              "description": "The tool's upsert path never runs evaluateDependsOn (stale moot until the next user answer), and evaluateDependsOn skips empty-dependsOn questions entirely, so a moot question whose dependency the agent removed stays moot forever.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T3.S1",
+                  "title": "depends-on.ts: reopen moot questions whose dependsOn was removed/emptied",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.2", "h2.2/h3.5", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #11/#12 — src/depends-on.ts:163–164 `if (!q.dependsOn || q.dependsOn.length === 0) continue;` skips BOTH the met-check and the moot→open reopen. State machine (state-and-persistence.md §1): 're-met → moot→open'; a removed dependency is the degenerate always-met case. SKIP_EVALUATION = {withdrawn, closed} stays; equals/notEquals compare raw answer.value (NOT label) — do not touch dependencyMet. MootEvaluation return shape {mootered, reopened} unchanged.\n2. INPUT: InterrogationState.orderedQuestions(); QuestionStatus.\n3. LOGIC: In src/depends-on.ts evaluateDependsOn: for a question with empty/absent dependsOn, if status === 'moot', setStatus(id, 'open') and push to `reopened` (all other statuses: continue, unchanged). Keep one `changed` event per actual flip (setStatus already does). Mock nothing — depends-on.test.ts conventions (build state via raw primitives, setStatus moot, call evaluateDependsOn; PRD h2.2/h3.5 repro: dep=pg → child moot; re-upsert child WITHOUT dependsOn → evaluateDependsOn → child open).\n4. OUTPUT: evaluateDependsOn(state) fully re-derives moot-ness including removed dependencies; consumed by P1.M3.T3.S2 (tool upsert wiring) and already by reconstruct.ts:368 / panel call sites.\n5. DOCS: [Mode A] JSDoc on evaluateDependsOn documenting the empty-dependsOn reopen rule."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T3.S2",
+                  "title": "tool.ts: evaluateDependsOn after every applyUpsert",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T3.S1", "P1.M1.T2.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.5", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/core-modules.md §BUG-006 — src/tool.ts:261 applyUpsert(...) with NO evaluateDependsOn after; existing call sites are reconstruct.ts:368, panel/ripple-confirm.ts:129, panel/actions.ts:249, delivery.ts:331 — the tool upsert path is the only mutation path missing it. FR-17: 'evaluated locally and instantly'. evaluateDependsOn is pure state logic emitting `changed` — safe for the synchronous, UI-free executor (h2.0 §1).\n2. INPUT: evaluateDependsOn(state) with the empty-dependsOn reopen from P1.M3.T3.S1; the tool.ts upsert case as reshaped by P1.M1.T2.S1 (fresh-state swap) and P1.M1.T1.S2 (goal wiring) — integrate into THAT shape, covering both the fresh-state and reuse paths.\n3. LOGIC: In src/tool.ts upsert case, immediately after applyUpsert(...), call evaluateDependsOn(state) (create and update paths). Tool result serialization happens after, so the digest reflects post-evaluation statuses. Mock nothing — tool.test.ts: upsert dep(choice)+child(dependsOn dep equals sqlite) with dep already answered pg → child arrives moot in the SAME upsert result; agent re-upsert removing child's dependsOn → child open.\n4. OUTPUT: agent edits to dependsOn conditions take effect instantly on the upsert result; no other consumer changes.\n5. DOCS: none — FR-17 conformance; comment-only in the upsert case."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M4",
+          "title": "Panel resumability and focus guards (BUG-005, BUG-011)",
+          "status": "Planned",
+          "description": "Pending answers must survive panel suspension with 0 open questions (three duplicated open-only gates), and ctrl+t must not focus an editor that deep/overview views never render.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M4.T1",
+              "title": "Answered-pending panels are resumable (BUG-005)",
+              "status": "Planned",
+              "description": "If the user answers everything then suspends before ctrl+s, the widget is cleared (open==0), /interrogate + break-out return the empty-state toast, and agent {reopen:true} refuses — the answers are stranded. ui-spec 'Empty/edge states': 0 open + pending submissions must stay reachable; FR-6: reopen has no deterministic guard.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T1.S1",
+                  "title": "Shared resumable predicate + suspend-widget visibility",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.2", "h2.2/h3.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/panel-ui.md §BUG-005 — three clones of the open-only gate: command.ts:81, index.ts:172 (`orderedQuestions().filter(q => q.status === 'open').length`), suspend.ts:103–105 (setWidget(WIDGET_KEY, open > 0 ? [line] : undefined)). panel.ts:172 already defines ACTIVE_STATUSES = ['open','answered','submitted','reasked'] (resume-focus notion). countStatuses (suspend.ts:42–54) already buckets answered separately; buildSuspendWidgetLine renders '{open} open · {answered} answered — {labels.breakOut} to resume /interrogate'. After clearForCompletion the map is empty → predicate false → 'empty' stays correct (completion/pending-submission territory per h2.37 belongs to LIVE states only).\n2. INPUT: InterrogationState.orderedQuestions(); QuestionStatus.\n3. LOGIC: In src/panel/suspend.ts export `hasResumableQuestions(state: InterrogationState): boolean` = any status ∈ {open, answered, submitted, reasked} (mirror ACTIVE_STATUSES; do not import panel.ts — re-declare or hoist the const to suspend.ts and have panel.ts import it, whichever keeps one definition). Use it in updateSuspendWidget: widget line shown iff hasResumableQuestions (replaces `open > 0`). Mock nothing — suspend.test.ts MockPi conventions: answer-all → suspend → widget line present; post-completion cleared state → widget absent.\n4. OUTPUT: hasResumableQuestions(state) exported for P1.M4.T1.S2; suspend widget no longer hides stranded pending answers.\n5. DOCS: none — ui-spec 'Suspend / resume / widget' conformance; no repo doc describes the widget rule."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T1.S2",
+                  "title": "command.ts toggle + index.ts onReopen use the resumable predicate",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M4.T1.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/panel-ui.md §BUG-005 — command.ts:81–82 interrogateToggleAction suspended branch `if (open === 0) return 'empty'` → caller notifies EMPTY_STATE_MESSAGE ('No active interrogation'); index.ts:169–177 onReopen returns 'no-state' when open==0 (maps to 'No open questions to reopen.' in tool.ts). resumeOpenPanel (panel.ts:1338–1354) restores lastFocusId if ACTIVE_STATUSES else first active — already compatible.\n2. INPUT: hasResumableQuestions(state) from P1.M4.T1.S1.\n3. LOGIC: In src/command.ts interrogateToggleAction suspended branch and src/index.ts onReopen: replace the open-only count with hasResumableQuestions(getState()) (command.ts receives `state` param already). Semantics: suspended + resumable → resumePanel/resumeOpenPanel → 'resumed'/'reopened'; suspended + NOT resumable (truly dead: completed-cleared or all terminal) → keep 'empty'/'no-state'. FR-6 'no deterministic guard' is preserved — this is state-existence plumbing, not a recency/epoch gate. Mock nothing — command.test.ts + panel.test.ts MockPi conventions; PRD h2.2/h3.4 repro: answer-all → suspend → interrogateToggleAction(host-suspended, ctx, state) returns 'resumed' (was 'empty'); onReopen returns 'reopened' (was 'no-state').\n4. OUTPUT: /interrogate, break-out shortcut, and agent {reopen:true} all resurface a fully-answered suspended panel so the user can ctrl+s. No downstream consumers.\n5. DOCS: none — behavior restored to spec; README-level note goes to P1.M5.T2 (Mode B)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M4.T2",
+              "title": "ctrl+t text focus guarded to the short view (BUG-011)",
+              "status": "Planned",
+              "description": "keys.ts routes focusText (ctrl+t) with no view guard, but buildLines renders the embedded TextField only in short view and note mode — ctrl+t in deep/overview silently traps keystrokes in an invisible editor.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T2.S1",
+                  "title": "keys.ts: gate focusText dispatch on panel.view === 'short'",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.3", "h2.3/h3.10"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/panel-ui.md §BUG-011 — src/panel/keys.ts:354–356 focusText dispatch has no view check (contrast externalEditor at :366 gating on focus === 'text', digits at ~385 gating on view). panel.ts buildLines (1045–1145): TextField rendered in note mode + short view only; PanelView = 'short' | 'deep' | 'overview' (panel.ts:95); PanelFocus = 'options' | 'text' | 'note' (panel.ts:98); handleInput tail (~640) forwards to textField when focus is text/note. focusTextField (panel.ts:800–815) seeds + focuses the editor.\n2. INPUT: panel.view and panel.focus state; keybinding match (matchesKey(data, b.focusText)).\n3. LOGIC: In src/panel/keys.ts, only dispatch actions.onFocusText when `panel.view === 'short'` (ctrl+t in deep/overview falls through to normal panel key handling — arrows keep scrolling/navigating per ui-spec Hotkeys). If focus is already 'text' (user descended from short via esc? — esc from short-text returns to options before descending, so this is defensive), a no-op return true is acceptable. Mock nothing — keys.test.ts router conventions: ctrl+t in deep/overview must NOT set focus='text'; in short it still does.\n4. OUTPUT: ctrl+t never creates invisible focus; FR-12's explain field remains reachable exactly where it renders. No downstream consumers.\n5. DOCS: none — ui-spec Hotkeys conformance; no repo doc enumerates the keymap."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M5",
+          "title": "Restart reconstruction fidelity and changeset-level documentation",
+          "status": "Planned",
+          "description": "Replay submission deltas with exact raw values (BUG-007), then sweep the changeset-level docs (README behavior notes, decisions.md record of the two spec gaps this changeset pinned).",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M5.T1",
+              "title": "Reconstruction replays raw answer values (BUG-007)",
+              "status": "Planned",
+              "description": "Session-start replay applies DiffEntry.to (the label-preferred display summary) as answer.value, corrupting state after restart whenever label ≠ value: dependsOn compares the label, digests lie, and ★-recommendation checks can be wrong.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M5.T1.S1",
+                  "title": "reconstruct.ts replaySubmission: prefer DiffEntry.value, tolerate legacy",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T2.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.6", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #13/#14 — src/reconstruct.ts:279–296 replaySubmission does `state.applyAnswer(id, { value: to, at: new Date().toISOString() })` with entry.to = label summary; line ~286 already skips to === '(unanswered)' (UNANSWERED_SUMMARY const at 134). Flow: reconstructFromBranch → walkBranch (last interrogate toolResult details.state base → newest mirror → none), position/epoch-filtered submission replay (one bumpEpoch per applied submission), evaluateDependsOn once (reconstruct.ts:368). History is UNTRUSTED: entries written before P1.M2.T2.S1 have NO value field — the fallback to `to` stays (best-effort, commented as legacy tolerance).\n2. INPUT: DiffEntry with optional raw `value` from P1.M2.T2.S1 flowing in SubmissionMessage.details.changed.\n3. LOGIC: In src/reconstruct.ts replaySubmission: use `entry.value ?? entry.to` as answer.value (skip when the resolved value is UNANSWERED_SUMMARY or entry represents an unanswered reset). Note: with P1.M2.T3.S1 filtering agent-resets out of shipped deltas, such entries no longer occur in NEW history — the tolerance only guards legacy. Mock nothing — reconstruct.test.ts branch-fixture conventions; PRD h2.2/h3.6 repro as the test: q1 (value 'b'/label 'Beta') + q2 dependsOn q1 equals 'b'; baseline toolResult(details.state) + custom_message(details of submission with changed[].value='b') → reconstructed q1.answer.value === 'b' and q2 open (was 'Beta' + moot).\n4. OUTPUT: restart restores exact canonical values (AC-9); dependsOn evaluation and completion ★-checks operate on real values.\n5. DOCS: [Mode A] Update the 'Best-effort' comment on replaySubmission to describe the value-first/legacy-label-fallback rule."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M5.T2",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Mode B catch-all: README.md behavior claims spanning the whole changeset, and spec/decisions.md entries pinning the two spec gaps this changeset decided (epoch reset on new interrogation; epoch-required-on-touching-upserts). Runs LAST.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M5.T2.S1",
+                  "title": "README.md: update behavior claims touched by this changeset",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M1.T3.S1", "P1.M2.T1.S1", "P1.M2.T2.S1", "P1.M2.T3.S1", "P1.M3.T1.S1", "P1.M3.T2.S1", "P1.M3.T3.S1", "P1.M3.T3.S2", "P1.M4.T1.S1", "P1.M4.T1.S2", "P1.M4.T2.S1", "P1.M5.T1.S1"],
+                  "prd_selectors": ["h2.0", "h2.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: README.md (~18KB) documents the extension's behavior surface. Verify every claim this changeset altered and update only what drifted — do not rewrite unrelated sections. Changed behaviors: goal updatable on any upsert with a 400-char cap (was fixed at creation); a second interrogation in a session completes (fresh epoch per interrogation); submission messages now carry '(state epoch {n})' for one-round-trip re-asks; upserts touching existing questions must send epoch; non-TUI (pi -p/rpc/json) answers close and inject the completion record at settle; fully-answered suspended panels are resumable via /interrogate, break-out, and {reopen:true}; ctrl+t only focuses the explain field in the short view; restart restores exact answer values; drafts of agent-re-asked questions survive panel submit.\n2. INPUT: all implementing subtasks listed in dependencies (their OUTPUT contracts above are the source of truth for wording).\n3. LOGIC: Edit README.md sections covering goal, epoch/guards, submissions, non-TUI mode, suspend/resume, drafts, and restart recovery to match the shipped behavior. Keep spec/ files untouched here (P1.M5.T2.S2 owns decisions.md). No code changes; no mocking.\n4. OUTPUT: README.md consistent with HEAD behavior; no stale claims from the 12 fixed defects remain.\n5. DOCS: [Mode B] This IS the changeset-level docs task."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M5.T2.S2",
+                  "title": "spec/decisions.md: record the two pinned spec gaps",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": ["P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M1.T3.S1"],
+                  "prd_selectors": ["h2.0", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/spec-contracts.md §'Second interrogation' — decisions.md Q7 says 'one active set' but NO spec text defines epoch semantics for a new interrogation after completion (research flagged this as an open design question), and tool-protocol Guards (Q38=A) says 'any questions/answers call must carry the session epoch' without spelling out the first-upsert carve-out this changeset implements. decisions.md is the repo's decision log (H2 sections; cite file + heading text — spec files have NO h2.N numeric ids).\n2. INPUT: the implemented behaviors from P1.M1.T2.S1 (fresh singleton, epoch restarts at 1, goal retained when a new interrogation sends none) and P1.M1.T3.S1 (epoch required only when an upsert touches existing ids; first upsert may omit it).\n3. LOGIC: Append a dated entry to spec/decisions.md under the appropriate H2 (Protocol or Defaulted) recording: (a) new-interrogation-after-completion ⇒ fresh state, epoch 1, completed=false, goal retained unless replaced; (b) epoch-presence guard applies to upserts touching existing ids (Q38=A clarification). One short paragraph each, same voice as existing entries. No code changes; no mocking.\n4. OUTPUT: decisions.md captures the two pinned semantics so future spec readers are not left at the same ambiguity.\n5. DOCS: [Mode B] Part of the changeset-level docs task."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

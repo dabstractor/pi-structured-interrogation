@@ -1,0 +1,21 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+ h2.2 Major Issues (Should Fix)
+  h3.0 Issue 1: Goal field is never updatable (FR-30 violation)
+  h3.1 Issue 2: A second interrogation in the same session can never fire its completion injection
+  h3.2 Issue 3: Submission delta omits '(state epoch {n})' — every post-submission re-ask hits a guaranteed STALE rejection
+  h3.3 Issue 4: Non-TUI (pi -p / rpc / json) interrogations never auto-close and never complete
+  h3.4 Issue 5: Pending answers are stranded when all questions are answered before suspending the panel
+  h3.5 Issue 6: dependsOn moot-ness is never re-evaluated after agent upserts; a question whose dependency is removed stays moot forever
+  h3.6 Issue 7: Session-start reconstruction stores display LABELS as answer values, corrupting state after restart
+  h3.7 Issue 8: Panel submit destroys un-shipped drafts of agent-re-asked questions and ships misleading '(unanswered)' deltas
+ h2.3 Minor Issues (Nice to Fix)
+  h3.8 Issue 1: Goal cap (400 chars) never enforced on stored state while the tool result claims it truncated the goal
+  h3.9 Issue 2: Upserts touching existing questions are accepted with no epoch at all (h2.22 requires echoing both rev and epoch)
+  h3.10 Issue 3: ctrl+t activates text focus in deep/overview views where the embedded editor is never rendered (blind typing)
+  h3.11 Issue 4: answers[] recording can resurrect withdrawn/moot (terminal) questions to 'answered'
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:41 list:14

@@ -1,0 +1,166 @@
+# Bug Fix Requirements
+
+## Overview
+Tested the pi-interrogator implementation end-to-end against the PRD: read all core modules (state/merge/guards/caps/tool/delivery/lifecycle/completion/fallback/reconstruction/persistence/compaction/detect/panel stack), ran the full 930-test suite (green), performed a headless real-pi load smoke (extension loads cleanly in `pi -p`), and drove ~10 adversarial behavioral probes against the real code paths (goal lifecycle, moot/dependsOn reopening, guard strictness, non-TUI close/completion, restart replay, second-interrogation completion, draft survival, resume edge cases). The single-interrogation TUI happy path is solid (upsert → panel → submit → auto-close → completion all work), but I found 8 major and 4 minor defects, each reproduced with a concrete probe: the goal can never be updated and its cap is never enforced; a second interrogation in a session can never complete; submission deltas omit the epoch the h3.6 contract requires (guaranteeing a STALE rejection every re-ask cycle); non-TUI sessions never close or complete; pending answers get stranded when the panel is suspended with 0 open questions; dependsOn moot-ness is stale after upserts and removed-dependency questions stay moot forever; restart replay corrupts answer values (labels stored as values); and panel submit destroys drafts of re-asked questions that never shipped while telling the model they were retracted. Minors: missing-epoch upserts accepted, blind text focus in deep/overview views, and answers[] resurrecting terminal questions.
+
+
+## Critical Issues (Must Fix)
+Issues that prevent core functionality from working.
+
+None.
+
+
+## Major Issues (Should Fix)
+Issues that significantly impact user experience or functionality.
+
+### Issue 1: Goal field is never updatable (FR-30 violation)
+**Severity**: Major
+**ID**: BUG-001
+**Location**: src/tool.ts:248 (goal only read at state creation); src/state.ts:219 (readonly goal, no setter)
+
+**Description**:
+PRD FR-30 requires the goal to be 'agent-supplied, updatable, shown in the panel header at all times; anchors re-asks and compaction summaries', and the tool-protocol schema accepts `goal` on every upsert call. The implementation makes `InterrogationState.goal` readonly with no update path: on any upsert after state creation, `parsed.action.goal` is silently ignored (tool.ts reuses the existing singleton and never writes the goal). A goal sent on a later upsert never reaches the panel header, the read result, or the completion record.
+
+**Steps to Reproduce**:
+1. Call executeInterrogate({goal: 'original goal', questions: [...1 question...]}) in TUI ctx. 2. Call executeInterrogate({goal: 'UPDATED goal', epoch: 1, questions: [{id: 'q1', rev: 1, ...same options...}]}) (verified via tsx probe: state goal stays 'original goal'). 3. getState().goal === 'original goal' — the update was silently dropped.
+
+### Issue 2: A second interrogation in the same session can never fire its completion injection
+**Severity**: Major
+**ID**: BUG-002
+**Location**: src/completion.ts:110 (completed check, never reset for new interrogations); src/tool.ts:248 (singleton reuse after completion)
+
+**Description**:
+Commitment 2 / FR-5 / Q30 require the full Q&A record to be injected exactly once per interrogation when it completes. The one-time guard `state.completed` is set by clearForCompletion() but never reset for a NEW interrogation: the tool's upsert path reuses the same session singleton (`existing ?? createInterrogationState(...)`), so after the first interrogation completes, every subsequent interrogation in the same session short-circuits attemptCompletion with 'already-completed'. The second interrogation's completion record (the record the model must write the spec from) is never delivered; the new interrogation also inherits the stale goal (BUG-001) and unreset epoch.
+
+**Steps to Reproduce**:
+1. TUI ctx: upsert q1, answer it, submit (buildSubmission), simulate agent_settled (closeSubmitted + attemptCompletion) → {fired: true}. 2. Upsert a NEW question n1 (second interrogation, same session). 3. Answer n1, submit, run the close pass + attemptCompletion → returns {fired: false, reason: 'already-completed'} (verified via tsx probe). The completion record never reaches the model.
+
+### Issue 3: Submission delta omits '(state epoch {n})' — every post-submission re-ask hits a guaranteed STALE rejection
+**Severity**: Major
+**ID**: BUG-003
+**Location**: src/delivery.ts:162 (content built without the epoch segment)
+
+**Description**:
+spec/architecture.md h3.6 defines the delta content as 'Submitted {k}: {id→value list, changed marked} (state epoch {n})' followed by the reminder line. The PRD includes the epoch precisely so the model can re-ask in one round trip after a user submission. buildSubmission drops the epoch from content entirely (it lives only in `details`, which the model never sees — the card is user-only by decision Q2=A). Since the submission is the only new-epoch signal after ctrl+s, the model's standard re-ask (echoing the epoch from its last tool result) is ALWAYS rejected as STALE, adding a wasted isError round trip to every submission→re-ask cycle (the core loop of the extension).
+
+**Steps to Reproduce**:
+1. TUI: upsert q1 (result shows epoch 1). 2. Answer q1, submit via buildSubmission — content is 'Submitted 1: q1: A\nConsider how these affect your other questions.' (no epoch; verified via tsx probe). 3. Model re-asks: executeInterrogate({epoch: 1, questions: [{id: 'q1', rev: 1, ...changed options...}]}) → throws 'STALE: session epoch is 2 (you sent 1). Changes since epoch 1: (none). Re-apply against current state.' The guard works, but the delta contract violation guarantees this rejection on every cycle.
+
+### Issue 4: Non-TUI (pi -p / rpc / json) interrogations never auto-close and never complete
+**Severity**: Major
+**ID**: BUG-004
+**Location**: src/fallback.ts:212 (applyAnswer only; no markSubmitted); src/lifecycle.ts:222-227 (close pass archives only 'submitted')
+
+**Description**:
+FR-4/FR-5/FR-25 require submitted questions to close after the agent's reply and the completion record to be injected once at close — 'Read/completion work identically... Completion record is still injected once at close' (FR-25) and AC-11 requires consistent state in print mode. fallback.ts recordAnswers only calls applyAnswer (status 'answered') — its own docstring claims 'markAnswered + markSubmitted-equivalent... the delivery step collapses into a submission' but it never marks the answers 'submitted'. The h2.44 close pass archives only status-'submitted' questions, so chat-recorded answers stay 'answered' forever: the close pass is a no-op, the completion predicate always finds active questions, and the interrogation-completion injection is unreachable in every non-TUI session (unless the agent withdraws every question by hand).
+
+**Steps to Reproduce**:
+1. print-mode ctx: executeInterrogate({goal, questions:[q1]}) → digest. 2. executeInterrogate({answers: [{id: 'q1', value: 'b'}], epoch: 1}) → q1 status 'answered' (verified via tsx probe). 3. Simulate agent_settled: close pass finds zero 'submitted' ids; attemptCompletion returns {fired: false, reason: 'active-questions-remain'}. No path ever closes q1 or fires completion.
+
+### Issue 5: Pending answers are stranded when all questions are answered before suspending the panel
+**Severity**: Major
+**ID**: BUG-005
+**Location**: src/command.ts:81-82 (open==0 → 'empty'); src/index.ts:173 (reopen refuses open==0); src/panel/suspend.ts:105 (widget cleared when open==0)
+
+**Description**:
+spec/ui-spec.md h2.37 explicitly handles the edge '0 open questions but pending submissions → footer "submit pending answers first"', and FR-6 states the agent reopen has 'No deterministic guard'. Implementation: if the user answers every question and then suspends (esc at top level — a primary FR-16 flow) before ctrl+s, the suspend widget is cleared (open==0), /interrogate and the global break-out shortcut return the 'No active interrogation' empty-state toast (interrogateToggleAction refuses resume when open==0), and the agent's {reopen:true} also refuses ('no-state' when open==0). The user has no way to resurface the panel and submit; the answers stay 'answered' in state, the epoch never bumps, and the model never receives them (recoverable only if the agent happens to upsert, which reopens the panel).
+
+**Steps to Reproduce**:
+1. TUI: upsert q1; answer it via state.applyAnswer (status 'answered', not submitted). 2. Suspend the panel (done(null)). 3. interrogateToggleAction(host-suspended, ctx, state) returns 'empty' (verified via tsx probe: PROBE6 'empty'); the widget was cleared because open==0; index.ts onReopen likewise returns 'no-state' for open==0. The pending answer cannot be submitted from the panel.
+
+### Issue 6: dependsOn moot-ness is never re-evaluated after agent upserts; a question whose dependency is removed stays moot forever
+**Severity**: Major
+**ID**: BUG-006
+**Location**: src/tool.ts:261 (upsert applies merge without evaluateDependsOn); src/depends-on.ts:165 (empty-dependsOn questions skipped — removed-dependency moot never reopens)
+
+**Description**:
+FR-17 requires conditions to be 'evaluated locally and instantly' and the h2.38 state machine has moot → open on re-met. Two defects: (a) the tool's upsert path never calls evaluateDependsOn after applying an upsert (only panel answers and reconstruction trigger it), so agent edits to dependsOn conditions leave stale moot status until the next user answer; (b) even when evaluateDependsOn runs, it skips questions with empty/removed dependsOn (`if (!q.dependsOn || q.dependsOn.length === 0) continue`), so a moot question whose dependency the agent REMOVED in a re-upsert (a legitimate repair: 'this question is no longer conditional') can never return to open — it stays greyed as moot with a stale reason forever.
+
+**Steps to Reproduce**:
+1. TUI: upsert dep (choice) + child with dependsOn [{id:'dep', equals:'sqlite'}]. 2. Answer dep=pg and run evaluateDependsOn → child 'moot' (correct). 3. Agent re-upserts child WITHOUT dependsOn (same options, rev+1) and run evaluateDependsOn again → child remains 'moot' (verified via tsx probe: PROBE2). It should return to open per h2.38; instead it is permanently unaskable-looking despite having no conditions.
+
+### Issue 7: Session-start reconstruction stores display LABELS as answer values, corrupting state after restart
+**Severity**: Major
+**ID**: BUG-007
+**Location**: src/reconstruct.ts:289 (applyAnswer with entry.to — the label-preferred display summary)
+
+**Description**:
+FR-28/h2.41 step 3 replays interrogation-submission deltas onto the reconstructed base. Submission deltas carry label-preferred display summaries (DiffEntry.to = option LABEL, not value), and replaySubmission applies that string directly as `answer.value`. For any question whose option label differs from its value, a submission that occurred after the last interrogate tool result (the normal case — the model's reply to a submission usually contains no interrogate call) is restored with the wrong answer value on restart. Downstream: dependsOn equals/notEquals compare against the label and mark questions moot incorrectly, the read digest reports wrong values, and the completion record's ★-recommendation check (answer.value === recommendation) can be wrong. The code comments call it a 'best-effort approximation', but it corrupts the canonical state the PRD says must be restored (AC-9: 'panel reopens with questions/answers').
+
+**Steps to Reproduce**:
+1. TUI: upsert q1 (options value 'b'/label 'Beta') and q2 dependsOn q1 equals 'b'; baseline = upsert tool-result details.state. 2. Answer q1='b', submit (delta to:'Beta'). 3. Reconstruct from a branch [toolResult(details.state), custom_message(details of the submission)] (verified via tsx probe): q1.answer.value === 'Beta' and q2 is moot — expected value 'b' and q2 open.
+
+### Issue 8: Panel submit destroys un-shipped drafts of agent-re-asked questions and ships misleading '(unanswered)' deltas
+**Severity**: Major
+**ID**: BUG-008
+**Location**: src/panel/actions.ts:355 (shipDrafts over diff.changed instead of the actually-pending answered ids)
+
+**Description**:
+Hard requirement R4 / commitment 6 / merge rule 2: typed-but-unsubmitted drafts 'always survive upserts (including answer resets — merge rule 2)' and are destroyed only by submission (when the text ships) or explicit user action. The panel submit flushes drafts via shipDrafts(diff.changed.map(c => c.id)) where diff.changed is computed against the last snapshot — after an agent re-ask (rule 2) reset a previously-answered question, that question appears in diff.changed ('A → (unanswered)') even though the user shipped nothing for it. Consequences: (a) the re-asked question's preserved draft is silently DESTROYED without shipping (R4 violation — the exact 'draft loss on revisit' class the PRD calls disqualifying); (b) the model-visible delta line reads 'Submitted 2: q1: (unanswered); q2: X', telling the model the user retracted q1 when the reset was the agent's own rule-2 action.
+
+**Steps to Reproduce**:
+1. TUI: upsert q1,q2; answer q1, save a text draft for q1 ('my elaboration draft'), submit (epoch 2, snapshot holds q1 answered). 2. Agent re-asks q1 with changed options (rule 2: answer reset, status reasked; draft correctly preserved so far). 3. User answers q2 and presses ctrl+s: diff vs snapshot = [q1 'A'→'(unanswered)', q2→'X']; actions.submit ships drafts for BOTH ids (verified via tsx probe: getDraft('q1') === undefined after submit) and the delta line includes 'q1: (unanswered)'.
+
+
+## Minor Issues (Nice to Fix)
+Small improvements or polish items.
+
+### Issue 1: Goal cap (400 chars) never enforced on stored state while the tool result claims it truncated the goal
+**Severity**: Minor
+**ID**: BUG-009
+**Location**: src/tool.ts:248-261 (state created with raw goal; capped.goal return value unused)
+
+**Description**:
+h2.23 caps: 'goal ≤ 400', over-budget content truncated with a warning. applyCaps correctly returns a truncated goal, but the tool's upsert path discards `capped.goal` entirely and creates the state with the RAW parsed goal. A 1000-char goal is stored in full (shown unbounded in the panel header/read path) while the tool result simultaneously warns 'goal truncated at 1000 chars' — an unenforced cap plus a misleading warning to the model.
+
+**Steps to Reproduce**:
+1. executeInterrogate({goal: 'G'.repeat(1000), questions: [...1 question...]}) in TUI ctx (verified via tsx probe): result content includes 'goal truncated at 1000 chars', but getState().goal.length === 1000 (cap 400 never applied to stored state).
+
+### Issue 2: Upserts touching existing questions are accepted with no epoch at all (h2.22 requires echoing both rev and epoch)
+**Severity**: Minor
+**ID**: BUG-010
+**Location**: src/guards.ts:226 (epoch checked only when present); src/tool-schema.ts (no presence requirement either)
+
+**Description**:
+PRD h2.22 / tool-protocol Guards (Q38=A): 'upserts touching existing questions must echo each question's rev AND the session epoch'. The schema description also says epoch is 'REQUIRED with questions/answers'. assertFresh only rejects when a SENT epoch mismatches; an upsert touching existing questions that omits `epoch` entirely passes silently (only the per-question rev guard runs). The staleness protection the PRD compares to write's read-before-write is therefore opt-in on the upsert path (it is enforced for `answers[]`, where a missing epoch throws).
+
+**Steps to Reproduce**:
+1. TUI: upsert q1 (rev 1). 2. executeInterrogate({questions: [{id: 'q1', rev: 1, prompt: 'P2?', ...same options...}]}) — no epoch key (verified via tsx probe: accepted with a normal upsert result, no rejection).
+
+### Issue 3: ctrl+t activates text focus in deep/overview views where the embedded editor is never rendered (blind typing)
+**Severity**: Minor
+**ID**: BUG-011
+**Location**: src/panel/keys.ts:354 (focusText intercepted in all views); src/panel/panel.ts buildLines (textField rendered only in the short/note branches)
+
+**Description**:
+ui-spec h2.34 intercepts panel keys in every view, and keys.ts routes focusText (ctrl+t) with no view guard. panel.ts buildLines renders the embedded TextField only in the short view (and note mode); in deep and overview views nothing renders it. Pressing ctrl+t in deep/overview sets focus='text' and seeds the editor, but the user sees no editor — subsequent keystrokes are forwarded into an invisible editor and enter silently performs a stage-1 draft save. FR-12's explain field is effectively a hidden trap in two of the three views.
+
+**Steps to Reproduce**:
+1. Open a panel with a choice question; press ctrl+d (deep view). 2. Press ctrl+t — focus becomes 'text' (focusTextField runs, invalidate fires) but the deep branch of buildLines renders no editor lines. 3. Type text — handleInput forwards to textField.handleInput; nothing visible changes; enter saves the draft invisibly.
+
+### Issue 4: answers[] recording can resurrect withdrawn/moot (terminal) questions to 'answered'
+**Severity**: Minor
+**ID**: BUG-012
+**Location**: src/fallback.ts:212 (applyAnswer without status/terminal check)
+
+**Description**:
+h2.38 state machine: 'moot/withdrawn are terminal-until-re-upsert'. recordAnswers (non-TUI answers[] path) calls applyAnswer for any known id without checking status, so the model recording a chat answer for a withdrawn or moot question flips it to 'answered' — bypassing the terminal-until-re-upsert rule that all other paths enforce (the panel's accept treats moot/withdrawn as consumed no-ops). Mostly a consistency hazard: a stale digest relay or a mistaken model can resurrect a question the agent deliberately withdrew, and the withdrawal audit marker disappears from active tracking.
+
+**Steps to Reproduce**:
+1. Upsert q1,q2; withdraw q1 via an upsert omitting it (status 'withdrawn', kept in map). 2. Non-TUI: executeInterrogate({answers: [{id: 'q1', value: 'x'}], epoch}) — recordAnswers finds the id in the map and applies the answer; q1.status becomes 'answered' (state.ts applyAnswer has no terminal-status guard).
+
+## Testing Summary
+- Total bugs found: 12
+- Critical: 0
+- Major: 8
+- Minor: 4
+
+## Recommendations
+- Add an epoch/`epoch` reset + goal-update path for new interrogations after completion (reset the singleton or the completed flag when a fresh upsert arrives on a completed state) — fixes BUG-001/BUG-002 together.
+- Include '(state epoch {n})' in buildSubmission's content line per h3.6 so post-submission re-asks stop hitting guaranteed STALE rejections.
+- Mark chat-recorded answers 'submitted' in recordAnswers (or extend the close pass to close answers recorded at the current epoch) so non-TUI interrogations can close and complete.
+- Treat 'answered-pending' as resumable: resume/`reopen:true`/widget visibility should key on active statuses (open/answered/submitted/reasked), not open-only.
+- Run evaluateDependsOn after every applyUpsert and make it reopen moot questions whose dependsOn was removed (evaluate empty-dependsOn questions that are currently moot).
+- Carry raw answer values (not label summaries) in submission delta details.changed so reconstruction replay restores exact values.
+- Flush drafts only for ids the user actually shipped (pending answered ids), and filter agent-caused answer resets out of the shipped delta list.
+- Enforce the goal cap on stored state (use applyCaps' capped goal) and consider requiring epoch presence on upserts touching existing ids.

@@ -447,7 +447,7 @@ describe("/interrogate-debug-submit — note= token (R3, P1.M4.T2.S2)", () => {
 
     const msg = sendMessage.mock.calls[0][0] as { content: string };
     expect(msg.content).toBe(
-      "Submitted 0: (no changes)\n" +
+      "Submitted 0: (no changes) (state epoch 2)\n" +
         "Consider how these affect your other questions.\n" +
         "NOTE: zero pending context",
     );

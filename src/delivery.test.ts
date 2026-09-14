@@ -31,6 +31,7 @@ import {
   type QuestionAnswer,
   type SerializedState,
 } from "./state";
+import { StaleError, assertFresh } from "./guards.js";
 
 const T0 = "2025-01-01T00:00:00.000Z";
 
@@ -85,7 +86,7 @@ describe("buildSubmission — content", () => {
     const msg = buildSubmission(state, diff);
 
     expect(msg.content).toBe(
-      "Submitted 2: q1: SQLite; q2: Postgres\nConsider how these affect your other questions.",
+      "Submitted 2: q1: SQLite; q2: Postgres (state epoch 2)\nConsider how these affect your other questions.",
     );
     expect(msg.customType).toBe("interrogation-submission");
     expect(msg.display).toBe(true);
@@ -107,7 +108,7 @@ describe("buildSubmission — content", () => {
     const msg = buildSubmission(state, diff);
 
     const line1 = msg.content.split("\n")[0];
-    expect(line1).toBe("Submitted 2: qa: Postgres (changed); qb: new");
+    expect(line1).toBe("Submitted 2: qa: Postgres (changed); qb: new (state epoch 2)");
   });
 
   test("truncation_30_long_answers_keeps_3_line_budget_and_true_k", () => {
@@ -124,7 +125,7 @@ describe("buildSubmission — content", () => {
 
     expect(lines).toHaveLength(2); // ≤3 lines (2 by construction)
     expect(lines[0]).toMatch(/^Submitted 30: /); // k reports the true count
-    expect(lines[0]).toMatch(/\+\d+ more$/); // rollup suffix present
+    expect(lines[0]).toMatch(/\+\d+ more \(state epoch \d+\)$/); // rollup BEFORE the suffix
     expect(lines[1]).toBe(SUBMISSION_REMINDER);
   });
 
@@ -138,7 +139,9 @@ describe("buildSubmission — content", () => {
     const lines = msg.content.split("\n");
 
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe(`Submitted 1: q1: ${"x".repeat(SUBMISSION_LIST_MAX_CHARS * 2)}`);
+    expect(lines[0]).toBe(
+      `Submitted 1: q1: ${"x".repeat(SUBMISSION_LIST_MAX_CHARS * 2)} (state epoch 2)`,
+    );
     expect(lines[0]).not.toContain("+1 more"); // single entry is never dropped
   });
 
@@ -151,7 +154,7 @@ describe("buildSubmission — content", () => {
     const msg = buildSubmission(state, diff);
 
     expect(msg.content).toBe(
-      "Submitted 0: (no changes)\nConsider how these affect your other questions.",
+      "Submitted 0: (no changes) (state epoch 2)\nConsider how these affect your other questions.",
     );
     expect(state.snapshots).toHaveLength(1); // ring consistency on empty diffs
     expect(state.epoch).toBe(2);
@@ -226,6 +229,48 @@ describe("buildSubmission — details", () => {
     expect(msg.details.card).toBe(diff);
     expect(msg.details.changed).toBe(diff.changed);
     expect(Object.keys(msg.details).sort()).toEqual(["card", "changed", "epoch", "note"]);
+  });
+});
+
+describe("buildSubmission — (state epoch {n}) content suffix (BUG-003)", () => {
+  /** Fresh 1-answer diff submitted once (state is reset by beforeEach). */
+  function submitOnce(): SubmissionMessage {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("a"));
+    return buildSubmission(state, diffFrom(prev));
+  }
+
+  test("content_epoch_is_post_bump_and_matches_state_after_call", () => {
+    const msg = submitOnce();
+    const n = state.epoch; // post-bump
+
+    expect(n).toBe(2);
+    expect(msg.content).toContain(`(state epoch ${n})`); // SAME n the model must echo
+    expect(msg.details.epoch).toBe(n - 1); // details stays PRE-bump
+  });
+
+  test("echoed_epoch_passes_assertFresh_regression", () => {
+    const msg = submitOnce();
+
+    // The model reads the epoch FROM content — parse it out the same way.
+    const echoed = Number(/\(state epoch (\d+)\)/.exec(msg.content)![1]);
+    const reask = { id: "q1", prompt: "prompt for q1", type: "text" as const, rev: 1 };
+
+    // Post-bump echo on an upsert touching an existing id: NOT stale (BUG-003 guard).
+    expect(() => assertFresh(state, { action: "upsert", epoch: echoed, questions: [reask] })).not
+      .toThrow();
+
+    // The PRE-bump echo (what BUG-003's epoch-less content forced) throws STALE.
+    expect(() =>
+      assertFresh(state, { action: "upsert", epoch: echoed - 1, questions: [reask] }),
+    ).toThrow(StaleError);
+
+    // P1.M1.T3.S1 (landed): omitting the epoch entirely is rejected too —
+    // content's post-bump epoch is the model's ONLY reliable source.
+    expect(() => assertFresh(state, { action: "upsert", questions: [reask] })).toThrow(
+      /requires the session epoch/,
+    );
   });
 });
 
@@ -650,7 +695,7 @@ describe("buildSubmission — NOTE: content line (h2.32/R3, P1.M4.T2.S2)", () =>
 
     const lines = msg.content.split("\n");
     expect(lines).toHaveLength(3); // h3.6 ≤3-line budget: 2 without, 3 with note
-    expect(lines[0]).toBe("Submitted 1: q1: SQLite"); // line 1 untouched
+    expect(lines[0]).toBe("Submitted 1: q1: SQLite (state epoch 2)"); // line 1 carries the epoch
     expect(lines[1]).toBe(SUBMISSION_REMINDER); // line 2 untouched
     expect(lines[2]).toBe("NOTE: picked sqlite — deploy is friday"); // MODEL-visible
     expect(msg.details.note).toBe("picked sqlite — deploy is friday"); // card keeps it
@@ -682,7 +727,7 @@ describe("buildSubmission — NOTE: content line (h2.32/R3, P1.M4.T2.S2)", () =>
     const msg = buildSubmission(state, diff, "hold");
 
     const lines = msg.content.split("\n");
-    expect(lines[0]).toBe("Submitted 0: (no changes)");
+    expect(lines[0]).toBe("Submitted 0: (no changes) (state epoch 2)");
     expect(lines[2]).toBe("NOTE: hold");
   });
 });

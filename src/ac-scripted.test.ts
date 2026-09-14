@@ -217,7 +217,7 @@ describe("AC-2 — submission delta, reminder, open count, epoch (FR-3)", () => 
     // ≤3-line delta with the byte-exact reminder line (h3.6).
     const lines = msg.content.split("\n");
     expect(lines.length).toBeLessThanOrEqual(3);
-    expect(lines[0]).toBe("Submitted 2: q01: Alpha; q02: Beta");
+    expect(lines[0]).toBe("Submitted 2: q01: Alpha; q02: Beta (state epoch 2)");
     expect(lines[1]).toBe(SUBMISSION_REMINDER);
 
     // Epoch bumps EXACTLY once — by buildSubmission, never by the caller
@@ -577,7 +577,7 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
     markSubmitted(state, ["q1"]);
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
-    expect(lines[0]).toBe("Submitted 1: q1: Postgres (changed)");
+    expect(lines[0]).toBe("Submitted 1: q1: Postgres (changed) (state epoch 3)");
     expect(lines[1]).toBe(SUBMISSION_REMINDER);
 
     // The user-only card renders "(changed)" (renderers.ts submission card).

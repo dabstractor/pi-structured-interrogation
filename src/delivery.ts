@@ -43,11 +43,12 @@ import { UNGROUPED_LABEL, type InterrogationState, type Question } from "./state
 export const SUBMISSION_REMINDER = "Consider how these affect your other questions.";
 
 /**
- * Character budget for the "Submitted {k}: {list}" header+entry-list line
- * (Mode A: line 1 must never wrap into more than 2 display lines, keeping
- * total content within the ≤3-line budget of h2.0 §2 / h3.6). Tunable const;
- * when the joined entry list exceeds it, entries are dropped from the END
- * and a `+{m} more` suffix summarizes them.
+ * Character budget for the "Submitted {k}: {list} (state epoch {n})" line
+ * (header + entry list + epoch suffix — Mode A: line 1 must never wrap into
+ * more than 2 display lines, keeping total content within the ≤3-line
+ * budget of h2.0 §2 / h3.6). Tunable const; when the joined entry list
+ * exceeds it, entries are dropped from the END and a `+{m} more` suffix
+ * summarizes them; the epoch suffix is NEVER dropped.
  */
 export const SUBMISSION_LIST_MAX_CHARS = 240;
 
@@ -59,7 +60,8 @@ export const SUBMISSION_LIST_MAX_CHARS = 240;
  */
 export interface SubmissionMessage {
   customType: "interrogation-submission";
-  /** 2 lines, + a third `NOTE: {note}` line only when a note ships (h2.32). */
+  /** 2 lines (+ a third `NOTE: {note}` line only when a note ships, h2.32);
+   * line 1 ends ` (state epoch {n})` with the POST-bump epoch (BUG-003). */
   content: string;
   display: true;
   details: {
@@ -86,10 +88,16 @@ export interface SubmissionMessage {
  * ships):
  *
  * ```
- * Submitted {k}: {id}: {to}; {id}: {to} (changed)…
+ * Submitted {k}: {id}: {to}; {id}: {to} (changed)… (state epoch {n})
  * Consider how these affect your other questions.
  * [NOTE: {note}]                      ← third line ONLY when a note ships
  * ```
+ *
+ * - `{n}` in the line-1 epoch suffix is the POST-bump epoch (BUG-003 fix):
+ *   the epoch the model must ECHO on its next upsert/record to pass
+ *   assertFresh in one round trip. details.epoch stays the PRE-bump value
+ *   (snapshot label + reconstruct's `details.epoch >= state.epoch` filter
+ *   depend on it) — content and details intentionally disagree by one.
  *
  * - Line 1 entries come from `diff.changed` (`{id}: {to}`, `to` is already
  *   label-preferred and untruncated by computeDiff — truncation to the
@@ -98,7 +106,10 @@ export interface SubmissionMessage {
  *   with `"; "`. When the joined list overflows the budget, entries are
  *   dropped from the end (never below 1) and `+{m} more` summarizes them;
  *   `{k}` still reports the true change count. Zero changes →
- *   `Submitted 0: (no changes)`. The reminder line is never truncated.
+ *   `Submitted 0: (no changes)`. The budget measures the SUFFIXED line and
+ *   the suffix is never dropped (even in the single-huge-entry case where
+ *   the loop cannot drop below 1 entry). The reminder line is never
+ *   truncated.
  * - The optional third `NOTE:` line appears ONLY when `note` is a non-empty
  *   string (hard requirement R3, h2.32: the note reaches the model in the
  *   delta). Newlines inside the note collapse to `" / "` and the line is
@@ -136,13 +147,21 @@ export function buildSubmission(
     (e) => `${e.id}: ${e.to}${e.editedArchived ? " (changed)" : ""}`,
   );
 
+  // POST-bump epoch for the content line (BUG-003 fix): the model echoes
+  // this value on its next tool call to pass assertFresh in one round trip.
+  // diff.epoch is PRE-bump, so the post-bump value is diff.epoch + 1
+  // (=== state.epoch after the bump below).
+  const postEpoch = diff.epoch + 1;
+  const epochSuffix = ` (state epoch ${postEpoch})`;
+
   // Budget loop: shrink the entry list from the end until the header+list
-  // line fits SUBMISSION_LIST_MAX_CHARS (always ≥1 entry survives), then
-  // append the "+m more" rollup for whatever was dropped.
+  // line WITH the epoch suffix folded in fits SUBMISSION_LIST_MAX_CHARS
+  // (always ≥1 entry survives), then append the "+m more" rollup for
+  // whatever was dropped — the rollup precedes the (never-dropped) suffix.
   let list = entries.join("; ");
   let dropped = 0;
   while (
-    `Submitted ${k}: ${list}`.length > SUBMISSION_LIST_MAX_CHARS &&
+    `Submitted ${k}: ${list}${epochSuffix}`.length > SUBMISSION_LIST_MAX_CHARS &&
     entries.length - dropped > 1
   ) {
     dropped++;
@@ -159,7 +178,7 @@ export function buildSubmission(
       ? `\nNOTE: ${note.replace(/\n+/g, " / ")}`
       : "";
 
-  const content = `Submitted ${k}: ${k === 0 ? "(no changes)" : list}\n${SUBMISSION_REMINDER}${noteLine}`;
+  const content = `Submitted ${k}: ${k === 0 ? "(no changes)" : list}${epochSuffix}\n${SUBMISSION_REMINDER}${noteLine}`;
 
   // Side-effect tail (order is the contract — h2.39 / snapshots.ts JSDoc):
   // ring snapshot at the pre-bump epoch, then exactly one epoch bump.

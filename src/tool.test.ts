@@ -420,14 +420,38 @@ describe("executeInterrogate: record", () => {
     expect(st.getQuestion("q1")!.answer?.value).toBe("yes");
   });
 
-  test("non-TUI: all-unknown batch still bumps epoch and says nothing was recorded", () => {
+  test("non-TUI: all-unknown batch has zero side effects and says nothing was recorded", () => {
     const st = seedState();
     seedQ(st, "q1");
     const r = executeInterrogate({ epoch: 1, answers: [{ id: "nope", value: "x" }] }, printCtx());
     const lines = r.content.split("\n");
-    expect(lines[0]).toBe("0/1 answered · 0 re-asked · 0 moot · epoch 2");
+    expect(lines[0]).toBe("0/1 answered · 0 re-asked · 0 moot · epoch 1"); // epoch NOT burned
     expect(lines[1]).toBe("unknown ids: nope");
     expect(lines[2]).toBe("no answers recorded");
+    expect(r.details.epoch).toBe(1);
+    expect(st.epoch).toBe(1);
+    expect(st.snapshots).toHaveLength(0);
+  });
+
+  test("non-TUI: withdrawn id is not resurrected — ignored line + untouched state (BUG-012)", () => {
+    const st = seedState();
+    seedQ(st, "q1");
+    seedQ(st, "q2");
+    st.setStatus("q2", "withdrawn");
+    const r = executeInterrogate(
+      { epoch: 1, answers: [{ id: "q2", value: "resurrect me" }, { id: "q1", value: "yes" }] },
+      printCtx(),
+    );
+    const lines = r.content.split("\n");
+    expect(lines[0]).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 2");
+    expect(lines[1]).toBe("not recordable (moot/withdrawn/closed): q2");
+    // Only q1 recorded → exactly one epoch bump; q2 untouched.
+    expect(lines).toHaveLength(2);
+    expect(r.details.action).toBe("record");
+    expect(r.details.epoch).toBe(2);
+    expect(st.getQuestion("q2")!.status).toBe("withdrawn");
+    expect(st.getQuestion("q2")!.answer).toBeUndefined();
+    expect(st.getQuestion("q1")!.answer?.value).toBe("yes");
   });
 });
 

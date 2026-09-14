@@ -197,14 +197,14 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "recordAnswers refuses terminal-status questions (BUG-012)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "The non-TUI answers[] path flips withdrawn/moot (terminal-until-re-upsert) questions back to 'answered', bypassing the state machine every other path enforces.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "fallback.ts: skip moot/withdrawn/closed ids, report an `ignored` bucket",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #9/#10 — src/fallback.ts:197–222 recordAnswers(state, answers): only unknown-id check (getQuestion === undefined → unknown); state.ts applyAnswer (339–346) unconditionally sets status 'answered'. Terminal set per state machine: moot/withdrawn are terminal-until-re-upsert (state-and-persistence.md §1; SKIP_EVALUATION = {withdrawn, closed} in depends-on.ts); closed reopens only via re-upsert. Panel's accept path already treats moot/withdrawn as consumed no-ops — match that.\n2. INPUT: AnswerInput[] from tool-schema; QuestionStatus union from state.ts.\n3. LOGIC: In src/fallback.ts recordAnswers: ids resolving to a question whose status ∈ {moot, withdrawn, closed} are NOT applied — collect them in a new `ignored: string[]` bucket (return {recorded, unknown, ignored}); keep snapshot+bumpEpoch exactly once per call, driven only by recorded.length > 0 (a fully-ignored call should not burn an epoch — mirror the TUI zero-pending early-return semantics; assert it). Fix the docstring (line ~168) that falsely claims 'markSubmitted-equivalent' — it becomes truthful in P1.M3.T2.S1; for now describe actual behavior. Wire the bucket into src/tool.ts record case: append a line like `not recordable (moot/withdrawn/closed): id1, id2` when non-empty. Mock nothing — fallback.test.ts pure-function conventions (real InterrogationState + upsertQuestion + setStatus).\n4. OUTPUT: recordAnswers return shape {recorded, unknown, ignored} consumed by tool.ts record case (same subtask) and by P1.M3.T2.S1 which adds markSubmitted on the recorded bucket.\n5. DOCS: [Mode A] recordAnswers JSDoc in src/fallback.ts (terminal-status rule + buckets); no other surface.",

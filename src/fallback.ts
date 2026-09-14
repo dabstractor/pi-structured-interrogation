@@ -37,6 +37,7 @@ import type {
   Question,
   QuestionAnswer,
   QuestionOption,
+  QuestionStatus,
   SerializedState,
 } from "./state.js";
 import type { AnswerInput } from "./tool-schema.js";
@@ -165,29 +166,44 @@ function truncate(text: string, limit: number): string {
 }
 
 /**
- * markAnswered + markSubmitted-equivalent for chat answers (h2.39): the user
- * already spoke in chat, so the answer is applied immediately and the
- * "delivery" step collapses into a submission snapshot + one epoch bump.
+ * Statuses an `answers[]` entry may NOT record against (BUG-012):
+ * terminal-until-re-upsert per h2.38 — moot/withdrawn share the rule, and
+ * `closed` reopens ONLY via re-upsert with rev+1, never via answers[].
+ * Deliberately a LOCAL set: depends-on.ts's SKIP_EVALUATION is a different
+ * concept (evaluation skip, no moot) and must not be reused.
+ */
+const TERMINAL_ANSWER_STATUSES: ReadonlySet<QuestionStatus> = new Set(["moot", "withdrawn", "closed"]);
+
+/**
+ * Apply chat `answers[]` to the state for non-TUI mode (BUG-012 gate): the
+ * user already spoke in chat, so a recordable answer is applied immediately
+ * as a pending submission.
  *
  * Semantics:
- * - For each `{id, value, text?}` whose id exists in the state: apply
- *   `state.applyAnswer(id, { value, text?, at })` — status moves to
- *   "answered" (pending), `rev` is NEVER touched (answers are epoch
- *   territory, h2.39). All answers share one ISO `at` timestamp (one
- *   submission). `text` passthrough when present.
- * - Unknown ids are collected into `unknown` — NEVER thrown (tolerant
- *   pattern throughout this codebase); the executor surfaces them in the
- *   result text.
+ * - For each `{id, value, text?}`, bucket by id:
+ *   - `recorded` — id exists with a recordable status →
+ *     `state.applyAnswer(id, { value, text?, at })`. Status moves to
+ *     "answered" (pending) ONLY — this is NOT a markSubmitted equivalent
+ *     (markSubmitted on the recorded bucket is P1.M3.T2.S1's addition).
+ *     `rev` is NEVER touched (answers are epoch territory, h2.39); all
+ *     answers share one ISO `at` timestamp (one submission). `text`
+ *     passthrough when present.
+ *   - `unknown` — id not in state. NEVER thrown (tolerant pattern
+ *     throughout this codebase); the executor surfaces them in the result
+ *     text.
+ *   - `ignored` — id exists but status ∈ {moot, withdrawn, closed}:
+ *     terminal-until-re-upsert (h2.38). The answer is NOT applied and the
+ *     question is left untouched (status/answer/rev unchanged) — matching
+ *     the panel's accept path, which already treats these as consumed
+ *     no-ops.
  * - Answer values are recorded AS GIVEN — no validation against option
  *   lists (chat answers are free-form; value-vs-options matching is the
  *   merge-rules layer's domain for upserts only).
- * - Exactly ONE snapshot push + ONE `state.bumpEpoch()` per CALL, even for a
- *   multi-answer batch — one call is one submission (h2.39). The snapshot is
- *   taken via the shared ring helper (`takeSnapshot`, BEFORE `bumpEpoch`)
- *   so the ring stays consistent with panel submissions.
- * - An all-unknown call is still one submission: the epoch advances and the
- *   returned status line (S6's job) carries the fresh epoch so the model
- *   re-orients.
+ * - Exactly ONE snapshot push + ONE `state.bumpEpoch()` per CALL — via the
+ *   shared ring helper (`takeSnapshot`, BEFORE `bumpEpoch`) — but ONLY when
+ *   `recorded.length > 0`. A fully ignored/unknown (or empty) call has ZERO
+ *   side effects: it burns no epoch and pushes no snapshot (BUG-012: a
+ *   no-op record must not masquerade as a submission).
  *
  * GUARD ORDERING CONTRACT (executor, S6): `assertFresh(state, parsed)` MUST
  * run BEFORE this function; this module does NOT re-check epoch (the single
@@ -197,14 +213,23 @@ function truncate(text: string, limit: number): string {
 export function recordAnswers(
   state: InterrogationState,
   answers: AnswerInput[],
-): { recorded: string[]; unknown: string[] } {
+): { recorded: string[]; unknown: string[]; ignored: string[] } {
   const recorded: string[] = [];
   const unknown: string[] = [];
+  const ignored: string[] = [];
   const at = new Date().toISOString();
 
   for (const answer of answers) {
-    if (state.getQuestion(answer.id) === undefined) {
+    const q = state.getQuestion(answer.id);
+    if (q === undefined) {
       unknown.push(answer.id);
+      continue;
+    }
+    // BUG-012: terminal-until-re-upsert (h2.38) — moot/withdrawn/closed ids
+    // are consumed no-ops, matching the panel's accept path. Closed reopens
+    // ONLY via re-upsert (rev+1), never via answers[].
+    if (TERMINAL_ANSWER_STATUSES.has(q.status)) {
+      ignored.push(answer.id);
       continue;
     }
     const applied: QuestionAnswer = { value: answer.value, at };
@@ -213,10 +238,13 @@ export function recordAnswers(
     recorded.push(answer.id);
   }
 
-  // One call = one submission (h2.39): ring snapshot at the pre-bump epoch,
-  // then exactly one epoch bump — regardless of how many answers applied.
-  takeSnapshot(state);
-  state.bumpEpoch();
+  // One call = one submission — but ONLY if something was recorded. A fully
+  // ignored/unknown (or empty) call burns no epoch and pushes no snapshot
+  // (mirrors the panel's zero-pending ctrl+s early-return flash).
+  if (recorded.length > 0) {
+    takeSnapshot(state);
+    state.bumpEpoch();
+  }
 
-  return { recorded, unknown };
+  return { recorded, unknown, ignored };
 }

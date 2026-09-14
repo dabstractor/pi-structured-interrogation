@@ -195,7 +195,7 @@ describe("recordAnswers", () => {
       { id: "q2", value: "two hours max" },
     ]);
 
-    expect(result).toEqual({ recorded: ["q1", "q2"], unknown: [] });
+    expect(result).toEqual({ recorded: ["q1", "q2"], unknown: [], ignored: [] });
     const q1 = state.getQuestion("q1");
     const q2 = state.getQuestion("q2");
     expect(q1?.status).toBe("answered");
@@ -237,7 +237,7 @@ describe("recordAnswers", () => {
       { id: "phantom", value: "y", text: "why not" },
     ]);
 
-    expect(result).toEqual({ recorded: ["q1"], unknown: ["ghost", "phantom"] });
+    expect(result).toEqual({ recorded: ["q1"], unknown: ["ghost", "phantom"], ignored: [] });
     expect(state.getQuestion("q1")?.status).toBe("answered");
     // The still-existing untouched questions keep their prior shape.
     expect(state.getQuestion("q2")?.status).toBe("open");
@@ -246,11 +246,11 @@ describe("recordAnswers", () => {
     expect(state.snapshots).toHaveLength(1);
   });
 
-  test("an all-unknown call is still one submission (epoch advances once)", () => {
+  test("an all-unknown call has ZERO side effects (no snapshot, no epoch burn)", () => {
     const result = recordAnswers(state, [{ id: "nope", value: "z" }]);
-    expect(result).toEqual({ recorded: [], unknown: ["nope"] });
-    expect(state.epoch).toBe(2);
-    expect(state.snapshots).toHaveLength(1);
+    expect(result).toEqual({ recorded: [], unknown: ["nope"], ignored: [] });
+    expect(state.epoch).toBe(1); // unchanged — nothing recorded, no submission
+    expect(state.snapshots).toEqual([]);
   });
 
   test("records free-form values verbatim — no option-value validation", () => {
@@ -259,11 +259,11 @@ describe("recordAnswers", () => {
     expect(state.getQuestion("q1")?.answer?.value).toBe("something not in the list");
   });
 
-  test("empty answers array: no answers applied but still one submission", () => {
+  test("empty answers array: zero side effects (no submission)", () => {
     const result = recordAnswers(state, [] as AnswerInput[]);
-    expect(result).toEqual({ recorded: [], unknown: [] });
-    expect(state.epoch).toBe(2);
-    expect(state.snapshots).toHaveLength(1);
+    expect(result).toEqual({ recorded: [], unknown: [], ignored: [] });
+    expect(state.epoch).toBe(1);
+    expect(state.snapshots).toEqual([]);
   });
 
   test("second record call pushes a second snapshot (ring stays consistent)", () => {
@@ -273,5 +273,71 @@ describe("recordAnswers", () => {
     expect(state.snapshots).toHaveLength(2);
     expect(state.snapshots[1].epoch).toBe(2);
     expect(state.snapshots[1].state.questions.q2?.status).toBe("answered");
+  });
+
+  test("withdrawn id is ignored: untouched question, no resurrection (BUG-012)", () => {
+    // mixedState seeds q4 as withdrawn (upsert-omission path).
+    const before = state.getQuestion("q4");
+    const result = recordAnswers(state, [{ id: "q4", value: "yes", text: "resurrect me" }]);
+
+    expect(result).toEqual({ recorded: [], unknown: [], ignored: ["q4"] });
+    expect(state.getQuestion("q4")).toEqual(before); // status/answer/rev unchanged
+    expect(state.getQuestion("q4")?.status).toBe("withdrawn");
+    expect(state.getQuestion("q4")?.answer).toBeUndefined();
+    // Nothing recorded → zero side effects.
+    expect(state.epoch).toBe(1);
+    expect(state.snapshots).toEqual([]);
+  });
+
+  test("moot id is ignored (terminal-until-re-upsert, h2.38)", () => {
+    state.setStatus("q1", "moot");
+    const before = state.getQuestion("q1");
+    const result = recordAnswers(state, [{ id: "q1", value: "postgres" }]);
+
+    expect(result).toEqual({ recorded: [], unknown: [], ignored: ["q1"] });
+    expect(state.getQuestion("q1")).toEqual(before);
+    expect(state.getQuestion("q1")?.status).toBe("moot");
+    expect(state.epoch).toBe(1);
+    expect(state.snapshots).toEqual([]);
+  });
+
+  test("closed id is ignored — closed reopens ONLY via re-upsert (rev+1), never answers[]", () => {
+    state.setStatus("q2", "closed");
+    const before = state.getQuestion("q2");
+    const result = recordAnswers(state, [{ id: "q2", value: "2h" }]);
+
+    expect(result).toEqual({ recorded: [], unknown: [], ignored: ["q2"] });
+    expect(state.getQuestion("q2")).toEqual(before);
+    expect(state.getQuestion("q2")?.status).toBe("closed");
+    expect(state.epoch).toBe(1);
+    expect(state.snapshots).toEqual([]);
+  });
+
+  test("mixed call (recorded + ignored + unknown): exactly one snapshot, one epoch bump", () => {
+    state.setStatus("q3", "closed"); // ignored bucket
+    const result = recordAnswers(state, [
+      { id: "q1", value: "postgres" }, // recorded
+      { id: "q4", value: "resurrect" }, // ignored (withdrawn)
+      { id: "ghost", value: "x" }, // unknown
+    ]);
+
+    expect(result).toEqual({ recorded: ["q1"], unknown: ["ghost"], ignored: ["q4"] });
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q4")?.status).toBe("withdrawn"); // untouched
+    expect(state.getQuestion("ghost")).toBeUndefined();
+    expect(state.epoch).toBe(2); // exactly one submission bump
+    expect(state.snapshots).toHaveLength(1);
+  });
+
+  test("answers to ignored ids never appear in the snapshot", () => {
+    recordAnswers(state, [
+      { id: "q1", value: "postgres" },
+      { id: "q4", value: "resurrect me" }, // withdrawn → ignored
+    ]);
+
+    const snap = state.snapshots[0];
+    expect(snap.state.questions.q1?.answer?.value).toBe("postgres");
+    expect(snap.state.questions.q4?.answer).toBeUndefined(); // never applied
+    expect(snap.state.questions.q4?.status).toBe("withdrawn");
   });
 });

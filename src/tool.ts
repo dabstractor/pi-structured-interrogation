@@ -363,10 +363,11 @@ export function executeInterrogate(
         };
       }
 
-      const { recorded, unknown } = recordAnswers(state, parsed.action.answers);
-      const serialized = state.serialize(); // POST-record: epoch bumped inside
+      const { recorded, unknown, ignored } = recordAnswers(state, parsed.action.answers);
+      const serialized = state.serialize(); // POST-record: epoch bumped inside (iff anything recorded)
       const statusLine = buildStatusLine(serialized);
       const lines = [statusLine];
+      if (ignored.length > 0) lines.push(`not recordable (moot/withdrawn/closed): ${ignored.join(", ")}`);
       if (unknown.length > 0) lines.push(`unknown ids: ${unknown.join(", ")}`);
       if (recorded.length === 0) lines.push("no answers recorded");
       return { content: lines.join("\n"), details: inlineEnvelope(serialized, "record", statusLine) };

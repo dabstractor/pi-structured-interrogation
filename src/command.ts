@@ -21,9 +21,10 @@
  * or the widget logic.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { KeyId } from "@earendil-works/pi-tui";
-import type { InterrogatorConfig } from "./config.js";
+import { type KeyId } from "@earendil-works/pi-tui";
+import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import type { DraftStore } from "./draft-store.js";
+import { parseAccelerator } from "./panel/keys.js";
 import type { PanelHost, PiUISurface } from "./panel/panel.js";
 import { resumePanel, suspendPanel } from "./panel/suspend.js";
 import { getState, type InterrogationState } from "./state.js";
@@ -112,11 +113,16 @@ export function interrogateToggleAction(
  * return). A double-delivery of ctrl+shift+q (global + in-panel, or a fast
  * double-press) therefore cannot wedge the host or double-done().
  *
- * CONFIG REBIND PATH: the shortcut key is the RAW `config.keys.breakOut`
- * accelerator (default "ctrl+shift+q") — registerShortcut's `modifier+key`
- * format IS the config format, no transformation. It is NOT the display
- * label from resolveKeyLabels (labels are for rendering only, h2.52). A user
- * rebind (R5/AC-12) simply changes what this function registers on next
+ * CONFIG REBIND PATH (R5/AC-12): the shortcut key comes from
+ * `config.keys.breakOut` run through {@link parseAccelerator} — the SAME
+ * normalize/validate step the in-panel router uses (panel/keys.ts), so a
+ * "Ctrl+Shift+Q"-style or whitespace-padded settings value registers the
+ * normalized lowercase KeyId exactly as it would fire in-panel. An invalid
+ * value falls back to the h2.52 default accelerator (mirroring
+ * resolveBindings; silently — resolveBindings owns the one-per-action
+ * console.warn when the same config reaches the panel router). This is NOT
+ * the display label from resolveKeyLabels (labels are for rendering only,
+ * h2.52). A user rebind simply changes what this function registers on next
  * activation, and S1's widget line relabels itself via resolveKeyLabels.
  *
  * CONFLICT VERIFICATION NOTE (h2.34): ctrl+shift+q was verified FREE — no pi
@@ -159,8 +165,12 @@ export function registerInterrogateCommand(
   // effectively TUI-only by pi's own dispatch, so NO ctx.mode branch here
   // (ctx.mode is not part of this handler's contract). Guard ctx.ui
   // defensively; the toggle core + empty-state notify mirror the command.
-  // The raw config value is passed verbatim — see the config-rebind note above.
-  pi.registerShortcut(config.keys.breakOut as KeyId, {
+  // The config value is normalized through parseAccelerator — the SAME
+  // grammar/normalization the in-panel router applies — with the h2.52
+  // default as the invalid-value fallback (see the config-rebind note above).
+  const breakOutKey =
+    parseAccelerator(config.keys.breakOut) ?? (parseAccelerator(DEFAULT_CONFIG.keys.breakOut) as KeyId);
+  pi.registerShortcut(breakOutKey, {
     description: "interrogator: break out / resume the interrogation panel",
     handler: async (ctx) => {
       if (ctx.ui === undefined) return;

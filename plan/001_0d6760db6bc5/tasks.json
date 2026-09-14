@@ -1006,7 +1006,7 @@
               "type": "Task",
               "id": "P1.M7.T5",
               "title": "Terminal fallbacks + config surface validation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Height/width adaptive rendering; full remappability proof (AC-12) across footer, widget, dialogs.",
               "subtasks": [
                 {
@@ -1030,7 +1030,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T5.S2",
                   "title": "Config surface validation: every hotkey remappable (R5/AC-12)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2",
@@ -1051,14 +1051,14 @@
               "type": "Task",
               "id": "P1.M7.T6",
               "title": "Acceptance runbook execution (AC 1-14)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Execute the PRD acceptance criteria in order via scripted tests (vitest over the real components + headless `pi -p` probes); fix defects found; record results. Interactive TUI ACs are HUMAN-ONLY (MANUAL-TUI-AC-RUNBOOK.md) and never run in the pipeline.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M7.T6.S1",
                   "title": "Scripted ACs via debug commands + fixtures",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T3.S1",
@@ -1074,7 +1074,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T6.S2",
                   "title": "Scripted panel AC pass (interactive TUI ACs moved to human-only runbook)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M7.T6.S1",

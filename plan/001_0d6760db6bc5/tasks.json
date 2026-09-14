@@ -939,14 +939,14 @@
               "type": "Task",
               "id": "P1.M7.T3",
               "title": "Cards: message/entry renderers (renderers.ts)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "interrogation-submission diff card (user-only), interrogation-completion recap card, interrogation-state dimmed mirror row.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M7.T3.S1",
                   "title": "Submission diff card renderer",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1"
@@ -962,7 +962,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T3.S2",
                   "title": "Completion recap card + state entry renderer",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S3",
@@ -981,14 +981,14 @@
               "type": "Task",
               "id": "P1.M7.T4",
               "title": "Plain-text round detection (detect.ts)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-26: light heuristic detecting numbered question blocks in assistant replies, throttled notify, never transforms content.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M7.T4.S1",
                   "title": "Round heuristic + throttled notify",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1"

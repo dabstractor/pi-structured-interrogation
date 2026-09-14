@@ -21,8 +21,10 @@
  * (P1.M2.T2.S1 — h2.44 close pass on agent_settled), and plugs the one-time
  * completion trigger into its onAfterClosePass seam (P1.M2.T2.S2 — h3.9:
  * inject the full interrogation-completion record once, dismiss the panel,
- * clear in-memory state). The panel host and message renderers land in later
- * milestones. Persistence mirror (P1.M7.T1.S1): debounced
+ * clear in-memory state). The panel host landed in P1.M3; the user-only
+ * submission diff card renderer is registered here (P1.M7.T3.S1,
+ * registerSubmissionCardRenderer) — the completion recap card / entry
+ * renderers land in P1.M7.T3.S2. Persistence mirror (P1.M7.T1.S1): debounced
  * `interrogation-state` custom-entry appends + session_shutdown flush.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -37,6 +39,7 @@ import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
 import { resumePanel } from "./panel/suspend.js";
 import { createStateMirror } from "./persistence.js";
 import { createReconstruction } from "./reconstruct.js";
+import { registerSubmissionCardRenderer } from "./renderers.js";
 import { getState } from "./state.js";
 import { createInterrogateTool } from "./tool.js";
 
@@ -163,6 +166,13 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       },
     }),
   );
+
+  // P1.M7.T3.S1 — user-only submission diff card (h2.36): renders
+  // `interrogation-submission` custom messages from details.card in the
+  // TUI transcript (compact by default, full submission when expanded).
+  // Display-only — the model keeps reading message.content. The completion
+  // recap/entry renderers (P1.M7.T3.S2) will extend renderers.ts likewise.
+  registerSubmissionCardRenderer(pi);
 
   // P1.M6.T1.S2 — /interrogate toggle command + the global break-out/resume
   // shortcut (h2.15/h2.34/h2.35/h2.37): ONE seam registering both surfaces

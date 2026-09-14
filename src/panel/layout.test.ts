@@ -508,3 +508,52 @@ describe("renderConfirmFooter", () => {
     expect(renderConfirmFooter(["q2", "q3"], theme, 40)).toContain("…");
   });
 });
+
+// ------------------------------ renderFooter narrow mode (h2.30, P1.M7.T5.S1)
+
+describe("renderFooter narrow mode (h2.30, P1.M7.T5.S1)", () => {
+  const labels = resolveKeyLabels(mkConfig());
+  /** Short rebound labels so BOTH narrow key hints fit inside 59 cols. */
+  const shortLabels = resolveKeyLabels(mkConfig({ submit: "s", deep: "d" }));
+
+  test("narrow defaults to false — 5-arg calls are byte-identical to pre-task output", () => {
+    for (const screen of SCREENS) {
+      expect(renderFooter(mkState(), screen, labels, theme, 80)).toBe(
+        renderFooter(mkState(), screen, labels, theme, 80, false),
+      );
+    }
+  });
+
+  test("key hints collapse to submit + deep on every screen (list hint excluded)", () => {
+    // Roomy width: the narrow FILTER (not the fit loop) must do the work.
+    const short = renderFooter(mkState(), "short", labels, theme, 120, true);
+    expect(short).toContain("enter accept"); // static hint stays
+    expect(short).toContain("Ctrl+Enter submit");
+    expect(short).toContain("Ctrl+D deep");
+    expect(short).not.toContain("Ctrl+L list"); // excluded by the 2-key cap
+
+    const deep = renderFooter(mkState(), "deep", labels, theme, 120, true);
+    expect(deep).toContain("Ctrl+Enter submit");
+    expect(deep).toContain("Ctrl+D deep"); // replaces deep's own list hint
+    expect(deep).not.toContain("Ctrl+L list");
+  });
+
+  test("width 59 keeps exactly the submit + deep key hints — statics drop first", () => {
+    // Overview narrow: appended statics (enter jump / esc back) are the
+    // rightmost hints, so the fit loop sheds them before the two key hints.
+    const line = renderFooter(mkState(), "overview", shortLabels, theme, 59, true);
+    expect(line).toContain("S submit");
+    expect(line).toContain("D deep");
+    expect(line).not.toContain("enter jump");
+    expect(line).not.toContain("esc back");
+    expect(visibleWidth(line)).toBeLessThanOrEqual(59);
+  });
+
+  test("narrow degrades right-to-left into the ordinary fit loop", () => {
+    // Far below 59 every hint yields; the progress-only footer is still
+    // exactly 1 line (progress + ⏎ never drop — module contract).
+    const line = renderFooter(mkState(), "overview", shortLabels, theme, 31, true);
+    expect(line).toBe("└ 0/1 answered · 0 re-asked ⏎ ┘");
+    expect(line.includes("\n")).toBe(false);
+  });
+});

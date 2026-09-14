@@ -506,3 +506,22 @@ describe("deepSeedCursorIndex", () => {
     expect(deepSeedCursorIndex(undefined)).toBe(0);
   });
 });
+
+// -------------------------- narrow width (h2.30 cols < 60, P1.M7.T5.S1)
+
+describe("narrow width (h2.30 cols < 60)", () => {
+  test("ramifications wrap at width 59 — no rendered line exceeds the budget", () => {
+    const q = choiceQ("db", {
+      options: [
+        { value: "a", label: "aaa", ramification: `${RAM_A} ${RAM_B} `.repeat(6) },
+        { value: "b", label: "bbb", ramification: `${RAM_B} ${RAM_A} `.repeat(6) },
+      ],
+    });
+    const content = buildDeepContent(deepInputFor(q, { width: 59 }));
+    const lines = renderDeepWindow(content, 0, 0, theme, 59);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(59);
+    // Wrapped, not truncated away: every ramification word survives.
+    expect(lines.join("\n")).toContain(RAM_A.split(";")[0]!.trim());
+  });
+});

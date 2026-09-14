@@ -731,6 +731,107 @@ describe("upsert + state integration", () => {
   });
 });
 
+// ---------------------- adaptive terminal fallbacks (h2.30, P1.M7.T5.S1)
+
+describe("terminal fallbacks (h2.30, P1.M7.T5.S1)", () => {
+  /** Mock TUI carrying a live terminal shape (rows re-read per render). */
+  function tuiWithRows(rows: number): TUI {
+    return { requestRender: vi.fn(), terminal: { rows, columns: 80 } } as unknown as TUI;
+  }
+
+  /** `count` ungrouped choice questions — overview content = 1 header + count rows. */
+  function stateWith(count: number): InterrogationState {
+    const state = createInterrogationState("goal");
+    for (let i = 0; i < count; i++) state.upsertQuestion(choiceQ(`q${i}`));
+    return state;
+  }
+
+  test("test_rows_change_invalidates_render_cache_at_same_width", () => {
+    const tui = { requestRender: vi.fn(), terminal: { rows: 30, columns: 80 } };
+    const panel = new InterrogationPanel({
+      ...panelArgsFor(stateWith(1)),
+      tui: tui as unknown as TUI,
+    });
+
+    const tall = panel.render(80);
+    expect(panel.render(80)).toBe(tall); // same width + same rows → cached
+
+    tui.terminal.rows = 23; // height-only "resize"
+    expect(panel.render(80)).not.toBe(tall); // rows are part of the cache key
+  });
+
+  test("test_hint_line_suppressed_below_24_rows_only", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1", { description: "First sentence. Second sentence." }));
+
+    const at24 = new InterrogationPanel({ ...panelArgsFor(state), tui: tuiWithRows(24) });
+    expect(at24.render(80).join("\n")).toContain("First sentence.");
+
+    const at23 = new InterrogationPanel({ ...panelArgsFor(state), tui: tuiWithRows(23) });
+    expect(at23.render(80).join("\n")).not.toContain("First sentence.");
+  });
+
+  test("test_unknown_height_keeps_the_hint_line", () => {
+    // Mock TUI WITHOUT a terminal (pre-task shape) — rows read as unknown →
+    // no height fallbacks: the hint line renders as before.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1", { description: "First sentence. Second sentence." }));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    expect(panel.render(80).join("\n")).toContain("First sentence.");
+  });
+
+  test("test_overview_window_paginates_to_5_lines_below_12_rows", () => {
+    const at11 = new InterrogationPanel({ ...panelArgsFor(stateWith(8)), tui: tuiWithRows(11) });
+    at11.setView("overview");
+    const lowLines = at11.render(80);
+    expect(lowLines.length).toBe(1 + 5 + 1); // header + 5-line window + footer
+    expect(lowLines[lowLines.length - 1]).toMatch(/^└ /);
+
+    const at12 = new InterrogationPanel({ ...panelArgsFor(stateWith(8)), tui: tuiWithRows(12) });
+    at12.setView("overview");
+    expect(at12.render(80).length).toBe(1 + 9 + 1); // all content (< default window 20)
+  });
+
+  test("test_deep_view_height_untouched_at_low_rows", () => {
+    // h2.30: deep view is a FULL replacement — its 20-row pane never shrinks.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1", { description: "Deep context. More." }));
+    const panel = new InterrogationPanel({ ...panelArgsFor(state), tui: tuiWithRows(10) });
+    panel.setView("deep");
+    const lines = panel.render(80);
+    expect(lines.join("\n")).toContain("Deep context."); // content renders whole
+    expect(lines.length).toBeLessThanOrEqual(1 + 20 + 1); // DEEP_VIEW_HEIGHT unchanged
+  });
+
+  test("test_narrow_footer_flips_between_59_and_60_cols", () => {
+    // Rebound short labels (still resolveKeyLabels output — h2.52) so the
+    // key hints fit inside 59 cols alongside progress + the static hint.
+    const config = {
+      ...DEFAULT_CONFIG,
+      keys: { ...DEFAULT_CONFIG.keys, submit: "s", deep: "d" },
+    };
+    const panel = new InterrogationPanel({
+      ...panelArgsFor(stateWith(1), { config }),
+      tui: tuiWithRows(30),
+    });
+
+    // 59 cols → narrow: key hints collapse to {submit, deep}; the fit loop
+    // drops deep first, leaving submit (the list hint can NEVER appear).
+    const narrowFooter = panel.render(59)[panel.render(59).length - 1]!;
+    expect(narrowFooter).toContain("S submit");
+    expect(narrowFooter).not.toContain("D deep");
+    expect(narrowFooter).not.toContain("list");
+
+    // 60 cols → NOT narrow: the per-screen short keys return; the same fit
+    // loop now drops submit first and keeps deep — the boundary is visible.
+    const wideLines = panel.render(60);
+    const wideFooter = wideLines[wideLines.length - 1]!;
+    expect(wideFooter).toContain("D deep");
+    expect(wideFooter).not.toContain("S submit");
+    expect(wideFooter).not.toContain("list");
+  });
+});
+
 describe("maybeAutoOpen — tool-path auto open/reopen", () => {
   let host: PanelHost;
   let mock: MockPi;

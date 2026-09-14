@@ -49,6 +49,17 @@ export const SCREEN_KEYS: Record<ScreenKind, KeyAction[]> = {
   overview: ["submit", "deep"],
 };
 
+/**
+ * Narrow-footer key actions (h2.30, cols < 60 — P1.M7.T5.S1): the key hints
+ * collapse to at most TWO — submit + deep — on every screen. Deep is the
+ * always-available full replacement, so it never leaves the eligible set;
+ * the screen's static hints (enter accept / esc back / ↑/↓ scroll / enter
+ * jump) remain and the right-to-left fit loop below stays the width safety
+ * net. Labels resolve through the caller's `labels` argument — never
+ * hardcoded (h2.52).
+ */
+const NARROW_FOOTER_ACTIONS: readonly KeyAction[] = ["submit", "deep"];
+
 /** Human word for each KeyAction in "{label} {action}" hint pairs. */
 const ACTION_WORDS: Record<KeyAction, string> = {
   deep: "deep",
@@ -363,12 +374,21 @@ export function renderHintLine(q: Question, theme: Theme, width: number, dim = f
  * right-to-left (last first); at extreme widths the footer degrades to
  * `└ {progress} ⏎ ┘` (progress + ⏎ are never dropped, never truncated).
  *
+ * Narrow mode (h2.30, cols < 60 — P1.M7.T5.S1): `narrow = true` swaps the
+ * per-screen SCREEN_KEYS for exactly {submit, deep} on every screen, then
+ * appends the same static hints and runs the same right-to-left fit loop —
+ * so at narrow widths the appended statics drop first and the two config
+ * key hints survive longest. Default false → byte-identical to the
+ * pre-P1.M7.T5.S1 behavior for every existing caller.
+ *
  * @param state   plain-JSON state snapshot (read-only)
  * @param screen  which view the footer is for (selects SCREEN_KEYS + statics)
  * @param labels  resolved key labels (resolveKeyLabels(config) — memoized by
  *                the panel per session; never re-read settings here)
  * @param theme   pi theme (progress muted, hints dim, ⏎ accent)
  * @param width   total render width budget for the line
+ * @param narrow  h2.30 narrow fallback (cols < 60): key hints collapse to
+ *                submit + deep. Default false.
  */
 export function renderFooter(
   state: SerializedState,
@@ -376,11 +396,13 @@ export function renderFooter(
   labels: Record<KeyAction, string>,
   theme: Theme,
   width: number,
+  narrow = false,
 ): string {
   const { answered, reasked, total } = statusCounts(state);
   const progress = `${answered}/${total} answered · ${reasked} re-asked`;
 
-  const hints: string[] = SCREEN_KEYS[screen].map((action) => `${labels[action]} ${ACTION_WORDS[action]}`);
+  const keyActions = narrow ? NARROW_FOOTER_ACTIONS : SCREEN_KEYS[screen];
+  const hints: string[] = keyActions.map((action) => `${labels[action]} ${ACTION_WORDS[action]}`);
   if (screen === "short") hints.unshift("enter accept"); // enter is not remappable
   if (screen === "deep") hints.push("esc back", "↑/↓ scroll");
   if (screen === "overview") hints.push("enter jump", "esc back");

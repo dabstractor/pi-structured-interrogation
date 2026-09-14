@@ -82,6 +82,7 @@ import {
 import { buildDeepContent, deepSeedCursorIndex, renderDeepWindow } from "./deep-view.js";
 import { buildOverviewContent, clampOverviewScroll } from "./overview.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
+import { terminalBudget } from "./terminal-budget.js";
 import { updateSuspendWidget, WIDGET_KEY } from "./suspend.js";
 
 // --------------------------------------------------------------------- types
@@ -422,6 +423,14 @@ export class InterrogationPanel implements Component {
    * rendered at; renderDeepWindow re-clamps defensively on width changes.
    */
   lastWidth = -1;
+  /**
+   * Rows of the render pass that produced {@link cached} (undefined when
+   * the terminal height was unknown — test mocks / odd environments). Part
+   * of the cache key (h2.30, P1.M7.T5.S1): a resize that changes ONLY the
+   * height must still rebuild, because hint suppression and overview
+   * pagination are row-derived.
+   */
+  private lastRows: number | undefined;
   /** Guard so a second done() after suspend cannot re-resolve (idempotent). */
   private resolved = false;
 
@@ -499,12 +508,19 @@ export class InterrogationPanel implements Component {
 
   /**
    * Cached render (todo.ts/questionnaire.ts discipline): rebuild only when
-   * the width changed or invalidate() cleared the cache; callers get the SAME
-   * array reference between rebuilds.
+   * the width OR the terminal height changed (h2.30 — the fallbacks are
+   * row-derived) or invalidate() cleared the cache; callers get the SAME
+   * array reference between rebuilds. rows is re-read per call — no resize
+   * event plumbing (the TUI repaints on resize; the next render re-derives
+   * the budget from live dimensions).
    */
   render(width: number): string[] {
-    if (this.cached !== undefined && width === this.lastWidth) return this.cached;
+    const rows = this.currentRows();
+    if (this.cached !== undefined && width === this.lastWidth && rows === this.lastRows) {
+      return this.cached;
+    }
     this.lastWidth = width;
+    this.lastRows = rows;
     this.cached = this.buildLines(width);
     return this.cached;
   }
@@ -513,6 +529,20 @@ export class InterrogationPanel implements Component {
   invalidate(): void {
     this.cached = undefined;
     this.tui.requestRender();
+  }
+
+  /**
+   * Live terminal height for THIS render pass (h2.30 height source — the
+   * pi-api-validation.md §Unknown 2 resolution): re-read on every render,
+   * never cached across passes, no resize subscription. Defensive: a TUI
+   * without a `terminal` (test mocks, odd hosts) or a non-finite /
+   * non-positive rows value reads as UNKNOWN — no height fallbacks (the
+   * pre-P1.M7.T5.S1 layout; never an empty window, never a suppressed
+   * hint).
+   */
+  private currentRows(): number | undefined {
+    const rows: number | undefined = this.tui.terminal?.rows;
+    return typeof rows === "number" && Number.isFinite(rows) && rows > 0 ? rows : undefined;
   }
 
   /**
@@ -918,11 +948,14 @@ export class InterrogationPanel implements Component {
    * decision is always the only footer surface (exactly one line, never
    * double-pushed).
    */
-  private footerLine(snapshot: SerializedState, width: number): string {
+  private footerLine(snapshot: SerializedState, width: number, narrow: boolean): string {
     if (this.confirmMode !== null) {
       return renderConfirmFooter(this.confirmMode.victims, this.theme, width);
     }
-    return renderFooter(snapshot, this.view, this.labels, this.theme, width);
+    // h2.30 cols < 60 (P1.M7.T5.S1): narrow footer — key hints collapse to
+    // submit + deep (labels from this.labels, resolved at construction —
+    // h2.52); renderFooter's right-to-left fit loop stays the width net.
+    return renderFooter(snapshot, this.view, this.labels, this.theme, width, narrow);
   }
 
   /**
@@ -935,6 +968,10 @@ export class InterrogationPanel implements Component {
    * header + footer only (empty region).
    */
   private buildLines(width: number): string[] {
+    // h2.30 adaptive budget (P1.M7.T5.S1): derived ONCE per rebuild from the
+    // live terminal dimensions and threaded to the hint/overview/footer
+    // renderers below (a pure flag — no renderer reads the terminal).
+    const budget = terminalBudget(width, this.currentRows());
     // Note mode (R3, h2.32): the editor area is REPLACED — note header +
     // the SAME embedded editor + flash + footer; the question/hint/options
     // region vanishes entirely. View-agnostic: note mode may be entered
@@ -945,7 +982,7 @@ export class InterrogationPanel implements Component {
       lines.push(...this.textField.render(width));
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
-      lines.push(this.footerLine(snapshot, width));
+      lines.push(this.footerLine(snapshot, width, budget.narrow));
       return lines;
     }
     if (this.view === "short") {
@@ -964,7 +1001,13 @@ export class InterrogationPanel implements Component {
         const current = ordered[idx];
         const dimmed = gateGroups.size > 0 && !gateGroups.has(effectiveGroup(current));
         lines.push(renderQuestionLine(current, idx + 1, this.theme, width, dimmed));
-        lines.push(...renderHintLine(current, this.theme, width, dimmed));
+        // h2.30 rows < 24 (P1.M7.T5.S1): the hint line is suppressed WHOLE
+        // (never truncated into nothing); the deep view stays untouched —
+        // the always-available full replacement. Unknown height keeps the
+        // hint (budget defaults).
+        if (!budget.suppressHint) {
+          lines.push(...renderHintLine(current, this.theme, width, dimmed));
+        }
         lines.push(
           ...renderShortViewOptions({
             question: current,
@@ -989,7 +1032,7 @@ export class InterrogationPanel implements Component {
       // line when active, else the flash line; timer expiry clears flashes.
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
-      lines.push(this.footerLine(snapshot, width));
+      lines.push(this.footerLine(snapshot, width, budget.narrow));
       return lines;
     }
     if (this.view === "deep") {
@@ -1012,7 +1055,7 @@ export class InterrogationPanel implements Component {
       }
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
-      lines.push(this.footerLine(snapshot, width));
+      lines.push(this.footerLine(snapshot, width, budget.narrow));
       return lines;
     }
     // Overview (P1.M5.T2.S1, FR-11) — the exhaustive tail of the view chain
@@ -1032,6 +1075,12 @@ export class InterrogationPanel implements Component {
           cursorIndex: this.overviewCursor,
           theme: this.theme,
           width,
+          // h2.30 rows < 12 (P1.M7.T5.S1): paginate to a 5-line window.
+          // Infinity (height unknown / ≥ 12) → undefined → overview.ts keeps
+          // its OVERVIEW_HEIGHT default; cursor-visible clamping unchanged.
+          viewportHeight: Number.isFinite(budget.overviewViewportHeight)
+            ? budget.overviewViewportHeight
+            : undefined,
         });
         const offset = clampOverviewScroll(content, this.overviewScroll, this.overviewCursor);
         const end = Math.min(content.lines.length, offset + content.viewportHeight);
@@ -1039,7 +1088,7 @@ export class InterrogationPanel implements Component {
       }
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
-      lines.push(this.footerLine(snapshot, width));
+      lines.push(this.footerLine(snapshot, width, budget.narrow));
       return lines;
     }
   }

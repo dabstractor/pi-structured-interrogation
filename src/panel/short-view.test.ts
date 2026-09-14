@@ -338,3 +338,25 @@ describe("renderShortViewOptions dimmed — soft-gate dimming (P1.M5.T3.S1)", ()
     }
   });
 });
+
+// -------------------------- narrow width (h2.30 cols < 60, P1.M7.T5.S1)
+
+describe("narrow width (h2.30 cols < 60)", () => {
+  test("labels truncate with … at width 59 — every line stays inside the budget", () => {
+    const q = choiceQ({
+      options: [
+        { value: "a", label: "A".repeat(80), ramification: RAM_A },
+        { value: "b", label: "B".repeat(80), ramification: RAM_B },
+      ],
+    });
+    const lines = render(q, 0, theme, 59);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(59);
+    expect(lines.join("\n")).toContain("…"); // truncation is the fallback, not overflow
+  });
+
+  test("text affordance fits at width 59", () => {
+    const lines = render(textQ(), 0, theme, 59);
+    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(59);
+  });
+});

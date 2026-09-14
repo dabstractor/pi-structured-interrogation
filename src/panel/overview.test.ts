@@ -37,6 +37,7 @@ import {
   type OverviewContent,
 } from "./overview.js";
 import { InterrogationPanel, type InterrogationPanelArgs } from "./panel.js";
+import { OVERVIEW_PAGE_SIZE } from "./terminal-budget.js";
 
 // ------------------------------------------------------------------ fixtures
 
@@ -424,5 +425,44 @@ describe("overviewJump — enter jumps to the short form", () => {
     panel.overviewCursor = 99;
     expect(overviewJump(panel)).toBe(false);
     expect(panel.view).toBe("overview");
+  });
+});
+
+// -------------------- viewport height override (h2.30, P1.M7.T5.S1)
+
+describe("buildOverviewContent viewportHeight override (h2.30, P1.M7.T5.S1)", () => {
+  test("defaults to OVERVIEW_HEIGHT when no override is passed", () => {
+    expect(overviewContentFor(3).viewportHeight).toBe(OVERVIEW_HEIGHT);
+  });
+
+  test("viewportHeight override paginates the window (rows < 12 → 5)", () => {
+    const content = overviewContentFor(30, { viewportHeight: OVERVIEW_PAGE_SIZE });
+    expect(content.viewportHeight).toBe(OVERVIEW_PAGE_SIZE);
+    expect(content.lines.length).toBeGreaterThan(OVERVIEW_PAGE_SIZE); // pagination matters
+  });
+
+  test("override clamps to >= 1 — a degenerate value never empties the window", () => {
+    expect(overviewContentFor(3, { viewportHeight: 0 }).viewportHeight).toBe(1);
+    expect(overviewContentFor(3, { viewportHeight: -7 }).viewportHeight).toBe(1);
+  });
+
+  test("cursor stays visible inside the 5-line window at low rows", () => {
+    // 1 group → 1 header + 8 rows; cursor parked on the LAST question.
+    const content = overviewContentFor(8, { viewportHeight: OVERVIEW_PAGE_SIZE });
+    const last = 7;
+    const offset = clampOverviewScroll(content, 0, last);
+    const row = content.questionRowLine[last]!;
+    expect(offset).toBe(row - OVERVIEW_PAGE_SIZE + 1); // window pinned just above
+    expect(row).toBeGreaterThanOrEqual(offset);
+    expect(row).toBeLessThan(offset + OVERVIEW_PAGE_SIZE);
+  });
+
+  test("5-line window slices to whole rows incl. the group header at the top", () => {
+    // Panel-level slice math (buildLines): offset 0 + viewportHeight 5 shows
+    // lines 0..4 — the group header plus the first 4 question rows.
+    const content = overviewContentFor(8, { viewportHeight: OVERVIEW_PAGE_SIZE });
+    const end = Math.min(content.lines.length, 0 + content.viewportHeight);
+    expect(end).toBe(5);
+    expect(content.lines[0]).toContain("g"); // header line rides the window
   });
 });

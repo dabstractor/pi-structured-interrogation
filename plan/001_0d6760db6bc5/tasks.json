@@ -1013,7 +1013,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T5.S1",
                   "title": "Adaptive rendering: <24 rows, <12 rows, <60 cols",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S2",

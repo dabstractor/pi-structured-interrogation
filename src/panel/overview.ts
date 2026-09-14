@@ -63,8 +63,9 @@ import type { InterrogationPanel } from "./panel.js";
 
 /**
  * Overview window height in CONTENT lines (h2.51 row 2) — header and footer
- * render outside it. A constant because render(width) carries no height;
- * P1.M7.T5.S1 (terminal fallback) owns any dynamic sizing.
+ * render outside it. The DEFAULT window: the panel passes an explicit
+ * `viewportHeight` override when the terminal is short (h2.30 rows < 12 —
+ * P1.M7.T5.S1's dynamic sizing seam, now landed).
  */
 export const OVERVIEW_HEIGHT = 20;
 
@@ -149,6 +150,13 @@ export interface OverviewInput {
   theme: Theme;
   /** Full panel render width; content budget = width - 2 (INSET). */
   width: number;
+  /**
+   * Viewport height override in content lines (h2.30, P1.M7.T5.S1): the
+   * panel passes {@link OVERVIEW_PAGE_SIZE} when terminal rows < 12.
+   * Default {@link OVERVIEW_HEIGHT}; clamped to ≥ 1 so a degenerate value
+   * can never produce an empty window.
+   */
+  viewportHeight?: number;
 }
 
 /**
@@ -161,7 +169,10 @@ export interface OverviewContent {
   lines: string[];
   /** Per question i: rendered-line index of its row (for scroll clamping). */
   questionRowLine: number[];
-  /** Viewport height cap ({@link OVERVIEW_HEIGHT}). */
+  /**
+   * Viewport height cap — {@link OVERVIEW_HEIGHT} by default, or the
+   * caller's h2.30 low-height override (clamped to ≥ 1).
+   */
   viewportHeight: number;
 }
 
@@ -186,6 +197,11 @@ export interface OverviewContent {
 export function buildOverviewContent(input: OverviewInput): OverviewContent {
   const { ordered, cursorIndex, theme, width } = input;
   const budget = Math.max(1, width - INSET.length);
+  // h2.30 low-height override (P1.M7.T5.S1): default window unless the
+  // panel passes one; clamped to ≥ 1 — a 0/undefined rows terminal must
+  // never collapse the list to an empty window (the panel only forwards
+  // finite overrides anyway).
+  const viewportHeight = Math.max(1, input.viewportHeight ?? OVERVIEW_HEIGHT);
 
   // ONE pre-pass for gate groups (P1.M5.T3.S1): any question with gate ===
   // true marks its EFFECTIVE group; the group's header then carries ▲ for
@@ -208,7 +224,7 @@ export function buildOverviewContent(input: OverviewInput): OverviewContent {
     questionRowLine.push(lines.length);
     lines.push(questionRow(q, i, cursorIndex, theme, budget));
   }
-  return { lines, questionRowLine, viewportHeight: OVERVIEW_HEIGHT };
+  return { lines, questionRowLine, viewportHeight };
 }
 
 /**

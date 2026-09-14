@@ -89,7 +89,7 @@ All settings live under a top-level `"interrogator"` key in either
       "goal": 400,            // max characters for the goal statement
       "contextBudgetPct": 4   // max % of the context window budgeted for interrogator content
     },
-    "gateWarnings": true,           // warn when a gate/cap truncates or drops content
+    "gateWarnings": true,           // FR-9: warn on panel submit when foundational gate questions are unanswered
     "roundDetection": true,         // detect interrogation rounds from plain chat text (TUI)
     "digitQuickSelect": true,       // allow 1–9 to quick-select an option
     "compactionPreservation": true, // prepend preservation instructions to mid-interrogation compaction summaries

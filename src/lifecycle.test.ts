@@ -99,8 +99,27 @@ function seedSubmitted(st: InterrogationState, ids: string[]): void {
   markSubmitted(st, ids);
 }
 
+/** REAL wire shape (h2.19): the schema has no `action` field — a non-empty questions array IS an upsert. */
 function upsertArgs(ids: string[]): Record<string, unknown> {
-  return { action: "upsert", questions: ids.map((id) => ({ id })) };
+  return { questions: ids.map((id) => ({ id })) };
+}
+
+/**
+ * FULL real-arg payload (h2.19): every entry carries the schema-required
+ * prompt/type/options — the shape a model actually sends when honoring
+ * commitment 4 (a re-ask resends the FULL set, unchanged entries included).
+ */
+function fullUpsertArgs(st: InterrogationState, refined?: string): Record<string, unknown> {
+  return {
+    epoch: st.epoch,
+    questions: st.orderedQuestions().map((q) => ({
+      id: q.id,
+      prompt: q.id === refined ? `${q.prompt} (clarified)?` : q.prompt,
+      type: q.type,
+      rev: q.rev,
+      options: q.options,
+    })),
+  };
 }
 
 /** One agent run: interrogate upsert (start → end) then agent_settled. */
@@ -391,11 +410,12 @@ test("non-interrogate tools and non-upsert actions record nothing (no reask mark
   runUpsertAndSettle(mock, ["q1"], { toolName: "bash" });
   expect(statusOf(st, "q1")).toBe("closed");
 
-  // An interrogate `read` action is likewise not a re-ask → q2 archives.
+  // An interrogate `read` (real shape: `{}` — no questions) is likewise not
+  // a re-ask → q2 archives.
   mock.emit("tool_execution_start", {
     toolCallId: "call-2",
     toolName: "interrogate",
-    args: { action: "read" },
+    args: {},
   });
   mock.emit("tool_execution_end", {
     toolCallId: "call-2",
@@ -405,6 +425,43 @@ test("non-interrogate tools and non-upsert actions record nothing (no reask mark
   });
   mock.emit("agent_settled");
   expect(statusOf(st, "q2")).toBe("closed");
+  lifecycle.dispose();
+});
+
+test("empty questions array routes to read (presence routing) — records nothing", () => {
+  const st = newState();
+  seedSubmitted(st, ["q1"]);
+  const mock = makeMockPi();
+  const lifecycle = createLifecycle(mock.pi, { getState: () => st });
+
+  // `{questions: []}` parses to a `read` action (h2.20) — not an upsert, so
+  // the settle archives q1 and the round-detection flag stays false.
+  mock.emit("tool_execution_start", { toolCallId: "call-1", toolName: "interrogate", args: { questions: [] } });
+  mock.emit("tool_execution_end", { toolCallId: "call-1", toolName: "interrogate", result: undefined, isError: false });
+  mock.emit("agent_settled");
+
+  expect(statusOf(st, "q1")).toBe("closed");
+  expect(lifecycle.upsertedThisRun()).toBe(false);
+  lifecycle.dispose();
+});
+
+test("full-set resend (commitment 4): every in-batch submitted id counts as touched (FR-4)", () => {
+  const st = newState();
+  seedSubmitted(st, ["q1", "q2"]);
+  const mock = makeMockPi();
+  const lifecycle = createLifecycle(mock.pi, { getState: () => st });
+
+  // The agent refines q1 and resends q2 VERBATIM (full-set commitment: an
+  // omission would withdraw q2 via merge rule 4). FR-4: submitted questions
+  // close "unless that reply upserted them" — q2 WAS upserted, so it must
+  // show re-asked, never archived.
+  const args = fullUpsertArgs(st, "q1");
+  mock.emit("tool_execution_start", { toolCallId: "call-1", toolName: "interrogate", args });
+  mock.emit("tool_execution_end", { toolCallId: "call-1", toolName: "interrogate", result: undefined, isError: false });
+  mock.emit("agent_settled");
+
+  expect(statusOf(st, "q1")).toBe("reasked");
+  expect(statusOf(st, "q2")).toBe("reasked");
   lifecycle.dispose();
 });
 

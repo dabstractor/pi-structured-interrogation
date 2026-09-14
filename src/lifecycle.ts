@@ -116,11 +116,15 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
- * Narrow untyped tool args to an upsert action. Tool args arrive untyped at
- * the event boundary; tolerate-and-ignore anything else (never `as any`).
+ * Narrow untyped tool args to an upsert action, by PRESENCE routing — exactly
+ * as parseInterrogateParams routes (h2.20). The interrogate schema
+ * (tool-schema.ts, h2.19) has NO `action` field: real start-event args carry
+ * only `{questions: [...], ...}`, so a non-empty questions array IS an upsert
+ * (empty array / absent routes to read and must never count — an empty upsert
+ * batch re-asks nothing). Tolerate-and-ignore anything else (never `as any`).
  */
 function isUpsertArgs(args: unknown): args is { questions: unknown[] } {
-  return isRecord(args) && args.action === "upsert" && Array.isArray(args.questions);
+  return isRecord(args) && Array.isArray(args.questions) && args.questions.length > 0;
 }
 
 /** Tolerant id extraction: object entries carrying a string `id` only — malformed entries are skipped, never thrown. */

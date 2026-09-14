@@ -143,9 +143,9 @@ export function buildReadResult(state: SerializedState): InterrogateResult {
  *    (exact h3.5 sentence — the resident non-blocking instruction)
  * 4. each caps warning from `warnings[]`, one per line, in order
  *
- * `warnings` are rendered as received: gate-suppression via
- * `config.gateWarnings` is the CONSUMER's job (the S6 executor filters
- * `applyCaps` warnings before calling), never this module's.
+ * `warnings` are rendered as received: they always reach the tool result
+ * (h2.23's warning is unconditional — no suppression toggle exists), and the
+ * S6 executor appends them verbatim, never filters.
  *
  * `details.state` is the canonical persistence layer (h2.40 layer 2) —
  * reconstruction (P1.M7.T1.S2) replays the latest interrogate result on the

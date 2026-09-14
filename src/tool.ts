@@ -167,13 +167,14 @@ function inlineEnvelope(state: SerializedState, action: ResultAction, statusLine
 
 /**
  * Combined upsert warning list: parse warnings (h2.23 truncation from S1)
- * PREPENDED to caps warnings (S3), then suppressed entirely when
- * `config.gateWarnings === false` (results.ts documents suppression as the
- * CONSUMER's job — this executor is that consumer).
+ * PREPENDED to caps warnings (S3), appended UNCONDITIONALLY — h2.23 requires
+ * truncation "with a warning in the tool result (never a hard reject)" and
+ * specifies no suppression toggle; the model must see what was cut to
+ * self-correct. (`config.gateWarnings` is the FR-9 panel submit warning —
+ * unrelated to tool results.)
  */
-function upsertWarnings(parsed: string[], capped: string[], config: InterrogatorConfig): string[] {
-  const combined = [...parsed, ...capped];
-  return config.gateWarnings ? combined : [];
+function upsertWarnings(parsed: string[], capped: string[]): string[] {
+  return [...parsed, ...capped];
 }
 
 // ------------------------------------------------------------------ executor
@@ -264,10 +265,10 @@ export function executeInterrogate(
         // h2.26 fallback: status line + numbered digest (ends with the relay
         // sentence from fallback.ts) + warnings. Envelope minted inline.
         const statusLine = buildStatusLine(serialized);
-        const content = [statusLine, ...buildFallbackDigest(serialized).split("\n"), ...upsertWarnings(parsed.warnings, capped.warnings, config)].join("\n");
+        const content = [statusLine, ...buildFallbackDigest(serialized).split("\n"), ...upsertWarnings(parsed.warnings, capped.warnings)].join("\n");
         return { content, details: inlineEnvelope(serialized, "upsert", statusLine) };
       }
-      return buildUpsertResult(serialized, upsertWarnings(parsed.warnings, capped.warnings, config));
+      return buildUpsertResult(serialized, upsertWarnings(parsed.warnings, capped.warnings));
     }
 
     // ---------------------------------------------------------- reopen

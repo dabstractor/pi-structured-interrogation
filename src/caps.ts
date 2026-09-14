@@ -10,8 +10,9 @@
  * Purity contract: no I/O, no events, no pi imports, no module state, never
  * throws. Inputs are deep-copied (structuredClone) — the caller's array and
  * question objects stay pristine. Whether warnings reach the tool result is
- * the CONSUMER's policy: the upsert executor (P1.M1.T3.S4) appends them
- * unless `config.gateWarnings === false`; applyCaps always reports.
+ * the CONSUMER's policy: the upsert executor (P1.M1.T3.S4) always appends
+ * them to the tool result (h2.23 — truncate WITH a warning, never a hard
+ * reject); applyCaps always reports.
  *
  * Consumers:
  *   - tool.ts upsert executor (P1.M1.T3.S4)  → applyCaps(parsed.questions, parsed.goal ?? "", config, ctx.model.contextWindow)
@@ -115,9 +116,10 @@ export function descriptionCap(caps: CapsConfig, contextWindow: number, question
  * ## Purity & warnings policy
  * Returns NEW objects (deep-copied via structuredClone); the caller's
  * questions are never mutated. Warnings are ALWAYS returned — applyCaps
- * does not know about `gateWarnings`. Suppressing them in the tool result
- * when `config.gateWarnings === false` is the CONSUMER's job (S4 upsert
- * executor); do not re-derive that policy here or in other consumers.
+ * knows no suppression toggle, and they always reach the tool result (h2.23's
+ * warning is unconditional: the model must see what was cut to self-correct).
+ * `config.gateWarnings` gates only the FR-9 panel submit warning, never
+ * tool-result content; do not re-derive any suppression policy here.
  *
  * @param questions `QuestionInput[]` from the parsed upsert action (pass `parsed.questions`).
  * @param goal The goal string from the same action.

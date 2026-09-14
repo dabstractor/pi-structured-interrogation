@@ -81,7 +81,7 @@ export interface InterrogatorConfig {
   keys: Record<KeyAction, string>;
   /** Character limits and result caps — see {@link CapsConfig}. */
   caps: CapsConfig;
-  /** Warn when a gate/cap truncates or drops content. Default true. */
+  /** FR-9: warn on panel submit when foundational gate-group questions are unanswered. Default true. */
   gateWarnings: boolean;
   /** Enable detection of interrogation rounds (P1.M7.T4.S1). Default true. */
   roundDetection: boolean;
@@ -327,7 +327,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * ### toggles
  * | field              | default | purpose                                              | consumer |
  * |--------------------|---------|------------------------------------------------------|----------|
- * | `gateWarnings`     | true    | Warn when a gate/cap truncates or drops content      | tool.ts  |
+ * | `gateWarnings`     | true    | FR-9 panel submit warning for unanswered gate questions | panel/actions.ts (P1.M3.T2.S2) |
  * | `roundDetection`   | true    | Detect interrogation rounds                          | detect.ts (P1.M7.T4.S1) |
  * | `digitQuickSelect` | true    | Press 1–9 to quick-select an option                  | panel keys (P1.M3.T3.S1) |
  * | `compactionPreservation` | true | Prepend preservation instructions to mid-interrogation compaction summaries | compaction.ts (P1.M7.T2.S1) |

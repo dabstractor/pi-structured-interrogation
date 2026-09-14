@@ -1,0 +1,5 @@
+{
+  "hasIssues": true,
+  "issueCount": 2,
+  "summary": "Production-only bug: lifecycle isUpsertArgs never matches real tool args (rule-1 re-asks archived, round-detection suppression dead); minor gateWarnings semantic overload. Otherwise typecheck, 928 tests, keymap guard, headless load, E2E journey (28/30) and real-model pi -p probes all pass."
+}

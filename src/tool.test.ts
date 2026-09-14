@@ -178,7 +178,7 @@ describe("executeInterrogate: upsert (TUI)", () => {
     expect(lines).toHaveLength(5);
   });
 
-  test("gateWarnings=false suppresses all warnings (config seam without explicit arg)", () => {
+  test("h2.23 warnings are unconditional: gateWarnings=false still warns in the tool result", () => {
     const cfg: InterrogatorConfig = {
       ...DEFAULT_CONFIG,
       gateWarnings: false,
@@ -189,7 +189,12 @@ describe("executeInterrogate: upsert (TUI)", () => {
       { questions: [qi("q0", { description: "x".repeat(50) }), qi("q1"), qi("q2")] },
       tuiCtx(),
     );
-    expect(r.content.split("\n")).toHaveLength(3);
+    // Truncation warnings always reach the model (h2.23 self-correction path);
+    // gateWarnings only gates the FR-9 panel submit warning.
+    const lines = r.content.split("\n");
+    expect(lines[3]).toBe("questions truncated at 2 — restructure if essential");
+    expect(lines[4]).toBe("q0 description truncated at 50 chars — restructure if essential");
+    expect(lines).toHaveLength(5);
   });
 });
 

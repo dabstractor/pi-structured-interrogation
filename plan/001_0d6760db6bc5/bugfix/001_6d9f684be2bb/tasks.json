@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Restore interrogation correctness — 12-defect bugfix changeset",
-      "status": "Researching",
+      "status": "Ready",
       "description": "Fix all 8 major and 4 minor defects from the post-validation bug hunt, restoring spec-conformant behavior across the goal lifecycle, second-interrogation completion, submission delta contract, non-TUI parity, panel resumability, dependsOn freshness, restart fidelity, and draft preservation. Baseline: 930 tests / 43 files green, tsc --noEmit clean (architecture/test-infrastructure.md) — every subtask keeps both green via TDD.",
       "milestones": [
         {
@@ -356,7 +356,7 @@
           "type": "Milestone",
           "id": "P1.M5",
           "title": "Restart reconstruction fidelity and changeset-level documentation",
-          "status": "Researching",
+          "status": "Ready",
           "description": "Replay submission deltas with exact raw values (BUG-007), then sweep the changeset-level docs (README behavior notes, decisions.md record of the two spec gaps this changeset pinned).",
           "tasks": [
             {
@@ -388,14 +388,14 @@
               "type": "Task",
               "id": "P1.M5.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Mode B catch-all: README.md behavior claims spanning the whole changeset, and spec/decisions.md entries pinning the two spec gaps this changeset decided (epoch reset on new interrogation; epoch-required-on-touching-upserts). Runs LAST.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T2.S1",
                   "title": "README.md: update behavior claims touched by this changeset",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -425,7 +425,7 @@
                   "type": "Subtask",
                   "id": "P1.M5.T2.S2",
                   "title": "spec/decisions.md: record the two pinned spec gaps",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 0.5,
                   "dependencies": [
                     "P1.M1.T1.S2",

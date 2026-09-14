@@ -34,25 +34,34 @@ materialize; runtime loads via jiti against pi's tree.
    panel **auto-opens** on the first upsert.
 2. Answer in the panel: move between questions with `tab` / `shift+tab`, pick
    an option with digits `1`–`9` or arrows + `enter`, press `ctrl+t` to focus
-   the free-text editor, `ctrl+d` for the deep-dive view, `ctrl+l` for the
+   the free-text editor (short view), `ctrl+d` for the deep-dive view, `ctrl+l` for the
    overview, `ctrl+shift+m` to attach a batch note, `ctrl+g` to finish the
    draft in an external editor.
 3. Press `ctrl+s` to submit. Partial submissions are fine — unanswered
    questions stay open. Each submit streams a compact delta message to the
-   model (rendered as a diff card in your transcript).
+   model (rendered as a diff card in your transcript), ending with
+   `(state epoch {n})` — the epoch the model must echo when upserting
+   existing questions afterwards.
 4. Break out any time with `ctrl+shift+q`: the panel suspends, a widget with
    question counts stays visible, and you can run side chats. Resume via
-   `/interrogate` or the same key — drafts intact; the model can also reopen
-   the panel itself when it has follow-ups.
+   `/interrogate` or the same key — drafts intact, and resume works even
+   when every question is answered but not yet submitted; the model can also
+   reopen the panel itself when it has follow-ups. A submit flushes only the
+   answers that actually shipped — drafts of questions the agent re-asked
+   survive.
 5. When every question is closed, the panel dismisses and the model receives
    **one full completion record** (a recap card lands in the transcript).
 
 **Model behavior note** — the model drives the `interrogate` tool, not you: it
-upserts questions (stable ids, `rev`-guarded), reads current state with `{}`,
+upserts questions (stable ids, `rev`- and epoch-guarded — upserts touching
+existing ids must echo the current epoch), reads current state with `{}`,
 receives your submissions as delta messages, and gets one full completion
 record when the interrogation completes. Between submissions it reconciles
-contradictions and re-asks only the questions materially affected. You answer
-in the panel; you never invoke the tool.
+contradictions and re-asks only the questions materially affected. The goal
+statement may be updated on any upsert — it is capped at 400 characters and
+truncated with a warning beyond that — and an upsert sent after completion
+starts a fresh interrogation (the epoch restarts at 1) that completes
+normally. You answer in the panel; you never invoke the tool.
 
 With `editorMode: "composed"` (the default) the panel composes its own editor
 experience around your draft; `"stock"` defers to pi's stock editor behavior
@@ -71,7 +80,7 @@ All settings live under a top-level `"interrogator"` key in either
     "keys": {
       "deep": "ctrl+d",             // open the deep-dive (ramification) view
       "overview": "ctrl+l",         // open the question overview list
-      "focusText": "ctrl+t",        // focus the free-text editor
+      "focusText": "ctrl+t",        // focus the free-text editor (short view)
       "batchNote": "ctrl+shift+m",  // attach a batch note
       "submit": "ctrl+s",           // submit answers / close the panel
       "breakOut": "ctrl+shift+q",   // break out (suspend) / resume — also a global shortcut
@@ -86,7 +95,7 @@ All settings live under a top-level `"interrogator"` key in either
       "ramification": 600,    // max characters for ramification / deep-dive text
       "options": 7,           // max multiple-choice options per question
       "questions": 40,        // max questions in one interrogation
-      "goal": 400,            // max characters for the goal statement
+      "goal": 400,            // max characters for the goal statement (enforced on stored state; updates past 400 are truncated with a warning)
       "contextBudgetPct": 4   // max % of the context window budgeted for interrogator content
     },
     "gateWarnings": true,           // FR-9: warn on panel submit when foundational gate questions are unanswered
@@ -118,7 +127,7 @@ Remappable actions (`interrogator.keys.*`):
 | -------------------- | --------------------- | --------------- | --------------------------------------------- |
 | Deep-dive view       | `keys.deep`           | `ctrl+d`        | Open/close the ramification view              |
 | Overview list        | `keys.overview`       | `ctrl+l`        | Open the question overview list               |
-| Focus text editor    | `keys.focusText`      | `ctrl+t`        | Focus the free-text editor                    |
+| Focus text editor    | `keys.focusText`      | `ctrl+t`        | Focus the free-text editor (short view only)  |
 | Batch note           | `keys.batchNote`      | `ctrl+shift+m`  | Attach a batch note shipped with the next submit |
 | Submit               | `keys.submit`         | `ctrl+s`        | Submit answers (partial ok) / close the panel |
 | Break out / resume   | `keys.breakOut`       | `ctrl+shift+q`  | Suspend to chat / resume — also a global shortcut |
@@ -150,10 +159,14 @@ From the spec's confirmed non-goals — pi-interrogator does **not** do any of t
 
 - Drafts are in-session only: they survive suspend/resume and panel
   close/reopen, but restarting pi mid-interrogation restores questions and
-  submitted answers — never in-progress drafts.
+  submitted answers with their exact values — never in-progress drafts.
+  Drafts of questions the agent re-asked survive a panel submit (only
+  shipped answers flush).
 - TUI-first: in non-TUI modes (`pi -p` print mode, rpc, json) there is no
   panel — the tool returns a numbered markdown digest that the model relays in
-  chat, and you answer in your next message.
+  chat, and you answer in your next message; once recorded, the interrogation
+  closes and the completion record is injected when the agent settles
+  (moot/withdrawn/closed questions are reported as ignored).
 - Compaction: `/compact` mid-interrogation triggers the preservation flow
   (the summary is generated with the interrogation preservation instructions
   prepended) and state reconstructs afterwards from the append-only

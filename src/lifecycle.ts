@@ -91,6 +91,8 @@ export interface LifecycleOptions {
 export interface Lifecycle {
   /** Reset per-run flags. Submit flows MUST call this right after deliverSubmission. */
   noteSubmissionDelivered(): void;
+  /** True when a successful (non-error) interrogate upsert ended in the current run; consumed by detect.ts (P1.M7.T4.S1) at turn_end, which precedes agent_settled's flag-clearing close pass. */
+  upsertedThisRun(): boolean;
   /** Register panel-dismiss callback; fired by dismissPanel() — no-op until M3 wires a panel. */
   onPanelDismiss(cb: () => void): void;
   /** Fire the registered panel-dismiss callback (idempotent, safe with none registered). */
@@ -242,6 +244,9 @@ export function createLifecycle(pi: Pick<ExtensionAPI, "on">, opts?: LifecycleOp
       submittedRun = false;
       reaskedThisRun.clear();
     },
+
+    /** Read-only view of the per-run `submittedRun` flag (P1.M7.T4.S1). */
+    upsertedThisRun: () => submittedRun,
 
     /** Single registration slot — last registration wins (P1.M3.T1 is the consumer). */
     onPanelDismiss(cb: () => void): void {

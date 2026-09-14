@@ -33,6 +33,7 @@ import { registerInterrogateCommand } from "./command.js";
 import { createCompactionGuard } from "./compaction.js";
 import { loadConfig } from "./config.js";
 import { registerDebugCommands } from "./debug-commands.js";
+import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
@@ -76,6 +77,11 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       },
     }),
   });
+
+  // P1.M7.T4.S1 — plain-text round detection (FR-26, h2.27): TUI-only,
+  // config-gated (roundDetection), throttled once per 3 turns; never
+  // transforms content — notifies only.
+  const roundDetector = createRoundDetector(pi, { config, lifecycle });
 
   // P1.M7.T1.S1 — storage layer 3 (h2.40, FR-27): mirror every state mutation
   // into `interrogation-state` custom entries — an append-only audit trail

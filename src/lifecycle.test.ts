@@ -470,3 +470,54 @@ describe("h2.44 scripted sequences", () => {
     lifecycle.dispose();
   });
 });
+
+// --------------------------------------------------- upsertedThisRun getter
+
+// P1.M7.T4.S1 — detect.ts consumes this flag at turn_end, which fires BEFORE
+// agent_settled's flag-clearing close pass; these tests pin that window.
+describe("upsertedThisRun (P1.M7.T4.S1 getter)", () => {
+  test("test_upserted_this_run_true_after_successful_upsert_false_after_settle", () => {
+    const st = newState();
+    seedSubmitted(st, ["q1"]);
+    const mock = makeMockPi();
+    const lifecycle = createLifecycle(mock.pi, { getState: () => st });
+
+    expect(lifecycle.upsertedThisRun()).toBe(false); // fresh session: no upsert yet
+
+    mock.emit("tool_execution_start", { toolCallId: "call-1", toolName: "interrogate", args: upsertArgs(["q1"]) });
+    expect(lifecycle.upsertedThisRun()).toBe(false); // start alone sets nothing
+
+    mock.emit("tool_execution_end", { toolCallId: "call-1", toolName: "interrogate", result: undefined, isError: false });
+    expect(lifecycle.upsertedThisRun()).toBe(true); // the turn_end-time window detect.ts reads
+
+    mock.emit("agent_settled"); // close pass clears the flag AFTER turn_end
+    expect(lifecycle.upsertedThisRun()).toBe(false);
+
+    lifecycle.dispose();
+  });
+
+  test("test_upserted_this_run_stays_false_on_isError_and_resets_via_noteSubmissionDelivered", () => {
+    const st = newState();
+    seedSubmitted(st, ["q1"]);
+    const mock = makeMockPi();
+    const lifecycle = createLifecycle(mock.pi, { getState: () => st });
+
+    // isError (thrown stale-guard) records nothing → getter stays false.
+    runUpsertAndSettle(mock, ["q1"], { isError: true });
+    expect(lifecycle.upsertedThisRun()).toBe(false);
+
+    // A real upsert (start+end, before any settle) raises the flag; a fresh
+    // submission delivery resets it — the other flag-clearing path.
+    mock.emit("tool_execution_start", { toolCallId: "call-2", toolName: "interrogate", args: upsertArgs(["q1"]) });
+    mock.emit("tool_execution_end", { toolCallId: "call-2", toolName: "interrogate", result: undefined, isError: false });
+    expect(lifecycle.upsertedThisRun()).toBe(true);
+    lifecycle.noteSubmissionDelivered(); // submit-flow contract (after deliverSubmission)
+    expect(lifecycle.upsertedThisRun()).toBe(false);
+
+    // dispose drops engine state → flag reads false afterwards.
+    mock.emit("tool_execution_start", { toolCallId: "call-3", toolName: "interrogate", args: upsertArgs(["q1"]) });
+    mock.emit("tool_execution_end", { toolCallId: "call-3", toolName: "interrogate", result: undefined, isError: false });
+    lifecycle.dispose();
+    expect(lifecycle.upsertedThisRun()).toBe(false);
+  });
+});

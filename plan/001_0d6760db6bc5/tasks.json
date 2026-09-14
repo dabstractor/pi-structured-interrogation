@@ -981,14 +981,14 @@
               "type": "Task",
               "id": "P1.M7.T4",
               "title": "Plain-text round detection (detect.ts)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-26: light heuristic detecting numbered question blocks in assistant replies, throttled notify, never transforms content.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M7.T4.S1",
                   "title": "Round heuristic + throttled notify",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1"
@@ -1006,14 +1006,14 @@
               "type": "Task",
               "id": "P1.M7.T5",
               "title": "Terminal fallbacks + config surface validation",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Height/width adaptive rendering; full remappability proof (AC-12) across footer, widget, dialogs.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M7.T5.S1",
                   "title": "Adaptive rendering: <24 rows, <12 rows, <60 cols",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S2",
@@ -1030,7 +1030,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T5.S2",
                   "title": "Config surface validation: every hotkey remappable (R5/AC-12)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2",

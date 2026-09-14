@@ -12,6 +12,11 @@
  * - {@link updateSuspendWidget} — the set/clear visibility rule; called from
  *   panel.ts's single suspend choke point (openPanel's floating .then and
  *   .catch, after markSuspended).
+ * - {@link RESUMABLE_STATUSES} — THE single definition of the resumable
+ *   status set (open/answered/submitted/reasked; BUG-005). Consumed here by
+ *   the visibility predicate and in panel.ts by resume-focus selection
+ *   (P1.M4.T1.S2 wires command.ts/index.ts onto the predicate too).
+ * - {@link hasResumableQuestions} — the shared resumable predicate.
  * - {@link suspendPanel} — re-export of panel.ts's host-force entry; the
  *   named consumer surface for P1.M6.T1.S2 (/interrogate + global
  *   ctrl+shift+q toggle) and P1.M6.T2.S2 (discuss).
@@ -34,10 +39,41 @@ export { suspendPanel } from "./panel.js";
 export const WIDGET_KEY = "interrogator";
 
 /**
- * Status → count buckets shared by the line builder and the open-count
- * visibility rule. `open` counts status "open" ONLY and `answered` counts
- * status "answered" ONLY — submitted/reasked/moot/withdrawn/closed join
- * NEITHER bucket (mirrors results.ts buildStatusLine's convention).
+ * [Mode A] THE resumable status set — single definition, deliberately
+ * shared (BUG-005 / h2.5): a suspended interrogation is resumable while ANY
+ * question is open, answered, submitted, or reasked — answered-pending
+ * submission is a LIVE state (h2.37), not an empty one. Terminal statuses
+ * (moot/withdrawn/closed) are never resumable.
+ *
+ * Consumers: {@link hasResumableQuestions} (widget visibility, this
+ * module), panel.ts resume-focus selection (imported under its historical
+ * ACTIVE_STATUSES alias), and — per P1.M4.T1.S2 — the command.ts toggle
+ * and index.ts onReopen gates. Do not re-declare this array anywhere.
+ */
+export const RESUMABLE_STATUSES: readonly string[] = [
+  "open",
+  "answered",
+  "submitted",
+  "reasked",
+];
+
+/**
+ * True ⟺ the state still holds at least one question whose status is in
+ * {@link RESUMABLE_STATUSES} — the widget-visibility / resumable rule
+ * (BUG-005: keys on active statuses, not open-only). False for an empty
+ * state (post-clearForCompletion) and for all-terminal states
+ * (moot/withdrawn/closed only).
+ */
+export function hasResumableQuestions(state: InterrogationState): boolean {
+  return state.orderedQuestions().some((q) => RESUMABLE_STATUSES.includes(q.status));
+}
+
+/**
+ * Status → count buckets feeding the line builder's n/m. `open` counts
+ * status "open" ONLY and `answered` counts status "answered" ONLY —
+ * submitted/reasked/moot/withdrawn/closed join NEITHER bucket (mirrors
+ * results.ts buildStatusLine's convention). NOT the visibility rule —
+ * visibility keys on {@link hasResumableQuestions} (BUG-005).
  */
 function countStatuses(ordered: readonly { status: string }[]): {
   open: number;
@@ -71,8 +107,11 @@ function countStatuses(ordered: readonly { status: string }[]): {
  *
  * Visibility rule (enforced by {@link updateSuspendWidget}, the only
  * consumer): the widget shows this line ⟺ the host is suspended AND
- * n > 0. n === 0 (completion/dismiss territory) clears the widget instead —
- * a "0 open" line is never rendered.
+ * {@link hasResumableQuestions}(state) — any open/answered/submitted/
+ * reasked question keeps it alive (BUG-005: "0 open · N answered" IS a
+ * legitimate rendered line). Cleared only for truly dead states: post-
+ * clearForCompletion (empty map) or all-terminal (moot/withdrawn/closed
+ * only).
  */
 export function buildSuspendWidgetLine(
   state: InterrogationState,
@@ -83,12 +122,13 @@ export function buildSuspendWidgetLine(
 }
 
 /**
- * The single set/clear rule at the suspend choke point: open > 0 →
- * `setWidget("interrogator", [line])`; otherwise → `setWidget("interrogator",
- * undefined)` (clear). panel.ts calls this from openPanel's floating .then
- * AND .catch — every custom() resolution (user done(null), host-forced
- * dismiss, crashed panel) lands there, so this one rule covers suspend-with-
- * open, completion-with-zero-open, and every dismiss variant.
+ * The single set/clear rule at the suspend choke point:
+ * hasResumableQuestions(state) → `setWidget("interrogator", [line])`;
+ * otherwise → `setWidget("interrogator", undefined)` (clear). panel.ts
+ * calls this from openPanel's floating .then AND .catch — every custom()
+ * resolution (user done(null), host-forced dismiss, crashed panel) lands
+ * there, so this one rule covers suspend-with-resumable, completion-with-
+ * empty-map, and every dismiss variant.
  *
  * No-op when the surface has no setWidget (test fakes / RPC mode) —
  * PiUISurface.setWidget is optional by design.
@@ -100,9 +140,10 @@ export function updateSuspendWidget(
 ): void {
   const setWidget = pi.ui.setWidget;
   if (setWidget === undefined) return;
-  const { open } = countStatuses(state.orderedQuestions());
   const line = buildSuspendWidgetLine(state, resolveKeyLabels(config));
-  setWidget.call(pi.ui, WIDGET_KEY, open > 0 ? [line] : undefined);
+  // BUG-005: answered/submitted/reasked-but-unsubmitted questions are LIVE —
+  // the widget must stay findable so the user can resurface and ctrl+s.
+  setWidget.call(pi.ui, WIDGET_KEY, hasResumableQuestions(state) ? [line] : undefined);
 }
 
 /**

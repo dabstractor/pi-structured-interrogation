@@ -15,7 +15,14 @@ import { DEFAULT_CONFIG, resolveKeyLabels } from "../config.js";
 import { DraftStore } from "../draft-store.js";
 import { createInterrogationState, type InterrogationState, type Question } from "../state.js";
 import { createPanelHost, openPanel, type OpenPanelOptions, type PiUISurface } from "./panel.js";
-import { buildSuspendWidgetLine, resumePanel, updateSuspendWidget, WIDGET_KEY } from "./suspend.js";
+import {
+  buildSuspendWidgetLine,
+  hasResumableQuestions,
+  RESUMABLE_STATUSES,
+  resumePanel,
+  updateSuspendWidget,
+  WIDGET_KEY,
+} from "./suspend.js";
 
 const ESCAPE = "\u001b";
 /** kitty CSI-u ctrl+shift+q (q = 113) — same bytes keys.test.ts routes with. */
@@ -200,8 +207,60 @@ describe("buildSuspendWidgetLine — exact h2.3 string", () => {
   });
 });
 
+describe("hasResumableQuestions — shared predicate (BUG-005)", () => {
+  test("test_RESUMABLE_STATUSES_contract_set", () => {
+    // Single-definition contract lock: exactly the four active statuses.
+    expect([...RESUMABLE_STATUSES].sort()).toEqual(["answered", "open", "reasked", "submitted"]);
+  });
+
+  test("test_hasResumableQuestions_true_for_each_active_status", () => {
+    expect(hasResumableQuestions(makeState(2, 0))).toBe(true); // open-only
+    expect(hasResumableQuestions(makeState(0, 2))).toBe(true); // answered-only
+
+    const submitted = createInterrogationState("goal");
+    submitted.upsertQuestion(choiceQ("s1"));
+    submitted.applyAnswer("s1", { value: "a", at: "t" });
+    submitted.setStatus("s1", "submitted");
+    expect(hasResumableQuestions(submitted)).toBe(true); // submitted-only
+
+    const reasked = createInterrogationState("goal");
+    reasked.upsertQuestion(choiceQ("r1"));
+    reasked.setStatus("r1", "reasked");
+    expect(hasResumableQuestions(reasked)).toBe(true); // reasked-only
+  });
+
+  test("test_hasResumableQuestions_true_for_mixed_active_and_terminal", () => {
+    const state = makeState(1, 1);
+    state.upsertQuestion(choiceQ("m1"));
+    state.setStatus("m1", "moot"); // terminal alongside live ones
+    expect(hasResumableQuestions(state)).toBe(true);
+  });
+
+  test("test_hasResumableQuestions_false_for_empty_state", () => {
+    expect(hasResumableQuestions(createInterrogationState("goal"))).toBe(false);
+  });
+
+  test("test_hasResumableQuestions_false_for_terminal_only", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("t1"));
+    state.setStatus("t1", "moot");
+    state.upsertQuestion(choiceQ("t2"));
+    state.setStatus("t2", "withdrawn");
+    state.upsertQuestion(choiceQ("t3"));
+    state.setStatus("t3", "closed");
+    expect(hasResumableQuestions(state)).toBe(false);
+  });
+
+  test("test_hasResumableQuestions_false_after_clearForCompletion", () => {
+    const state = makeState(2, 2);
+    expect(hasResumableQuestions(state)).toBe(true);
+    state.clearForCompletion();
+    expect(hasResumableQuestions(state)).toBe(false);
+  });
+});
+
 describe("updateSuspendWidget — set/clear visibility rule", () => {
-  test("test_updateSuspendWidget_sets_line_then_clears_at_zero_open", () => {
+  test("test_updateSuspendWidget_sets_open_line_then_answered_only_line", () => {
     const mock = makeMockPi();
     const state = makeState(2, 1);
 
@@ -210,13 +269,43 @@ describe("updateSuspendWidget — set/clear visibility rule", () => {
       [WIDGET_KEY, ["2 open · 1 answered — Ctrl+Shift+Q to resume /interrogate"]],
     ]);
 
-    state.setStatus("q1", "moot");
-    state.setStatus("q2", "moot");
-    state.setStatus("q3", "moot");
+    // BUG-005: answering the last open questions keeps the widget alive —
+    // "0 open · N answered" is a legitimate rendered line now (the old rule
+    // cleared here, stranding pending answers invisibly).
+    state.applyAnswer("q1", { value: "a", at: "t" });
+    state.applyAnswer("q2", { value: "a", at: "t" });
+    updateSuspendWidget(mock.pi, state, DEFAULT_CONFIG);
+    expect(mock.setWidgetCalls[1]).toEqual([
+      WIDGET_KEY,
+      ["0 open · 3 answered — Ctrl+Shift+Q to resume /interrogate"],
+    ]);
+  });
+
+  test("test_updateSuspendWidget_clears_only_dead_states", () => {
+    const mock = makeMockPi();
+
+    // Empty state (post-clearForCompletion shape) → cleared.
+    updateSuspendWidget(mock.pi, createInterrogationState("goal"), DEFAULT_CONFIG);
+    expect(mock.setWidgetCalls[0]).toEqual([WIDGET_KEY, undefined]);
+
+    // All-terminal (moot/withdrawn/closed only) → cleared.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("t1"));
+    state.setStatus("t1", "moot");
+    state.upsertQuestion(choiceQ("t2"));
+    state.setStatus("t2", "withdrawn");
+    state.upsertQuestion(choiceQ("t3"));
+    state.setStatus("t3", "closed");
     updateSuspendWidget(mock.pi, state, DEFAULT_CONFIG);
     expect(mock.setWidgetCalls[1]).toEqual([WIDGET_KEY, undefined]);
-    // Never a "0 open" line.
-    expect(mock.setWidgetCalls.some(([, c]) => c?.some((l) => l.startsWith("0 open")))).toBe(false);
+
+    // Post-clearForCompletion (map emptied) → cleared.
+    const live = makeState(2, 2);
+    updateSuspendWidget(mock.pi, live, DEFAULT_CONFIG);
+    expect(mock.setWidgetCalls[2]?.[1]).toBeDefined();
+    live.clearForCompletion();
+    updateSuspendWidget(mock.pi, live, DEFAULT_CONFIG);
+    expect(mock.setWidgetCalls[3]).toEqual([WIDGET_KEY, undefined]);
   });
 
   test("test_updateSuspendWidget_nop_without_setWidget_surface", () => {
@@ -288,7 +377,7 @@ describe("suspend — widget set at the single choke point", () => {
     expect(fresh.currentId).toBe("q2");
   });
 
-  test("test_suspend_zero_open_clears_widget_never_zero_line", async () => {
+  test("test_suspend_answered_only_sets_zero_open_widget_line", async () => {
     createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();
     const state = makeState(0, 2);
@@ -297,11 +386,33 @@ describe("suspend — widget set at the single choke point", () => {
     firstCall(mock).done(null);
     await flush();
 
+    // BUG-005 (the flip): answered-pending-submission is a LIVE state — the
+    // reminder widget STAYS so the user can resurface and ctrl+s.
     expect(mock.setWidgetCalls).toEqual([
-      [WIDGET_KEY, undefined], // cleared on open
-      [WIDGET_KEY, undefined], // cleared at suspend — never a "0 open" line
+      [WIDGET_KEY, undefined], // cleared on open (stale-reminder guard)
+      [WIDGET_KEY, [line(0, 2)]], // set at the suspend choke point
     ]);
-    expect(mock.setWidgetCalls.some(([, c]) => c?.some((l) => l.startsWith("0 open")))).toBe(false);
+  });
+
+  test("test_suspend_submitted_and_reasked_keep_widget_alive", async () => {
+    createPanelHost(makeMockLifecycle().lifecycle);
+    const mock = makeMockPi();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("s1"));
+    state.applyAnswer("s1", { value: "a", at: "t" });
+    state.setStatus("s1", "submitted");
+    state.upsertQuestion(choiceQ("r1"));
+    state.setStatus("r1", "reasked");
+    openPanel(mock.pi, optsFor(state));
+
+    firstCall(mock).done(null);
+    await flush();
+
+    // submitted/reasked join neither count bucket but ARE resumable.
+    expect(mock.setWidgetCalls[1]).toEqual([
+      WIDGET_KEY,
+      ["0 open · 0 answered — Ctrl+Shift+Q to resume /interrogate"],
+    ]);
   });
 
   test("test_crashed_panel_catch_applies_same_widget_rule", async () => {

@@ -83,7 +83,11 @@ import { buildDeepContent, deepSeedCursorIndex, renderDeepWindow } from "./deep-
 import { buildOverviewContent, clampOverviewScroll } from "./overview.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
 import { terminalBudget } from "./terminal-budget.js";
-import { updateSuspendWidget, WIDGET_KEY } from "./suspend.js";
+import {
+  RESUMABLE_STATUSES as ACTIVE_STATUSES,
+  updateSuspendWidget,
+  WIDGET_KEY,
+} from "./suspend.js";
 
 // --------------------------------------------------------------------- types
 
@@ -209,9 +213,6 @@ export interface PiUISurface {
 }
 
 // ------------------------------------------------------- panel component
-
-/** Statuses counted as "currently active" for focus selection (h2.44 set). */
-const ACTIVE_STATUSES: readonly string[] = ["open", "answered", "submitted", "reasked"];
 
 /** Footer flash lifetime (h2.37 transient states ~2.5s). */
 const FLASH_MS = 2500;

@@ -13,18 +13,23 @@
  * the real host phase transitions (suspend → isSuspended, resume → open).
  *
  * Coverage: toggle matrix through both surfaces (suspend when open, resume
- * when suspended with open questions, exact h2.37 empty-state notify when
- * closed/no state/with args, suspended-with-0-open dead-panel edge), the
- * non-TUI mode guard, config-rebound shortcut key registration, shortcut
- * handler toggling, and double-press idempotency (AC-4 cycle safety).
+ * when suspended with live questions, exact h2.37 empty-state notify when
+ * closed/no state/with args, the BUG-005 answered/submitted/reasked-pending
+ * resume rows, the terminal-only dead-panel edge), the non-TUI mode guard,
+ * config-rebound shortcut key registration, shortcut handler toggling,
+ * double-press idempotency (AC-4 cycle safety), and the REAL index.ts
+ * onReopen factory hook driven through a captured registerTool execute
+ * (BUG-005 resume half: answered/submitted/reasked reopen, terminal-only /
+ * post-completion / missing-resume-surface no-state).
  */
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import interrogatorExtension from "./index.js";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import { interrogateToggleAction, registerInterrogateCommand } from "./command.js";
 import { createPanelHost, openPanel, type OpenPanelOptions, type PanelHost } from "./panel/panel.js";
-import { createInterrogationState, resetState, setState, type InterrogationState, type Question } from "./state.js";
+import { createInterrogationState, getState, resetState, setState, type InterrogationState, type Question } from "./state.js";
 
 // ------------------------------------------------- S1 seam mock (delegating)
 
@@ -260,14 +265,52 @@ describe("interrogateToggleAction — decision table", () => {
     expect(interrogateToggleAction(host, surface.surface as never, state)).toBe("resumed");
     expect(host.isOpen()).toBe(true);
 
-    // Row 3: suspended ∧ open=0 → "empty" (dead-panel edge, no resume)
+    // Row 3 (BUG-005 flip, h2.2/h3.4 repro): suspended ∧ answered-pending
+    // (0 open) → "resumed" — the panel resurfaces so the user can ctrl+s.
     interrogateToggleAction(host, surface.surface as never, state); // suspend again
     const answered = createInterrogationState("goal");
     answered.upsertQuestion(choiceQ("q1"));
     answered.applyAnswer("q1", { value: "a", at: new Date().toISOString() }); // open → answered
     setState(answered);
-    expect(interrogateToggleAction(host, surface.surface as never, answered)).toBe("empty");
+    expect(interrogateToggleAction(host, surface.surface as never, answered)).toBe("resumed");
+    expect(host.isOpen()).toBe(true);
+
+    // Row 3b: submitted-only is live too (BUG-005 set) → "resumed".
+    interrogateToggleAction(host, surface.surface as never, answered); // suspend again
+    const submitted = createInterrogationState("goal");
+    submitted.upsertQuestion(choiceQ("q1"));
+    submitted.setStatus("q1", "submitted");
+    setState(submitted);
+    expect(interrogateToggleAction(host, surface.surface as never, submitted)).toBe("resumed");
+    expect(host.isOpen()).toBe(true);
+
+    // Row 3c: reasked-only is live too (BUG-005 set) → "resumed".
+    interrogateToggleAction(host, surface.surface as never, submitted); // suspend again
+    const reasked = createInterrogationState("goal");
+    reasked.upsertQuestion(choiceQ("q1"));
+    reasked.setStatus("q1", "reasked");
+    setState(reasked);
+    expect(interrogateToggleAction(host, surface.surface as never, reasked)).toBe("resumed");
+    expect(host.isOpen()).toBe(true);
+
+    // Row 3d (re-targeted negative coverage): suspended ∧ truly dead —
+    // terminal-only state (moot; withdrawn/closed equally) → "empty", host
+    // stays suspended.
+    interrogateToggleAction(host, surface.surface as never, reasked); // suspend again
+    const dead = createInterrogationState("goal");
+    dead.upsertQuestion(choiceQ("q1"));
+    dead.setStatus("q1", "moot");
+    setState(dead);
+    expect(interrogateToggleAction(host, surface.surface as never, dead)).toBe("empty");
     expect(host.isOpen()).toBe(false);
+    expect(host.isSuspended()).toBe(true);
+
+    // Row 3e: empty state (zero questions — e.g. post-clearForCompletion
+    // equivalent) is equally dead → "empty".
+    const cleared = createInterrogationState("goal");
+    setState(cleared);
+    expect(interrogateToggleAction(host, surface.surface as never, cleared)).toBe("empty");
+    expect(host.isSuspended()).toBe(true);
 
     // Row 4: closed host → "empty"
     const closedHost = createPanelHost(makeMockLifecycle().lifecycle);
@@ -345,9 +388,12 @@ describe("/interrogate command handler", () => {
     expect(notify).toHaveBeenCalledWith(EMPTY_MESSAGE, "info");
   });
 
-  test("test_toggle_suspended_zero_open_notifies", async () => {
+  test("test_toggle_suspended_answered_pending_resumes_silently", async () => {
     const { host, invokeCommand } = makeHarness();
-    // Pending-submission edge (h2.37): suspended host, every question answered.
+    // BUG-005 repro (h2.2/h3.4): suspended host, every question ANSWERED
+    // (0 open, pending submission). Answered-pending is a LIVE state — the
+    // toggle resumes (silent success: notify fires ONLY on "empty") so the
+    // user can resurface and ctrl+s the pending answers.
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
     state.applyAnswer("q1", { value: "a", at: new Date().toISOString() }); // open → answered
@@ -360,7 +406,28 @@ describe("/interrogate command handler", () => {
     const second = makeCtx();
     await invokeCommand("", second.ctx);
 
-    // Dead panel: empty-state notify, consistent with S1's cleared widget.
+    expect(second.notify).not.toHaveBeenCalled();
+    expect(resumePanel).toHaveBeenCalledTimes(1);
+    expect(host.isOpen()).toBe(true);
+  });
+
+  test("test_toggle_suspended_terminal_only_dead_panel_notifies", async () => {
+    const { host, invokeCommand } = makeHarness();
+    // Re-targeted negative coverage: a TRULY dead panel (all terminal —
+    // moot here; withdrawn/closed identical) still notifies the empty-state
+    // toast and never resumes.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.setStatus("q1", "moot");
+    setState(state);
+    openOnSurface(state);
+    const first = makeCtx();
+    await invokeCommand("", first.ctx);
+    expect(host.isSuspended()).toBe(true);
+
+    const second = makeCtx();
+    await invokeCommand("", second.ctx);
+
     expect(second.notify).toHaveBeenCalledWith(EMPTY_MESSAGE, "info");
     expect(resumePanel).not.toHaveBeenCalled();
     expect(host.isOpen()).toBe(false);
@@ -449,5 +516,184 @@ describe("global break-out/resume shortcut handler", () => {
     expect(() => resumePanel(ctxB.ctx)).not.toThrow();
     expect(resumePanel).toHaveBeenCalledTimes(2);
     expect(host.isOpen()).toBe(true);
+  });
+});
+
+// ------------------------------------------- onReopen real hook (P1.M4.T1.S2)
+
+/**
+ * Executor ctx for the reopen path (tool.test.ts tuiCtx shape): TUI with UI,
+ * so the {reopen:true} branch actually consults deps.onReopen.
+ */
+const REOPEN_TUI_CTX = { mode: "tui", hasUI: true, model: { contextWindow: 200_000 } };
+
+/** Tool-definition execute wraps the executor string in a text block. */
+function resultText(result: { content: Array<{ type: string; text: string }> }): string {
+  return result.content[0]?.text ?? "";
+}
+
+interface CapturedTool {
+  execute: (
+    toolCallId: string,
+    params: unknown,
+    signal: unknown,
+    onUpdate: unknown,
+    ctx: unknown,
+  ) => Promise<{ content: Array<{ type: string; text: string }>; details: { action: string } }>;
+}
+
+interface FactoryHarness {
+  /** Fire every handler the factory registered for `event` (MockPi-style). */
+  fire(event: string, payload: Record<string, unknown>, ctx: unknown): void;
+  /** The tool definition capture of pi.registerTool (execute closes over
+   * the REAL onReopen hook from index.ts's factory closure). */
+  tool: CapturedTool;
+}
+
+/**
+ * Drive the REAL extension factory (index.ts) against a capture-only pi —
+ * the seam the codebase already fakes (MockPi conventions), never a pi
+ * runtime (AUTOMATION-POLICY). Every factory registration is a tolerant
+ * capture: handlers are recorded by event name, registerTool captures the
+ * interrogate tool whose execute closure contains the REAL onReopen hook.
+ * No event fires except the ones a test explicitly dispatches.
+ */
+async function makeFactoryHarness(): Promise<FactoryHarness> {
+  const handlers = new Map<string, Array<(event: unknown, ctx: unknown) => void>>();
+  const tools: CapturedTool[] = [];
+  const pi = {
+    on: vi.fn((event: string, handler: (event: unknown, ctx: unknown) => void) => {
+      const list = handlers.get(event) ?? [];
+      list.push(handler);
+      handlers.set(event, list);
+      return () => {};
+    }),
+    registerCommand: vi.fn(),
+    registerShortcut: vi.fn(),
+    registerMessageRenderer: vi.fn(),
+    registerEntryRenderer: vi.fn(),
+    appendEntry: vi.fn(),
+    registerTool: vi.fn((tool: CapturedTool) => {
+      tools.push(tool);
+    }),
+  } as unknown as ExtensionAPI;
+  await interrogatorExtension(pi);
+  if (tools.length === 0) throw new Error("factory never registered the interrogate tool");
+  return {
+    fire(event, payload, ctx) {
+      for (const handler of [...(handlers.get(event) ?? [])]) handler(payload, ctx);
+    },
+    tool: tools[tools.length - 1]!,
+  };
+}
+
+/**
+ * Flip the factory's internal panel host into the "suspended" phase: the
+ * host record is module-scoped in panel.ts, so openPanel (fresh surface →
+ * phase "open") followed by done(null) (the floating .then → markSuspended)
+ * leaves the hook's panelHost.isSuspended() true.
+ */
+async function suspendFactoryHost(state: InterrogationState): Promise<void> {
+  const calls = openOnSurface(state);
+  calls[calls.length - 1]!.done(null);
+  await new Promise<void>((resolve) => setImmediate(resolve)); // flush the .then
+}
+
+describe("onReopen — real factory hook (BUG-005 resume half)", () => {
+  beforeEach(() => {
+    resetState();
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    resetState();
+  });
+
+  test("test_reopen_hook_answered_only_suspended_state_reopens", async () => {
+    const h = await makeFactoryHarness();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.applyAnswer("q1", { value: "a", at: new Date().toISOString() }); // 0 open, 1 answered
+    setState(state);
+    await suspendFactoryHost(state);
+
+    // Production event order: the stash fires on tool_execution_start,
+    // BEFORE the reopen executes inside the tool call.
+    const { surface } = makeSurfacePi();
+    h.fire("tool_execution_start", { toolName: "interrogate", toolCallId: "c1" }, surface);
+
+    const result = await h.tool.execute("c1", { reopen: true }, undefined, undefined, REOPEN_TUI_CTX);
+
+    expect(resultText(result).endsWith("Panel reopened.")).toBe(true);
+    // The hook resumed through the stashed interrogate ctx (carrier identity).
+    expect(resumePanel).toHaveBeenCalledTimes(1);
+    expect(resumePanel).toHaveBeenCalledWith(surface);
+  });
+
+  test("test_reopen_hook_submitted_only_and_reasked_only_states_reopen", async () => {
+    for (const status of ["submitted", "reasked"] as const) {
+      const h = await makeFactoryHarness();
+      const state = createInterrogationState("goal");
+      state.upsertQuestion(choiceQ("q1"));
+      state.setStatus("q1", status);
+      setState(state);
+      await suspendFactoryHost(state);
+
+      const { surface } = makeSurfacePi();
+      h.fire("tool_execution_start", { toolName: "interrogate", toolCallId: "c1" }, surface);
+
+      const result = await h.tool.execute("c1", { reopen: true }, undefined, undefined, REOPEN_TUI_CTX);
+      expect(resultText(result).endsWith("Panel reopened.")).toBe(true);
+      expect(resumePanel).toHaveBeenCalledWith(surface);
+    }
+  });
+
+  test("test_reopen_hook_terminal_only_state_stays_no_state", async () => {
+    const h = await makeFactoryHarness();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.setStatus("q1", "moot");
+    setState(state);
+    await suspendFactoryHost(state);
+
+    const { surface } = makeSurfacePi();
+    h.fire("tool_execution_start", { toolName: "interrogate", toolCallId: "c1" }, surface);
+
+    const result = await h.tool.execute("c1", { reopen: true }, undefined, undefined, REOPEN_TUI_CTX);
+    expect(resultText(result).endsWith("No open questions to reopen.")).toBe(true);
+    expect(resumePanel).not.toHaveBeenCalled();
+  });
+
+  test("test_reopen_hook_post_completion_cleared_state_stays_no_state", async () => {
+    const h = await makeFactoryHarness();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.applyAnswer("q1", { value: "a", at: new Date().toISOString() });
+    state.clearForCompletion(); // h3.9: completion clears the live map
+    setState(state);
+    await suspendFactoryHost(state);
+
+    const { surface } = makeSurfacePi();
+    h.fire("tool_execution_start", { toolName: "interrogate", toolCallId: "c1" }, surface);
+
+    const result = await h.tool.execute("c1", { reopen: true }, undefined, undefined, REOPEN_TUI_CTX);
+    expect(resultText(result).endsWith("No open questions to reopen.")).toBe(true);
+    expect(resumePanel).not.toHaveBeenCalled();
+  });
+
+  test("test_reopen_hook_missing_resume_surface_stays_no_state", async () => {
+    // The resumeSurface === undefined guard is surface-carrier plumbing and
+    // must survive BUG-005: without a stashed interrogate ctx the hook never
+    // resumes, even with live questions (crash-guard for resumePanel).
+    const h = await makeFactoryHarness();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.applyAnswer("q1", { value: "a", at: new Date().toISOString() });
+    setState(state);
+    await suspendFactoryHost(state);
+    // NO tool_execution_start fired → resumeSurface stays undefined.
+
+    const result = await h.tool.execute("c1", { reopen: true }, undefined, undefined, REOPEN_TUI_CTX);
+    expect(resultText(result).endsWith("No open questions to reopen.")).toBe(true);
+    expect(resumePanel).not.toHaveBeenCalled();
   });
 });

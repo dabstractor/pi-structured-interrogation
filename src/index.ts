@@ -37,7 +37,7 @@ import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
-import { resumePanel } from "./panel/suspend.js";
+import { hasResumableQuestions, resumePanel } from "./panel/suspend.js";
 import { createStateMirror } from "./persistence.js";
 import { createReconstruction } from "./reconstruct.js";
 import {
@@ -146,10 +146,12 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // user's safety net). Registered AFTER createPanelHost so the hook
   // closure captures the live host; the phase API isOpen()/isSuspended()
   // is the only state source (the module-private `phase` is never read
-  // directly). The 0-open suspended edge mirrors S2's empty-state rule:
-  // a dead panel is never resumed. Idempotency races are S1's concern
-  // (resumePanel → openPanel no-ops when already open) — not duplicated
-  // here.
+  // directly). The dead-panel edge mirrors S2's empty-state rule: dead =
+  // NO live questions (post-completion cleared / all terminal — the shared
+  // resumable predicate, BUG-005); an answered-pending panel resurfaces so
+  // a ctrl+s can ship the pending answers. Idempotency races are S1's
+  // concern (resumePanel → openPanel no-ops when already open) — not
+  // duplicated here.
   //
   // Surface carrier adaptation (PRP drift rule): the factory's `pi` is an
   // ExtensionAPI with NO `ui` (panel.ts's maybeAutoOpen note) — the
@@ -169,8 +171,15 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       onReopen: () => {
         if (panelHost.isOpen()) return "already-open";
         if (panelHost.isSuspended()) {
-          const open = getState()?.orderedQuestions().filter((q) => q.status === "open").length ?? 0;
-          if (open === 0 || resumeSurface === undefined) return "no-state";
+          // BUG-005: dead = no live questions (the shared resumable
+          // predicate — FR-6: state-existence plumbing, never a
+          // recency/epoch gate).
+          const state = getState();
+          if (
+            !(state !== undefined && hasResumableQuestions(state)) ||
+            resumeSurface === undefined
+          )
+            return "no-state";
           resumePanel(resumeSurface);
           return "reopened";
         }

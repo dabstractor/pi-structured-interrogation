@@ -286,14 +286,14 @@
           "type": "Milestone",
           "id": "P1.M4",
           "title": "Panel resumability and focus guards (BUG-005, BUG-011)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Pending answers must survive panel suspension with 0 open questions (three duplicated open-only gates), and ctrl+t must not focus an editor that deep/overview views never render.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M4.T1",
               "title": "Answered-pending panels are resumable (BUG-005)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "If the user answers everything then suspends before ctrl+s, the widget is cleared (open==0), /interrogate + break-out return the empty-state toast, and agent {reopen:true} refuses — the answers are stranded. ui-spec 'Empty/edge states': 0 open + pending submissions must stay reachable; FR-6: reopen has no deterministic guard.",
               "subtasks": [
                 {
@@ -314,7 +314,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S2",
                   "title": "command.ts toggle + index.ts onReopen use the resumable predicate",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M4.T1.S1"
@@ -332,14 +332,14 @@
               "type": "Task",
               "id": "P1.M4.T2",
               "title": "ctrl+t text focus guarded to the short view (BUG-011)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "keys.ts routes focusText (ctrl+t) with no view guard, but buildLines renders the embedded TextField only in short view and note mode — ctrl+t in deep/overview silently traps keystrokes in an invisible editor.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T2.S1",
                   "title": "keys.ts: gate focusText dispatch on panel.view === 'short'",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/panel-ui.md §BUG-011 — src/panel/keys.ts:354–356 focusText dispatch has no view check (contrast externalEditor at :366 gating on focus === 'text', digits at ~385 gating on view). panel.ts buildLines (1045–1145): TextField rendered in note mode + short view only; PanelView = 'short' | 'deep' | 'overview' (panel.ts:95); PanelFocus = 'options' | 'text' | 'note' (panel.ts:98); handleInput tail (~640) forwards to textField when focus is text/note. focusTextField (panel.ts:800–815) seeds + focuses the editor.\n2. INPUT: panel.view and panel.focus state; keybinding match (matchesKey(data, b.focusText)).\n3. LOGIC: In src/panel/keys.ts, only dispatch actions.onFocusText when `panel.view === 'short'` (ctrl+t in deep/overview falls through to normal panel key handling — arrows keep scrolling/navigating per ui-spec Hotkeys). If focus is already 'text' (user descended from short via esc? — esc from short-text returns to options before descending, so this is defensive), a no-op return true is acceptable. Mock nothing — keys.test.ts router conventions: ctrl+t in deep/overview must NOT set focus='text'; in short it still does.\n4. OUTPUT: ctrl+t never creates invisible focus; FR-12's explain field remains reachable exactly where it renders. No downstream consumers.\n5. DOCS: none — ui-spec Hotkeys conformance; no repo doc enumerates the keymap.",
@@ -363,14 +363,14 @@
               "type": "Task",
               "id": "P1.M5.T1",
               "title": "Reconstruction replays raw answer values (BUG-007)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Session-start replay applies DiffEntry.to (the label-preferred display summary) as answer.value, corrupting state after restart whenever label ≠ value: dependsOn compares the label, digests lie, and ★-recommendation checks can be wrong.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T1.S1",
                   "title": "reconstruct.ts replaySubmission: prefer DiffEntry.value, tolerate legacy",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1"

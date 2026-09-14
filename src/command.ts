@@ -26,7 +26,7 @@ import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import type { DraftStore } from "./draft-store.js";
 import { parseAccelerator } from "./panel/keys.js";
 import type { PanelHost, PiUISurface } from "./panel/panel.js";
-import { resumePanel, suspendPanel } from "./panel/suspend.js";
+import { hasResumableQuestions, resumePanel, suspendPanel } from "./panel/suspend.js";
 import { getState, type InterrogationState } from "./state.js";
 
 /** EXACT h2.37/h2.3 empty-state string (em dash U+2014, severity "info"). */
@@ -40,8 +40,8 @@ const NON_TUI_MESSAGE = "The interrogation panel requires TUI mode";
  *
  * ┌──────────────────────────────┬───────────────────────────────────────┐
  * │ host.isOpen()                │ suspendPanel(host)  → "suspended"     │
- * │ host.isSuspended() ∧ open>0  │ resumePanel(pi)     → "resumed"       │
- * │ host.isSuspended() ∧ open=0  │ empty-state notify  → "empty"         │
+ * │ host.isSuspended() ∧ live    │ resumePanel(pi)     → "resumed"       │
+ * │ host.isSuspended() ∧ dead   │ empty-state notify  → "empty"         │
  * │ host closed (no/ended state) │ empty-state notify  → "empty"         │
  * └──────────────────────────────┴───────────────────────────────────────┘
  *
@@ -52,7 +52,7 @@ const NON_TUI_MESSAGE = "The interrogation panel requires TUI mode";
  * `ctx` works (its `ctx.ui` is the surface; same carrier pattern as
  * maybeAutoOpen passing ctx to openPanel). `state` is the session singleton
  * read at invocation time (undefined until the first upsert — only consulted
- * for the suspended zero-open edge).
+ * for the suspended dead-panel edge — the shared resumable predicate).
  */
 export type InterrogateToggleOutcome = "suspended" | "resumed" | "empty";
 
@@ -74,13 +74,14 @@ export function interrogateToggleAction(
     return "suspended";
   }
   if (host.isSuspended()) {
-    // Suspended with 0 open questions = dead panel (completion/pending-
-    // submission territory, h2.37 edge): S1's choke point cleared the
-    // widget in that case, so BOTH surfaces treat it as empty state —
-    // never resume a dead panel.
-    const open = state?.orderedQuestions().filter((q) => q.status === "open").length ?? 0;
-    if (open === 0) return "empty";
-    // Suspended with open questions → resume on the last-focused question
+    // BUG-005 (h2.2/h3.4 Issue 5): a suspended panel is dead ONLY when no
+    // live questions remain — post-completion cleared, or every question
+    // terminal (moot/withdrawn/closed). Answered-pending panels (0 open,
+    // N answered/submitted/reasked) MUST resurface so the user can ctrl+s
+    // and ship the pending answers. Pure state-existence check via S1's
+    // shared predicate — FR-6: no deterministic (epoch/rev/recency) guard.
+    if (!(state !== undefined && hasResumableQuestions(state))) return "empty";
+    // Suspended with live questions → resume on the last-focused question
     // (S1 resumePanel: fresh panel rehydrated from shared state + DraftStore).
     resumePanel(pi);
     return "resumed";

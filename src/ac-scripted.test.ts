@@ -488,11 +488,12 @@ describe("AC-11 — pi -p print mode: digest, answers[], consistent read (FR-25)
     expect(rec.content).toContain("unknown ids: zz");
 
     // State consistency: answers recorded (never touching rev), exactly one
-    // submission bump, statuses answered.
+    // submission bump, statuses submitted (BUG-004: chat answers ARE the
+    // submission — the next close pass archives them).
     const state = getState()!;
     expect(state.getQuestion("q01")!.answer?.value).toBe("alpha");
     expect(state.getQuestion("q02")!.answer?.value).toBe("beta");
-    expect(state.getQuestion("q01")!.status).toBe("answered");
+    expect(state.getQuestion("q01")!.status).toBe("submitted");
     expect(state.getQuestion("q01")!.rev).toBe(1); // answers never bump rev
     expect(state.epoch).toBe(2); // one record call = one submission
 
@@ -500,9 +501,9 @@ describe("AC-11 — pi -p print mode: digest, answers[], consistent read (FR-25)
     const read = executeInterrogate({}, printCtx(), DEFAULT_CONFIG);
     expect(read.details.action).toBe("read");
     expect(read.details.epoch).toBe(2);
-    expect(read.content).toContain("2/30 answered · 0 re-asked · 0 moot · epoch 2");
-    expect(read.content).toContain("q01: Question q01 — answered (rev 1) · answered: alpha");
-    expect(read.content).toContain("q02: Question q02 — answered (rev 1) · answered: beta");
+    expect(read.content).toContain("0/30 answered · 0 re-asked · 0 moot · epoch 2"); // submitted ≠ answered count (h2.28)
+    expect(read.content).toContain("q01: Question q01 — submitted (rev 1) · answered: alpha");
+    expect(read.content).toContain("q02: Question q02 — submitted (rev 1) · answered: beta");
   });
 });
 

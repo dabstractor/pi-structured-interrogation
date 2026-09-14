@@ -1,15 +1,21 @@
 /**
  * src/fallback.test.ts — P1.M1.T3.S5: digest format (h2.26 byte-exact),
- * recordAnswers semantics (apply → snapshot → single epoch bump), tolerant
- * unknown-id handling, and the isNonTui guard truth table.
+ * recordAnswers semantics (apply → markSubmitted → snapshot → single epoch
+ * bump; BUG-004), tolerant unknown-id handling, the isNonTui guard truth
+ * table, and the BUG-004 integration repro (recorded → submitted → close
+ * pass → completion fires once; h2.2/h3.3 Issue 4).
  */
-import { beforeEach, describe, expect, test } from "vitest";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   RELAY_INSTRUCTION,
   buildFallbackDigest,
   isNonTui,
   recordAnswers,
 } from "./fallback.js";
+import { attemptCompletion, type CompletionTriggerOptions } from "./completion.js";
+import type { ClosePassResult } from "./lifecycle.js";
+import { closeSubmitted } from "./merge.js";
 import { createInterrogationState, type InterrogationState } from "./state.js";
 import type { AnswerInput } from "./tool-schema.js";
 
@@ -58,6 +64,45 @@ function mixedState(): InterrogationState {
   });
   state.setStatus("q4", "withdrawn");
   return state;
+}
+
+// --------------------------------------------- BUG-004 integration helpers
+
+/** Fake pi for attemptCompletion ({sendMessage} pattern per completion.test.ts). */
+function makeFakePi(): Pick<ExtensionAPI, "sendMessage"> {
+  return { sendMessage: vi.fn() } as unknown as Pick<ExtensionAPI, "sendMessage">;
+}
+
+function optsFor(st: InterrogationState): CompletionTriggerOptions {
+  return { lifecycle: { dismissPanel: () => {} }, getState: () => st };
+}
+
+/** h2.44 active set (lifecycle/engine convention — moot excluded there). */
+function activeIds(st: InterrogationState): string[] {
+  return st
+    .orderedQuestions()
+    .filter((q) => ["open", "answered", "submitted", "reasked"].includes(q.status))
+    .map((q) => q.id);
+}
+
+/** The h2.2/h3.3 repro shape: n identical choice questions, all open. */
+function reproState(ids: string[]): InterrogationState {
+  const st = createInterrogationState("Plan the migration");
+  for (const id of ids) {
+    st.upsertQuestion({
+      id,
+      title: `Q ${id}`,
+      prompt: `prompt:${id}`,
+      type: "choice",
+      options: [
+        { value: "sqlite", label: "SQLite" },
+        { value: "postgres", label: "PostgreSQL" },
+      ],
+      rev: 1,
+      status: "open",
+    });
+  }
+  return st;
 }
 
 const MIXED_DIGEST = [
@@ -189,7 +234,7 @@ describe("recordAnswers", () => {
     state = mixedState();
   });
 
-  test("applies each answer: status answered, value/text/at recorded, rev untouched", () => {
+  test("applies each answer: status submitted, value/text/at recorded, rev untouched", () => {
     const result = recordAnswers(state, [
       { id: "q1", value: "postgres", text: "the open-source one" },
       { id: "q2", value: "two hours max" },
@@ -198,9 +243,9 @@ describe("recordAnswers", () => {
     expect(result).toEqual({ recorded: ["q1", "q2"], unknown: [], ignored: [] });
     const q1 = state.getQuestion("q1");
     const q2 = state.getQuestion("q2");
-    expect(q1?.status).toBe("answered");
+    expect(q1?.status).toBe("submitted"); // BUG-004: recorded ids land submitted, not answered
     expect(q1?.answer).toMatchObject({ value: "postgres", text: "the open-source one" });
-    expect(q2?.status).toBe("answered");
+    expect(q2?.status).toBe("submitted");
     expect(q2?.answer).toMatchObject({ value: "two hours max" });
     expect(q2?.answer?.text).toBeUndefined();
     for (const q of [q1, q2]) {
@@ -224,10 +269,10 @@ describe("recordAnswers", () => {
     const snap = state.snapshots[0];
     expect(snap.epoch).toBe(1); // labeled with the epoch being left (takeSnapshot BEFORE bumpEpoch)
     expect(snap.state.epoch).toBe(1);
-    expect(snap.state.questions.q1?.status).toBe("answered"); // snapshot is state AS SUBMITTED
+    expect(snap.state.questions.q1?.status).toBe("submitted"); // markSubmitted BEFORE takeSnapshot
     expect(snap.state.questions.q1?.answer?.value).toBe("postgres");
-    expect(snap.state.questions.q2?.status).toBe("answered");
-    expect(snap.state.questions.q3?.status).toBe("answered");
+    expect(snap.state.questions.q2?.status).toBe("submitted");
+    expect(snap.state.questions.q3?.status).toBe("submitted");
   });
 
   test("collects unknown ids without throwing and leaves those questions untouched", () => {
@@ -238,7 +283,7 @@ describe("recordAnswers", () => {
     ]);
 
     expect(result).toEqual({ recorded: ["q1"], unknown: ["ghost", "phantom"], ignored: [] });
-    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q1")?.status).toBe("submitted");
     // The still-existing untouched questions keep their prior shape.
     expect(state.getQuestion("q2")?.status).toBe("open");
     expect(state.getQuestion("q2")?.answer).toBeUndefined();
@@ -272,7 +317,7 @@ describe("recordAnswers", () => {
     expect(state.epoch).toBe(3);
     expect(state.snapshots).toHaveLength(2);
     expect(state.snapshots[1].epoch).toBe(2);
-    expect(state.snapshots[1].state.questions.q2?.status).toBe("answered");
+    expect(state.snapshots[1].state.questions.q2?.status).toBe("submitted");
   });
 
   test("withdrawn id is ignored: untouched question, no resurrection (BUG-012)", () => {
@@ -322,7 +367,7 @@ describe("recordAnswers", () => {
     ]);
 
     expect(result).toEqual({ recorded: ["q1"], unknown: ["ghost"], ignored: ["q4"] });
-    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q1")?.status).toBe("submitted");
     expect(state.getQuestion("q4")?.status).toBe("withdrawn"); // untouched
     expect(state.getQuestion("ghost")).toBeUndefined();
     expect(state.epoch).toBe(2); // exactly one submission bump
@@ -339,5 +384,92 @@ describe("recordAnswers", () => {
     expect(snap.state.questions.q1?.answer?.value).toBe("postgres");
     expect(snap.state.questions.q4?.answer).toBeUndefined(); // never applied
     expect(snap.state.questions.q4?.status).toBe("withdrawn");
+  });
+
+  // ----------------------------------------- BUG-004 integration (h2.2/h3.3)
+
+  test("BUG-004 repro: recorded → submitted → close pass closes → completion fires", () => {
+    const st = reproState(["q1"]); // the bug-report shape: exactly one choice question
+    const pi = makeFakePi();
+
+    recordAnswers(st, [{ id: "q1", value: "postgres" }]);
+    expect(st.getQuestion("q1")?.status).toBe("submitted"); // NOT answered — the fix
+
+    // agent_settled close pass (lifecycle.runClosePass equivalent: filters submitted).
+    const toClose = st.orderedQuestions().filter((q) => q.status === "submitted").map((q) => q.id);
+    closeSubmitted(st, toClose);
+    expect(st.getQuestion("q1")?.status).toBe("closed");
+
+    const closePass: ClosePassResult = {
+      closed: toClose,
+      reasked: [],
+      remainingActive: activeIds(st),
+    };
+    const outcome = attemptCompletion(pi, optsFor(st), closePass);
+    expect(outcome).toEqual({ fired: true }); // AC-11: completion injection fires
+    expect(pi.sendMessage).toHaveBeenCalledTimes(1); // the ONE full injection
+    expect(st.completed).toBe(true); // one-time guard set by the fire
+  });
+
+  test("BUG-004 mixed: q1 recorded + closed but q2 still open → active-questions-remain", () => {
+    const st = reproState(["q1", "q2"]);
+    const pi = makeFakePi();
+
+    const result = recordAnswers(st, [{ id: "q1", value: "postgres" }]);
+    expect(result.recorded).toEqual(["q1"]);
+    expect(st.getQuestion("q1")?.status).toBe("submitted");
+    expect(st.getQuestion("q2")?.status).toBe("open"); // still active
+
+    const toClose = st.orderedQuestions().filter((q) => q.status === "submitted").map((q) => q.id);
+    closeSubmitted(st, toClose);
+    const closePass: ClosePassResult = {
+      closed: toClose,
+      reasked: [],
+      remainingActive: activeIds(st),
+    };
+    const outcome = attemptCompletion(pi, optsFor(st), closePass);
+    expect(outcome).toEqual({ fired: false, reason: "active-questions-remain" });
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+    expect(st.completed).toBe(false);
+  });
+
+  test("snapshot ordering: ring captures 'submitted' at the pre-bump epoch", () => {
+    recordAnswers(state, [{ id: "q1", value: "postgres" }]);
+    const snap = state.snapshots[0];
+    expect(snap.epoch).toBe(1); // labels the epoch being LEFT
+    expect(snap.state.epoch).toBe(1);
+    expect(snap.state.questions.q1?.status).toBe("submitted"); // markSubmitted ran FIRST
+    expect(state.epoch).toBe(2);
+  });
+
+  test("all-ignored + all-unknown call stays side-effect-free after the fix (S1 contract)", () => {
+    state.setStatus("q3", "closed");
+    const result = recordAnswers(state, [
+      { id: "ghost", value: "x" }, // unknown
+      { id: "q4", value: "resurrect" }, // withdrawn → ignored
+    ]);
+    expect(result).toEqual({ recorded: [], unknown: ["ghost"], ignored: ["q4"] });
+    expect(state.epoch).toBe(1); // no epoch burn
+    expect(state.snapshots).toEqual([]); // no snapshot push
+    expect(state.getQuestion("q4")?.status).toBe("withdrawn"); // untouched
+    expect(state.getQuestion("q3")?.status).toBe("closed"); // untouched
+  });
+
+  test("completion fires exactly once (already-completed on the second attempt)", () => {
+    const st = reproState(["q1"]);
+    const pi = makeFakePi();
+    const opts = optsFor(st);
+
+    recordAnswers(st, [{ id: "q1", value: "postgres" }]);
+    const toClose = st.orderedQuestions().filter((q) => q.status === "submitted").map((q) => q.id);
+    closeSubmitted(st, toClose);
+    const closePass: ClosePassResult = { closed: toClose, reasked: [], remainingActive: [] };
+
+    expect(attemptCompletion(pi, opts, closePass)).toEqual({ fired: true });
+    expect(attemptCompletion(pi, opts, closePass)).toEqual({
+      fired: false,
+      reason: "already-completed",
+    });
+    expect(pi.sendMessage).toHaveBeenCalledTimes(1); // one injection total
   });
 });

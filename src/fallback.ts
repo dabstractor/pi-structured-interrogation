@@ -31,6 +31,7 @@
  * Pure data layer per h2.13: no pi imports, no UI references, no events
  * emitted from this module (state mutations emit through state.ts).
  */
+import { markSubmitted } from "./merge.js";
 import { takeSnapshot } from "./snapshots.js";
 import type {
   InterrogationState,
@@ -176,18 +177,20 @@ const TERMINAL_ANSWER_STATUSES: ReadonlySet<QuestionStatus> = new Set(["moot", "
 
 /**
  * Apply chat `answers[]` to the state for non-TUI mode (BUG-012 gate): the
- * user already spoke in chat, so a recordable answer is applied immediately
- * as a pending submission.
+ * user already spoke in chat, so a recordable answer is applied and
+ * SUBMITTED immediately — in non-TUI mode chat answers ARE the submission.
  *
  * Semantics:
  * - For each `{id, value, text?}`, bucket by id:
  *   - `recorded` — id exists with a recordable status →
- *     `state.applyAnswer(id, { value, text?, at })`. Status moves to
- *     "answered" (pending) ONLY — this is NOT a markSubmitted equivalent
- *     (markSubmitted on the recorded bucket is P1.M3.T2.S1's addition).
- *     `rev` is NEVER touched (answers are epoch territory, h2.39); all
- *     answers share one ISO `at` timestamp (one submission). `text`
- *     passthrough when present.
+ *     `state.applyAnswer(id, { value, text?, at })`, then the whole recorded
+ *     batch is marked `submitted` (BUG-004, h2.39): one `answers[]` call
+ *     collapses apply + the delivery step into ONE submission — the next
+ *     `agent_settled` close pass (h2.44, lifecycle.ts `runClosePass`)
+ *     archives those ids (closed) and the completion trigger fires
+ *     (FR-25/AC-11). `rev` is NEVER touched (answers are epoch territory,
+ *     h2.39); all answers share one ISO `at` timestamp (one submission).
+ *     `text` passthrough when present.
  *   - `unknown` — id not in state. NEVER thrown (tolerant pattern
  *     throughout this codebase); the executor surfaces them in the result
  *     text.
@@ -199,11 +202,18 @@ const TERMINAL_ANSWER_STATUSES: ReadonlySet<QuestionStatus> = new Set(["moot", "
  * - Answer values are recorded AS GIVEN — no validation against option
  *   lists (chat answers are free-form; value-vs-options matching is the
  *   merge-rules layer's domain for upserts only).
- * - Exactly ONE snapshot push + ONE `state.bumpEpoch()` per CALL — via the
- *   shared ring helper (`takeSnapshot`, BEFORE `bumpEpoch`) — but ONLY when
- *   `recorded.length > 0`. A fully ignored/unknown (or empty) call has ZERO
- *   side effects: it burns no epoch and pushes no snapshot (BUG-012: a
- *   no-op record must not masquerade as a submission).
+ * - Epoch rule: ONE `markSubmitted` + snapshot push + `state.bumpEpoch()`
+ *   per CALL — but ONLY when `recorded.length > 0`. Ordering is
+ *   load-bearing: `markSubmitted` BEFORE `takeSnapshot` so the ring
+ *   snapshot captures status `submitted` (the pre-bump epoch state), and
+ *   `takeSnapshot` BEFORE `bumpEpoch` (existing rule — the snapshot labels
+ *   the epoch being LEFT). A fully ignored/unknown (or empty) call has
+ *   ZERO side effects: it burns no epoch, pushes no snapshot, and marks
+ *   nothing (BUG-012: a no-op record must not masquerade as a submission).
+ *   `markSubmitted` validates all ids before applying — `recorded` ids are
+ *   guaranteed known (they came from `state.getQuestion`), so it cannot
+ *   throw; the call stays inside the guard so a zero-recorded call remains
+ *   side-effect-free.
  *
  * GUARD ORDERING CONTRACT (executor, S6): `assertFresh(state, parsed)` MUST
  * run BEFORE this function; this module does NOT re-check epoch (the single
@@ -242,6 +252,11 @@ export function recordAnswers(
   // ignored/unknown (or empty) call burns no epoch and pushes no snapshot
   // (mirrors the panel's zero-pending ctrl+s early-return flash).
   if (recorded.length > 0) {
+    // BUG-004: chat answers ARE the submission in non-TUI mode (h2.39 "one
+    // call = one submission"). Marking recorded ids submitted lets the
+    // agent_settled close pass (h2.44, lifecycle.ts) archive them and
+    // attemptCompletion fire the completion injection (FR-25/AC-11).
+    markSubmitted(state, recorded); // BEFORE takeSnapshot — snapshot must hold 'submitted'
     takeSnapshot(state);
     state.bumpEpoch();
   }

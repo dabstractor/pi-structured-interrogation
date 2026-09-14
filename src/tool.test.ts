@@ -412,12 +412,13 @@ describe("executeInterrogate: record", () => {
       printCtx(),
     );
     const lines = r.content.split("\n");
-    expect(lines[0]).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 2");
+    expect(lines[0]).toBe("0/2 answered · 0 re-asked · 0 moot · epoch 2"); // q1 is submitted (BUG-004), not counted as answered
     expect(lines[1]).toBe("unknown ids: zz");
     expect(lines).toHaveLength(2);
     expect(r.details.action).toBe("record");
     expect(r.details.epoch).toBe(2);
     expect(st.getQuestion("q1")!.answer?.value).toBe("yes");
+    expect(st.getQuestion("q1")!.status).toBe("submitted");
   });
 
   test("non-TUI: all-unknown batch has zero side effects and says nothing was recorded", () => {
@@ -443,7 +444,7 @@ describe("executeInterrogate: record", () => {
       printCtx(),
     );
     const lines = r.content.split("\n");
-    expect(lines[0]).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 2");
+    expect(lines[0]).toBe("0/2 answered · 0 re-asked · 0 moot · epoch 2"); // q1 submitted (BUG-004), not answered
     expect(lines[1]).toBe("not recordable (moot/withdrawn/closed): q2");
     // Only q1 recorded → exactly one epoch bump; q2 untouched.
     expect(lines).toHaveLength(2);

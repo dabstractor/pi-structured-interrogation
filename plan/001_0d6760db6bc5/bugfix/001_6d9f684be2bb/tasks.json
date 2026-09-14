@@ -190,7 +190,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Non-TUI parity and dependsOn freshness (BUG-004, BUG-012, BUG-006)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Chat-recorded answers must respect terminal statuses and reach submitted→closed→completed in print/rpc/json modes, and dependsOn moot-ness must re-evaluate after every upsert including removed dependencies.",
           "tasks": [
             {
@@ -219,14 +219,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Non-TUI interrogations close and complete (BUG-004)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-25: 'Completion record is still injected once at close' in non-TUI modes. Chat-recorded answers stay 'answered' forever, so the agent_settled close pass (archives only 'submitted') is a no-op and completion is unreachable.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "recordAnswers marks recorded ids submitted so the close pass fires",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T1.S1"
@@ -244,14 +244,14 @@
               "type": "Task",
               "id": "P1.M3.T3",
               "title": "dependsOn moot-ness re-evaluated after upserts; removed dependencies reopen (BUG-006)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The tool's upsert path never runs evaluateDependsOn (stale moot until the next user answer), and evaluateDependsOn skips empty-dependsOn questions entirely, so a moot question whose dependency the agent removed stays moot forever.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T3.S1",
                   "title": "depends-on.ts: reopen moot questions whose dependsOn was removed/emptied",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #11/#12 — src/depends-on.ts:163–164 `if (!q.dependsOn || q.dependsOn.length === 0) continue;` skips BOTH the met-check and the moot→open reopen. State machine (state-and-persistence.md §1): 're-met → moot→open'; a removed dependency is the degenerate always-met case. SKIP_EVALUATION = {withdrawn, closed} stays; equals/notEquals compare raw answer.value (NOT label) — do not touch dependencyMet. MootEvaluation return shape {mootered, reopened} unchanged.\n2. INPUT: InterrogationState.orderedQuestions(); QuestionStatus.\n3. LOGIC: In src/depends-on.ts evaluateDependsOn: for a question with empty/absent dependsOn, if status === 'moot', setStatus(id, 'open') and push to `reopened` (all other statuses: continue, unchanged). Keep one `changed` event per actual flip (setStatus already does). Mock nothing — depends-on.test.ts conventions (build state via raw primitives, setStatus moot, call evaluateDependsOn; PRD h2.2/h3.5 repro: dep=pg → child moot; re-upsert child WITHOUT dependsOn → evaluateDependsOn → child open).\n4. OUTPUT: evaluateDependsOn(state) fully re-derives moot-ness including removed dependencies; consumed by P1.M3.T3.S2 (tool upsert wiring) and already by reconstruct.ts:368 / panel call sites.\n5. DOCS: [Mode A] JSDoc on evaluateDependsOn documenting the empty-dependsOn reopen rule.",
@@ -265,7 +265,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T3.S2",
                   "title": "tool.ts: evaluateDependsOn after every applyUpsert",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T3.S1",

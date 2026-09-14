@@ -22,6 +22,7 @@
  */
 import { evaluateDependsOn } from "../depends-on.js";
 import { buildSubmission, deliverSubmission } from "../delivery.js";
+import { markSubmitted } from "../merge.js";
 import { computeDiff } from "../snapshots.js";
 import type { Question, SerializedState } from "../state.js";
 import { countUnansweredGate, gateGroupNames } from "./gate.js";
@@ -52,6 +53,13 @@ export type RippleConfirmFn = (
 export interface SubmitDeps {
   sendMessage: (msg: unknown, opts: unknown) => void;
   isIdle: () => boolean;
+  /**
+   * h2.44 line 1 (lifecycle.ts caller contract): called right after a REAL
+   * delivery so the auto-close engine resets its per-run flags for the
+   * settle that answers this submission. Optional: the zero-pending early
+   * return never delivers, so it never calls this.
+   */
+  noteSubmissionDelivered?: () => void;
 }
 
 /** The named action surface consumed by keys.ts (P1.M3.T3.S1). */
@@ -328,6 +336,17 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // suspend/resume-safe copy, P1.M4.T2.S1); the panel field is the
   // pre-store fallback for tests/seams without a DraftStore.
   const note = panel.drafts?.getNote() || panel.batchNote;
+  // h2.38 ctrl+s transition (FR-3c): every pending (answered) id is
+  // submitted at this epoch — the flush merge.ts documents ("the ctrl+s
+  // submit flush applies this to all pending (answered) ids before the
+  // epoch bump"). WITHOUT this, the h2.44 close pass (which archives only
+  // status "submitted" ids after agent_settled) would never fire and
+  // completion could never trigger (AC-3 / AC-14). Runs AFTER the
+  // zero-pending early return: a no-change submit flushes nothing. The
+  // diff above is status-blind (answer signatures only), so the flush
+  // cannot change it.
+  const pendingIds = panel.state.orderedQuestions().filter((q) => q.status === "answered").map((q) => q.id);
+  if (pendingIds.length > 0) markSubmitted(panel.state, pendingIds);
   const msg = buildSubmission(panel.state, diff, note || undefined);
   // R4/h2.45: text drafts ship with the answers, then their slots are
   // destroyed. Placed AFTER buildSubmission (the message is built from
@@ -337,6 +356,10 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // SubmitDeps satisfies Pick<ExtensionAPI, "sendMessage"> structurally
   // (unknown-typed params accept any message/options shape).
   deliverSubmission(deps, msg, { isIdle: deps.isIdle });
+  // h2.44 line 1 (lifecycle.ts caller contract, "immediately after
+  // deliverSubmission"): a submission shipped — reset the engine's
+  // per-run flags for the settle that answers it.
+  deps.noteSubmissionDelivered?.();
   // h2.32 "cleared after shipping": note clearing happens AFTER delivery —
   // the zero-pending early-return above never reaches this, so a note with
   // nothing else to submit is held, never dropped.

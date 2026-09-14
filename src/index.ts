@@ -107,8 +107,10 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
 
   // P1.M2.T3.S1 — debug commands for scripted verification (h2.50): share
   // the tool executor / submission path so keyboard-driven runs are evidence
-  // about the production path. Uses the same single-loaded config.
-  registerDebugCommands(pi, config);
+  // about the production path. Uses the same single-loaded config. The
+  // lifecycle handle lets the debug submit flow honor the h2.44 line-1
+  // caller contract (noteSubmissionDelivered right after deliverSubmission).
+  registerDebugCommands(pi, config, lifecycle);
 
   // P1.M3.T1.S1 — panel host: opens on the first interrogate upsert in TUI
   // mode (fire-and-forget custom(), h2.0 commitment 1), persists while the

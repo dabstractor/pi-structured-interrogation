@@ -60,7 +60,7 @@ interface CapturedCommand {
 }
 
 /** Stub pi + ctx harness; returns an invoke helper per command name. */
-function makeHarness() {
+function makeHarness(lifecycle?: Parameters<typeof registerDebugCommands>[2]) {
   const commands = new Map<string, CapturedCommand>();
   const sendMessage = vi.fn();
   const registerCommand = vi.fn((name: string, def: CapturedCommand) => {
@@ -70,7 +70,7 @@ function makeHarness() {
     ExtensionAPI,
     "registerCommand" | "sendMessage"
   >;
-  registerDebugCommands(pi, DEFAULT_CONFIG);
+  registerDebugCommands(pi, DEFAULT_CONFIG, lifecycle);
   const ctx: CtxStub = { ui: { notify: vi.fn() } };
   const invoke = (name: string, args = ""): Promise<void> => {
     const def = commands.get(name);
@@ -238,10 +238,15 @@ describe("/interrogate-debug-submit", () => {
     ]);
 
     // Answers landed with the applied shape; answers never touch rev.
+    // DEFECT FIX (P1.M7.T6.S1): the submit flush now also performs the
+    // h2.38 ctrl+s transition — pending answers enter status "submitted"
+    // before buildSubmission (was "answered", which left the h2.44 close
+    // pass with nothing to archive). rev is STILL untouched.
     const state = getState()!;
     expect(state.getQuestion("q1")!.answer!.value).toBe("postgres");
     expect(state.getQuestion("q2")!.answer!.value).toBe("sqlite");
-    expect(state.getQuestion("q1")!.status).toBe("answered");
+    expect(state.getQuestion("q1")!.status).toBe("submitted");
+    expect(state.getQuestion("q2")!.status).toBe("submitted");
     expect(state.getQuestion("q1")!.rev).toBe(1);
 
     // Epoch bumped EXACTLY once; EXACTLY one new snapshot (buildSubmission's
@@ -450,5 +455,43 @@ describe("/interrogate-debug-submit — note= token (R3, P1.M4.T2.S2)", () => {
       "interrogate-debug-submit: recorded: (none); unknown: (none)",
       "info",
     ]);
+  });
+
+  // DEFECT FIX regression (P1.M7.T6.S1): the submit flush performs the
+  // h2.38 ctrl+s transition — ALL pending (answered) ids enter status
+  // "submitted" before buildSubmission — and notifies the auto-close
+  // engine per the h2.44 line-1 caller contract. Unit-level half of the
+  // AC-3/AC-14 end-to-end proofs (see ac-scripted.test.ts).
+  test("submit_flush_marks_all_pending_answered_submitted_and_notifies_lifecycle", async () => {
+    const noteSubmissionDelivered = vi.fn();
+    const { invoke, sendMessage } = makeHarness({ noteSubmissionDelivered });
+    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    const state = getState()!;
+
+    // q3 answered EARLIER (never yet submitted) — the flush is not limited
+    // to the ids in this command's args (merge.ts: "all pending (answered)").
+    state.applyAnswer("q2", { value: "whenever", at: new Date().toISOString() });
+
+    await invoke("interrogate-debug-submit", "q1=postgres");
+
+    expect(state.getQuestion("q1")!.status).toBe("submitted");
+    expect(state.getQuestion("q2")!.status).toBe("submitted");
+    // rev NEVER moves on answers or on the flush (h2.39).
+    expect(state.getQuestion("q1")!.rev).toBe(1);
+    expect(state.getQuestion("q2")!.rev).toBe(1);
+    // Contract call happened exactly once, after the single delivery.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(noteSubmissionDelivered).toHaveBeenCalledTimes(1);
+    expect(noteSubmissionDelivered.mock.invocationCallOrder[0]).toBeGreaterThan(
+      sendMessage.mock.invocationCallOrder[0],
+    );
+  });
+
+  test("submit_without_lifecycle_handle_still_delivers (seam optional)", async () => {
+    const { invoke, sendMessage } = makeHarness();
+    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("interrogate-debug-submit", "q1=postgres");
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(getState()!.getQuestion("q1")!.status).toBe("submitted");
   });
 });

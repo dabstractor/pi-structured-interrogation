@@ -40,6 +40,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { InterrogatorConfig } from "./config.js";
 import { buildSubmission, deliverSubmission } from "./delivery.js";
+import type { Lifecycle } from "./lifecycle.js";
+import { markSubmitted } from "./merge.js";
 import { buildStatusLine } from "./results.js";
 import { computeDiff } from "./snapshots.js";
 import { executeInterrogate } from "./tool.js";
@@ -89,10 +91,15 @@ function questionLine(id: string, q: SerializedState["questions"][string]): stri
  * @param pi     registration + transport surface; only registerCommand and
  *               sendMessage are touched
  * @param config the interrogator config loaded once by the index.ts factory
+ * @param lifecycle optional auto-close engine handle — the submit flow MUST
+ *               call {@link Lifecycle.noteSubmissionDelivered} right after
+ *               deliverSubmission (h2.44 line 1, lifecycle.ts caller
+ *               contract); index.ts passes the live engine.
  */
 export function registerDebugCommands(
   pi: Pick<ExtensionAPI, "registerCommand" | "sendMessage">,
   config: InterrogatorConfig,
+  lifecycle?: Pick<Lifecycle, "noteSubmissionDelivered">,
 ): void {
   // ---------------------------------------------------------------- upsert
   pi.registerCommand("interrogate-debug-upsert", {
@@ -184,12 +191,26 @@ export function registerDebugCommands(
       // takeSnapshot + bumpEpoch itself, exactly once; do NOT duplicate.
       try {
         const diff = computeDiff(pre, state.serialize());
+        // h2.38 ctrl+s transition (FR-3c): every pending (answered) id is
+        // submitted at this epoch — the flush merge.ts documents ("the
+        // ctrl+s submit flush applies this to all pending (answered) ids
+        // before the epoch bump"). WITHOUT this the h2.44 close pass (which
+        // archives only status "submitted" ids after agent_settled) never
+        // fires and completion can never trigger (AC-3 / AC-14). Runs after
+        // computeDiff (answer-signature diff is status-blind) and before
+        // buildSubmission (the epoch bump) — the exact flush window.
+        const pendingIds = state.orderedQuestions().filter((q) => q.status === "answered").map((q) => q.id);
+        if (pendingIds.length > 0) markSubmitted(state, pendingIds);
         const msg = buildSubmission(state, diff, note);
         // Force the idle branch of the delivery matrix → { triggerTurn:
         // true, deliverAs: "followUp" } so the debug submission triggers an
         // agent turn exactly like a real panel submission (h3.6). NOTE: in
         // a live session this starts a real agent turn — that is the point.
         deliverSubmission(pi, msg, { isIdle: () => true });
+        // h2.44 line 1 (lifecycle.ts caller contract, "immediately after
+        // deliverSubmission"): a submission shipped — reset the engine's
+        // per-run flags for the settle that answers it.
+        lifecycle?.noteSubmissionDelivered();
         // R3 cleared-after-shipping report: the note rode THIS submission
         // (model-visible NOTE: line + details.note) and is now consumed.
         ctx.ui.notify(

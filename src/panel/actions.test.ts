@@ -551,6 +551,36 @@ describe("submit — flush pending answers", () => {
     expect(state.epoch).toBe(epochAfterFirst);
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
+
+  // DEFECT FIX regression (P1.M7.T6.S1): the ctrl+s flush performs the
+  // h2.38 answered(pending) → submitted transition (merge.ts: "all pending
+  // (answered) ids before the epoch bump") and fires the lifecycle seam
+  // after the real delivery. Unit-level half of the AC-3/AC-14 end-to-end
+  // proofs (see ac-scripted.test.ts).
+  test("test_i_submit_flush_marks_pending_submitted_and_calls_noteSubmissionDelivered", () => {
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    state.applyAnswer("q2", { value: "b", at: T0 }); // pending from an earlier partial flush
+    const { panel } = makePanel(state);
+    const noteSubmissionDelivered = vi.fn();
+    const { deps, sendMessage } = makeDeps(true);
+    (deps as { noteSubmissionDelivered?: () => void }).noteSubmissionDelivered =
+      noteSubmissionDelivered;
+
+    expect(submit(panel, deps)).toBe(true);
+
+    // ALL pending ids — not only this diff's — entered "submitted".
+    expect(state.getQuestion("q1")!.status).toBe("submitted");
+    expect(state.getQuestion("q2")!.status).toBe("submitted");
+    // The flush never touches rev (h2.39: answers are epoch territory).
+    expect(state.getQuestion("q1")!.rev).toBe(1);
+    // Seam fires exactly once, after the single delivery.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(noteSubmissionDelivered).toHaveBeenCalledTimes(1);
+    expect(noteSubmissionDelivered.mock.invocationCallOrder[0]).toBeGreaterThan(
+      sendMessage.mock.invocationCallOrder[0],
+    );
+  });
 });
 
 describe("submit — draft flush (R4, P1.M4.T2.S1)", () => {

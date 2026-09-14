@@ -28,6 +28,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createCompletionTrigger } from "./completion.js";
 import { registerInterrogateCommand } from "./command.js";
+import { createCompactionGuard } from "./compaction.js";
 import { loadConfig } from "./config.js";
 import { registerDebugCommands } from "./debug-commands.js";
 import { DraftStore } from "./draft-store.js";
@@ -81,6 +82,15 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // stays available-but-unwired (subscriptions die with the runtime).
   const mirror = createStateMirror(pi);
   pi.on("session_shutdown", () => mirror.flush());
+
+  // P1.M7.T2.S1 — compaction preservation (FR-29, h2.42): when pi compacts
+  // mid-interrogation, the guard flushes THIS mirror (fresh interrogation-state
+  // entry pre-compaction) and runs the summarization itself with the PRD's
+  // preservation text prepended — pi 0.85.x SessionBeforeCompactResult has no
+  // customInstructions return, so the custom-compaction pattern is the only
+  // mechanism (see compaction.ts [Mode A] JSDoc). ANY failure falls through to
+  // default compaction (undefined) — never cancels, never blocks.
+  createCompactionGuard(pi, { config, mirror });
 
   // P1.M2.T3.S1 — debug commands for scripted verification (h2.50): share
   // the tool executor / submission path so keyboard-driven runs are evidence

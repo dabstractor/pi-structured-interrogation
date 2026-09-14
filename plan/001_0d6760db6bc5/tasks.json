@@ -914,14 +914,14 @@
               "type": "Task",
               "id": "P1.M7.T2",
               "title": "Compaction preservation (FR-29, adapted)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "session_before_compact handler preserving interrogation substance through /compact, via the verified API contract.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M7.T2.S1",
                   "title": "session_before_compact handler with preservation instructions",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M7.T1.S1"

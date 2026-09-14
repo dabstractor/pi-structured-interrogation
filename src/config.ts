@@ -20,6 +20,7 @@
  *   - panel footer / widget / dialogs
  *     (P1.M3.T1.S2, P1.M6.T1.S1)             → resolveKeyLabels(config)
  *   - detect.ts (P1.M7.T4.S1)                → config.roundDetection
+ *   - compaction.ts (P1.M7.T2.S1)            → config.compactionPreservation
  *   - README config reference (P1.M7.T7.S1)  → the JSDoc below (Mode A docs)
  */
 import { readFile } from "node:fs/promises";
@@ -86,6 +87,12 @@ export interface InterrogatorConfig {
   roundDetection: boolean;
   /** Allow pressing 1–9 to quick-select an option. Default true. */
   digitQuickSelect: boolean;
+  /**
+   * Summarize mid-interrogation compaction with the interrogation
+   * preservation instructions prepended (P1.M7.T2.S1, FR-29/h2.42).
+   * Default true.
+   */
+  compactionPreservation: boolean;
   /** Which editor the panel composes for text entry. Default "composed". */
   editorMode: EditorMode;
 }
@@ -142,6 +149,7 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
   gateWarnings: true,
   roundDetection: true,
   digitQuickSelect: true,
+  compactionPreservation: true,
   editorMode: "composed",
 };
 
@@ -245,6 +253,7 @@ function coerceConfig(raw: unknown): InterrogatorConfig {
     gateWarnings: coerceBoolean(src.gateWarnings, DEFAULT_CONFIG.gateWarnings),
     roundDetection: coerceBoolean(src.roundDetection, DEFAULT_CONFIG.roundDetection),
     digitQuickSelect: coerceBoolean(src.digitQuickSelect, DEFAULT_CONFIG.digitQuickSelect),
+    compactionPreservation: coerceBoolean(src.compactionPreservation, DEFAULT_CONFIG.compactionPreservation),
     editorMode: coerceEditorMode(src.editorMode),
   };
 }
@@ -285,7 +294,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  *
  * Set overrides under a top-level `"interrogator"` object in either
  * `~/.pi/agent/settings.json` (global) or `<cwd>/.pi/settings.json` (project).
- * Nested objects merge per-key; scalars replace. 10 keys + 6 caps + 3 toggles
+ * Nested objects merge per-key; scalars replace. 10 keys + 6 caps + 4 toggles
  * + editorMode (defaults = PRD h2.52):
  *
  * ### keys — accelerator strings, pi lowercase form
@@ -321,6 +330,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * | `gateWarnings`     | true    | Warn when a gate/cap truncates or drops content      | tool.ts  |
  * | `roundDetection`   | true    | Detect interrogation rounds                          | detect.ts (P1.M7.T4.S1) |
  * | `digitQuickSelect` | true    | Press 1–9 to quick-select an option                  | panel keys (P1.M3.T3.S1) |
+ * | `compactionPreservation` | true | Prepend preservation instructions to mid-interrogation compaction summaries | compaction.ts (P1.M7.T2.S1) |
  *
  * ### editorMode
  * `"composed"` (default) — the panel composes its own editor experience —

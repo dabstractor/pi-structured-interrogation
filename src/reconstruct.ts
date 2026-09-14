@@ -43,10 +43,11 @@
  *    applied through the installed state's real mutation methods so
  *    `changed` fires; each replayed submission that changed something bumps
  *    the epoch exactly once (h3.6: one submission = one bump). CAVEAT:
- *    DiffEntry.to is a label-preferred DISPLAY SUMMARY (snapshots.ts), not
- *    the raw answer value, and answer `at` timestamps are not carried — the
- *    replay is an approximation. On real restarts the base (tool result or
- *    mirror) already contains the true values; deltas only bridge the gap
+ *    entries replay VALUE-FIRST — DiffEntry.value is the raw answer.value
+ *    (P1.M2.T2.S1), with a legacy fallback to `to` (the label-preferred
+ *    display summary) for history written before the field existed; answer
+ *    `at` timestamps are not carried. On real restarts the base (tool
+ *    result or mirror) already contains the true values; deltas only bridge the gap
  *    AFTER the base (e.g. a submission whose post-submit mirror flush never
  *    landed). The "(unanswered)" sentinel is skipped (an answer CLEARANCE
  *    cannot be replayed from a display summary) and unknown ids are
@@ -282,11 +283,20 @@ function replaySubmission(state: LiveState, details: SubmissionMessage["details"
   for (const entry of changed) {
     const id = entry?.id;
     if (typeof id !== "string" || state.getQuestion(id) === undefined) continue;
-    const to = entry.to;
-    if (typeof to !== "string" || to === "" || to === UNANSWERED_SUMMARY) continue;
-    // Best-effort: `to` is the label-preferred display summary, not the raw
-    // value; `at` timestamps are not carried in deltas. See module JSDoc.
-    state.applyAnswer(id, { value: to, at: new Date().toISOString() });
+    // Value-first resolution (BUG-007): `value` is the RAW post-change
+    // answer.value (DiffEntry.value, snapshots.ts — P1.M2.T2.S1), so replay
+    // restores canonical values even when the option label differs. Legacy
+    // history written before that field existed carries no `value` — fall
+    // back to `to`, the label-preferred display summary (best-effort: may
+    // restore a label when labels differ). `at` timestamps are not carried
+    // in deltas either. See module JSDoc.
+    const raw = entry.value;
+    const resolved = typeof raw === "string" && raw !== "" ? raw : entry.to;
+    // The sentinel check applies to the RESOLVED value: it skips answer
+    // CLEARANCES (`to` sentinel) and guards a hypothetical legacy entry
+    // whose `value` is unset while `to` is the sentinel.
+    if (typeof resolved !== "string" || resolved === "" || resolved === UNANSWERED_SUMMARY) continue;
+    state.applyAnswer(id, { value: resolved, at: new Date().toISOString() });
     applied++;
   }
   if (applied > 0) state.bumpEpoch();

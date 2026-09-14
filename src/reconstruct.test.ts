@@ -109,7 +109,14 @@ function mirrorEntry(data: InterrogationStateEntryData): SessionEntry {
 
 /** Submission delta (pi.sendMessage shape: `custom_message` + `details`). */
 function submissionEntry(details: {
-  changed: Array<{ id: string; title: string; from: string; to: string; editedArchived: boolean }>;
+  changed: Array<{
+    id: string;
+    title: string;
+    from: string;
+    to: string;
+    editedArchived: boolean;
+    value?: string;
+  }>;
   epoch: number;
 }): SessionEntry {
   return {
@@ -124,8 +131,12 @@ function submissionEntry(details: {
   } as unknown as SessionEntry;
 }
 
-function diff(id: string, to: string): { id: string; title: string; from: string; to: string; editedArchived: boolean } {
-  return { id, title: id, from: "(unanswered)", to, editedArchived: false };
+function diff(
+  id: string,
+  to: string,
+  value?: string,
+): { id: string; title: string; from: string; to: string; editedArchived: boolean; value?: string } {
+  return { id, title: id, from: "(unanswered)", to, editedArchived: false, value };
 }
 
 // ------------------------------------------------------------------ mock ctx
@@ -409,5 +420,70 @@ describe("createReconstruction — wiring (h)", () => {
     // …and session_tree re-runs on a branch without traces → cleared.
     mock.emit("session_tree", makeCtx([userEntry()]));
     expect(getState()).toBeUndefined();
+  });
+});
+
+// ------------------------- submission replay values (BUG-007 / h3.6)
+
+describe("reconstructFromBranch — submission replay values (BUG-007)", () => {
+  /**
+   * h3.6 fixture: q1 offers value 'b' under the LABEL 'Beta' (label ≠
+   * value — the corruption trigger), q2 is conditional on q1 answering
+   * exactly 'b'. Base = interrogate tool result; the submission delta lands
+   * AFTER it (position filter keeps it).
+   */
+  function branchWithSubmission(changed: ReturnType<typeof diff>[]) {
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1", { options: [{ value: "b", label: "Beta" }] })]);
+      applyUpsert(s, [choiceQ("q2", { dependsOn: [{ id: "q1", equals: "b" }] })]);
+    });
+    const entries = [
+      toolResultEntry(base),
+      submissionEntry({ changed, epoch: 1 }),
+    ];
+    const ctx = makeCtx(entries);
+    const host = makeHost();
+    const result = reconstructFromBranch(ctx, makeOpts(host));
+    return { base, result, state: getState()! };
+  }
+
+  test("replay prefers raw value over label summary (h3.6 repro)", () => {
+    const { result, state } = branchWithSubmission([diff("q1", "Beta", "b")]);
+    expect(result.source).toBe("tool-result");
+    expect(result.replayed).toBe(1);
+    // The RAW value replays — not the label, even though the label differs.
+    expect(state.getQuestion("q1")?.answer?.value).toBe("b");
+    // evaluateDependsOn ran on the canonical value: q2 stays askable.
+    expect(state.getQuestion("q2")?.status).toBe("open");
+  });
+
+  test("legacy entries without value fall back to the label summary", () => {
+    // History written before DiffEntry.value existed (pre P1.M2.T2.S1):
+    // documented tolerance — `to` replays, possibly a label when labels
+    // differ. The fallback is exercised, not treated as corruption/skip.
+    const { result, state } = branchWithSubmission([diff("q1", "Beta")]);
+    expect(result.replayed).toBe(1);
+    expect(state.getQuestion("q1")?.answer?.value).toBe("Beta");
+    // Consequence of the legacy limitation: the dependsOn check (equals
+    // 'b') cannot match a label, so q2 is (correctly for legacy data) moot.
+    expect(state.getQuestion("q2")?.status).toBe("moot");
+  });
+
+  test("unanswered sentinel stays skipped without phantom answers or epoch bumps", () => {
+    // value undefined + to "(unanswered)" = an answer CLEARANCE — replay
+    // cannot express it; the entry is skipped entirely (no applyAnswer, no
+    // replayed count, no epoch bump — h3.6 bumps only per APPLIED submission).
+    const { base, result, state } = branchWithSubmission([diff("q1", "(unanswered)")]);
+    expect(result.replayed).toBe(0);
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(state.epoch).toBe(base.epoch); // nothing applied → nothing bumped
+  });
+
+  test("empty-string value falls back to the label summary", () => {
+    // Resolution rule, not an error: `value: ""` is not a non-empty string,
+    // so the legacy `to` fallback resolves the value.
+    const { result, state } = branchWithSubmission([diff("q1", "Beta", "")]);
+    expect(result.replayed).toBe(1);
+    expect(state.getQuestion("q1")?.answer?.value).toBe("Beta");
   });
 });

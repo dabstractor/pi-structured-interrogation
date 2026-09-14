@@ -3,11 +3,13 @@
  *
  * Two pure-over-state entry points:
  *
- * - {@link evaluateDependsOn} re-derives moot-ness for every question with a
- *   non-empty `dependsOn` from the CURRENT answers (FR-17 "instant local"
- *   greying). Unmet → `setStatus(id, "moot")` with an h2.29-format reason
- *   (e.g. `moot: storage=sqlite`); re-met → `setStatus(id, "open")` (h2.38
- *   moot → open edge). Idempotent: a second call with unchanged answers
+ * - {@link evaluateDependsOn} re-derives moot-ness for every question from
+ *   the CURRENT answers (FR-17 "instant local" greying). Unmet →
+ *   `setStatus(id, "moot")` with an h2.29-format reason (e.g.
+ *   `moot: storage=sqlite`); re-met → `setStatus(id, "open")` (h2.38
+ *   moot → open edge); a removed/emptied `dependsOn` on a currently-moot
+ *   question reopens it too (the degenerate always-met case — BUG-006b).
+ *   Idempotent: a second call with unchanged answers
  *   performs zero status flips and therefore emits zero `changed` events.
  *   This is reconstruction step 5's cheap recompute (state-and-persistence.md
  *   line 52) and the panel's post-answer-hook.
@@ -139,7 +141,13 @@ export function dependencyMet(
  * Re-derive moot-ness for every dependsOn-bearing question from the current
  * answers (FR-17 instant-local; reconstruction step 5; panel post-answer hook).
  *
- * Per question with a non-empty `dependsOn` (iteration in `order[]` sequence):
+ * Per question (iteration in `order[]` sequence; `withdrawn`/`closed` are
+ * skipped FIRST and never re-derived):
+ * - Empty/absent `dependsOn` (dependency removed in a re-upsert — BUG-006b):
+ *   treated as the degenerate always-met case. A currently-`moot` question
+ *   reopens (`setStatus(id, "open")`, id pushed to `reopened` — h2.38
+ *   moot→open); all other statuses are skipped unchanged. Such questions are
+ *   never listed in `mootered` (no conditions → cannot be unmet).
  * - met && status === "moot"  → `setStatus(id, "open")` (h2.38 re-met edge),
  *   id pushed to `reopened`.
  * - unmet && status not in {"moot","withdrawn","closed"} → `setStatus(id,
@@ -162,8 +170,17 @@ export function evaluateDependsOn(state: InterrogationState): MootEvaluation {
   const reopened: string[] = [];
 
   for (const q of state.orderedQuestions()) {
-    if (!q.dependsOn || q.dependsOn.length === 0) continue;
     if (SKIP_EVALUATION.has(q.status)) continue;
+    if (!q.dependsOn || q.dependsOn.length === 0) {
+      // BUG-006(b): a removed/emptied dependsOn is the degenerate always-met
+      // case (h2.38 re-met edge). Only a currently-moot question flips; every
+      // other status is already "not moot" and stays untouched (zero events).
+      if (q.status === "moot") {
+        state.setStatus(q.id, "open");
+        reopened.push(q.id);
+      }
+      continue;
+    }
 
     const result = dependencyMet(state, q);
     if (result.met) {

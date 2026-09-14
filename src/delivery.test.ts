@@ -582,17 +582,17 @@ describe("buildCompletion (P1.M2.T1.S3 — the one full injection)", () => {
     s.applyAnswer("dep", ans("sqlite"));
     s.upsertQuestion(q({ id: "m", prompt: "M", dependsOn: [{ id: "dep", equals: "postgres" }] }));
     s.setStatus("m", "moot");
-    s.upsertQuestion(q({ id: "ghost", prompt: "Ghost" }));
-    s.setStatus("ghost", "moot"); // no dependsOn → not in mootered → defensive fallback
+    s.upsertQuestion(q({ id: "ghost", prompt: "Ghost", dependsOn: [{ id: "nowhere", equals: "x" }] }));
+    s.setStatus("ghost", "moot"); // unmet missing dep → legitimately moot
 
     const msg = buildCompletion(s);
     expect(msg.content).toContain(
-      "Withdrawn/moot: w (withdrawn: omitted by agent); m (moot: dep=sqlite); ghost (moot: dependency unmet)",
+      "Withdrawn/moot: w (withdrawn: omitted by agent); m (moot: dep=sqlite); ghost (moot: nowhere=missing)",
     );
     expect(msg.details.withdrawnMoot).toEqual([
       { id: "w", status: "withdrawn", reason: "omitted by agent" },
       { id: "m", status: "moot", reason: "dep=sqlite" },
-      { id: "ghost", status: "moot", reason: "dependency unmet" },
+      { id: "ghost", status: "moot", reason: "nowhere=missing" },
     ]);
 
     const plain = createInterrogationState("G");

@@ -243,6 +243,118 @@ describe("evaluateDependsOn — FR-17", () => {
   });
 });
 
+describe("evaluateDependsOn — removed dependencies (BUG-006b)", () => {
+  test("reopens_moot_question_whose_dependsOn_was_removed_h2.38_remet", () => {
+    // Bug-report repro (h2.2/h3.5): dep=pg leaves the sqlite-conditional
+    // child moot; the agent re-upserts the child WITHOUT dependsOn; the next
+    // pass must reopen it (an empty dependency list is trivially met).
+    state.upsertQuestion(q("dep"));
+    state.upsertQuestion(q("child", [{ id: "dep", equals: "sqlite" }]));
+    state.applyAnswer("dep", answered("pg"));
+
+    const mootered = evaluateDependsOn(state);
+    expect(mootered.mootered.map((m) => m.id)).toStrictEqual(["child"]);
+    expect(state.getQuestion("child")?.status).toBe("moot");
+
+    // The agent's repair: re-upsert the same id without dependsOn (raw
+    // wholesale-replace primitive keeps the caller-supplied "moot" status).
+    state.upsertQuestion({ ...q("child"), status: "moot" });
+    expect(state.getQuestion("child")?.dependsOn).toBeUndefined();
+    expect(state.getQuestion("child")?.status).toBe("moot");
+
+    const changes = changeCounter(state);
+    const result = evaluateDependsOn(state);
+
+    expect(state.getQuestion("child")?.status).toBe("open");
+    expect(result.reopened).toStrictEqual(["child"]);
+    expect(result.mootered).toStrictEqual([]); // no conditions → never unmet
+    expect(changes()).toBe(1); // exactly one flip event
+  });
+
+  test("empty_dependsOn_array_reopens_moot_question_too", () => {
+    // `[]` is as removed as `undefined` — same degenerate always-met case.
+    state.upsertQuestion(q("child"));
+    state.setStatus("child", "moot");
+    state.upsertQuestion({ ...q("child", []), status: "moot" });
+
+    const result = evaluateDependsOn(state);
+    expect(result.reopened).toStrictEqual(["child"]);
+    expect(state.getQuestion("child")?.status).toBe("open");
+  });
+
+  test("second_pass_after_reopen_is_a_noop_with_zero_events", () => {
+    state.upsertQuestion(q("child"));
+    state.setStatus("child", "moot");
+    expect(evaluateDependsOn(state).reopened).toStrictEqual(["child"]);
+
+    const changes = changeCounter(state);
+    const second = evaluateDependsOn(state);
+    expect(second).toStrictEqual({ mootered: [], reopened: [] });
+    expect(changes()).toBe(0);
+    expect(state.getQuestion("child")?.status).toBe("open");
+  });
+
+  test("non_moot_empty_dependsOn_questions_untouched_zero_events", () => {
+    // Over-eager-reopen guard: only moot flips; every other status stays.
+    state.upsertQuestion(q("op"));
+    state.upsertQuestion(q("ans"));
+    state.upsertQuestion(q("sub"));
+    state.upsertQuestion(q("rea"));
+    for (const id of ["ans", "sub", "rea"]) state.applyAnswer(id, answered("x"));
+    state.setStatus("sub", "submitted");
+    state.setStatus("rea", "reasked");
+
+    const before = ["op", "ans", "sub", "rea"].map(
+      (id) => state.getQuestion(id)?.status,
+    );
+    const changes = changeCounter(state);
+    const result = evaluateDependsOn(state);
+
+    expect(result).toStrictEqual({ mootered: [], reopened: [] });
+    expect(changes()).toBe(0);
+    expect(["op", "ans", "sub", "rea"].map((id) => state.getQuestion(id)?.status)).toStrictEqual(
+      before,
+    );
+  });
+
+  test("withdrawn_and_closed_stay_terminal_even_with_empty_dependsOn", () => {
+    // Previously-moot empty-dependsOn questions forced terminal: SKIP_EVALUATION
+    // runs before the empty-dependsOn branch, so they never un-terminalize.
+    state.upsertQuestion(q("wd"));
+    state.upsertQuestion(q("cl"));
+    state.setStatus("wd", "moot");
+    state.setStatus("cl", "moot");
+    state.setStatus("wd", "withdrawn");
+    state.setStatus("cl", "closed");
+
+    const changes = changeCounter(state);
+    const result = evaluateDependsOn(state);
+
+    expect(result.reopened).toStrictEqual([]);
+    expect(changes()).toBe(0);
+    expect(state.getQuestion("wd")?.status).toBe("withdrawn");
+    expect(state.getQuestion("cl")?.status).toBe("closed");
+  });
+
+  test("mixed_pass_reopens_removed_dep_and_keeps_still_moot_conditional", () => {
+    state.upsertQuestion(q("dep"));
+    state.upsertQuestion(q("child", [{ id: "dep", equals: "sqlite" }]));
+    state.upsertQuestion(q("other", [{ id: "dep", equals: "sqlite" }]));
+    state.applyAnswer("dep", answered("pg"));
+    evaluateDependsOn(state); // both moot
+    state.upsertQuestion({ ...q("child"), status: "moot" }); // repair: dep removed
+
+    const changes = changeCounter(state);
+    const result = evaluateDependsOn(state);
+
+    expect(result.reopened).toStrictEqual(["child"]);
+    expect(result.mootered).toStrictEqual([{ id: "other", reason: "moot: dep=pg" }]);
+    expect(changes()).toBe(1); // only the reopen flips; still-moot emits nothing
+    expect(state.getQuestion("child")?.status).toBe("open");
+    expect(state.getQuestion("other")?.status).toBe("moot");
+  });
+});
+
 describe("dependencyMet — single-question helper", () => {
   test("direct_check_met_unmet_and_reason_for_first_failing_conjunct", () => {
     state.upsertQuestion(q("storage"));

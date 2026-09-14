@@ -440,9 +440,13 @@ describe("prevQuestion / nextQuestion — R1 free navigation", () => {
 
   test("test_k_advance_never_lands_on_moot_withdrawn_closed", () => {
     // Skips moot/withdrawn/closed in one hop: q1 → q5 is the next open.
+    // q2's moot-ness is LEGITIMATE (unmet dependency — a missing dep id is
+    // unmet forever): a conditionless moot question would be reopened by the
+    // accept-path evaluateDependsOn hook (BUG-006b — empty dependsOn is the
+    // degenerate always-met case), and advance would rightly land on it.
     const state = seed([
       { id: "q1" },
-      { id: "q2", overrides: { status: "moot" } },
+      { id: "q2", overrides: { status: "moot", dependsOn: [{ id: "ghost-dep", equals: "x" }] } },
       { id: "q3", overrides: { status: "withdrawn" } },
       { id: "q4", overrides: { status: "closed" } },
       { id: "q5" },

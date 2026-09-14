@@ -251,7 +251,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T3.S1",
                   "title": "depends-on.ts: reopen moot questions whose dependsOn was removed/emptied",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #11/#12 — src/depends-on.ts:163–164 `if (!q.dependsOn || q.dependsOn.length === 0) continue;` skips BOTH the met-check and the moot→open reopen. State machine (state-and-persistence.md §1): 're-met → moot→open'; a removed dependency is the degenerate always-met case. SKIP_EVALUATION = {withdrawn, closed} stays; equals/notEquals compare raw answer.value (NOT label) — do not touch dependencyMet. MootEvaluation return shape {mootered, reopened} unchanged.\n2. INPUT: InterrogationState.orderedQuestions(); QuestionStatus.\n3. LOGIC: In src/depends-on.ts evaluateDependsOn: for a question with empty/absent dependsOn, if status === 'moot', setStatus(id, 'open') and push to `reopened` (all other statuses: continue, unchanged). Keep one `changed` event per actual flip (setStatus already does). Mock nothing — depends-on.test.ts conventions (build state via raw primitives, setStatus moot, call evaluateDependsOn; PRD h2.2/h3.5 repro: dep=pg → child moot; re-upsert child WITHOUT dependsOn → evaluateDependsOn → child open).\n4. OUTPUT: evaluateDependsOn(state) fully re-derives moot-ness including removed dependencies; consumed by P1.M3.T3.S2 (tool upsert wiring) and already by reconstruct.ts:368 / panel call sites.\n5. DOCS: [Mode A] JSDoc on evaluateDependsOn documenting the empty-dependsOn reopen rule.",

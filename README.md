@@ -181,7 +181,74 @@ Human acceptance runbook:
 
 ### Keymap conflict re-verification
 
-<!-- Reserved: this subsection is recorded by P1.M7.T7.S2. Intentionally left empty. -->
+Re-verified at build time on **2026-09-13** against pi **0.85.1**
+(`~/.local/lib/node_modules/@earendil-works/pi-coding-agent/docs/keybindings.md`),
+all installed extension trees (`~/.pi/agent/npm/node_modules`, `~/.pi/agent/git`,
+`~/.pi/extensions`), and the user rebinds in `~/.pi/agent/keybindings.json`
+(cursor-left/right, pageUp rebinds only — none touch our keys). Result: **no
+default collides with a genuinely global claim**. Drift since the planning
+baseline: pi-patty-bg-tasks' shortcut lines moved (`shortcuts.ts:27-44` →
+`:28-49`) and **pi-subagents now registers a global shortcut** (`ctrl+alt+f`,
+fleet open — `src/shared/shortcuts.ts:3`, registered in
+`src/slash/slash-commands.ts:978`); neither overlaps any interrogator key.
+
+Verified defaults (`src/config.ts` `DEFAULT_CONFIG.keys`):
+
+| Key (action)                                   | Status             | Owner / evidence                                                                                       |
+| ---------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
+| `ctrl+d` (`deep`)                              | panel-safe reuse   | pi: `tui.editor.deleteCharForward`, `app.exit`, `app.session.delete`, `app.tree.filter.default` (keybindings.md:53,127,144,176) |
+| `ctrl+l` (`overview`)                          | panel-safe reuse   | pi: `app.model.select`, `app.tree.filter.labeledOnly` (keybindings.md:151,179)                          |
+| `ctrl+t` (`focusText`)                         | panel-safe reuse   | pi: `app.thinking.toggle`, `app.tree.filter.noTools` (keybindings.md:157,177)                           |
+| `ctrl+s` (`submit`)                            | panel-safe reuse   | pi: `app.session.toggleSort`, `app.models.save`, `app.thinking.save` (keybindings.md:141,154,156)       |
+| `ctrl+g` (`externalEditor`)                    | panel-safe reuse   | pi: `app.editor.external`, `tui.altScreen.searchNext` (keybindings.md:115,129)                          |
+| `ctrl+shift+m` (`batchNote`)                   | free               | no pi default, no extension claim                                                                       |
+| `ctrl+shift+q` (`breakOut`)                    | free               | no pi default, no extension claim (the one GLOBAL registration — verified unclaimed)                    |
+| `ctrl+shift+e` (`discuss`)                     | free               | no pi default, no extension claim                                                                       |
+| `tab` (`prevQuestion`)                         | fixed/nav (panel)  | pi: `tui.input.tab` (keybindings.md:65) — consumed inside the panel only                                |
+| `shift+tab` (`nextQuestion`)                   | panel-safe reuse   | pi: `app.thinking.cycle` (keybindings.md:155) — shadowed by the panel                                   |
+
+Fixed panel keys (`enter` / `esc` / arrows / digits `1`-`9`) are not config
+keys — they are consumed only while the panel is open (digits have no pi
+default; arrows/enter/esc are core navigation pi regains as soon as the panel
+suspends).
+
+Avoided keys — a default must never be set to any of these:
+
+| Key                                          | Owner              | Evidence                                                      |
+| -------------------------------------------- | ------------------ | ------------------------------------------------------------- |
+| `ctrl+b`, `ctrl+shift+b`, `ctrl+shift+j`, `shift+down`, `ctrl+shift+x` | pi-patty-bg-tasks  | global `registerShortcut` calls (`src/shortcuts.ts:28-49`)    |
+| `ctrl+shift+s`, `ctrl+shift+w`               | pi-web-access      | `DEFAULT_SHORTCUTS` (`index.ts:99`), registered (`index.ts:1044/1057`) |
+| `ctrl+m`                                     | terminal           | sends `\r` (carriage return) — unusable as a modifier chord   |
+| `ctrl+shift+f`                               | pi built-in        | `tui.altScreen.search` — transcript search (keybindings.md:114) |
+| `ctrl+shift+up` / `ctrl+shift+down`          | pi built-in        | `tui.altScreen.previousPrompt` / `nextPrompt` — transcript nav (keybindings.md:112,113) |
+
+**Panel-intercept rationale**: the panel-scoped defaults deliberately reuse pi
+built-ins (`ctrl+d/l/t/s/g`, `ctrl+g` also text-focus, plus the fixed
+enter/esc/arrows/digits/tab). This is safe because the panel owns raw keyboard
+focus via `ctx.ui.custom()` and intercepts config keys BEFORE forwarding —
+including in text focus — so pi's binding layer never sees those keystrokes
+while the panel is open (`src/panel/keys.ts` header, "Mode A — the intercept
+rule"; wiring in `src/index.ts`). Collisions therefore exist only while the
+panel is open and vanish on suspend. The single genuinely GLOBAL registration
+is `breakOut` (`ctrl+shift+q`, via `pi.registerShortcut` in `src/command.ts`),
+which is why it must be, and was verified to be, fully unclaimed.
+
+**Regression guard** — before adding or rebinding any default key:
+
+```bash
+bash scripts/verify-keymap-conflicts.sh   # grep-based guard; exits nonzero on a taken key
+```
+
+The script re-parses `DEFAULT_CONFIG.keys`, checks them against the avoided
+list above AND a live grep for `pi.registerShortcut("<key>"` string literals
+across the installed extension trees (pi's own docs/examples excluded). It
+degrades to a warning — not a failure — when `docs/keybindings.md` is not
+found, and only string-literal registrations are visible to the grep
+(variable-indirect ones like pi-web-access/pi-subagents are covered by the
+avoided list — re-check manually). `src/keymap-guard.test.ts` additionally
+fails CI if any default lands on the avoided list or breaks pi's accelerator
+grammar. Rule: any new default key MUST pass this script and a manual check of
+pi's `docs/keybindings.md` before shipping.
 
 ## Project structure
 

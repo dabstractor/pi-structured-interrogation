@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "pi-interrogator v1.0 — structured interrogation extension for pi",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Build the complete pi-interrogator extension per spec/: one non-blocking `interrogate` tool (upsert/read/reopen/answers), a persistent replace-editor answer panel (short form, deep view, overview, gate dimming, ripple confirms, sacred drafts), delta-based submissions that trigger agent replies, rev+epoch staleness guards, auto-close on agent_settled with one-time completion injection, suspend/resume ecosystem with widget, branch-correct persistence/reconstruction, non-TUI fallback, and full config/remappable keymaps. Greenfield TypeScript package loaded by pi 0.85.1 via jiti. Research findings: plan/001_0d6760db6bc5/architecture/ (pi-api-validation.md, reference-patterns.md, environment-and-conflicts.md, system-context.md, external-deps.md). AUTOMATION POLICY (hard, applies to every subtask): per plan/001_0d6760db6bc5/AUTOMATION-POLICY.md, automated runs verify via scripted tests only — never call the interrogate tool live, never open a live pi TUI session, never end a turn waiting for user answers; human-only TUI checks live in MANUAL-TUI-AC-RUNBOOK.md.",
       "milestones": [
         {
@@ -863,7 +863,7 @@
           "type": "Milestone",
           "id": "P1.M7",
           "title": "Persistence, renderers, polish, verification, docs",
-          "status": "Ready",
+          "status": "Complete",
           "description": "PRD M7 (h2.48): persistence.ts (mirror, reconstruction, auto-open), compaction adaptation, message/entry renderers (cards), round detection, terminal fallbacks, config validation, AC runbook 1-14, changeset-level docs. Proves AC-8, 9, 10, 11, 12.",
           "tasks": [
             {
@@ -1100,7 +1100,7 @@
               "type": "Task",
               "id": "P1.M7.T7",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Mode B final sweep: README.md with install, config reference, keymap table + conflict-verification record, limitations; ensures the whole changeset ships with coherent docs.",
               "subtasks": [
                 {
@@ -1169,7 +1169,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T7.S2",
                   "title": "Keymap conflict re-verification record in README",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2",

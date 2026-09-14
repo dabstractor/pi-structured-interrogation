@@ -1107,7 +1107,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T7.S1",
                   "title": "README.md: install, config reference, usage, limitations",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",

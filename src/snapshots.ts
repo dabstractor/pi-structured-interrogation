@@ -53,6 +53,15 @@ export interface DiffEntry {
    * ("Q3: sqlite → postgres (changed)") — this module only supplies the flag.
    */
   editedArchived: boolean;
+  /**
+   * Raw POST-change answer value (`answer.value` of the `next`-side
+   * question). Omitted when the question is unanswered/cleared after the
+   * change. Machine-readable reconstruction data (P1.M5.T1.S1
+   * replaySubmission prefers this over the label-preferred `to`);
+   * `to` stays the display-only summary for cards/deltas. Optional because
+   * history written before this field existed carries no `value`.
+   */
+  value?: string;
 }
 
 /**
@@ -158,6 +167,7 @@ function computeEntries(prev: SerializedState, next: SerializedState): DiffEntry
       from: answerSummary(before),
       to: answerSummary(after),
       editedArchived: before?.status === "closed",
+      value: after?.answer?.value, // RAW post-change value; undefined when unanswered/missing
     });
   }
   return entries;
@@ -178,6 +188,9 @@ function computeEntries(prev: SerializedState, next: SerializedState): DiffEntry
  *     from: string;            // label-preferred summary before ("(unanswered)" if none)
  *     to: string;              // label-preferred summary after
  *     editedArchived: boolean; // prev status was "closed" → renderer appends "(changed)" (AC-13)
+ *     value?: string;          // RAW post-change answer.value (undefined when unanswered);
+ *                              // machine-readable for reconstruction (P1.M5.T1.S1) —
+ *                              // `to` remains the label-preferred display summary
  *   }>;
  *   note?: string;      // batch-note passthrough; omitted when undefined/empty
  *   epoch: number;      // next.epoch
@@ -190,8 +203,11 @@ function computeEntries(prev: SerializedState, next: SerializedState): DiffEntry
  * raw value; missing answers read "(unanswered)". Text-only edits
  * (`answer.text` changed, value same) count as changes. `editedArchived`
  * marks closed→re-answered edits so the renderer can add the `(changed)`
- * marker. Strings are NOT truncated here — display truncation is the
- * renderer's job.
+ * marker. Entries additionally carry `value` — the raw post-change
+ * `answer.value` (undefined when the post-change side is unanswered) — for
+ * machine consumers (P1.M5.T1.S1 replaySubmission); `from`/`to` stay
+ * label-preferred display summaries. Strings are NOT truncated here —
+ * display truncation is the renderer's job.
  *
  * @param prev state before the submission (usually a snapshot's `.state`)
  * @param next state after the submission (usually the live `serialize()`)

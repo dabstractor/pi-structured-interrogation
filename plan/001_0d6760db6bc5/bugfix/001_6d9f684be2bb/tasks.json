@@ -110,7 +110,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Submission delta contract: epoch segment, raw values, draft-safe submit",
-          "status": "Researching",
+          "status": "Ready",
           "description": "Restore the h3.6 delta content contract (BUG-003), carry raw answer values on DiffEntry so reconstruction can be exact (BUG-007 enabler), and stop submit from destroying un-shipped drafts / misreporting agent resets (BUG-008).",
           "tasks": [
             {
@@ -140,14 +140,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "DiffEntry carries the raw answer value (BUG-007 foundation)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "reconstruction needs exact answer values, but DiffEntry {id,title,from,to,editedArchived} only carries label-preferred display summaries. Add the raw post-change value at the source so submission details can replay exactly.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "snapshots.ts computeEntries: add raw `value` to DiffEntry",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #2/#13 — src/snapshots.ts:31–55 DiffEntry = {id, title, from, to, editedArchived}; from/to produced by module-PRIVATE answerSummary (~86–100: choice → option LABEL whose value === answer.value, fallback raw; text → raw; missing → '(unanswered)'). computeEntries (148–167) emits an entry iff answerSignature(before) !== answerSignature(after). No raw value exists anywhere on DiffEntry today.\n2. INPUT: computeEntries' before/after Question pair; QuestionAnswer {value, text?, at}.\n3. LOGIC: In src/snapshots.ts extend DiffEntry with `value?: string` = the POST-change raw answer value (after.answer?.value; leave undefined when unanswered) and populate it in computeEntries. Do NOT change from/to (renderers and the user-only diff card keep label summaries) or the signature comparison. Type-only ripple: snapshots.test.ts, delivery.test.ts fixtures. Keep legacy tolerance in mind: history written before this change has no `value` — that is P1.M5.T1.S1's fallback concern, not yours.\n4. OUTPUT: SubmissionMessage.details.changed[].value flows into session history; consumed by P1.M5.T1.S1 (reconstruct.replaySubmission prefers it over the label `to`).\n5. DOCS: [Mode A] JSDoc on DiffEntry in src/snapshots.ts documenting value (raw, machine-readable, for reconstruction) vs to (label-preferred, display-only).",
@@ -163,14 +163,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Draft-safe submit: ship only user-pending answers, drop agent resets from the delta (BUG-008)",
-              "status": "Researching",
+              "status": "Ready",
               "description": "Submit flushes drafts via shipDrafts(diff.changed.map(c => c.id)) — after an agent re-ask (merge rule 2) reset an answered question, its preserved draft is destroyed without shipping and the delta tells the model the user retracted it ('q1: (unanswered)'). R4/commitment 6 make draft loss on revisit disqualifying.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "actions.ts submit: shipDrafts(pendingIds) and filter agent-reset entries",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1"

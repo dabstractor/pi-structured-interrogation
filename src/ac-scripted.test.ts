@@ -570,6 +570,7 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
       from: "SQLite",
       to: "Postgres",
       editedArchived: true,
+      value: "postgres",
     });
 
     // ctrl+s flush (the FIXED production transition) → buildSubmission:

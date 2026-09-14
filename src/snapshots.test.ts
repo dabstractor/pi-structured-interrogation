@@ -126,6 +126,7 @@ describe("computeDiff", () => {
         from: "SQLite",
         to: "Postgres",
         editedArchived: false,
+        value: "postgres",
       },
     ];
     expect(computeDiff(prev, state.serialize()).changed).toEqual(expected);
@@ -144,7 +145,7 @@ describe("computeDiff", () => {
     state.applyAnswer("q3", ans("mysql")); // no matching option
     const diff = computeDiff(prev, state.serialize());
     expect(diff.changed).toEqual([
-      { id: "q3", title: "prompt for q3", from: "SQLite", to: "mysql", editedArchived: false },
+      { id: "q3", title: "prompt for q3", from: "SQLite", to: "mysql", editedArchived: false, value: "mysql" },
     ]);
   });
 
@@ -155,7 +156,7 @@ describe("computeDiff", () => {
     state.applyAnswer("q7", ans("sqlite", "elaboration added"));
     const diff = computeDiff(prev, state.serialize());
     expect(diff.changed).toEqual([
-      { id: "q7", title: "Elaboration", from: "sqlite", to: "sqlite", editedArchived: false },
+      { id: "q7", title: "Elaboration", from: "sqlite", to: "sqlite", editedArchived: false, value: "sqlite" },
     ]);
   });
 
@@ -176,6 +177,7 @@ describe("computeDiff", () => {
         from: "(unanswered)",
         to: "v",
         editedArchived: false,
+        value: "v",
       },
     ]);
   });
@@ -192,6 +194,7 @@ describe("computeDiff", () => {
         from: "(unanswered)",
         to: "hello",
         editedArchived: false,
+        value: "hello",
       },
     ]);
   });
@@ -218,13 +221,14 @@ describe("computeDiff", () => {
     const diff = computeDiff(prev, state.serialize());
     const qa = diff.changed.find((e) => e.id === "qa");
     const qb = diff.changed.find((e) => e.id === "qb");
-    expect(qa).toEqual({ id: "qa", title: "prompt for qa", from: "A", to: "B", editedArchived: true });
+    expect(qa).toEqual({ id: "qa", title: "prompt for qa", from: "A", to: "B", editedArchived: true, value: "b" });
     expect(qb).toEqual({
       id: "qb",
       title: "prompt for qb",
       from: "old",
       to: "new",
       editedArchived: false,
+      value: "new",
     });
   });
 
@@ -306,6 +310,88 @@ describe("digestSince", () => {
     expect(digest.endsWith("q3: v11→v12")).toBe(true); // last pair with a change
     // Partial range still resolves from the ring
     expect(digestSince(state, 11)).toBe("q3: v11→v12");
+  });
+});
+
+describe("diff entry value semantics (BUG-007 foundation)", () => {
+  test("diff_entry_carries_raw_value_not_label", () => {
+    state.upsertQuestion(
+      q({
+        id: "q1",
+        type: "choice",
+        options: [
+          { value: "a", label: "Alpha" },
+          { value: "b", label: "Beta" },
+        ],
+      }),
+    );
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("b")); // user chose RAW value "b" (label "Beta")
+    const diff = computeDiff(prev, state.serialize());
+    // Sanity: a change entry exists for the flip from unanswered.
+    const entry = diff.changed.find((e) => e.id === "q1");
+    expect(entry?.to).toBe("Beta"); // display summary is label-preferred
+    expect(entry?.value).toBe("b"); // machine-readable raw value
+  });
+
+  test("diff_entry_value_equals_raw_when_no_option_matches", () => {
+    state.upsertQuestion(
+      q({ id: "q3", type: "choice", options: [{ value: "sqlite", label: "SQLite" }] }),
+    );
+    const prev = state.serialize();
+    state.applyAnswer("q3", ans("mysql")); // no matching option
+    const diff = computeDiff(prev, state.serialize());
+    const entry = diff.changed.find((e) => e.id === "q3");
+    expect(entry?.value).toBe("mysql");
+    expect(entry?.to).toBe("mysql"); // fallback makes to === value in this case
+  });
+
+  test("diff_entry_value_for_text_questions_is_the_raw_value", () => {
+    state.upsertQuestion(q({ id: "t1" }));
+    const prev = state.serialize();
+    state.applyAnswer("t1", ans("plain text"));
+    const diff = computeDiff(prev, state.serialize());
+    const entry = diff.changed.find((e) => e.id === "t1");
+    expect(entry?.value).toBe("plain text");
+    expect(entry?.value).toBe(entry?.to); // text summaries are already raw
+  });
+
+  test("diff_entry_value_omitted_when_answer_cleared", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    state.applyAnswer("q1", ans("yes"));
+    const prev = state.serialize();
+    const next = state.serialize();
+    delete next.questions.q1?.answer; // cleared
+    const diff = computeDiff(prev, next);
+    const entry = diff.changed.find((e) => e.id === "q1");
+    expect(entry?.to).toBe("(unanswered)");
+    expect(entry?.value).toBeUndefined(); // the cleared-vs-changed signal (P1.M5.T1.S1)
+  });
+
+  test("digest_core_shared_value_flows_without_changing_digest_output", () => {
+    state.upsertQuestion(
+      q({
+        id: "q1",
+        type: "choice",
+        options: [
+          { value: "a", label: "Alpha" },
+          { value: "b", label: "Beta" },
+        ],
+      }),
+    );
+    state.applyAnswer("q1", ans("b"));
+    submit(state); // snap epoch 1 holds "b"
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("a"));
+    submit(state); // snap epoch 2 holds "a"; pair (1→2) is the b→a change
+    // prev (answered "b") vs live: the shared core emits the raw value...
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed).toHaveLength(1);
+    expect(diff.changed[0]?.value).toBe("a");
+    expect(diff.changed[0]?.to).toBe("Alpha");
+
+    // ...while the digest (same core) still renders display summaries only.
+    expect(digestSince(state, 1)).toBe("q1: Beta→Alpha");
   });
 });
 

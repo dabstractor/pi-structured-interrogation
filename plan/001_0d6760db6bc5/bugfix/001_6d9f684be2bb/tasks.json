@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Core tool/state lifecycle: goal updates, new-interrogation reset, epoch guard",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Make the goal updatable and cap-enforced (BUG-001/BUG-009), let a second interrogation in a session complete by resetting the completed singleton (BUG-002), and require epoch on upserts touching existing questions (BUG-010).",
           "tasks": [
             {
@@ -85,14 +85,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Epoch required on upserts touching existing questions (BUG-010)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "tool-protocol Guards (Q38=A) require any questions/answers call to carry the session epoch, but assertFresh only rejects a SENT mismatching epoch — an upsert touching existing ids that omits epoch entirely passes with only per-question rev protection.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "assertFresh: reject epoch-less upserts touching existing ids",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/core-modules.md §BUG-010 — src/guards.ts:213–235 assertFresh: record path (217–222) already throws plain Error('answers requires epoch: ...') on MISSING epoch (follow that precedent — plain Error, not StaleError, since there is no digest to show); upsert path final check (line ~234) `if (sentEpoch !== undefined && sentEpoch !== state.epoch)` is opt-in. tool-schema.ts:108 `epoch: Type.Optional(...)` stays optional at the schema level — first-call upserts (brand-new interrogation, no existing ids) must remain epoch-less-friendly.\n2. INPUT: ParsedAction from tool-schema (epoch?: number on upsert/record); InterrogationState question map via getQuestion.\n3. LOGIC: In guards.ts upsert branch: if the parsed batch touches ≥1 id that already exists in state (`state.getQuestion(id) !== undefined`) and `parsed.epoch === undefined`, throw Error with a self-heal message that INCLUDES the current epoch, e.g. 'STALE: upsert touching existing questions requires the session epoch (current {state.epoch}). Re-send with epoch.' Keep the existing rev checks and sent-epoch mismatch behavior untouched; read/reopen remain never-guarded. Mock nothing — guards.test.ts pattern (construct state via createInterrogationState + upsertQuestion, assert thrown Error message).\n4. OUTPUT: assertFresh enforces epoch presence on existing-id upserts; tool.test.ts gains the executor-level case (upsert q1 rev-echoed without epoch → isError). No downstream consumer changes.\n5. DOCS: [Mode A] src/tool-schema.ts epoch field description: replace 'REQUIRED with questions/answers' with the precise rule (required when upserting existing questions and when recording answers; optional for a first upsert); note it in assertFresh's JSDoc.",

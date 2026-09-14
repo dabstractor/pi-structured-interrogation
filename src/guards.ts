@@ -27,9 +27,11 @@
  * - `upsert`: per-question rev guard on EXISTING ids only (new ids need no
  *   rev — the schema makes rev optional precisely for new questions),
  *   reported in agent-supplied array order (first stale id wins, one throw
- *   per call); then the session-epoch guard when the caller sent one.
- *   Schema-level presence requirements are S1's domain — guards check
- *   CONSISTENCY, not presence.
+ *   per call); then the session-epoch guard: a batch touching ≥1 existing
+ *   id MUST carry the epoch — missing epoch throws a plain `Error` whose
+ *   message embeds the current epoch (BUG-010, h2.22; a sent-but-wrong
+ *   epoch throws the epoch-only StaleError) — and a new-id-only batch may
+ *   omit the epoch entirely (first-call upserts stay epoch-less-friendly).
  *
  * Message variants (exact shapes, single spaces after periods):
  * - Combined: `STALE: {id} is at rev {n} (you sent {m}); session epoch is
@@ -161,13 +163,19 @@ export function buildStaleMessage(parts: StaleMessageParts): string {
  *   already in state must carry its current `rev` (missing rev = stale).
  *   The FIRST stale id throws — combined h3.8 message when the caller's
  *   epoch (if sent) also mismatches, rev-only variant otherwise. After all
- *   revs pass, a sent-but-mismatched epoch throws the epoch-only variant.
- *   New ids need no rev; an absent caller epoch skips the epoch clause.
+ *   revs pass, a batch touching ≥1 EXISTING id with NO epoch throws a
+ *   plain `Error` (BUG-010, h2.22: upserts touching existing questions
+ *   must echo the session epoch) whose message embeds the current epoch as
+ *   the self-heal value; a sent-but-mismatched epoch throws the epoch-only
+ *   variant. New ids need no rev; an all-new-id batch may omit the epoch
+ *   (first-call upserts stay epoch-less-friendly).
  *
  * Pure: reads state only — no mutation, no events, no UI.
  *
  * @throws StaleError when the caller's rev/epoch view is stale
- * @throws Error (plain, non-STALE shape) when `record` omits epoch
+ * @throws Error (plain, non-STALE shape) when `record` omits epoch, or when
+ *   `upsert` touches an existing question id without the session epoch (the
+ *   message embeds the current epoch — the self-heal value)
  */
 export function assertFresh(state: InterrogationState, parsed: ParsedAction): void {
   if (parsed.action === "read" || parsed.action === "reopen") return; // never guarded (h2.22)
@@ -218,6 +226,22 @@ export function assertFresh(state: InterrogationState, parsed: ParsedAction): vo
         prompt: current.prompt,
       }),
       { id: q.id, sentRev: q.rev, currentRev: current.rev },
+    );
+  }
+
+  // upsert — epoch PRESENCE guard (BUG-010, h2.22): a batch touching ≥1
+  // existing id must ECHO the session epoch. Ordered AFTER the rev loop so a
+  // genuinely stale rev still wins with the richer StaleError diagnostics.
+  // Plain Error (record-path precedent): there is no sent epoch, hence no
+  // digestSince baseline for a StaleError — the current epoch in the message
+  // IS the self-heal value. All-new-id batches are exempt (first-call
+  // upserts stay epoch-less-friendly).
+  if (
+    parsed.epoch === undefined &&
+    parsed.questions.some((q) => state.getQuestion(q.id) !== undefined)
+  ) {
+    throw new Error(
+      `STALE: upsert touching existing questions requires the session epoch (current ${state.epoch}). Re-send with epoch.`,
     );
   }
 

@@ -180,7 +180,10 @@ describe("executeInterrogate: upsert (TUI)", () => {
   test("existing state: goal on upsert REPLACES the stored goal (FR-30)", () => {
     const st = seedState("first goal");
     seedQ(st, "q1");
-    const r = executeInterrogate({ goal: "second goal", questions: [qi("q1", { rev: 1 })] }, tuiCtx());
+    const r = executeInterrogate(
+      { goal: "second goal", epoch: 1, questions: [qi("q1", { rev: 1 })] },
+      tuiCtx(),
+    );
     expect(getState()!.goal).toBe("second goal");
     expect(r.details.state.goal).toBe("second goal");
   });
@@ -188,7 +191,7 @@ describe("executeInterrogate: upsert (TUI)", () => {
   test("existing state: goal OMITTED on upsert leaves goal unchanged", () => {
     const st = seedState("first goal");
     seedQ(st, "q1");
-    executeInterrogate({ questions: [qi("q1", { rev: 1 })] }, tuiCtx());
+    executeInterrogate({ epoch: 1, questions: [qi("q1", { rev: 1 })] }, tuiCtx());
     expect(getState()!.goal).toBe("first goal");
   });
 
@@ -203,7 +206,7 @@ describe("executeInterrogate: upsert (TUI)", () => {
     const st = seedState("first goal");
     seedQ(st, "q1");
     const r = executeInterrogate(
-      { goal: "y".repeat(500), questions: [qi("q1", { rev: 1 })] },
+      { goal: "y".repeat(500), epoch: 1, questions: [qi("q1", { rev: 1 })] },
       tuiCtx(),
     );
     expect(getState()!.goal).toHaveLength(400);
@@ -223,7 +226,7 @@ describe("executeInterrogate: upsert (TUI)", () => {
   test("existing state: matching rev merges and bumps rev (merge rule 1)", () => {
     const st = seedState();
     seedQ(st, "q1");
-    executeInterrogate({ questions: [qi("q1", { rev: 1, prompt: "revised" })] }, tuiCtx());
+    executeInterrogate({ epoch: 1, questions: [qi("q1", { rev: 1, prompt: "revised" })] }, tuiCtx());
     expect(getState()!.getQuestion("q1")!.rev).toBe(2);
     expect(getState()!.getQuestion("q1")!.prompt).toBe("revised");
   });
@@ -525,6 +528,25 @@ describe("executeInterrogate: error contracts", () => {
     expect(() =>
       executeInterrogate({ epoch: 7, answers: [{ id: "q1", value: "a" }] }, printCtx()),
     ).toThrow(StaleError);
+  });
+
+  test("BUG-010: epoch-less upsert touching an existing id throws with the self-heal message", () => {
+    const st = seedState();
+    seedQ(st, "q1");
+    // The executor propagates thrown guard errors uncaught — pi sets isError
+    // on the tool result ONLY when execute throws (same surface as the
+    // StaleError cases above).
+    expect(() =>
+      executeInterrogate({ questions: [qi("q1", { rev: 1 })] }, tuiCtx()),
+    ).toThrowError(
+      "STALE: upsert touching existing questions requires the session epoch (current 1). Re-send with epoch.",
+    );
+    expect(getState()!.getQuestion("q1")!.rev).toBe(1); // state untouched by the rejection
+    // Self-heal round-trip: the message's current epoch makes the retry succeed.
+    expect(() =>
+      executeInterrogate({ epoch: 1, questions: [qi("q1", { rev: 1 })] }, tuiCtx()),
+    ).not.toThrow();
+    expect(getState()!.getQuestion("q1")!.rev).toBe(2);
   });
 });
 

@@ -269,6 +269,90 @@ describe("assertFresh — pass-through and guard matrix", () => {
   });
 });
 
+/**
+ * BUG-010 (PRD h2.22/h3.9): an upsert whose batch touches ≥1 EXISTING id
+ * must carry the session epoch. Missing epoch → plain Error (record-path
+ * precedent — no sent epoch means no digestSince baseline for a StaleError)
+ * whose message embeds the current epoch as the self-heal value.
+ */
+describe("assertFresh — upsert epoch presence (BUG-010)", () => {
+  let state: InterrogationState;
+  beforeEach(() => {
+    state = buildStaleFixture(); // epoch 9, q3 ("Which database?") at rev 5
+  });
+
+  test("epoch-less upsert touching an existing id throws plain Error with the current epoch", () => {
+    const err = capture(() =>
+      assertFresh(state, {
+        action: "upsert",
+        questions: [
+          { id: "q3", rev: 5, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+        ],
+      }),
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(StaleError);
+    expect((err as Error).message).toBe(
+      "STALE: upsert touching existing questions requires the session epoch (current 9). Re-send with epoch.",
+    );
+  });
+
+  test("epoch-less upsert with ONLY brand-new ids passes (first call stays epoch-less-friendly)", () => {
+    expect(() =>
+      assertFresh(state, {
+        action: "upsert",
+        questions: [{ id: "q-new", prompt: "Fresh?", type: "text" }],
+      }),
+    ).not.toThrow();
+  });
+
+  test("epoch-less upsert mixing one new + one existing id throws", () => {
+    const err = capture(() =>
+      assertFresh(state, {
+        action: "upsert",
+        questions: [
+          { id: "q-new", prompt: "Fresh?", type: "text" },
+          { id: "q3", rev: 5, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+        ],
+      }),
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(StaleError);
+    expect((err as Error).message).toContain("current 9");
+    expect((err as Error).message).toContain("Re-send with epoch.");
+  });
+
+  test("epoch-less upsert with a STALE rev still gets the richer rev-only StaleError first (ordering)", () => {
+    const err = capture(() =>
+      assertFresh(state, {
+        action: "upsert",
+        questions: [
+          { id: "q3", rev: 2, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+        ],
+      }),
+    );
+    expect(err).toBeInstanceOf(StaleError);
+    expect((err as StaleError).details).toEqual({ id: "q3", sentRev: 2, currentRev: 5 });
+  });
+
+  test("existing-id upsert WITH the matching epoch + revs passes exactly as before", () => {
+    expect(() =>
+      assertFresh(state, {
+        action: "upsert",
+        epoch: 9,
+        questions: [
+          { id: "q3", rev: 5, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  test("read/reopen remain never-guarded, even with stale epochs", () => {
+    expect(() => assertFresh(state, { action: "read" })).not.toThrow();
+    expect(() => assertFresh(state, { action: "reopen" })).not.toThrow();
+  });
+});
+
 describe("assertFresh — answers (record)", () => {
   let state: InterrogationState;
   beforeEach(() => {

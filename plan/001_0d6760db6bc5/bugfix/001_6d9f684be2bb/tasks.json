@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Core tool/state lifecycle: goal updates, new-interrogation reset, epoch guard",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Make the goal updatable and cap-enforced (BUG-001/BUG-009), let a second interrogation in a session complete by resetting the completed singleton (BUG-002), and require epoch on upserts touching existing questions (BUG-010).",
           "tasks": [
             {
@@ -60,14 +60,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Second interrogation in a session completes (BUG-002)",
-              "status": "Researching",
+              "status": "Complete",
               "description": "The one-time completion guard state.completed is set by clearForCompletion() but never reset: the tool's upsert path reuses the completed singleton, so every later interrogation short-circuits attemptCompletion with 'already-completed'. Swap in a fresh singleton when an upsert arrives on a completed state.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Fresh-state swap on upsert after completion (epoch restarts at 1)",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2"
@@ -85,14 +85,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Epoch required on upserts touching existing questions (BUG-010)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "tool-protocol Guards (Q38=A) require any questions/answers call to carry the session epoch, but assertFresh only rejects a SENT mismatching epoch — an upsert touching existing ids that omits epoch entirely passes with only per-question rev protection.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "assertFresh: reject epoch-less upserts touching existing ids",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/core-modules.md §BUG-010 — src/guards.ts:213–235 assertFresh: record path (217–222) already throws plain Error('answers requires epoch: ...') on MISSING epoch (follow that precedent — plain Error, not StaleError, since there is no digest to show); upsert path final check (line ~234) `if (sentEpoch !== undefined && sentEpoch !== state.epoch)` is opt-in. tool-schema.ts:108 `epoch: Type.Optional(...)` stays optional at the schema level — first-call upserts (brand-new interrogation, no existing ids) must remain epoch-less-friendly.\n2. INPUT: ParsedAction from tool-schema (epoch?: number on upsert/record); InterrogationState question map via getQuestion.\n3. LOGIC: In guards.ts upsert branch: if the parsed batch touches ≥1 id that already exists in state (`state.getQuestion(id) !== undefined`) and `parsed.epoch === undefined`, throw Error with a self-heal message that INCLUDES the current epoch, e.g. 'STALE: upsert touching existing questions requires the session epoch (current {state.epoch}). Re-send with epoch.' Keep the existing rev checks and sent-epoch mismatch behavior untouched; read/reopen remain never-guarded. Mock nothing — guards.test.ts pattern (construct state via createInterrogationState + upsertQuestion, assert thrown Error message).\n4. OUTPUT: assertFresh enforces epoch presence on existing-id upserts; tool.test.ts gains the executor-level case (upsert q1 rev-echoed without epoch → isError). No downstream consumer changes.\n5. DOCS: [Mode A] src/tool-schema.ts epoch field description: replace 'REQUIRED with questions/answers' with the precise rule (required when upserting existing questions and when recording answers; optional for a first upsert); note it in assertFresh's JSDoc.",
@@ -117,14 +117,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Submission content includes '(state epoch {n})' (BUG-003)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "architecture.md 'Key flows → Submit' specifies content = 'Submitted {k}: {id→value list, changed marked} (state epoch {n})' + reminder. buildSubmission omits the epoch from content entirely, so every post-submission re-ask echoing its last-known epoch is guaranteed STALE.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "buildSubmission: append post-bump epoch to the content line",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/delivery-completion.md #1/#3 — src/delivery.ts:129–175 buildSubmission(state, diff: SubmissionCardData, note?): SubmissionMessage; content at line 162 = `Submitted ${k}: ${k===0 ? '(no changes)' : list}\\n${SUBMISSION_REMINDER}${noteLine}`; reminder const at line 43. Side-effect tail takeSnapshot→bumpEpoch at 166–167. CRITICAL SEMANTIC: n must be the POST-BUMP epoch (state.epoch+1 / diff.epoch+1) — that is the epoch the model must echo to re-ask in one round trip (PRD h2.2/h3.2 repro: echoing the pre-bump 1 gets 'session epoch is 2 (you sent 1)'). The budget loop (lines ~145–157) measures `Submitted ${k}: ${list}` — fold the suffix into the measurement so truncation still respects SUBMISSION_LIST_MAX_CHARS.\n2. INPUT: SubmissionCardData (snapshots.ts) already carries `epoch` (pre-bump); state param available pre-bump.\n3. LOGIC: In src/delivery.ts compute the post-bump epoch (diff.epoch + 1) and format line 1 as `Submitted {k}: {list} (state epoch {n})`, including the k===0 '(no changes)' case (a zero-change submit still bumps epoch). Reminder + NOTE lines unchanged. details unchanged. delivery.test.ts asserts byte-exact content — update assertions intentionally (TDD: write the new-format assertion first, watch it fail, then fix).\n4. OUTPUT: SubmissionMessage.content carries the echoable epoch; consumed by the model in-conversation and asserted by delivery tests. P1.M2.T3.S1 (draft-safe submit) builds on this stable format.\n5. DOCS: none — no user-facing/config/API surface change beyond message text already governed by spec/architecture.md 'Key flows → Submit'; README-level notes go to P1.M5.T2 (Mode B).",

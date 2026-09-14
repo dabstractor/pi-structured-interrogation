@@ -258,13 +258,34 @@ export function executeInterrogate(
         config,
         ctx.model?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
       );
-      // Create stores the CAPPED goal; goal-omitted creates still start from
-      // "" (explicit ternary keeps that semantic visible).
-      const state: InterrogationState =
-        existing ?? createInterrogationState(parsed.action.goal !== undefined ? capped.goal : "");
-      if (!existing) setState(state);
+      // [Mode A] SINGLETON LIFETIME / BUG-002: a completed singleton is
+      // REPLACED, not reused — completion cleared its questions and its
+      // `completed` guard is exactly-once by design (deserialize restores it
+      // across restart; never weakened). A new-question upsert starts a NEW
+      // interrogation: fresh epoch 1, completed=false, empty snapshots.
+      // Goal: the upsert's capped goal when sent, else the prior goal RETAINED
+      // (FR-30 — the goal anchors re-asks; a blank header helps nobody).
+      // Decision (spec gap pinned; recorded in P1.M5.T2.S2).
+      let state: InterrogationState;
+      if (existing !== undefined && existing.completed === true) {
+        // BUG-002: fresh interrogation on a completed session. The goal is
+        // CONSTRUCTOR-atomic — never setGoal on this path (a follow-up would
+        // double-emit `changed` and misrepresent the mutation).
+        state = createInterrogationState(
+          parsed.action.goal !== undefined ? capped.goal : existing.serialize().goal,
+        );
+        setState(state);
+      } else {
+        // Create stores the CAPPED goal; goal-omitted creates still start from
+        // "" (explicit ternary keeps that semantic visible).
+        state = existing ?? createInterrogationState(parsed.action.goal !== undefined ? capped.goal : "");
+        if (!existing) setState(state);
+      }
 
-      assertFresh(state, parsed.action); // StaleError propagates (h2.22) — BEFORE any mutation
+      // StaleError propagates (h2.22) — BEFORE any mutation. Runs against the
+      // state that will RECEIVE the upsert (guards belong to the receiver): on
+      // a fresh swap state this trivially passes (epoch 1, no existing ids).
+      assertFresh(state, parsed.action);
 
       // Fires `questions-upserted` + `changed` — THE panel trigger
       // (P1.M2.T2.S1 lifecycle). This executor must not open anything.
@@ -274,7 +295,11 @@ export function executeInterrogate(
       // already capped above. Omitted goal → unchanged (never wipe to "").
       // This emits a second `changed` after applyUpsert's — expected per
       // setGoal's contract (always emits; callers gate). Do NOT coalesce.
-      if (existing && parsed.action.goal !== undefined) state.setGoal(capped.goal);
+      // Swap-excluded (BUG-002): keyed on the ORIGINAL `existing` (pre-swap) —
+      // on the completed-swap path the goal was applied at construction.
+      if (existing !== undefined && existing.completed !== true && parsed.action.goal !== undefined) {
+        state.setGoal(capped.goal);
+      }
 
       const serialized = state.serialize();
       if (isNonTui(ctx.mode, ctx.hasUI)) {

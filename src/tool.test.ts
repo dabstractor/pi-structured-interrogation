@@ -18,16 +18,18 @@ import { beforeEach, describe, expect, test } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { attemptCompletion } from "./completion.js";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import { RELAY_INSTRUCTION } from "./fallback.js";
 import { StaleError } from "./guards.js";
+import { closeSubmitted, markAnswered, markSubmitted } from "./merge.js";
 import { buildReadResult } from "./results.js";
 import {
   createInterrogationState,
   getState,
   resetState,
   setState,
-  type InterrogationState,
+  InterrogationState,
 } from "./state.js";
 import { InterrogateParams, type QuestionInput } from "./tool-schema.js";
 import {
@@ -83,6 +85,34 @@ const stubTheme = {
   fg: (_name: string, s: string) => s,
   bold: (s: string) => s,
 } as unknown as Theme;
+
+// ------------------------------------------------- BUG-002 completed-swap
+
+const AT = "2025-01-01T00:00:00.000Z";
+
+/** Bare pi stand-in for attemptCompletion (completion.test.ts makeMockPi pattern). */
+function completionPi(): Pick<ExtensionAPI, "sendMessage"> {
+  return { sendMessage: () => {} } as unknown as Pick<ExtensionAPI, "sendMessage">;
+}
+
+/**
+ * Drive one full interrogation through answer → submit → close pass →
+ * attemptCompletion, state-level (completion.test.ts seeding pattern). The
+ * singleton is read via the same opts.getState seam the real wiring uses.
+ */
+function completeInterrogation(
+  st: InterrogationState,
+  ids: string[],
+): { fired: boolean; reason?: string } {
+  for (const id of ids) markAnswered(st, id, { value: "a", at: AT });
+  markSubmitted(st, ids);
+  closeSubmitted(st, ids);
+  return attemptCompletion(
+    completionPi(),
+    { lifecycle: { dismissPanel: () => {} }, getState: () => st },
+    { closed: ids, reasked: [], remainingActive: [] },
+  );
+}
 
 beforeEach(() => {
   resetState();
@@ -231,6 +261,93 @@ describe("executeInterrogate: upsert (TUI)", () => {
     expect(lines[3]).toBe("questions truncated at 2 — restructure if essential");
     expect(lines[4]).toBe("q0 description truncated at 50 chars — restructure if essential");
     expect(lines).toHaveLength(5);
+  });
+
+  // BUG-002 / PRD h2.2-h3.1: a NEW-question upsert on a completed singleton
+  // must start a fresh interrogation (epoch 1, completed=false) instead of
+  // reusing the completed state whose one-time guard blocks every future
+  // completion record.
+  test("second interrogation after completion completes (BUG-002, PRD h3.1)", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    const first = completeInterrogation(st, ["q1"]);
+    expect(first).toEqual({ fired: true });
+
+    // NEW-question upsert on the completed singleton — no epoch needed:
+    // nothing exists on the fresh state to be stale (BUG-010 scope).
+    executeInterrogate({ questions: [qi("n1")] }, tuiCtx());
+
+    const second = completeInterrogation(getState()!, ["n1"]);
+    expect(second).toEqual({ fired: true }); // failed pre-fix: 'already-completed'
+  });
+
+  test("upsert on completed state swaps in a FRESH singleton (epoch 1, completed=false, empty snapshots)", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    expect(completeInterrogation(st, ["q1"])).toEqual({ fired: true });
+
+    const r = executeInterrogate({ questions: [qi("n1")] }, tuiCtx());
+    const s = getState()!;
+    expect(s).not.toBe(st); // a NEW instance, installed via setState
+    expect(s.epoch).toBe(1);
+    expect(s.completed).toBe(false);
+    expect(s.snapshots).toHaveLength(0);
+    expect(s.getQuestion("n1")!.status).toBe("open");
+    expect(s.orderedQuestions().map((q) => q.id)).toEqual(["n1"]);
+    expect(r.details.state.epoch).toBe(1);
+    expect(r.details.state.completed).toBe(false);
+  });
+
+  test("swap RETAINS the prior goal when the upsert omits goal (FR-30 anchors re-asks)", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    expect(completeInterrogation(st, ["q1"])).toEqual({ fired: true });
+
+    executeInterrogate({ questions: [qi("n1")] }, tuiCtx());
+    expect(getState()!.goal).toBe("first goal");
+  });
+
+  test("swap applies the CAPPED goal when the upsert supplies one", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    expect(completeInterrogation(st, ["q1"])).toEqual({ fired: true });
+
+    const r = executeInterrogate(
+      { goal: "x".repeat(500), questions: [qi("n1")] },
+      tuiCtx(),
+    );
+    expect(getState()!.goal).toHaveLength(400);
+    expect(r.details.state.goal).toHaveLength(400);
+    expect(r.content).toContain("goal truncated at 500 chars");
+  });
+
+  test("NON-completed existing state is NOT swapped (same instance, q1 intact)", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    executeInterrogate({ questions: [qi("q2")] }, tuiCtx());
+    const s = getState()!;
+    expect(s).toBe(st); // same instance — no swap on the normal path
+    expect(s.epoch).toBe(1); // epoch unchanged
+    expect(s.getQuestion("q1")).toBeDefined();
+    expect(s.getQuestion("q2")).toBeDefined();
+  });
+
+  test("guard untouched: deserialize restores completed=true (exactly-once across restart)", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    expect(completeInterrogation(st, ["q1"])).toEqual({ fired: true });
+    const json = JSON.parse(JSON.stringify(st.serialize()));
+    expect(InterrogationState.deserialize(json).completed).toBe(true);
+  });
+
+  test("stale upsert on a NON-completed state still throws StaleError (state unchanged)", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    expect(() =>
+      executeInterrogate({ epoch: 999, questions: [qi("q1", { rev: 1 })] }, tuiCtx()),
+    ).toThrow(StaleError);
+    expect(getState()).toBe(st);
+    expect(getState()!.completed).toBe(false);
   });
 });
 

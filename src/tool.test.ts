@@ -147,10 +147,46 @@ describe("executeInterrogate: upsert (TUI)", () => {
     expect(getState()!.goal).toBe("Ship it");
   });
 
-  test("existing state: goal is NOT replaced (fixed for the lifetime of the state)", () => {
+  test("existing state: goal on upsert REPLACES the stored goal (FR-30)", () => {
     const st = seedState("first goal");
     seedQ(st, "q1");
-    executeInterrogate({ goal: "second goal", questions: [qi("q1", { rev: 1 })] }, tuiCtx());
+    const r = executeInterrogate({ goal: "second goal", questions: [qi("q1", { rev: 1 })] }, tuiCtx());
+    expect(getState()!.goal).toBe("second goal");
+    expect(r.details.state.goal).toBe("second goal");
+  });
+
+  test("existing state: goal OMITTED on upsert leaves goal unchanged", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    executeInterrogate({ questions: [qi("q1", { rev: 1 })] }, tuiCtx());
+    expect(getState()!.goal).toBe("first goal");
+  });
+
+  test("create upsert stores the CAPPED goal, with truncation warning (BUG-009)", () => {
+    const r = executeInterrogate({ goal: "x".repeat(500), questions: [qi("q1")] }, tuiCtx());
+    expect(getState()!.goal).toHaveLength(400);
+    expect(r.details.state.goal).toHaveLength(400);
+    expect(r.content).toContain("goal truncated at 500 chars");
+  });
+
+  test("reuse upsert caps an over-budget goal and surfaces the warning", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    const r = executeInterrogate(
+      { goal: "y".repeat(500), questions: [qi("q1", { rev: 1 })] },
+      tuiCtx(),
+    );
+    expect(getState()!.goal).toHaveLength(400);
+    expect(r.details.state.goal).toHaveLength(400);
+    expect(r.content).toContain("goal truncated at 500 chars");
+  });
+
+  test("stale upsert carrying a goal throws StaleError and leaves goal untouched", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    expect(() =>
+      executeInterrogate({ goal: "evil", epoch: 999, questions: [qi("q1", { rev: 1 })] }, tuiCtx()),
+    ).toThrow(StaleError);
     expect(getState()!.goal).toBe("first goal");
   });
 

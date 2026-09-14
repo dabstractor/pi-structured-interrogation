@@ -104,7 +104,7 @@ export const QuestionSchema = Type.Object({
  * P1.M1.T3.S3 caps engine.
  */
 export const InterrogateParams = Type.Object({
-  goal: Type.Optional(Type.String({ description: "What these questions drive toward; shown in the panel header" })),
+  goal: Type.Optional(Type.String({ description: "What these questions drive toward; shown in the panel header. Updatable: a goal sent on ANY upsert replaces the current one (capped at config caps.goal, default 400 chars)." })),
   epoch: Type.Optional(Type.Integer({ description: "REQUIRED with questions/answers: the session epoch you last saw (guards stale updates)" })),
   questions: Type.Optional(Type.Array(QuestionSchema, { description: "Upsert. Omitting an existing id withdraws it" })),
   reopen: Type.Optional(Type.Boolean({ description: "Resurface the panel with existing state" })),

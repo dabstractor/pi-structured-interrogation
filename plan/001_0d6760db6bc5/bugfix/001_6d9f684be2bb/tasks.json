@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Goal becomes updatable with enforced 400-char cap (BUG-001, BUG-009)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-30 requires an agent-supplied, updatable goal. Today InterrogationState.goal is readonly with no setter and the tool's upsert path silently drops parsed.action.goal on later upserts, while applyCaps' truncated goal is discarded on the create path. Add a setGoal mutation seam and wire the tool to store the CAPPED goal on both create and update.",
               "subtasks": [
                 {
@@ -41,7 +41,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "tool.ts: apply capped goal on create AND update upserts",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

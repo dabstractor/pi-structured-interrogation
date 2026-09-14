@@ -197,9 +197,12 @@ function upsertWarnings(parsed: string[], capped: string[]): string[] {
  * - no existing state: read → synthesized empty view (`epoch 0`, NOT
  *   persisted); upsert → create + register the singleton with the parsed
  *   goal; record → plain Error; reopen → plain Error.
- * - existing state: the goal is FIXED for the lifetime of the state
- *   (`InterrogationState.goal` is readonly, no setter exists — verified), so
- *   a parsed goal on later upserts cannot replace it.
+ * - a parsed `goal` applies on upsert whenever present: the create path
+ *   constructs with the CAPPED goal and later upserts update it via
+ *   `state.setGoal(capped.goal)` (FR-30; BUG-001/BUG-009); an omitted goal
+ *   leaves the stored one unchanged. Truncation is owned by `applyCaps`
+ *   (caps.ts); its `goal truncated at {n} chars` warning surfaces in the
+ *   result via `upsertWarnings`.
  * - `assertFresh` runs before upsert/record mutation; StaleError propagates
  *   UNCAUGHT — its message is the model's self-heal signal (h2.22).
  * - upsert: caps → merge (fires `questions-upserted`/`changed` — the panel
@@ -245,20 +248,33 @@ export function executeInterrogate(
 
     // ---------------------------------------------------------- upsert
     case "upsert": {
-      const state: InterrogationState = existing ?? createInterrogationState(parsed.action.goal ?? "");
-      if (!existing) setState(state);
-
-      assertFresh(state, parsed.action); // StaleError propagates (h2.22)
-
+      // Caps first — applyCaps is PURE (structuredClone, no state mutation),
+      // so hoisting it above singleton creation changes nothing observable.
+      // capped.goal is the single truncation authority (BUG-009): never
+      // truncate the goal here.
       const capped = applyCaps(
         parsed.action.questions,
         parsed.action.goal ?? "",
         config,
         ctx.model?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
       );
+      // Create stores the CAPPED goal; goal-omitted creates still start from
+      // "" (explicit ternary keeps that semantic visible).
+      const state: InterrogationState =
+        existing ?? createInterrogationState(parsed.action.goal !== undefined ? capped.goal : "");
+      if (!existing) setState(state);
+
+      assertFresh(state, parsed.action); // StaleError propagates (h2.22) — BEFORE any mutation
+
       // Fires `questions-upserted` + `changed` — THE panel trigger
       // (P1.M2.T2.S1 lifecycle). This executor must not open anything.
       applyUpsert(state, capped.questions.map(toMergeQuestion));
+
+      // FR-30 (BUG-001): a goal on ANY upsert replaces the stored one —
+      // already capped above. Omitted goal → unchanged (never wipe to "").
+      // This emits a second `changed` after applyUpsert's — expected per
+      // setGoal's contract (always emits; callers gate). Do NOT coalesce.
+      if (existing && parsed.action.goal !== undefined) state.setGoal(capped.goal);
 
       const serialized = state.serialize();
       if (isNonTui(ctx.mode, ctx.hasUI)) {

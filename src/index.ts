@@ -22,7 +22,8 @@
  * completion trigger into its onAfterClosePass seam (P1.M2.T2.S2 — h3.9:
  * inject the full interrogation-completion record once, dismiss the panel,
  * clear in-memory state). The panel host and message renderers land in later
- * milestones.
+ * milestones. Persistence mirror (P1.M7.T1.S1): debounced
+ * `interrogation-state` custom-entry appends + session_shutdown flush.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createCompletionTrigger } from "./completion.js";
@@ -33,6 +34,7 @@ import { DraftStore } from "./draft-store.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
 import { resumePanel } from "./panel/suspend.js";
+import { createStateMirror } from "./persistence.js";
 import { getState } from "./state.js";
 import { createInterrogateTool } from "./tool.js";
 
@@ -65,6 +67,19 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       },
     }),
   });
+
+  // P1.M7.T1.S1 — storage layer 3 (h2.40, FR-27): mirror every state mutation
+  // into `interrogation-state` custom entries — an append-only audit trail
+  // NOT in LLM context — as the fallback reconstruction (P1.M7.T1.S2) reads
+  // when compaction drops the tool-result entry that carried canonical
+  // details.state (Q37 residue). Debounced 2s per mutation window; the
+  // session_shutdown handler (all reasons) flushes a pending window
+  // synchronously. The mirror resolves the state singleton lazily — it does
+  // not exist until the first interrogate upsert (tool.ts setState). No
+  // extension dispose seam exists in this factory, so mirror.dispose()
+  // stays available-but-unwired (subscriptions die with the runtime).
+  const mirror = createStateMirror(pi);
+  pi.on("session_shutdown", () => mirror.flush());
 
   // P1.M2.T3.S1 — debug commands for scripted verification (h2.50): share
   // the tool executor / submission path so keyboard-driven runs are evidence

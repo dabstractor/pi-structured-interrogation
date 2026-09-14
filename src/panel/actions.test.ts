@@ -581,6 +581,125 @@ describe("submit — flush pending answers", () => {
       sendMessage.mock.invocationCallOrder[0],
     );
   });
+
+  // BUG-008 regression (h2.2 Issue 8): after an agent rule-2 re-ask, the raw
+  // diff contains the agent's own answer reset (old value → "(unanswered)")
+  // because computeDiff is status-blind. Submit must (a) NOT ship the
+  // re-asked question's preserved draft and (b) NOT list the reset in the
+  // model-visible delta — while keeping the single snapshot/bump/delivery
+  // contract intact.
+  test("bug008_draft_of_reasked_question_survives_submit_that_ships_other_questions", () => {
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    // First submit consumes q1's answer — the ring baseline now holds q1
+    // ANSWERED, which is what makes the re-ask produce a phantom diff entry.
+    expect(submit(panel, deps)).toBe(true);
+    expect(state.epoch).toBe(2);
+
+    // Agent rule-2 re-ask of q1 (merge.ts: content change → status
+    // "reasked", answer DELETED) — wholesale replace, exactly the shape
+    // merge.ts hands upsertQuestion. The store preserves the user's draft
+    // (existing R4 behavior on the re-ask itself).
+    state.upsertQuestion({ ...choiceQ("q1", { recommendation: "a" }), rev: 2, status: "reasked" });
+    store.setDraft("q1", "my elaboration draft");
+
+    // User answers q2 and submits — shipping NOTHING for q1.
+    state.applyAnswer("q2", { value: "b", at: T0 });
+    const snapsBefore = state.snapshots.length;
+    const epochBefore = state.epoch;
+    expect(submit(panel, deps)).toBe(true);
+
+    // (a) The re-asked question's draft SURVIVED (R4: no silent destruction).
+    expect(store.getDraft("q1")).toBe("my elaboration draft");
+    // (b) The delta lists ONLY the user shipment — no phantom q1 reset entry
+    // in the content line nor in details.changed.
+    expect(sendMessage).toHaveBeenCalledTimes(2); // one per real submit
+    const msg = sendMessage.mock.calls[1][0] as {
+      content: string;
+      details: { changed: Array<{ id: string }> };
+    };
+    expect(msg.content).toContain("q2");
+    expect(msg.content).not.toContain("(unanswered)");
+    expect(msg.details.changed.map((e) => e.id)).toEqual(["q2"]);
+    // (c) Side-effect contract unchanged: +1 snapshot, +1 epoch, once.
+    expect(state.snapshots).toHaveLength(snapsBefore + 1);
+    expect(state.epoch).toBe(epochBefore + 1);
+  });
+
+  test("bug008_zero_user_pending_pure_agent_reset_flashes_and_ships_nothing", () => {
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+    expect(submit(panel, deps)).toBe(true); // baseline holds q1 answered
+
+    // Rule-2 re-ask resets q1; the ONLY diff entry is the agent's own reset.
+    state.upsertQuestion({ ...choiceQ("q1", { recommendation: "a" }), rev: 2, status: "reasked" });
+    store.setDraft("q1", "still here");
+    panel.batchNote = "held note"; // R3: stays held when nothing ships
+
+    const snapsBefore = state.snapshots.length;
+    const epochBefore = state.epoch;
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(panel.footerFlash?.text).toBe("nothing to submit"); // exact h2.37 string
+    expect(sendMessage).toHaveBeenCalledTimes(1); // only the first submit
+    expect(state.snapshots).toHaveLength(snapsBefore); // NO snapshot
+    expect(state.epoch).toBe(epochBefore); // NO epoch bump
+    expect(store.getDraft("q1")).toBe("still here"); // draft intact
+    expect(panel.batchNote).toBe("held note"); // held, never dropped (R3)
+  });
+
+  test("bug008_shipped_draft_is_destroyed_but_unshipped_neighbor_survives", () => {
+    // Guard against over-preserving: a draft whose id the user DOES ship is
+    // destroyed; a neighbor's draft (id not pending) survives even though
+    // the buggy diff.changed-based flush would also have considered it.
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 }); // only q1 pending
+    const store = new DraftStore();
+    store.setDraft("q1", "ships with q1");
+    store.setDraft("q2", "q2 is not being shipped");
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(store.getDraft("q1")).toBeUndefined(); // shipped → destroyed (R4)
+    expect(store.getDraft("q2")).toBe("q2 is not being shipped"); // not shipped → survives
+  });
+
+  test("bug008_edited_archived_entry_still_ships_ac13", () => {
+    // AC-13 guard: the BUG-008 filter must never drop a genuine user edit of
+    // an archived (closed) answer — its entry carries a real answer, so the
+    // `to !== "(unanswered)"` half keeps it, and the (changed) marker stays.
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    state.setStatus("q1", "closed"); // archived with its answer (h2.38)
+    state.applyAnswer("q2", { value: "a", at: T0 });
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+    expect(submit(panel, deps)).toBe(true); // baseline: q1 closed/a, q2 shipped
+
+    // User edits the closed answer → re-marked answered (pending), new value.
+    state.applyAnswer("q1", { value: "b", at: T0 });
+    expect(submit(panel, deps)).toBe(true);
+
+    const msg = sendMessage.mock.calls[1][0] as {
+      content: string;
+      details: { changed: Array<{ id: string; to: string; editedArchived: boolean }> };
+    };
+    expect(msg.details.changed).toHaveLength(1);
+    expect(msg.details.changed[0]?.id).toBe("q1");
+    expect(msg.details.changed[0]?.editedArchived).toBe(true); // AC-13 marker data
+    expect(msg.details.changed[0]?.to).toBe("Beta"); // a real answer, NOT "(unanswered)"
+    expect(msg.content).toContain("q1: Beta (changed)"); // renderer marker source
+  });
 });
 
 describe("submit — draft flush (R4, P1.M4.T2.S1)", () => {

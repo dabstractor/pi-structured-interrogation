@@ -300,9 +300,16 @@ function stepQuestion(panel: InterrogationPanel, delta: number): boolean {
  * panel submit itself performs NO mutation (answers were already applied by
  * accept).
  *
- * - Zero pending → footer flash "nothing to submit" (h2.37) and NOTHING
- *   else: no snapshot, no epoch bump, no delivery — and a held batch note
- *   stays held (R3: it ships with the NEXT submission).
+ * - Zero user-shipped change → footer flash "nothing to submit" (h2.37) and
+ *   NOTHING else: no snapshot, no epoch bump, no delivery — and a held batch
+ *   note stays held (R3: it ships with the NEXT submission). BUG-008: a diff
+ *   consisting solely of agent-caused re-ask resets ships nothing.
+ * - BUG-008 (h2.2 Issue 8): the model-visible delta lists ONLY user
+ *   shipments, and text drafts ship ONLY for ids the user actually shipped
+ *   (R4/commitment 6). Agent rule-2 re-ask resets (answer → undefined on
+ *   content change) DO appear in the raw diff — computeDiff is status-blind
+ *   (answer signatures only) — so submit filters them out of the card passed
+ *   to buildSubmission and never ships their preserved drafts.
  * - Otherwise → buildSubmission (which performs takeSnapshot + bumpEpoch
  *   itself, EXACTLY once — callers must never snapshot/bump around it) with
  *   the held batch note as the model-visible `NOTE:` line + `details.note`
@@ -313,9 +320,28 @@ function stepQuestion(panel: InterrogationPanel, delta: number): boolean {
 export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   const pre = submissionBaseline(panel);
   const diff = computeDiff(pre, panel.state.serialize());
-  if (diff.changed.length === 0) {
+  // BUG-008: the user-shipped set is the pending (answered) ids, read BEFORE
+  // markSubmitted below flips their statuses. The diff is status-blind
+  // (answer signatures only), so after an agent rule-2 re-ask the baseline
+  // snapshot still holds the OLD answer while live state has it reset — q1
+  // then shows up in diff.changed as `old answer → (unanswered)` (the
+  // "(unanswered)" literal is snapshots.ts's module-private UNANSWERED const)
+  // even though the user shipped nothing for it.
+  const pendingIds = panel.state.orderedQuestions().filter((q) => q.status === "answered").map((q) => q.id);
+  // BUG-008 (b): drop agent-caused resets from the model-visible delta — an
+  // entry the user did NOT ship whose answer went to "(unanswered)" is by
+  // construction the agent's own merge-rule-2 reset (merge.ts). The
+  // `pendingIds.includes(e.id) ||` disjunct is load-bearing: a genuinely
+  // pending id must never be dropped even if its `to` ever renders as
+  // "(unanswered)". editedArchived (AC-13) entries carry a real answer and
+  // stay. buildSubmission derives k from changed.length, so the shipped card
+  // and its content line stay consistent.
+  const userChanged = diff.changed.filter(
+    (e) => pendingIds.includes(e.id) || !(e.to === "(unanswered)"),
+  );
+  if (diff.changed.length === 0 || userChanged.length === 0) {
     panel.flash("nothing to submit");
-    return true; // held note stays held — nothing shipped (R3)
+    return true; // held note stays held — nothing user-shipped (R3)
   }
   // Soft-gate submit warning (P1.M5.T3.S1, Q32=B / h2.56): DISPLAY-ONLY.
   // Count unanswered gate-group questions; when config.gateWarnings is on
@@ -341,18 +367,26 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // submit flush applies this to all pending (answered) ids before the
   // epoch bump"). WITHOUT this, the h2.44 close pass (which archives only
   // status "submitted" ids after agent_settled) would never fire and
-  // completion could never trigger (AC-3 / AC-14). Runs AFTER the
-  // zero-pending early return: a no-change submit flushes nothing. The
+  // completion could never trigger (AC-3 / AC-14). Runs AFTER the early
+  // return: a submit with nothing user-shipped flushes nothing. The
   // diff above is status-blind (answer signatures only), so the flush
-  // cannot change it.
-  const pendingIds = panel.state.orderedQuestions().filter((q) => q.status === "answered").map((q) => q.id);
+  // cannot change it. (pendingIds was captured ABOVE the early return —
+  // before this flush mutates statuses.)
   if (pendingIds.length > 0) markSubmitted(panel.state, pendingIds);
-  const msg = buildSubmission(panel.state, diff, note || undefined);
-  // R4/h2.45: text drafts ship with the answers, then their slots are
-  // destroyed. Placed AFTER buildSubmission (the message is built from
-  // state, not drafts) so every path is failure-safe; the zero-pending
-  // early-return above never reaches this.
-  panel.drafts?.shipDrafts?.(diff.changed.map((c) => c.id));
+  // BUG-008 (b): pass the FILTERED card so both the "Submitted {k}:" line
+  // and details.changed list only user shipments ({ ...diff } spread keeps
+  // epoch and any other card fields). buildSubmission still performs its own
+  // takeSnapshot + bumpEpoch exactly once — never reorder around it.
+  const msg = buildSubmission(panel.state, { ...diff, changed: userChanged }, note || undefined);
+  // BUG-008 (a) / R4-h2.45: text drafts ship ONLY for ids the user actually
+  // shipped (pendingIds ∩ hasDraft) — never for diff.changed ids, which can
+  // include agent rule-2 resets whose preserved drafts must survive. hasDraft
+  // is optional on the store seam: when absent, ship the full user-shipped
+  // set (?? true) — shipDrafts is a no-op for ids without slots either way.
+  // Still placed AFTER buildSubmission (the message is built from state, not
+  // drafts) so every path is failure-safe; the early-return above never
+  // reaches this.
+  panel.drafts?.shipDrafts?.(pendingIds.filter((id) => panel.drafts?.hasDraft?.(id) ?? true));
   // SubmitDeps satisfies Pick<ExtensionAPI, "sendMessage"> structurally
   // (unknown-typed params accept any message/options shape).
   deliverSubmission(deps, msg, { isIdle: deps.isIdle });

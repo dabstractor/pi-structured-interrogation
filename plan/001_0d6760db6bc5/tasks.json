@@ -939,7 +939,7 @@
               "type": "Task",
               "id": "P1.M7.T3",
               "title": "Cards: message/entry renderers (renderers.ts)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "interrogation-submission diff card (user-only), interrogation-completion recap card, interrogation-state dimmed mirror row.",
               "subtasks": [
                 {
@@ -962,7 +962,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T3.S2",
                   "title": "Completion recap card + state entry renderer",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S3",

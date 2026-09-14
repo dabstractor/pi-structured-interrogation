@@ -14,16 +14,28 @@
  * truncation, epoch footer), (e) collapsed 80-col truncation + entry cap
  * rollup, (f) defensive fallbacks (no details / no card / sparse changed),
  * (g) zero-changes card, plus the registerSubmissionCardRenderer shim.
+ *
+ * P1.M7.T3.S2 appends: buildCompletionRecapCard (completion recap card,
+ * AC-14) and buildStateEntryMarker (dim state mirror entry marker) suites
+ * + their two registration shims — same stub-theme patterns as above.
  */
 import { describe, expect, test } from "vitest";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text, visibleWidth } from "@earendil-works/pi-tui";
+import type { CompletionRecapEntry } from "./delivery.js";
+import { INTERROGATION_STATE_ENTRY_TYPE } from "./persistence.js";
 import {
+  buildCompletionRecapCard,
+  buildStateEntryMarker,
   buildSubmissionCard,
   COLLAPSED_ENTRY_CAP,
   COLLAPSED_LINE_BUDGET,
+  registerCompletionRecapRenderer,
+  registerStateEntryRenderer,
   registerSubmissionCardRenderer,
   type CardRenderOptions,
+  type CompletionRecapDetails,
+  type StateMirrorData,
   type SubmissionCardMessage,
 } from "./renderers.js";
 import type { DiffEntry, SubmissionCardData } from "./snapshots.js";
@@ -215,5 +227,201 @@ describe("registerSubmissionCardRenderer", () => {
     // The shim renders a real card payload through the pure builder.
     const out = renderer(msg(card()), collapsed, stubTheme) as TextLike;
     expect(lines(out)).toContainEqual(expect.stringContaining("Database: sqlite → postgres"));
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════
+ * P1.M7.T3.S2 — completion recap card + state mirror entry marker
+ * ══════════════════════════════════════════════════════════════════ */
+
+function recap(overrides: Partial<CompletionRecapEntry> = {}): CompletionRecapEntry {
+  return { id: "q1", title: "Database", answer: "postgres", star: false, ...overrides };
+}
+
+function recapDetails(overrides: Partial<CompletionRecapDetails> = {}): CompletionRecapDetails {
+  return {
+    goal: "Choose a persistence stack",
+    groups: [
+      {
+        group: "Storage",
+        questions: [recap(), recap({ id: "q2", title: "Cache", answer: "redis", star: true })],
+      },
+      { group: "Process", questions: [recap({ id: "q3", title: "Runner", answer: "pm2" })] },
+    ],
+    notes: [],
+    withdrawnMoot: [],
+    completedAt: "2026-02-14T10:30:00.000Z",
+    epoch: 7,
+    ...overrides,
+  };
+}
+
+describe("buildCompletionRecapCard", () => {
+  test("collapsed (AC-14): goal header, every grouped question + answer, ★, completed footer, moot hint", () => {
+    const d = recapDetails({ withdrawnMoot: [{ id: "q9", status: "withdrawn", reason: "superseded" }] });
+    const ls = lines(buildCompletionRecapCard(d, collapsed, stubTheme, "FALLBACK"));
+    expect(ls[0]).toContain("INTERROGATION COMPLETE — Choose a persistence stack");
+    expect(ls).toContainEqual(expect.stringContaining("[Storage] q1 Database: postgres"));
+    expect(ls).toContainEqual(expect.stringContaining("[Storage] q2 Cache: redis ★"));
+    expect(ls).toContainEqual(expect.stringContaining("[Process] q3 Runner: pm2"));
+    expect(ls.some((l) => l.startsWith("completed "))).toBe(true);
+    expect(ls).toContainEqual("1 withdrawn/moot");
+    // Reasons ship expanded-only: collapsed carries the count hint only.
+    expect(ls.some((l) => l.includes("superseded"))).toBe(false);
+  });
+
+  test("★ renders only on starred answers, accent-styled", () => {
+    const tagged = lines(buildCompletionRecapCard(recapDetails(), collapsed, tagTheme, ""));
+    expect(tagged.filter((l) => l.includes("[accent]★[/]")).length).toBe(1);
+    expect(tagged.some((l) => l.includes("q2 Cache: redis [accent]★[/]"))).toBe(true);
+    expect(tagged.some((l) => l.includes("q1 Database: postgres"))).toBe(true);
+    expect(tagged.some((l) => l.includes("q1 Database: postgres ★"))).toBe(false);
+  });
+
+  test("expanded: free-text in full, dim answeredAt, NOTES, withdrawn/moot reasons, epoch", () => {
+    const longFree = "f".repeat(300);
+    const d = recapDetails({
+      groups: [
+        { group: "Storage", questions: [recap({ freeText: longFree, answeredAt: "2026-02-14T09:00:00.000Z" })] },
+      ],
+      notes: ["prefer sqlite compat", "second batch note"],
+      withdrawnMoot: [
+        { id: "q8", status: "moot", reason: "answered by q1" },
+        { id: "q9", status: "withdrawn", reason: "user request" },
+      ],
+    });
+    const ls = lines(buildCompletionRecapCard(d, expanded, stubTheme, ""));
+    expect(ls.some((l) => l.includes(longFree))).toBe(true); // untruncated
+    expect(ls.some((l) => l.startsWith("  answered "))).toBe(true);
+    expect(ls).toContainEqual(expect.stringContaining("NOTE: prefer sqlite compat"));
+    expect(ls).toContainEqual(expect.stringContaining("NOTE: second batch note"));
+    expect(ls.some((l) => l.includes("Withdrawn/moot:"))).toBe(true);
+    expect(ls).toContainEqual(expect.stringContaining("q8 (moot: answered by q1)"));
+    expect(ls).toContainEqual(expect.stringContaining("q9 (withdrawn: user request)"));
+    expect(ls).toContainEqual("epoch 7");
+    // The collapsed count hint is replaced by the full section.
+    expect(ls.some((l) => /^\d+ withdrawn\/moot$/.test(l))).toBe(false);
+  });
+
+  test("expanded with nothing withdrawn/moot and no notes: `(none)` and no NOTE lines", () => {
+    const ls = lines(buildCompletionRecapCard(recapDetails(), expanded, stubTheme, ""));
+    expect(ls.some((l) => l.trim() === "(none)")).toBe(true);
+    expect(ls.some((l) => l.includes("NOTE:"))).toBe(false);
+  });
+
+  test("collapsed truncation: long free-text line cut to the visible budget", () => {
+    const d = recapDetails({
+      groups: [{ group: "Storage", questions: [recap({ freeText: "f".repeat(300) })] }],
+    });
+    const line = lines(buildCompletionRecapCard(d, collapsed, stubTheme, "")).find((l) =>
+      l.includes("Database:"),
+    );
+    expect(line).toBeDefined();
+    expect(visibleWidth(line as string)).toBeLessThanOrEqual(COLLAPSED_LINE_BUDGET);
+    expect(line).toContain("Database: postgres — fff");
+  });
+
+  test("defensive: undefined details or empty groups → plain fallback content text", () => {
+    const content = "Interrogation complete:\nq1: postgres\nq2: redis";
+
+    const noDetails = buildCompletionRecapCard(undefined, collapsed, stubTheme, content);
+    expect(noDetails).toBeInstanceOf(Text);
+    expect(lines(noDetails).join("\n")).toBe(content);
+
+    const emptyGroups = buildCompletionRecapCard(recapDetails({ groups: [] }), expanded, stubTheme, content);
+    expect(lines(emptyGroups).join("\n")).toBe(content);
+  });
+});
+
+describe("registerCompletionRecapRenderer", () => {
+  test("registers the exact customType and routes through buildCompletionRecapCard", () => {
+    const seen: Array<[string, (m: unknown, o: CardRenderOptions, t: Theme) => unknown]> = [];
+    const pi = {
+      registerMessageRenderer: (customType: string, renderer: (typeof seen)[0][1]) => {
+        seen.push([customType, renderer]);
+      },
+    } as unknown as Pick<ExtensionAPI, "registerMessageRenderer">;
+
+    registerCompletionRecapRenderer(pi);
+
+    expect(seen).toHaveLength(1);
+    const [customType, renderer] = seen[0] as [string, (typeof seen)[0][1]];
+    expect(customType).toBe("interrogation-completion");
+
+    // Real payload → card; sparse message → content fallback.
+    const out = renderer({ content: "RAW", details: recapDetails() }, collapsed, stubTheme) as TextLike;
+    expect(lines(out)[0]).toContain("INTERROGATION COMPLETE");
+    const fb = renderer({ content: "RAW", details: undefined }, collapsed, stubTheme) as TextLike;
+    expect(lines(fb).join("\n")).toBe("RAW");
+  });
+});
+
+describe("buildStateEntryMarker", () => {
+  test("renders exactly one dimmed `· interrogation state @ epoch {n}` line", () => {
+    const out = buildStateEntryMarker(
+      { epoch: 5, at: "2026-02-14T10:30:00.000Z" },
+      { expanded: false },
+      stubTheme,
+    );
+    const ls = lines(out);
+    expect(ls).toHaveLength(1);
+    expect(ls[0]).toBe("· interrogation state @ epoch 5");
+  });
+
+  test("the whole line passes through theme.fg('dim', …)", () => {
+    const ls = lines(buildStateEntryMarker({ epoch: 5 }, { expanded: false }, tagTheme));
+    expect(ls[0]).toBe("[dim]· interrogation state @ epoch 5[/]");
+  });
+
+  test("expanded adds the flush timestamp as a second dim line; collapsed stays one line", () => {
+    const data: StateMirrorData = { epoch: 5, at: "2026-02-14T10:30:00.000Z" };
+    const exp = lines(buildStateEntryMarker(data, { expanded: true }, stubTheme));
+    expect(exp).toHaveLength(2);
+    expect(exp[1]).toBeTruthy();
+    expect(exp[1]).not.toContain("epoch");
+
+    const noAt = lines(buildStateEntryMarker({ epoch: 5 }, { expanded: true }, stubTheme));
+    expect(noAt).toHaveLength(1);
+  });
+
+  test("defensive: missing data or epoch → `epoch ?`; never renders the state dump", () => {
+    expect(lines(buildStateEntryMarker(undefined, { expanded: false }, stubTheme))[0]).toBe(
+      "· interrogation state @ epoch ?",
+    );
+    expect(lines(buildStateEntryMarker({ at: "2026-02-14T10:30:00.000Z" }, { expanded: false }, stubTheme))[0]).toBe(
+      "· interrogation state @ epoch ?",
+    );
+
+    // A realistic InterrogationStateEntryData payload (with a serialized
+    // state attached) must not leak any of it into the marker.
+    const full = {
+      epoch: 3,
+      at: "2026-02-14T10:30:00.000Z",
+      state: { STATE_DUMP_SENTINEL: true },
+    } as unknown as StateMirrorData;
+    const ls = lines(buildStateEntryMarker(full, { expanded: true }, stubTheme));
+    expect(ls[0]).toBe("· interrogation state @ epoch 3");
+    expect(ls.join("\n")).not.toContain("STATE_DUMP_SENTINEL");
+  });
+});
+
+describe("registerStateEntryRenderer", () => {
+  test("registers the persistence const customType and routes through buildStateEntryMarker", () => {
+    const seen: Array<[string, (e: unknown, o: { expanded: boolean }, t: Theme) => unknown]> = [];
+    const pi = {
+      registerEntryRenderer: (customType: string, renderer: (typeof seen)[0][1]) => {
+        seen.push([customType, renderer]);
+      },
+    } as unknown as Pick<ExtensionAPI, "registerEntryRenderer">;
+
+    registerStateEntryRenderer(pi);
+
+    expect(seen).toHaveLength(1);
+    const [customType, renderer] = seen[0] as [string, (typeof seen)[0][1]];
+    expect(customType).toBe("interrogation-state");
+    expect(customType).toBe(INTERROGATION_STATE_ENTRY_TYPE);
+
+    const out = renderer({ data: { epoch: 9 } }, { expanded: false }, stubTheme) as TextLike;
+    expect(lines(out)[0]).toBe("· interrogation state @ epoch 9");
   });
 });

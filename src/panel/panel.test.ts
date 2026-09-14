@@ -106,6 +106,8 @@ interface MockPi {
   calls: CustomCall[];
   /** Fire every handler registered for `event` (copy-first). */
   emit(event: string, payload?: Record<string, unknown>): void;
+  /** The pi.sendMessage transport mock (NEW-001 submit wiring). */
+  sendMessage: Mock;
   on: Mock<[event: string, handler: Handler], () => void>;
   requestRender: Mock;
 }
@@ -163,7 +165,10 @@ function makeMockPi(mode: string | undefined = "tui"): MockPi {
     };
   });
 
-  const surface = { mode, ui: { custom }, on };
+  const sendMessage = vi.fn();
+  // The real surface carries the submit transport (NEW-001) — mock it so
+  // surfaceSubmitDeps can bind the production path in these tests too.
+  const surface = { mode, ui: { custom }, on, sendMessage };
   // Cast mirrors lifecycle.test.ts's mock convention: the mock's call
   // signature is a widened superset of the surface the host uses.
   const pi = surface as unknown as PiUISurface & Pick<ExtensionAPI, "on">;
@@ -176,6 +181,7 @@ function makeMockPi(mode: string | undefined = "tui"): MockPi {
     custom,
     calls,
     on,
+    sendMessage,
     requestRender,
     emit(event: string, payload: Record<string, unknown> = {}): void {
       for (const handler of [...(handlers.get(event) ?? [])]) handler({ type: event, ...payload }, ctx);
@@ -184,18 +190,24 @@ function makeMockPi(mode: string | undefined = "tui"): MockPi {
 }
 
 type MockLifecycle = {
-  lifecycle: { onPanelDismiss: (cb: () => void) => void; dismissPanel: () => void };
+  lifecycle: {
+    onPanelDismiss: (cb: () => void) => void;
+    dismissPanel: () => void;
+    noteSubmissionDelivered: Mock;
+  };
   dismiss: () => void;
 };
 
 function makeMockLifecycle(): MockLifecycle {
   let cb: (() => void) | undefined;
+  const noteSubmissionDelivered = vi.fn();
   return {
     lifecycle: {
       onPanelDismiss: (registered) => {
         cb = registered;
       },
       dismissPanel: () => cb?.(),
+      noteSubmissionDelivered,
     },
     dismiss: () => cb?.(),
   };
@@ -836,6 +848,7 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
   let host: PanelHost;
   let mock: MockPi;
   let state: InterrogationState;
+  let lifecycle: ReturnType<typeof makeMockLifecycle>;
 
   const endEvent = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     toolCallId: "call-1",
@@ -845,7 +858,8 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
   });
 
   function arm(): void {
-    host = createPanelHost(makeMockLifecycle().lifecycle);
+    lifecycle = makeMockLifecycle();
+    host = createPanelHost(lifecycle.lifecycle);
     mock = makeMockPi();
     state = createInterrogationState("goal");
     setState(state);
@@ -854,6 +868,52 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
 
   afterEach(() => {
     resetState();
+  });
+
+  test("NEW-001 wiring: ctrl+s on a production-opened panel delivers the submission", () => {
+    arm();
+    state.upsertQuestion(choiceQ("q1"));
+    mock.emit("tool_execution_end", endEvent());
+    const panel = mock.calls[0]!.component;
+    // The production open path (maybeAutoOpen → openPanel → InterrogationPanel)
+    // must carry a SubmitDeps — no injected mocks.
+    expect(panel.delivery).toBeDefined();
+    panel.currentId = "q1";
+    panel.handleInput("\r"); // accept option 'a' → answered (works pre-fix too)
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    panel.handleInput("\x13"); // ctrl+s — the heartbeat (FR-3/AC-2)
+    // The submission fires: delta reaches pi.sendMessage, epoch bumps exactly
+    // once, the flush moves the answer to submitted, and the h2.44 line-1
+    // lifecycle hook resets the auto-close engine for the settle.
+    expect(mock.sendMessage).toHaveBeenCalledTimes(1);
+    const sent = mock.sendMessage.mock.calls[0][0] as { customType: string; content: string };
+    expect(sent.customType).toBe("interrogation-submission");
+    expect(sent.content).toContain("q1: Alpha");
+    expect(sent.content).toContain("(state epoch 2)");
+    expect(state.epoch).toBe(2);
+    expect(state.getQuestion("q1")?.status).toBe("submitted");
+    expect(lifecycle.lifecycle.noteSubmissionDelivered).toHaveBeenCalledTimes(1);
+  });
+
+  test("NEW-001 hardening: a stale open record is re-armed when the host says nothing is live", () => {
+    // Simulate a record left open by a dead surface (panel never resolved):
+    // open a panel on surface A, then drive maybeAutoOpen with a host whose
+    // isOpen() is false. The upsert must still mount the panel.
+    host = createPanelHost(makeMockLifecycle().lifecycle);
+    mock = makeMockPi();
+    state = createInterrogationState("goal");
+    setState(state);
+    maybeAutoOpen(mock.pi, DEFAULT_CONFIG, host);
+    mock.emit("tool_execution_end", endEvent());
+    expect(host.isOpen()).toBe(true); // record now claims open
+
+    const staleHost = { isOpen: () => false, isSuspended: () => false } as unknown as PanelHost;
+    const second = makeMockPi();
+    state.upsertQuestion(choiceQ("q1"));
+    maybeAutoOpen(second.pi, DEFAULT_CONFIG, staleHost);
+    second.emit("tool_execution_end", endEvent({ toolCallId: "call-9" }));
+    expect(second.custom).toHaveBeenCalledTimes(1);
+    expect(second.calls[0]!.component).toBeDefined();
   });
 
   test("test_maybe_auto_open_opens_on_first_interrogate_end", () => {

@@ -294,6 +294,48 @@ function stepQuestion(panel: InterrogationPanel, delta: number): boolean {
 }
 
 /**
+ * Submit-time draft reconciliation (NEW-002 / NEW-003 — h2.45 "destroyed
+ * only by submission — text answers ship", R4): fold the user's typed
+ * drafts into state BEFORE the pending set and diff are computed, so a
+ * ctrl+s delivers everything the user actually typed.
+ *
+ * - `type:"text"` questions: the draft IS the answer — there is no other
+ *   apply affordance in the TUI (stage-1 enter only saves the draft;
+ *   answers[] is ignored in TUI mode). An active (open or reasked) text
+ *   question with a draft gets `applyAnswer({ value: draftText })`, which
+ *   moves it to the pending "answered" state and into the submission.
+ *   Re-asks included deliberately: the user's re-typed text (stage-1 enter
+ *   on the editor) is the text-question counterpart of a choice re-accept —
+ *   without it a re-asked text question could NEVER be re-answered and
+ *   would block completion forever.
+ * - Choice questions: the draft is an elaboration of the chosen option —
+ *   attach it as `answer.text` on the pending (answered) set only, where
+ *   the answer's value is unchanged. Preserved drafts on re-asked questions
+ *   are NEVER shipped (BUG-008: an agent rule-2 reset must not be overridden
+ *   without explicit user re-affirmation, which for choice is re-accept).
+ *
+ * Empty/whitespace-only drafts are skipped (an empty slot is an absent
+ * draft — the same rule as DraftStore.hasDraft). applyAnswer is the
+ * sanctioned raw primitive (no ripple — this folds the user's OWN typed
+ * text into their OWN pending answer; values are never changed here).
+ */
+function reconcileDraftsForSubmit(panel: InterrogationPanel): void {
+  for (const q of panel.state.orderedQuestions()) {
+    const text = panel.draftTextFor(q.id);
+    if (text === undefined || text.trim() === "") continue;
+    if (q.type === "text") {
+      if (q.status === "open" || q.status === "reasked") {
+        panel.state.applyAnswer(q.id, { value: text, at: new Date().toISOString() });
+      }
+      continue;
+    }
+    if (q.status === "answered" && q.answer !== undefined) {
+      panel.state.applyAnswer(q.id, { ...q.answer, text });
+    }
+  }
+}
+
+/**
  * Submit: flush answers pending since the last submission. The baseline is
  * the latest snapshot (or the empty pre-first-snapshot baseline); the diff
  * against the live serialize() describes exactly the pending set — the
@@ -318,6 +360,10 @@ function stepQuestion(panel: InterrogationPanel, delta: number): boolean {
  *   (h2.32 "cleared after shipping") — only a real delivery clears it.
  */
 export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
+  // NEW-002/NEW-003 (h2.45): typed drafts ship with the submission — text
+  // answers become the recorded answer, ✎ elaborations attach as answer.text
+  // — BEFORE the baseline/diff/pending set below are read.
+  reconcileDraftsForSubmit(panel);
   const pre = submissionBaseline(panel);
   const diff = computeDiff(pre, panel.state.serialize());
   // BUG-008: the user-shipped set is the pending (answered) ids, read BEFORE

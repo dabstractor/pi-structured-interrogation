@@ -1,0 +1,5 @@
+{
+  "hasIssues": true,
+  "issueCount": 4,
+  "summary": "All 12 round-1 bugs verified fixed (1028 tests green, typecheck clean, real-pi E2E passes), but 4 new issues found: ctrl+s submit is inert in production because no SubmitDeps is ever wired (critical); type:'text' questions cannot be answered from the panel and block completion forever (major); typed elaboration drafts are silently discarded at submit instead of shipping as answer.text (major); batch notes never reach the completion record (minor)."
+}

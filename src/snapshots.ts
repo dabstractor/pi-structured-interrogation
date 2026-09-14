@@ -106,10 +106,18 @@ function answerSignature(q: Question | undefined): string | undefined {
 function answerSummary(q: Question | undefined): string {
   const answer = q?.answer;
   if (q === undefined || answer === undefined) return UNANSWERED;
-  if (q.type === "choice") {
-    return q.options?.find((o) => o.value === answer.value)?.label ?? answer.value;
+  // Label-preferred for choice, raw value otherwise (text → the typed text).
+  const summary =
+    q.type === "choice"
+      ? (q.options?.find((o) => o.value === answer.value)?.label ?? answer.value)
+      : answer.value;
+  // NEW-003 (h2.45/R4): a shipped ✎ elaboration rides the delta and the
+  // diff card — same `{answer} — {free text}` grammar as the completion
+  // record (h2.46), so the model sees the reasoning, not just the label.
+  if (typeof answer.text === "string" && answer.text.trim() !== "") {
+    return `${summary} — ${answer.text}`;
   }
-  return answer.value;
+  return summary;
 }
 
 /**

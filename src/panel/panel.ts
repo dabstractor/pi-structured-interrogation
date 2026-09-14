@@ -210,6 +210,48 @@ export interface PiUISurface {
     getEditorText?(): string;
   };
   mode?: string;
+  /**
+   * Real submit transport (NEW-001) — the message channel the panel's
+   * ctrl+s delivery uses when no explicit `delivery` opt was supplied.
+   * Present on every real ExtensionContext; OPTIONAL so test fakes and
+   * RPC surfaces stay valid (submit stays inert without it, as before).
+   * Declared as a method so the real generic signature stays
+   * structurally compatible (bivariant method checks).
+   */
+  sendMessage?(message: unknown, options?: unknown): void;
+  /**
+   * Live idle probe (ExtensionContext.isIdle) read AT SUBMIT TIME for the
+   * delivery matrix. Optional: absent (test fakes) → treated as idle, the
+   * safe triggerTurn+followUp branch of delivery.ts's matrix.
+   */
+  isIdle?(): boolean;
+}
+
+/**
+ * Build the production SubmitDeps for a panel opened on `surface` (NEW-001):
+ * the transport is the surface's own sendMessage (ExtensionContext or the
+ * ExtensionAPI root — both carry it in a real session), the idle probe reads
+ * the surface LIVE at submit time (idle-status unknown → idle, the safe
+ * followUp branch of delivery.ts's matrix), and `noteSubmissionDelivered`
+ * threads the h2.44 line-1 lifecycle contract (supplied by createPanelHost
+ * from the real lifecycle; optional so bare surfaces/tests stay valid).
+ *
+ * @returns undefined when the surface carries no sendMessage — the panel
+ * then opens exactly as before this fix (inert submit; tests passing
+ * explicit `delivery` opts are unaffected).
+ */
+export function surfaceSubmitDeps(
+  surface: PiUISurface,
+  noteSubmissionDelivered?: () => void,
+): SubmitDeps | undefined {
+  if (typeof surface.sendMessage !== "function") return undefined;
+  const send = surface.sendMessage;
+  const deps: SubmitDeps = {
+    sendMessage: (msg, opts) => send.call(surface, msg, opts),
+    isIdle: () => (typeof surface.isIdle === "function" ? surface.isIdle() : true),
+  };
+  if (noteSubmissionDelivered !== undefined) deps.noteSubmissionDelivered = noteSubmissionDelivered;
+  return deps;
 }
 
 // ------------------------------------------------------- panel component
@@ -820,6 +862,17 @@ export class InterrogationPanel implements Component {
   }
 
   /**
+   * Freshest draft text for a question (submit-time reconciliation, NEW-002/
+   * NEW-003): the panel-local stage-1 slot first ({@link saveTextDraft}),
+   * falling back to the DraftStore seam — the same precedence as
+   * {@link focusTextField}'s seeding. Public so actions.ts's submit flow can
+   * read drafts without reaching into the private slot map.
+   */
+  draftTextFor(questionId: string): string | undefined {
+    return this.draftSlots.get(questionId)?.text ?? this.drafts?.getDraft(questionId);
+  }
+
+  /**
    * Blur path back to the options region (two-stage enter wiring is
    * P1.M4.T1.S2; the router/actions call this once landed).
    */
@@ -1119,6 +1172,13 @@ let phase: HostPhase = "closed";
 let currentPanel: InterrogationPanel | undefined;
 let activePi: PiUISurface | undefined;
 let lastOpts: OpenPanelOptions | undefined;
+/**
+ * Lifecycle submit hook (NEW-001) — captured by createPanelHost from the
+ * real lifecycle so the surface-derived SubmitDeps can honor the h2.44
+ * line-1 contract (noteSubmissionDelivered right after a real delivery).
+ * Undefined until a host exists / when the lifecycle lacks the hook.
+ */
+let hostNoteSubmissionDelivered: (() => void) | undefined;
 /** State instance currently wired for questions-upserted (for re-subscribe). */
 let upsertState: InterrogationState | undefined;
 /**
@@ -1175,6 +1235,7 @@ function suspendCurrent(): void {
 function resetHostRecord(): void {
   upsertState?.off("questions-upserted", handleUpserted);
   upsertState = undefined;
+  hostNoteSubmissionDelivered = undefined;
   // Full close (h2.0 commitment 3 tail): clear the reminder widget BEFORE
   // dropping the surface — activePi is nulled below, so this is the last
   // chance to leave no stale "…to resume /interrogate" line behind.
@@ -1197,9 +1258,17 @@ function resetHostRecord(): void {
 export function createPanelHost(lifecycle: {
   onPanelDismiss(cb: () => void): void;
   dismissPanel(): void;
+  /** Optional so test lifecycles stay valid; wired into the submit deps. */
+  noteSubmissionDelivered?(): void;
 }): PanelHost {
   resetHostRecord();
   lifecycle.onPanelDismiss(() => suspendCurrent());
+  // NEW-001: capture the h2.44 line-1 hook so every surface-derived
+  // SubmitDeps resets the auto-close engine's per-run flags after delivery.
+  hostNoteSubmissionDelivered =
+    typeof lifecycle.noteSubmissionDelivered === "function"
+      ? () => lifecycle.noteSubmissionDelivered?.()
+      : undefined;
   return {
     isOpen: () => phase === "open",
     isSuspended: () => phase === "suspended",
@@ -1237,8 +1306,17 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   if (pi.mode !== undefined && pi.mode !== "tui") return false;
   if (phase === "open") return false;
 
+  // NEW-001 — production submit wiring: when the caller supplied no explicit
+  // delivery, derive the SubmitDeps from THIS surface (every real open path —
+  // maybeAutoOpen, reconstruction auto-open, upsert-reopen/resume — rides a
+  // surface carrying sendMessage). One defaulting site covers all of them;
+  // lastOpts stores the RESOLVED opts so handleUpserted/resumeOpenPanel
+  // spreads keep the transport across suspend/resume (R4).
+  const delivery = opts.delivery ?? surfaceSubmitDeps(pi, hostNoteSubmissionDelivered);
+  const resolvedOpts: OpenPanelOptions = { ...opts, delivery };
+
   activePi = pi;
-  lastOpts = opts;
+  lastOpts = resolvedOpts;
 
   // Capture the composed-editor factory ONCE per panel instantiation
   // (h2.31) — never inside render or per keystroke. Undefined is a normal
@@ -1261,13 +1339,13 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       editorFactory,
       pi,
       done,
-      state: opts.state,
-      config: opts.config,
-      drafts: opts.drafts,
-      keys: opts.keys,
-      delivery: opts.delivery,
-      confirmRipple: opts.confirmRipple,
-      focusQuestionId: opts.focusQuestionId,
+      state: resolvedOpts.state,
+      config: resolvedOpts.config,
+      drafts: resolvedOpts.drafts,
+      keys: resolvedOpts.keys,
+      delivery: resolvedOpts.delivery,
+      confirmRipple: resolvedOpts.confirmRipple,
+      focusQuestionId: resolvedOpts.focusQuestionId,
     });
     currentPanel = panel;
     return panel;
@@ -1382,6 +1460,20 @@ export function maybeAutoOpen(
     // The SAME store instance rides every (re)open — lastOpts spread in
     // handleUpserted reuses it on the suspended-reopen path, so drafts
     // survive suspend/resume (R4, h2.0 commitment 6).
-    openPanel(ctx, { config, state, drafts });
+    //
+    // NEW-001 hardening — the HOST is the openness authority (in production
+    // createPanelHost's isOpen() IS the module record, so the two can never
+    // disagree). If the host says nothing is live yet openPanel still refuses
+    // on the record's authority, the record is STALE — its panel belonged to
+    // a dead surface/session (e.g. a state singleton replaced since it was
+    // armed, leaving a record that no live panel can ever resolve). Silently
+    // swallowing the upsert here would leave the interrogation without its
+    // panel forever; dispose the stale panel's residue, re-arm the record,
+    // and retry once.
+    if (!openPanel(ctx, { config, state, drafts }) && phase === "open") {
+      currentPanel?.dispose();
+      resetHostRecord();
+      openPanel(ctx, { config, state, drafts });
+    }
   });
 }

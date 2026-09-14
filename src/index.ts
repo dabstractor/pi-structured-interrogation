@@ -33,6 +33,7 @@ import { registerInterrogateCommand } from "./command.js";
 import { createCompactionGuard } from "./compaction.js";
 import { loadConfig } from "./config.js";
 import { registerDebugCommands } from "./debug-commands.js";
+import { drainBatchNotes } from "./delivery.js";
 import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
@@ -75,6 +76,12 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       lifecycle: {
         dismissPanel: () => lifecycle.dismissPanel(),
       },
+      // NEW-004 (h2.46): the completion record's NOTES line collects every
+      // batch note shipped with this interrogation's submissions — in order.
+      // delivery.ts's ledger records them at the ONE transport chokepoint
+      // (deliverSubmission); draining here is the notes' final destination,
+      // so a follow-up interrogation starts from an empty ledger.
+      getBatchNotes: drainBatchNotes,
     }),
   });
 

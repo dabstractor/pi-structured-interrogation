@@ -518,5 +518,36 @@ export function deliverSubmission(
   // inference picks the first union member's details and rejects the other.
   // Pure type-level: msg is still passed through by reference, unmutated.
   pi.sendMessage<SendableMessage["details"]>(msg, options);
+  // NEW-004 (h2.46): remember a shipped batch note for the completion
+  // record. deliverSubmission is the ONE chokepoint every submission passes
+  // through (panel ctrl+s via the surface-derived SubmitDeps, the debug
+  // submit, reconstruction-era flows), so the ledger sees them all. The
+  // completion message itself is excluded — it is the ledger's consumer,
+  // not a source. Cleared after shipping (h2.32) from the DraftStore, this
+  // ledger is the only in-memory place the note still exists.
+  if (msg.customType === "interrogation-submission") {
+    const note = (msg.details as { note?: unknown }).note;
+    if (typeof note === "string" && note.trim() !== "") shippedBatchNotes.push(note);
+  }
   // Fire-and-forget: no await, no try/catch — let caller error handling see throws.
+}
+
+// ==== Batch-note ledger (NEW-004) ===========================================
+// h2.46's completion record carries `NOTES: {batch notes in order}` — the
+// consolidated history of every batch note shipped with this interrogation's
+// submissions. The DraftStore clears a note the moment it ships (h2.32), so
+// this module-scoped ledger (same singleton discipline as state.ts) is the
+// completion record's source: deliverSubmission appends every delivered
+// submission's `details.note`, and index.ts hands {@link drainBatchNotes} to
+// createCompletionTrigger as `getBatchNotes`.
+const shippedBatchNotes: string[] = [];
+
+/**
+ * Return the batch notes shipped so far (in delivery order) and CLEAR the
+ * ledger — the completion record is the notes' final destination (h2.46),
+ * and a follow-up interrogation must start from an empty ledger. Empty
+ * array when no submission carried a note.
+ */
+export function drainBatchNotes(): string[] {
+  return shippedBatchNotes.splice(0, shippedBatchNotes.length);
 }

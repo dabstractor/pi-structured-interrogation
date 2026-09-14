@@ -19,6 +19,7 @@ import {
   buildCompletion,
   buildSubmission,
   deliverSubmission,
+  drainBatchNotes,
   type DeliveryOptions,
   type SendableMessage,
   type SubmissionMessage,
@@ -329,6 +330,38 @@ describe("deliverSubmission (P1.M2.T1.S2 transport)", () => {
       },
     };
   }
+
+  // ------------------------------------ batch-note ledger (NEW-004, h2.46)
+
+  test("NEW-004: a delivered submission's details.note lands in the ledger, in order", () => {
+    const withNote = fixture() as SubmissionMessage;
+    withNote.details.note = "prefer sqlite";
+    const second = fixture() as SubmissionMessage;
+    second.details.note = "skip the backup step";
+    const sendMessage = vi.fn();
+
+    deliverSubmission({ sendMessage }, fixture()); // no note → not recorded
+    deliverSubmission({ sendMessage }, withNote);
+    deliverSubmission({ sendMessage }, second);
+
+    expect(drainBatchNotes()).toEqual(["prefer sqlite", "skip the backup step"]);
+  });
+
+  test("NEW-004: drain clears the ledger; completion messages never record", () => {
+    const completion = fixture() as SendableMessage;
+    completion.customType = "interrogation-completion";
+    completion.content = "INTERROGATION COMPLETE — goal";
+    (completion.details as Record<string, unknown>).notes = ["stale"];
+    const submission = fixture() as SubmissionMessage;
+    submission.details.note = "the only note";
+    const sendMessage = vi.fn();
+
+    deliverSubmission({ sendMessage }, completion); // consumer, not a source
+    deliverSubmission({ sendMessage }, submission);
+
+    expect(drainBatchNotes()).toEqual(["the only note"]);
+    expect(drainBatchNotes()).toEqual([]); // drained → follow-up starts clean
+  });
 
   test("idle_ctx_uses_triggerTurn_followUp_options", () => {
     const msg = fixture();

@@ -155,8 +155,19 @@ describe("computeDiff", () => {
     const prev = state.serialize();
     state.applyAnswer("q7", ans("sqlite", "elaboration added"));
     const diff = computeDiff(prev, state.serialize());
+    // NEW-003: from/to render the shipped elaboration (`{answer} — {text}`,
+    // the h2.46 completion-record grammar) so the delta line carries the
+    // user's reasoning; `value` stays the RAW option value (reconstruction
+    // replays value-first — BUG-007).
     expect(diff.changed).toEqual([
-      { id: "q7", title: "Elaboration", from: "sqlite", to: "sqlite", editedArchived: false, value: "sqlite" },
+      {
+        id: "q7",
+        title: "Elaboration",
+        from: "sqlite — we keep it simple",
+        to: "sqlite — elaboration added",
+        editedArchived: false,
+        value: "sqlite",
+      },
     ]);
   });
 

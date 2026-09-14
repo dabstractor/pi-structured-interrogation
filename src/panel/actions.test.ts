@@ -1065,6 +1065,118 @@ describe("submit — batch note (R3, P1.M4.T2.S2)", () => {
   });
 });
 
+// ----------------- submit draft reconciliation (NEW-002/NEW-003, h2.45)
+
+describe("submit — draft reconciliation at submit (NEW-002/NEW-003, h2.45)", () => {
+  test("NEW-002: an open text question's typed draft ships as the answer", () => {
+    const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    store.setDraft("t1", "my detailed answer");
+    expect(submit(panel, deps)).toBe(true);
+
+    // The draft BECAME the answer — the only apply affordance a text
+    // question has in the TUI (h2.45 "text answers ship").
+    expect(state.getQuestion("t1")?.answer?.value).toBe("my detailed answer");
+    expect(state.getQuestion("t1")?.status).toBe("submitted"); // flushed with the shipment
+    expect(store.getDraft("t1")).toBeUndefined(); // shipped → destroyed (R4)
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toContain("t1: my detailed answer");
+  });
+
+  test("NEW-002: empty drafts never ship — an empty text slot is an absent draft", () => {
+    const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    store.setDraft("t1", "   ");
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(state.getQuestion("t1")?.answer).toBeUndefined();
+    expect(state.getQuestion("t1")?.status).toBe("open");
+    expect(sendMessage).not.toHaveBeenCalled(); // nothing user-shipped
+    expect(state.epoch).toBe(1); // no epoch burn
+  });
+
+  test("NEW-002: a re-asked text question's re-typed draft ships (the text re-accept)", () => {
+    const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
+    state.applyAnswer("t1", { value: "first", at: T0 });
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+    expect(submit(panel, deps)).toBe(true); // baseline holds t1 answered
+
+    // Agent rule-2 re-ask: content change resets the answer, draft preserved.
+    state.upsertQuestion({
+      id: "t1",
+      prompt: "changed",
+      type: "text",
+      rev: 2,
+      status: "reasked",
+      options: undefined,
+    });
+    // The user re-types and stage-1 saves (the text-question counterpart of
+    // a choice re-accept) — the next ctrl+s must ship it, or the question
+    // could NEVER be re-answered and would block completion forever.
+    store.setDraft("t1", "second attempt");
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(state.getQuestion("t1")?.answer?.value).toBe("second attempt");
+    expect(state.getQuestion("t1")?.status).toBe("submitted");
+    const msg = sendMessage.mock.calls.at(-1)![0] as { content: string };
+    expect(msg.content).toContain("t1: second attempt");
+  });
+
+  test("NEW-003: an answered choice question's draft attaches as answer.text and rides the delta", () => {
+    const state = seed([{ id: "q1", overrides: { recommendation: "a" } }]);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    store.setDraft("q1", "because of latency");
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(state.getQuestion("q1")?.answer?.text).toBe("because of latency");
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // value untouched
+    expect(store.getDraft("q1")).toBeUndefined(); // shipped → destroyed (R4)
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    // Same `{answer} — {free text}` grammar as the completion record.
+    expect(msg.content).toContain("q1: Alpha — because of latency");
+  });
+
+  test("NEW-003 meets BUG-008: a re-asked choice question's preserved draft never attaches", () => {
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+    expect(submit(panel, deps)).toBe(true);
+
+    // Agent rule-2 re-ask of q1, draft preserved (BUG-008).
+    state.upsertQuestion({
+      ...choiceQ("q1", { recommendation: "a" }),
+      rev: 2,
+      status: "reasked",
+    });
+    store.setDraft("q1", "my elaboration draft");
+    state.applyAnswer("q2", { value: "a", at: T0 });
+    expect(submit(panel, deps)).toBe(true);
+
+    // q1's reset is agent-caused — its draft must survive untouched.
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(store.getDraft("q1")).toBe("my elaboration draft");
+    const msg = sendMessage.mock.calls.at(-1)![0] as {
+      content: string;
+      details: { changed: Array<{ id: string }> };
+    };
+    expect(msg.details.changed.map((e) => e.id)).toEqual(["q2"]); // only the user shipment
+  });
+});
+
 // --------------------------------- submit soft-gate warning (P1.M5.T3.S1)
 
 describe("submit — soft-gate warning (display-only, P1.M5.T3.S1)", () => {

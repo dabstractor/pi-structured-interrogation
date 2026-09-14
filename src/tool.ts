@@ -27,6 +27,7 @@ import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { applyCaps } from "./caps.js";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
+import { evaluateDependsOn } from "./depends-on.js";
 import { buildFallbackDigest, isNonTui, recordAnswers } from "./fallback.js";
 import { assertFresh } from "./guards.js";
 import { applyUpsert } from "./merge.js";
@@ -290,6 +291,17 @@ export function executeInterrogate(
       // Fires `questions-upserted` + `changed` — THE panel trigger
       // (P1.M2.T2.S1 lifecycle). This executor must not open anything.
       applyUpsert(state, capped.questions.map(toMergeQuestion));
+
+      // BUG-006(a) / FR-17: re-derive moot-ness from the just-merged state —
+      // agent edits to dependsOn conditions take effect INSTANTLY, on this
+      // tool result. evaluateDependsOn is pure state logic emitting `changed`
+      // only on real flips (safe for the synchronous, UI-free executor,
+      // h2.0 §1). Covers create, reuse, and the completed-swap fresh path
+      // (all funnel through this one applyUpsert). With P1.M3.T3.S1's
+      // empty-dependsOn reopen, a moot question whose dependency was removed
+      // returns to open here. Runs BEFORE serialize() so the digest and the
+      // result envelope reflect post-evaluation statuses.
+      evaluateDependsOn(state);
 
       // FR-30 (BUG-001): a goal on ANY upsert replaces the stored one —
       // already capped above. Omitted goal → unchanged (never wipe to "").

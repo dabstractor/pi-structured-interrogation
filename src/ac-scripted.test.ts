@@ -69,9 +69,10 @@ const GOAL = "Ship the 001 pilot";
 
 /**
  * 30 questions (q01..q30; 8/8/8/6 per group). q09 marks the "data" group as
- * THE gate group (gate: true); q10 declares a dependsOn edge on q09 for the
- * later ACs (nothing in these state-level flows evaluates it — the instant
- * moot evaluator is panel-side). All choice questions share the
+ * THE gate group (gate: true); q10 declares a dependsOn edge on q09 —
+ * evaluated INSTANTLY by the executor upsert since BUG-006(a) (FR-17), so
+ * with q09 unanswered q10 arrives moot and every downstream count in these
+ * ACs reflects it. All choice questions share the
  * alpha/beta option pair so answer labels are uniform.
  */
 function fixtureQuestions(): Array<Record<string, unknown>> {
@@ -195,7 +196,7 @@ beforeEach(() => {
 // ----------------------------------------------------------------- AC-2 (FR-3)
 
 describe("AC-2 — submission delta, reminder, open count, epoch (FR-3)", () => {
-  test("AC-2_submission_delta_three_lines_reminder_epoch_28_open", () => {
+  test("AC-2_submission_delta_three_lines_reminder_epoch_27_open", () => {
     // Model upserts the 30-question set through THE production executor.
     executeInterrogate(fixtureUpsert(), tuiCtx(), DEFAULT_CONFIG);
     const state = getState()!;
@@ -209,7 +210,7 @@ describe("AC-2 — submission delta, reminder, open count, epoch (FR-3)", () => 
 
     const diff = computeDiff(pre, state.serialize());
     expect(diff.changed.map((e) => e.id)).toEqual(["q01", "q02"]);
-    expect(diff.remainOpen).toBe(28); // 28 remain open
+    expect(diff.remainOpen).toBe(27); // 27 remain open — q10 arrives moot (dependsOn q09=alpha, unanswered; BUG-006a)
 
     const epochBefore = state.epoch; // 1
     const msg = buildSubmission(state, diff); // does takeSnapshot + bumpEpoch ITSELF
@@ -227,15 +228,16 @@ describe("AC-2 — submission delta, reminder, open count, epoch (FR-3)", () => 
     expect(state.snapshots[0]?.epoch).toBe(epochBefore); // pre-bump label
     expect(msg.details.epoch).toBe(epochBefore); // envelope carries the pre-bump epoch
 
-    // The h2.28 status line the model sees afterwards: 2 answered of 30, epoch 2.
-    expect(buildStatusLine(state.serialize())).toBe("2/30 answered · 0 re-asked · 0 moot · epoch 2");
+    // The h2.28 status line the model sees afterwards: 2 answered of 30,
+    // q10 moot, epoch 2.
+    expect(buildStatusLine(state.serialize())).toBe("2/30 answered · 0 re-asked · 1 moot · epoch 2");
 
     // The user-only card (rendered from details, h2.36) shows both answers
-    // and the "28 remain open" footer.
+    // and the "27 remain open" footer.
     const cardLines = renderLines(buildSubmissionCard(msg, { expanded: false, outputPad: 0 }, stubTheme));
     expect(cardLines.some((l) => l.includes("Question q01: (unanswered) → Alpha"))).toBe(true);
     expect(cardLines.some((l) => l.includes("Question q02: (unanswered) → Beta"))).toBe(true);
-    expect(cardLines.some((l) => l.endsWith("28 remain open"))).toBe(true);
+    expect(cardLines.some((l) => l.endsWith("27 remain open"))).toBe(true);
   });
 });
 
@@ -462,12 +464,12 @@ describe("AC-11 — pi -p print mode: digest, answers[], consistent read (FR-25)
     expect(res.details.action).toBe("upsert");
     const content = res.content;
     const lines = content.split("\n");
-    expect(lines[0]).toBe("0/30 answered · 0 re-asked · 0 moot · epoch 1");
+    expect(lines[0]).toBe("0/30 answered · 0 re-asked · 1 moot · epoch 1"); // q10 moot: dependsOn q09=alpha unanswered (BUG-006a)
     expect(content).toContain("INTERROGATION — Ship the 001 pilot (epoch 1)");
     expect(content).toContain("**1. Question q01** (`q01`)");
     expect(content).toContain("1) Alpha (`alpha`) ★"); // ★ marks the recommendation
     expect(content).toContain("Recommendation: Alpha");
-    expect(content).toContain("**30. Question q30** (`q30`)"); // all 30 numbered
+    expect(content).toContain("**29. Question q30** (`q30`)"); // all live numbered — moot q10 is skipped, so q30 numbers 29
     expect(content.trimEnd().endsWith(RELAY_INSTRUCTION)).toBe(true);
 
     // The user answers in chat; the model records via answers[] (record
@@ -501,7 +503,7 @@ describe("AC-11 — pi -p print mode: digest, answers[], consistent read (FR-25)
     const read = executeInterrogate({}, printCtx(), DEFAULT_CONFIG);
     expect(read.details.action).toBe("read");
     expect(read.details.epoch).toBe(2);
-    expect(read.content).toContain("0/30 answered · 0 re-asked · 0 moot · epoch 2"); // submitted ≠ answered count (h2.28)
+    expect(read.content).toContain("0/30 answered · 0 re-asked · 1 moot · epoch 2"); // submitted ≠ answered count (h2.28); q10 stays moot
     expect(read.content).toContain("q01: Question q01 — submitted (rev 1) · answered: alpha");
     expect(read.content).toContain("q02: Question q02 — submitted (rev 1) · answered: beta");
   });

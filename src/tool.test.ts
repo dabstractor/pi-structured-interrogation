@@ -20,6 +20,7 @@ import { Box, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { attemptCompletion } from "./completion.js";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
+import { evaluateDependsOn } from "./depends-on.js";
 import { RELAY_INSTRUCTION } from "./fallback.js";
 import { StaleError } from "./guards.js";
 import { closeSubmitted, markAnswered, markSubmitted } from "./merge.js";
@@ -378,6 +379,113 @@ describe("executeInterrogate: upsert (non-TUI)", () => {
       cfg,
     );
     expect(r.content.split("\n").at(-1)).toBe("q1 description truncated at 50 chars — restructure if essential");
+  });
+});
+
+// --------------------- BUG-006(a) upsert dependsOn evaluation (FR-17)
+
+describe("executeInterrogate: upsert dependsOn evaluation (BUG-006a)", () => {
+  /** The PRD repro's choice dep: answered "pg" makes dep=sqlite unmet. */
+  function depQ(): QuestionInput {
+    return qi("dep", {
+      type: "choice",
+      options: [
+        { label: "Postgres", value: "pg" },
+        { label: "SQLite", value: "sqlite" },
+      ],
+    });
+  }
+
+  /** Re-upsert the stored child with its CURRENT rev + the live epoch. */
+  function childReupsert(child: Partial<QuestionInput> = {}): Record<string, unknown> {
+    const s = getState()!;
+    return {
+      epoch: s.serialize().epoch,
+      questions: [qi("child", { rev: s.getQuestion("child")!.rev, ...child })],
+    };
+  }
+
+  test("removed dependsOn reopens the moot child in the SAME upsert result (PRD repro, TUI, BUG-006a)", () => {
+    executeInterrogate(
+      { goal: "g", questions: [depQ(), qi("child", { dependsOn: [{ id: "dep", equals: "sqlite" }] })] },
+      tuiCtx(),
+    );
+    const st = getState()!;
+    markAnswered(st, "dep", { value: "pg", at: AT });
+    evaluateDependsOn(st);
+    expect(st.getQuestion("child")!.status).toBe("moot");
+
+    // Re-upsert WITHOUT dependsOn (same options → merge rule 1 keeps the
+    // moot status); evaluation inside the upsert must reopen it — no manual
+    // evaluateDependsOn in the test after this call. dep is omitted from the
+    // batch, so merge rule 4 withdraws it (answer retained for audit) — the
+    // child's reopen must still fire.
+    const r = executeInterrogate(childReupsert(), tuiCtx());
+
+    expect(r.details.state.questions.child?.status).toBe("open"); // post-evaluation in the SAME result
+    expect(r.content.split("\n")[0]).toBe("0/2 answered · 0 re-asked · 0 moot · epoch 1");
+    expect(getState()!.getQuestion("child")!.status).toBe("open");
+  });
+
+  test("new dependsOn condition mutes the open child instantly in the same result (BUG-006a)", () => {
+    executeInterrogate({ goal: "g", questions: [depQ(), qi("child")] }, tuiCtx());
+    const st = getState()!;
+    markAnswered(st, "dep", { value: "pg", at: AT });
+    evaluateDependsOn(st); // no dependsOn yet — child stays open
+    expect(st.getQuestion("child")!.status).toBe("open");
+
+    const r = executeInterrogate(
+      childReupsert({ dependsOn: [{ id: "dep", equals: "sqlite" }] }),
+      tuiCtx(),
+    );
+
+    expect(r.details.state.questions.child?.status).toBe("moot"); // unmet pg ≠ sqlite, same result
+    expect(r.content.split("\n")[0]).toBe("0/2 answered · 0 re-asked · 1 moot · epoch 1");
+    expect(getState()!.getQuestion("child")!.status).toBe("moot");
+  });
+
+  test("completed-swap fresh interrogation evaluates too (shared post-applyUpsert path, BUG-006a)", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    expect(completeInterrogation(st, ["q1"])).toEqual({ fired: true });
+
+    // All-new-id batch on the completed singleton → fresh swap (BUG-002).
+    executeInterrogate(
+      { goal: "second goal", questions: [depQ(), qi("child", { dependsOn: [{ id: "dep", equals: "sqlite" }] })] },
+      tuiCtx(),
+    );
+    const fresh = getState()!;
+    expect(fresh).not.toBe(st); // the swap really happened
+    expect(fresh.epoch).toBe(1);
+    markAnswered(fresh, "dep", { value: "pg", at: AT });
+    evaluateDependsOn(fresh);
+    expect(fresh.getQuestion("child")!.status).toBe("moot");
+
+    // The SAME applyUpsert→evaluateDependsOn seam must serve the swap branch.
+    const r = executeInterrogate(childReupsert(), tuiCtx());
+
+    expect(r.details.state.questions.child?.status).toBe("open");
+    expect(getState()!.getQuestion("child")!.status).toBe("open");
+  });
+
+  test("non-TUI composite digest reflects post-evaluation statuses in the same result (BUG-006a)", () => {
+    executeInterrogate(
+      { goal: "g", questions: [depQ(), qi("child", { dependsOn: [{ id: "dep", equals: "sqlite" }] })] },
+      printCtx(),
+    );
+    const st = getState()!;
+    markAnswered(st, "dep", { value: "pg", at: AT });
+    evaluateDependsOn(st);
+
+    const r = executeInterrogate(childReupsert(), printCtx());
+
+    const lines = r.content.split("\n");
+    expect(lines[0]).toBe("0/2 answered · 0 re-asked · 0 moot · epoch 1");
+    // The reopened child renders in the digest again (moot AND withdrawn
+    // questions are skipped — dep was withdrawn by the child-only batch) —
+    // both the digest and the envelope carry post-evaluation state.
+    expect(lines).toContain("**1. prompt child** (`child`)");
+    expect(r.details.state.questions.child?.status).toBe("open");
   });
 });
 

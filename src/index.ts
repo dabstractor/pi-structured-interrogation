@@ -35,6 +35,7 @@ import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
 import { resumePanel } from "./panel/suspend.js";
 import { createStateMirror } from "./persistence.js";
+import { createReconstruction } from "./reconstruct.js";
 import { getState } from "./state.js";
 import { createInterrogateTool } from "./tool.js";
 
@@ -100,6 +101,17 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // persistence.ts (P1.M7.T1) must not serialize it.
   const drafts = new DraftStore();
   maybeAutoOpen(pi, config, panelHost, drafts);
+
+  // P1.M7.T1.S2 — reconstruction (h2.41/h2.43/h3.11, FR-28): on session_start
+  // (all reasons) AND session_tree (mid-session branch navigation — ctx
+  // already reflects the new leaf), rebuild the state from the RAW branch
+  // (compaction not applied, so the canonical tool-result details.state
+  // survives /compact), newest-mirror fallback, replay submission deltas,
+  // recompute moot-ness, then auto-open the panel (TUI) or set the non-TUI
+  // digest fallback flag. resetState() at the top of every run guarantees no
+  // caching across session_shutdown. Drafts are NEVER restored (Q6=B) — the
+  // store above passes through untouched (empty at start, by design).
+  createReconstruction(pi, { config, host: panelHost, drafts });
 
   // P1.M6.T2.S1 — agent-judgment reopen (FR-6/Q12, h2.35): the tool's
   // {reopen:true} action resumes a suspended panel through the SAME

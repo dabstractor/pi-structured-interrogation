@@ -870,7 +870,7 @@
               "type": "Task",
               "id": "P1.M7.T1",
               "title": "Persistence (persistence.ts)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Debounced interrogation-state entry mirror + shutdown flush; branch-correct reconstruction on session_start/session_tree with auto-open.",
               "subtasks": [
                 {
@@ -893,7 +893,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T1.S2",
                   "title": "Reconstruction on session_start + session_tree, auto-open",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M7.T1.S1",
@@ -914,14 +914,14 @@
               "type": "Task",
               "id": "P1.M7.T2",
               "title": "Compaction preservation (FR-29, adapted)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "session_before_compact handler preserving interrogation substance through /compact, via the verified API contract.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M7.T2.S1",
                   "title": "session_before_compact handler with preservation instructions",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M7.T1.S1"
@@ -946,7 +946,7 @@
                   "type": "Subtask",
                   "id": "P1.M7.T3.S1",
                   "title": "Submission diff card renderer",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1"

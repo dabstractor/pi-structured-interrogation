@@ -612,6 +612,25 @@ describe("deep view routing gates (P1.M5.T1.S1)", () => {
     expect(actions.accept).not.toHaveBeenCalled(); // short-view accept untouched
   });
 
+  test("test_ctrl_t_gate_does_not_break_deep_view_neighbor_bindings", () => {
+    // BUG-011 fall-through: ctrl+t in deep returns false WITHOUT dispatching,
+    // and the view-specific handlers downstream still work — enter here
+    // still runs the acceptFromDeep path (accepts highlighted, → short).
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel, applied } = makeDeepPanel();
+    panel.cursorIndex = 1;
+
+    expect(route(DEFAULT_DATA.focusText, panel as unknown as InterrogationPanel)).toBe(false);
+    expect(actions.onFocusText).not.toHaveBeenCalled();
+    expect(dispatchCount(actions)).toBe(0); // nothing else consumed it either
+
+    expect(route(ENTER, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(applied).toEqual([{ id: "q1", value: "b" }]);
+    expect(panel.viewLogs).toEqual(["short"]);
+    expect(actions.accept).not.toHaveBeenCalled();
+  });
+
   test("test_enter_in_text_focus_still_forwards_in_deep", () => {
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
@@ -779,5 +798,38 @@ describe("buildKeyRouter — overview view-gating (P1.M5.T2.S1)", () => {
     expect(actions.submit).toHaveBeenCalledTimes(1);
     expect(route(DEFAULT_DATA.batchNote, panel as unknown as InterrogationPanel)).toBe(true);
     expect(actions.onBatchNote).toHaveBeenCalledTimes(1); // note mode at ANY view
+  });
+});
+
+// --------------------------------------- focusText view gate (BUG-011)
+
+describe("focusText gated to the short view (BUG-011)", () => {
+  test("test_ctrl_t_in_deep_view_falls_through_without_dispatching", () => {
+    // The editor renders only in the short view — ctrl+t in deep must be a
+    // no-op FALL-THROUGH (return false), never a swallowed keystroke.
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    expect(route(DEFAULT_DATA.focusText, makePanel({ view: "deep" }))).toBe(false);
+    expect(actions.onFocusText).not.toHaveBeenCalled();
+    expect(dispatchCount(actions)).toBe(0);
+  });
+
+  test("test_ctrl_t_in_overview_view_falls_through_without_dispatching", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    expect(route(DEFAULT_DATA.focusText, makePanel({ view: "overview" }))).toBe(false);
+    expect(actions.onFocusText).not.toHaveBeenCalled();
+    expect(dispatchCount(actions)).toBe(0);
+  });
+
+  test("test_ctrl_t_in_short_view_still_dispatches_options_and_text_focus", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    // Options focus (default view short): dispatched as before.
+    expect(route(DEFAULT_DATA.focusText, makePanel())).toBe(true);
+    expect(actions.onFocusText).toHaveBeenCalledTimes(1);
+    // Text focus (the line-284 case — default view short): still dispatched.
+    expect(route(DEFAULT_DATA.focusText, makePanel({ focus: "text" }))).toBe(true);
+    expect(actions.onFocusText).toHaveBeenCalledTimes(2);
   });
 });

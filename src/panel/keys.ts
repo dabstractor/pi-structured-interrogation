@@ -351,7 +351,12 @@ export function buildKeyRouter(
       actions.onOverview(panel);
       return true;
     }
-    if (matchesKey(data, b.focusText)) {
+    // BUG-011: the embedded editor renders only in the short view (and
+    // note mode, a separate focus); focusing it from deep/overview would
+    // arm an invisible editor (blind typing, silent stage-1 draft saves).
+    // In those views ctrl+t falls through to normal panel handling (arrows
+    // scroll/navigate, enter keeps its view-specific meaning).
+    if (panel.view === "short" && matchesKey(data, b.focusText)) {
       actions.onFocusText(panel);
       return true;
     }

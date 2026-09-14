@@ -48,6 +48,46 @@ describe("createInterrogationState", () => {
   });
 });
 
+describe("setGoal", () => {
+  test("updates state.goal and serialize().goal; emits exactly one 'changed' with the new value", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const revBefore = state.getQuestion("q1")!.rev;
+    const changed: SerializedState[] = [];
+    state.on("changed", (st) => changed.push(st));
+    state.setGoal("Ship the redesign");
+    expect(state.goal).toBe("Ship the redesign");
+    expect(state.serialize().goal).toBe("Ship the redesign");
+    expect(changed).toHaveLength(1);
+    expect(changed[0].goal).toBe("Ship the redesign");
+    expect(changed[0].epoch).toBe(1); // goal is not epoch territory (h2.39)
+    expect(state.getQuestion("q1")?.rev).toBe(revBefore); // question revs untouched
+    expect(state.snapshots).toEqual([]); // snapshot ring untouched
+  });
+
+  test("same string still emits (simple, predictable primitive)", () => {
+    const changed: SerializedState[] = [];
+    state.on("changed", (st) => changed.push(st));
+    state.setGoal("Plan the migration");
+    expect(changed).toHaveLength(1);
+    expect(changed[0].goal).toBe("Plan the migration");
+  });
+
+  test("empty goal is legal", () => {
+    const changed: SerializedState[] = [];
+    state.on("changed", (st) => changed.push(st));
+    state.setGoal("");
+    expect(state.goal).toBe("");
+    expect(state.serialize().goal).toBe("");
+    expect(changed).toHaveLength(1);
+    expect(changed[0].goal).toBe("");
+  });
+
+  test("constructor goal is readable before any setGoal (regression)", () => {
+    expect(state.goal).toBe("Plan the migration");
+    expect(state.serialize().goal).toBe("Plan the migration");
+  });
+});
+
 describe("upsertQuestion", () => {
   test("new id: stored, appended to order, forced open at rev 1", () => {
     state.upsertQuestion(q({ id: "q1", rev: 99, status: "closed" }));

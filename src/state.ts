@@ -207,7 +207,7 @@ export interface InterrogationState {
  *
  * Mutation discipline:
  * - `getQuestion()` and `orderedQuestions()` return the stored objects for
- *   cheap reads — callers must not mutate them. `upsertQuestion`,
+ *   cheap reads — callers must not mutate them. `setGoal`, `upsertQuestion`,
  *   `applyAnswer`, `setStatus`, `bumpRev`, `bumpEpoch`, `removeQuestion`, and
  *   `clearForCompletion` are the only mutation paths, and every one of them
  *   emits `changed` (full serialized snapshot) so renderers stay dumb.
@@ -215,8 +215,12 @@ export interface InterrogationState {
  *   hand to tool results, snapshots, and persistence.
  */
 export class InterrogationState extends EventEmitter {
-  /** Interrogation goal — fixed for the lifetime of the state. */
-  readonly goal: string;
+  private _goal: string;
+
+  /** Interrogation goal — agent-supplied, updatable via setGoal (FR-30). */
+  get goal(): string {
+    return this._goal;
+  }
 
   /** Session epoch; starts at 1, bumps on every submission (h2.39). */
   epoch = 1;
@@ -239,7 +243,7 @@ export class InterrogationState extends EventEmitter {
 
   constructor(goal: string) {
     super();
-    this.goal = goal;
+    this._goal = goal;
   }
 
   // ------------------------------------------------------------------ reads
@@ -296,6 +300,17 @@ export class InterrogationState extends EventEmitter {
   }
 
   // -------------------------------------------------------------- mutations
+
+  /**
+   * Updates the interrogation goal (agent re-upserts with a changed goal —
+   * FR-30). Not a rev/epoch transition. Emits `changed`. No caps/validation
+   * here — the 400-char cap (BUG-009) is enforced at the tool call-site
+   * (P1.M1.T1.S2).
+   */
+  setGoal(goal: string): void {
+    this._goal = goal;
+    this.emitChanged();
+  }
 
   /**
    * Raw primitive. Merge rules / transition legality enforced in merge-rules

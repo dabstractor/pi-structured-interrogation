@@ -124,7 +124,7 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // agent is idle, suspends via done(null) (h2.35) — also reachable through
   // lifecycle.dismissPanel() from the completion flow — and reopens when a
   // later upsert lands while suspended (h2.37). Panel host + auto-open:
-  const panelHost = createPanelHost(lifecycle);
+  const panelHost = createPanelHost(lifecycle, pi);
   // P1.M4.T2.S1 — R4 draft store (h2.45): ONE instance per extension
   // activation, held in this closure and passed to every openPanel. Panel
   // components are destroyed on suspend/re-instantiation; this store is

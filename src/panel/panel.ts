@@ -228,20 +228,34 @@ export interface PiUISurface {
 }
 
 /**
- * Build the production SubmitDeps for a panel opened on `surface` (NEW-001):
- * the transport is the surface's own sendMessage (ExtensionContext or the
- * ExtensionAPI root — both carry it in a real session), the idle probe reads
- * the surface LIVE at submit time (idle-status unknown → idle, the safe
- * followUp branch of delivery.ts's matrix), and `noteSubmissionDelivered`
- * threads the h2.44 line-1 lifecycle contract (supplied by createPanelHost
- * from the real lifecycle; optional so bare surfaces/tests stay valid).
+ * BUGFIX (dead ctrl+s): minimal transport surface for the createPanelHost
+ * delivery fallback — the ExtensionAPI root carries sendMessage (+ no ui),
+ * so it cannot be a full PiUISurface. Structurally compatible with any
+ * surface that can submit.
+ */
+export interface DeliveryTransportSurface {
+  sendMessage?(message: unknown, options?: unknown): void;
+  isIdle?(): boolean;
+}
+
+/**
+ * Build the production SubmitDeps for a panel opened on `surface` (NEW-001
+ * + dead-ctrl+s bugfix): the transport is the surface's sendMessage —
+ * carried by the ExtensionAPI ROOT in a real session, NOT by event/tool
+ * contexts (ExtensionContext has isIdle but no sendMessage in pi 0.85.x),
+ * so openPanel falls back to the api root captured by createPanelHost. The
+ * idle probe reads the surface LIVE at submit time (idle-status unknown →
+ * idle, the safe followUp branch of delivery.ts's matrix), and
+ * `noteSubmissionDelivered` threads the h2.44 line-1 lifecycle contract
+ * (supplied by createPanelHost from the real lifecycle; optional so bare
+ * surfaces/tests stay valid).
  *
  * @returns undefined when the surface carries no sendMessage — the panel
  * then opens exactly as before this fix (inert submit; tests passing
  * explicit `delivery` opts are unaffected).
  */
 export function surfaceSubmitDeps(
-  surface: PiUISurface,
+  surface: PiUISurface | DeliveryTransportSurface,
   noteSubmissionDelivered?: () => void,
 ): SubmitDeps | undefined {
   if (typeof surface.sendMessage !== "function") return undefined;
@@ -1171,6 +1185,8 @@ type HostPhase = "closed" | "open" | "suspended";
 let phase: HostPhase = "closed";
 let currentPanel: InterrogationPanel | undefined;
 let activePi: PiUISurface | undefined;
+/** BUGFIX (dead ctrl+s): api-root surface supplied by createPanelHost — see there. */
+let rootDeliveryFallbackSurface: DeliveryTransportSurface | undefined;
 let lastOpts: OpenPanelOptions | undefined;
 /**
  * Lifecycle submit hook (NEW-001) — captured by createPanelHost from the
@@ -1255,13 +1271,26 @@ function resetHostRecord(): void {
  * Re-arms the module-scoped host record, so calling this again (tests, or a
  * hypothetical second host) starts from a clean closed state.
  */
-export function createPanelHost(lifecycle: {
-  onPanelDismiss(cb: () => void): void;
-  dismissPanel(): void;
-  /** Optional so test lifecycles stay valid; wired into the submit deps. */
-  noteSubmissionDelivered?(): void;
-}): PanelHost {
+export function createPanelHost(
+  lifecycle: {
+    onPanelDismiss(cb: () => void): void;
+    dismissPanel(): void;
+    /** Optional so test lifecycles stay valid; wired into the submit deps. */
+    noteSubmissionDelivered?(): void;
+  },
+  /**
+   * BUGFIX (dead ctrl+s): the ExtensionAPI ROOT surface, captured at factory
+   * time as a delivery fallback. Event/tool contexts (ExtensionContext) carry
+   * isIdle but NOT sendMessage in pi 0.85.x — maybeAutoOpen/reconstruction
+   * open the panel on such a context, so surfaceSubmitDeps(ctx) returned
+   * undefined and every ctrl+s was a silent no-op. The api root DOES carry
+   * sendMessage, so it fills the transport half whenever the open-path
+   * surface cannot.
+   */
+  rootSurface?: DeliveryTransportSurface,
+): PanelHost {
   resetHostRecord();
+  rootDeliveryFallbackSurface = rootSurface;
   lifecycle.onPanelDismiss(() => suspendCurrent());
   // NEW-001: capture the h2.44 line-1 hook so every surface-derived
   // SubmitDeps resets the auto-close engine's per-run flags after delivery.
@@ -1312,7 +1341,12 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   // surface carrying sendMessage). One defaulting site covers all of them;
   // lastOpts stores the RESOLVED opts so handleUpserted/resumeOpenPanel
   // spreads keep the transport across suspend/resume (R4).
-  const delivery = opts.delivery ?? surfaceSubmitDeps(pi, hostNoteSubmissionDelivered);
+  const delivery =
+    opts.delivery ??
+    surfaceSubmitDeps(pi, hostNoteSubmissionDelivered) ??
+    (rootDeliveryFallbackSurface !== undefined
+      ? surfaceSubmitDeps(rootDeliveryFallbackSurface, hostNoteSubmissionDelivered)
+      : undefined);
   const resolvedOpts: OpenPanelOptions = { ...opts, delivery };
 
   activePi = pi;

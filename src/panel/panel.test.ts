@@ -227,6 +227,33 @@ function firstCall(mock: MockPi): CustomCall {
 // ------------------------------------------------------------------- tests
 
 describe("openPanel — fire-and-forget host", () => {
+  // REGRESSION (dead ctrl+s): event/tool contexts (ExtensionContext) carry
+  // no sendMessage in pi 0.85.x — maybeAutoOpen opens panels on such a
+  // surface, which previously produced delivery === undefined and a ctrl+s
+  // that silently did NOTHING (keys.ts submit returns false without deps).
+  // createPanelHost's api-root fallback must repair the transport.
+  test("test_delivery_falls_back_to_root_surface_when_ctx_lacks_sendMessage", () => {
+    const rootSendMessage = vi.fn();
+    const root = { sendMessage: rootSendMessage };
+    createPanelHost(makeMockLifecycle().lifecycle, root);
+
+    // ctx-like surface: ui + mode, NO sendMessage (the real bug shape).
+    const mock = makeMockPi();
+    const ctxLike = { mode: "tui", ui: mock.pi.ui, on: mock.on } as unknown as PiUISurface;
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+
+    expect(openPanel(ctxLike, optsFor(state))).toBe(true);
+    const panel = firstCall(mock).component;
+    expect(panel.delivery).toBeDefined();
+    expect(panel.delivery?.sendMessage).toBeTypeOf("function");
+
+    // The bound transport is the ROOT's channel, and isIdle degrades safely.
+    panel.delivery?.sendMessage({ customType: "interrogation-submission" }, {});
+    expect(rootSendMessage).toHaveBeenCalledTimes(1);
+    expect(panel.delivery?.isIdle()).toBe(true);
+  });
+
   test("test_openPanel_does_not_await_custom", () => {
     const host = createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();

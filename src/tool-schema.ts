@@ -35,16 +35,20 @@ import type { DependsOn, QuestionOption } from "./state.js";
 // --------------------------------------------------------------------- schema
 
 /**
- * One selectable option of a `type: "choice"` question (h2.19 verbatim).
+ * One selectable option of a `type: "choice"` question (h2.19 as amended
+ * by the 2026-09-15 deep-view quality pin: `label`/`ramification` now state
+ * the standalone-reader contract — see spec/decisions.md).
  */
 export const OptionSchema = Type.Object({
   value: Type.String({ description: "Option value returned when selected" }),
-  label: Type.String({ description: "One-line display label (short form)" }),
-  ramification: Type.Optional(Type.String({ description: "Deep-view text: consequences, blast radius" })),
+  label: Type.String({ description: "One-line short-view label; the detail belongs in ramification" }),
+  ramification: Type.Optional(Type.String({ description: "Deep-view prose: standalone consequences of picking this option — what changes, effort, risk, trade-offs. Assume the reader sees ONLY this text: expand your reasoning, define terms, no shorthand/codewords, no 'as discussed'" })),
 });
 
 /**
- * One question of an `upsert` batch (h2.19 verbatim). `rev` is pass-through
+ * One question of an `upsert` batch (h2.19 as amended by the 2026-09-15
+ * deep-view quality pin — field descriptions define the expand-don't-
+ * compress contract; see spec/decisions.md). `rev` is pass-through
  * only here: the parse layer never synthesizes or checks staleness (S2 owns
  * rev guards; `state.ts` forces rev 1 / status "open" for new ids).
  */
@@ -52,7 +56,7 @@ export const QuestionSchema = Type.Object({
   id: Type.String({ description: "Stable identity you choose; never reuse for a different question" }),
   title: Type.Optional(Type.String({ description: "Short label used in digests and overview" })),
   prompt: Type.String({ description: "Short-form question text shown by default" }),
-  description: Type.Optional(Type.String({ description: "Long-form context; first sentence shows as a hint in short form" })),
+  description: Type.Optional(Type.String({ description: "Deep-view context, fully standalone: assume the reader has NOT seen the conversation. Take the explanation you would normally give and EXPAND it — define terms/acronyms, state concrete facts, lay out the decision space — never compress to shorthand. First sentence doubles as the short-view hint" })),
   type: StringEnum(["choice", "text"]),
   options: Type.Optional(Type.Array(OptionSchema, { description: "Required for type=choice" })),
   recommendation: Type.Optional(Type.String({ description: "Recommended option value; marked ★ and preselected" })),
@@ -127,7 +131,7 @@ export interface QuestionInput {
   title?: string;
   /** Short-form question text shown by default. */
   prompt: string;
-  /** Long-form context; first sentence shows as a hint in short form. */
+  /** Deep-view context, fully standalone — expand, never compress (see schema field description). */
   description?: string;
   /** `"choice"` requires non-empty `options`; `"text"` ignores them. */
   type: "choice" | "text";

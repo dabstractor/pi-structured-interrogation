@@ -67,6 +67,19 @@ With `editorMode: "composed"` (the default) the panel composes its own editor
 experience around your draft; `"stock"` defers to pi's stock editor behavior
 for text entry.
 
+**Deep-view quality contract** — every deep-view field (`description`, option
+`ramification`) must stand alone: the schema and the tool's resident
+guidelines instruct the model to *expand* the explanation it would normally
+give — define terms and acronyms, state concrete facts, lay out trade-offs —
+assuming you have not seen the conversation, instead of pasting its working
+shorthand. The tool also *lints* this on every upsert: a provided description
+shorter than `caps.minDescription` (200), a ramification shorter than
+`caps.minRamification` (120), or an option with no ramification at all produces
+a warning in the tool result telling the model to re-upsert the expanded
+text — the same warn-and-self-correct loop used for over-cap content. Floors
+are ordinary caps: set them to `0` in settings to disable, or raise them to
+demand more depth.
+
 ## Configuration
 
 All settings live under a top-level `"interrogator"` key in either
@@ -93,6 +106,8 @@ All settings live under a top-level `"interrogator"` key in either
     "caps": {
       "description": 1200,    // max characters for the free-text description answer
       "ramification": 600,    // max characters for ramification / deep-dive text
+      "minDescription": 200,  // soft floor: warn when a provided description is thinner than this (0 disables)
+      "minRamification": 120, // soft floor: warn when a provided ramification is thinner than this (0 disables)
       "options": 7,           // max multiple-choice options per question
       "questions": 40,        // max questions in one interrogation
       "goal": 400,            // max characters for the goal statement (enforced on stored state; updates past 400 are truncated with a warning)

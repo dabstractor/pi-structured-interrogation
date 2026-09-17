@@ -61,6 +61,8 @@ test("test_deep_merge_project_caps_description_only_and_global_keys_survive", as
   expect(cfg.caps.description).toBe(2000);
   // …while sibling caps fields keep their defaults (deep, not wholesale replace)…
   expect(cfg.caps.ramification).toBe(DEFAULT_CONFIG.caps.ramification);
+  expect(cfg.caps.minDescription).toBe(DEFAULT_CONFIG.caps.minDescription);
+  expect(cfg.caps.minRamification).toBe(DEFAULT_CONFIG.caps.minRamification);
   expect(cfg.caps.options).toBe(DEFAULT_CONFIG.caps.options);
   expect(cfg.caps.questions).toBe(DEFAULT_CONFIG.caps.questions);
   expect(cfg.caps.goal).toBe(DEFAULT_CONFIG.caps.goal);
@@ -68,6 +70,17 @@ test("test_deep_merge_project_caps_description_only_and_global_keys_survive", as
   // …and the global keys override survives the second merge.
   expect(cfg.keys.deep).toBe("ctrl+e");
   expect(cfg.keys).toEqual({ ...DEFAULT_CONFIG.keys, deep: "ctrl+e" });
+});
+
+test("test_min_floors_coerce_and_can_be_disabled_via_settings", async () => {
+  // 2026-09-15 deep-view pin: floors are ordinary caps — numeric-string
+  // coercion applies, and 0 disables each lint.
+  const stringForm = await writeSettings(JSON.stringify({ interrogator: { caps: { minDescription: "300" } } }));
+  expect((await loadConfigFrom({ global: stringForm })).caps.minDescription).toBe(300);
+  const disabled = await writeSettings(JSON.stringify({ interrogator: { caps: { minRamification: 0 } } }));
+  const cfg = await loadConfigFrom({ global: disabled });
+  expect(cfg.caps.minRamification).toBe(0);
+  expect(cfg.caps.minDescription).toBe(DEFAULT_CONFIG.caps.minDescription);
 });
 
 test("test_project_wins_over_global_on_same_key", async () => {

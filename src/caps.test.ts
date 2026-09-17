@@ -104,7 +104,7 @@ test("test_ramification_truncated_to_600_with_exact_warning", () => {
   expect(r.questions[0].options?.[0]?.ramification).toHaveLength(600);
 });
 
-test("test_ramification_short_or_absent_passes_silently", () => {
+test("test_ramification_lint_warns_on_thin_text_and_on_total_absence", () => {
   const qs = [
     makeQ("q1", {
       type: "choice",
@@ -112,13 +112,18 @@ test("test_ramification_short_or_absent_passes_silently", () => {
     }),
   ];
   const r = applyCaps(qs, "", DEFAULT_CONFIG, 128_000);
-  expect(r.warnings).toEqual([]);
+  // 2026-09-15 deep-view pin: thin (present-but-short) per option, and each
+  // missing ramification lints individually — every choice must be decidable.
+  expect(r.warnings).toEqual([
+    "q1 option a ramification is only 5 chars — expand to standalone consequences and re-upsert",
+    "q1 option b has no ramification — give every option standalone consequences and re-upsert",
+  ]);
 });
 
 // ----------------------------------------------------- applyCaps: options
 
 test("test_options_truncation_reappends_recommendation_when_it_is_last", () => {
-  const opts = Array.from({ length: 9 }, (_, i) => ({ value: `v${i}`, label: `L${i}` }));
+  const opts = Array.from({ length: 9 }, (_, i) => ({ value: `v${i}`, label: `L${i}`, ramification: "r".repeat(120) }));
   const qs = [makeQ("q1", { type: "choice", options: opts, recommendation: "v8" })];
   const r = applyCaps(qs, "", DEFAULT_CONFIG, 128_000);
   expect(r.questions[0].options?.map((o) => o.value)).toEqual([
@@ -129,7 +134,7 @@ test("test_options_truncation_reappends_recommendation_when_it_is_last", () => {
 });
 
 test("test_options_truncation_with_recommendation_in_head_reports_plain_count", () => {
-  const opts = Array.from({ length: 9 }, (_, i) => ({ value: `v${i}`, label: `L${i}` }));
+  const opts = Array.from({ length: 9 }, (_, i) => ({ value: `v${i}`, label: `L${i}`, ramification: "r".repeat(120) }));
   const qs = [makeQ("q1", { type: "choice", options: opts, recommendation: "v2" })];
   const r = applyCaps(qs, "", DEFAULT_CONFIG, 128_000);
   expect(r.questions[0].options).toHaveLength(7);
@@ -137,7 +142,7 @@ test("test_options_truncation_with_recommendation_in_head_reports_plain_count", 
 });
 
 test("test_options_truncation_without_recommendation_keeps_first_n", () => {
-  const opts = Array.from({ length: 9 }, (_, i) => ({ value: `v${i}`, label: `L${i}` }));
+  const opts = Array.from({ length: 9 }, (_, i) => ({ value: `v${i}`, label: `L${i}`, ramification: "r".repeat(120) }));
   const qs = [makeQ("q1", { type: "choice", options: opts })];
   const r = applyCaps(qs, "", DEFAULT_CONFIG, 128_000);
   expect(r.questions[0].options?.map((o) => o.value)).toHaveLength(7);
@@ -145,7 +150,10 @@ test("test_options_truncation_without_recommendation_keeps_first_n", () => {
 });
 
 test("test_options_under_cap_pass_through_untouched", () => {
-  const opts = [{ value: "a", label: "A" }, { value: "b", label: "B" }];
+  const opts = [
+    { value: "a", label: "A", ramification: "r".repeat(120) },
+    { value: "b", label: "B", ramification: "r".repeat(120) },
+  ];
   const qs = [makeQ("q1", { type: "choice", options: opts, recommendation: "a" })];
   const r = applyCaps(qs, "", DEFAULT_CONFIG, 128_000);
   expect(r.questions[0].options).toEqual(opts);
@@ -169,14 +177,61 @@ test("test_goal_truncated_to_400_with_exact_warning", () => {
   expect(r.warnings).toEqual(["goal truncated at 500 chars"]);
 });
 
+// ------------------------------------------- applyCaps: minimums (deep-view lint)
+
+test("test_thin_description_warns_with_expand_instruction_and_is_never_mutated", () => {
+  const r = applyCaps([makeQ("q1", { description: "thin" })], "", DEFAULT_CONFIG, 128_000);
+  expect(r.questions[0].description).toBe("thin"); // lint never pads
+  expect(r.warnings).toEqual([
+    "q1 description is only 4 chars — deep view must stand alone; expand and re-upsert with the current rev",
+  ]);
+});
+
+test("test_thin_ramification_warns_per_option", () => {
+  const qs = [makeQ("q1", { type: "choice", options: [{ value: "a", label: "A", ramification: "too short" }] })];
+  const r = applyCaps(qs, "", DEFAULT_CONFIG, 128_000);
+  expect(r.warnings).toEqual([
+    "q1 option a ramification is only 9 chars — expand to standalone consequences and re-upsert",
+  ]);
+});
+
+test("test_options_without_ramification_warn_per_option", () => {
+  const qs = [makeQ("q1", { type: "choice", options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] })];
+  const r = applyCaps(qs, "", DEFAULT_CONFIG, 128_000);
+  expect(r.warnings).toEqual([
+    "q1 option a has no ramification — give every option standalone consequences and re-upsert",
+    "q1 option b has no ramification — give every option standalone consequences and re-upsert",
+  ]);
+});
+
+test("test_zero_floors_disable_each_lint", () => {
+  const config = { ...DEFAULT_CONFIG, caps: { ...DEFAULT_CONFIG.caps, minDescription: 0, minRamification: 0 } };
+  const qs = [makeQ("q1", { description: "thin", type: "choice", options: [{ value: "a", label: "A" }] })];
+  const r = applyCaps(qs, "", config, 128_000);
+  expect(r.warnings).toEqual([]);
+});
+
+test("test_floor_lints_the_stored_text_not_the_input", () => {
+  // 30000 chars truncates to 20480 (1 question, 128k window: budget 20480)
+  // — above the 200 floor: no lint despite the shorthand-looking input,
+  // because the lint targets the text the user will actually see.
+  const r = applyCaps([makeQ("q1", { description: "x".repeat(30000) })], "", DEFAULT_CONFIG, 128_000);
+  expect(r.warnings).toEqual(["q1 description truncated at 30000 chars — restructure if essential"]);
+});
+
+test("test_absent_description_never_lints", () => {
+  const r = applyCaps([makeQ("q1")], "", DEFAULT_CONFIG, 128_000);
+  expect(r.warnings).toEqual([]);
+});
+
 // ------------------------------------------------- no-warning happy paths
 
 test("test_under_cap_batch_produces_no_warnings_and_identical_content", () => {
   const qs = [
     makeQ("q1", {
-      description: "d".repeat(100),
+      description: "d".repeat(250),
       type: "choice",
-      options: [{ value: "a", label: "A", ramification: "r".repeat(50) }],
+      options: [{ value: "a", label: "A", ramification: "r".repeat(150) }],
       recommendation: "a",
     }),
   ];
@@ -226,7 +281,7 @@ test("test_absent_optionals_and_empty_batch_never_throw", () => {
     { id: "q1", prompt: "p", type: "text" } as QuestionInput,
     makeQ("q2", {
       type: "choice",
-      options: [{ value: "a", label: "A" }],
+      options: [{ value: "a", label: "A", ramification: "r".repeat(120) }],
       recommendation: "nonexistent",
     }),
   ];

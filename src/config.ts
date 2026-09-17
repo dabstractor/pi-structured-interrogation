@@ -57,6 +57,17 @@ export interface CapsConfig {
   description: number;
   /** Max characters for ramification / deep-dive text. Default 600. */
   ramification: number;
+  /**
+   * Quality floor (2026-09-15 deep-view pin): a PROVIDED description shorter
+   * than this warns in the upsert result (soft lint — never rejects). 0
+   * disables. Default 200.
+   */
+  minDescription: number;
+  /**
+   * Quality floor (2026-09-15 deep-view pin): a PROVIDED option ramification
+   * shorter than this warns in the upsert result. 0 disables. Default 120.
+   */
+  minRamification: number;
   /** Max number of multiple-choice options per question. Default 7. */
   options: number;
   /** Max number of questions in one interrogation. Default 40. */
@@ -115,6 +126,8 @@ const KEY_ACTIONS = [
 const CAP_KEYS = [
   "description",
   "ramification",
+  "minDescription",
+  "minRamification",
   "options",
   "questions",
   "goal",
@@ -141,6 +154,8 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
   caps: {
     description: 1200,
     ramification: 600,
+    minDescription: 200,
+    minRamification: 120,
     options: 7,
     questions: 40,
     goal: 400,
@@ -316,6 +331,8 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * |--------------------|---------|--------------------------------------------------------|
  * | `description`      | 1200    | Max characters for the free-text description answer    |
  * | `ramification`     | 600     | Max characters for ramification/deep-dive text         |
+ * | `minDescription`   | 200     | Soft floor: warn when a provided description is shorter |
+ * | `minRamification`  | 120     | Soft floor: warn when a provided ramification is shorter |
  * | `options`          | 7       | Max multiple-choice options per question               |
  * | `questions`        | 40      | Max questions in one interrogation                     |
  * | `goal`             | 400     | Max characters for the goal statement                  |

@@ -60,14 +60,17 @@ export const INTERROGATE_TOOL_DESCRIPTION =
   "Structured interrogation: plan by asking the user questions they answer in a persistent panel. Upsert `questions[]` (stable ids; existing questions require their current `rev`; omitting an id withdraws it). Call with `{}` to read current state, goal, and epoch. Answers arrive as submission messages — consider how they affect your other questions and re-ask only those materially affected (upsert with new rev). First round: few broad foundational questions with key ramifications; refine in later rounds; send the full set up front. The question set is the plan: when it completes, the full record is injected — derive the spec from it, don't re-plan. If unsure your view is current, read before upserting.";
 
 /**
- * The two h2.24 guideline bullets, verbatim (pi-api-validation.md adaptation
+ * The h2.24 guideline bullets (pi-api-validation.md adaptation
  * #5: the tool's own promptGuidelines field is THE mechanism — no standalone
  * global-guidelines API exists, and none is needed since the description is
- * always resident for active tools).
+ * always resident for active tools). Third bullet added by the 2026-09-15
+ * deep-view quality pin (spec/decisions.md): it is the enforceable half of
+ * the expand-don't-compress contract in the schema field descriptions.
  */
 export const INTERROGATE_PROMPT_GUIDELINES: string[] = [
   "Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.",
   "After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.",
+  "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords). If the tool result warns a deep-view field is thin, re-upsert it expanded with the current rev.",
 ];
 
 /**

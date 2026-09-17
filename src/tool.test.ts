@@ -48,10 +48,11 @@ import {
 const PRD_H2_24_DESCRIPTION =
   "Structured interrogation: plan by asking the user questions they answer in a persistent panel. Upsert `questions[]` (stable ids; existing questions require their current `rev`; omitting an id withdraws it). Call with `{}` to read current state, goal, and epoch. Answers arrive as submission messages — consider how they affect your other questions and re-ask only those materially affected (upsert with new rev). First round: few broad foundational questions with key ramifications; refine in later rounds; send the full set up front. The question set is the plan: when it completes, the full record is injected — derive the spec from it, don't re-plan. If unsure your view is current, read before upserting.";
 
-/** The two h2.24 guideline bullets, byte-for-byte. */
+/** The h2.24 guideline bullets, byte-for-byte — the first two are PRD h2.24; the third is the 2026-09-15 deep-view quality pin (spec/decisions.md). */
 const PRD_H2_24_GUIDELINES = [
   "Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.",
   "After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.",
+  "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords). If the tool result warns a deep-view field is thin, re-upsert it expanded with the current rev.",
 ];
 
 /** Minimal wire question; overrides win (caps.test.ts pattern). */
@@ -127,9 +128,9 @@ describe("h2.24 resident text", () => {
     expect(PRD_H2_24_DESCRIPTION.trim().split(/\s+/).length).toBeLessThanOrEqual(120);
   });
 
-  test("promptGuidelines are the two h2.24 bullets, byte-identical, in order", () => {
+  test("promptGuidelines are the three h2.24 bullets (2 PRD + deep-view pin), byte-identical, in order", () => {
     expect(INTERROGATE_PROMPT_GUIDELINES).toEqual(PRD_H2_24_GUIDELINES);
-    expect(INTERROGATE_PROMPT_GUIDELINES).toHaveLength(2);
+    expect(INTERROGATE_PROMPT_GUIDELINES).toHaveLength(3);
   });
 
   test("promptSnippet is the one-liner (ours, not PRD-verbatim)", () => {
@@ -235,7 +236,7 @@ describe("executeInterrogate: upsert (TUI)", () => {
   test("warnings: parse truncation prepended before caps truncation, in order", () => {
     const cfg: InterrogatorConfig = {
       ...DEFAULT_CONFIG,
-      caps: { ...DEFAULT_CONFIG.caps, questions: 2, description: 10, contextBudgetPct: 0.0001 },
+      caps: { ...DEFAULT_CONFIG.caps, questions: 2, description: 10, contextBudgetPct: 0.0001, minDescription: 0, minRamification: 0 },
     };
     const r = executeInterrogate(
       { questions: [qi("q0", { description: "x".repeat(50) }), qi("q1"), qi("q2")] },
@@ -252,7 +253,7 @@ describe("executeInterrogate: upsert (TUI)", () => {
     const cfg: InterrogatorConfig = {
       ...DEFAULT_CONFIG,
       gateWarnings: false,
-      caps: { ...DEFAULT_CONFIG.caps, questions: 2, description: 10, contextBudgetPct: 0.0001 },
+      caps: { ...DEFAULT_CONFIG.caps, questions: 2, description: 10, contextBudgetPct: 0.0001, minDescription: 0, minRamification: 0 },
     };
     createInterrogateTool(cfg); // seam: sets the executor's default config
     const r = executeInterrogate(
@@ -371,7 +372,7 @@ describe("executeInterrogate: upsert (non-TUI)", () => {
   test("warnings land after the digest in the composite", () => {
     const cfg: InterrogatorConfig = {
       ...DEFAULT_CONFIG,
-      caps: { ...DEFAULT_CONFIG.caps, description: 10, contextBudgetPct: 0.0001 },
+      caps: { ...DEFAULT_CONFIG.caps, description: 10, contextBudgetPct: 0.0001, minDescription: 0, minRamification: 0 },
     };
     const r = executeInterrogate(
       { goal: "Ship it", questions: [qi("q1", { description: "x".repeat(50) })] },

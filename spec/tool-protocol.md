@@ -7,15 +7,15 @@ One tool, four action shapes. The goal is fewest context tokens without losing p
 ```ts
 const OptionSchema = Type.Object({
   value: Type.String({ description: "Option value returned when selected" }),
-  label: Type.String({ description: "One-line display label (short form)" }),
-  ramification: Type.Optional(Type.String({ description: "Deep-view text: consequences, blast radius" })),
+  label: Type.String({ description: "One-line short-view label; the detail belongs in ramification" }),
+  ramification: Type.Optional(Type.String({ description: "Deep-view prose: standalone consequences of picking this option — what changes, effort, risk, trade-offs. Assume the reader sees ONLY this text: expand your reasoning, define terms, no shorthand/codewords, no 'as discussed'" })),
 });
 
 const QuestionSchema = Type.Object({
   id: Type.String({ description: "Stable identity you choose; never reuse for a different question" }),
   title: Type.Optional(Type.String({ description: "Short label used in digests and overview" })),
   prompt: Type.String({ description: "Short-form question text shown by default" }),
-  description: Type.Optional(Type.String({ description: "Long-form context; first sentence shows as a hint in short form" })),
+  description: Type.Optional(Type.String({ description: "Deep-view context, fully standalone: assume the reader has NOT seen the conversation. Take the explanation you would normally give and EXPAND it — define terms/acronyms, state concrete facts, lay out the decision space — never compress to shorthand. First sentence doubles as the short-view hint" })),
   type: StringEnum(["choice", "text"]),
   options: Type.Optional(Type.Array(OptionSchema, { description: "Required for type=choice" })),
   recommendation: Type.Optional(Type.String({ description: "Recommended option value; marked ★ and preselected" })),
@@ -65,6 +65,7 @@ const InterrogateParams = Type.Object({
 ## Caps (Q27=A, configurable + scaled)
 
 - Defaults: `description ≤ max(1200, budget/questionCount)` chars; `ramification ≤ 600`; `options ≤ 7`; `questions ≤ 40`; `goal ≤ 400`.
+- Minimums (2026-09-15 deep-view quality pin, warn-only): a provided `description` under `minDescription` (200), an option `ramification` under `minRamification` (120), or an option with NO ramification at all — each produces a warning in the upsert result naming the field and instructing an expanded re-upsert. Never mutates, never rejects; `0` disables each floor.
 - Budget scaling: `totalDescriptionBudget = min(0.04 × ctx.model.contextWindow, 60000)` tokens-equivalent (chars ≈ 4×tokens), divided across the batch.
 - Over-budget content is **truncated with an explicit warning in the tool result** ("q7 description truncated at 2100 chars — restructure if essential"). Never a hard reject; all numbers overridable via config.
 
@@ -74,10 +75,11 @@ const InterrogateParams = Type.Object({
 
 > Structured interrogation: plan by asking the user questions they answer in a persistent panel. Upsert `questions[]` (stable ids; existing questions require their current `rev`; omitting an id withdraws it). Call with `{}` to read current state, goal, and epoch. Answers arrive as submission messages — consider how they affect your other questions and re-ask only those materially affected (upsert with new rev). First round: few broad foundational questions with key ramifications; refine in later rounds; send the full set up front. The question set is the plan: when it completes, the full record is injected — derive the spec from it, don't re-plan. If unsure your view is current, read before upserting.
 
-**promptGuidelines (2 bullets):**
+**promptGuidelines (3 bullets — third added by the 2026-09-15 deep-view quality pin):**
 
 - Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.
 - After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.
+- The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords). If the tool result warns a deep-view field is thin, re-upsert it expanded with the current rev.
 
 ## Result rendering (TUI)
 

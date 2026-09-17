@@ -87,8 +87,8 @@ function fixtureQuestions(): Array<Record<string, unknown>> {
       type: "choice",
       group,
       options: [
-        { value: "alpha", label: "Alpha" },
-        { value: "beta", label: "Beta" },
+        { value: "alpha", label: "Alpha", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
+        { value: "beta", label: "Beta", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
       ],
     };
     if (id === "q01") q.recommendation = "alpha";
@@ -297,8 +297,8 @@ describe("AC-3 — auto-close vs re-ask; draft preserved (FR-4, FR-21, R4)", () 
             type: "choice",
             rev: closed.rev,
             options: [
-              { value: "gamma", label: "Gamma" },
-              { value: "delta", label: "Delta" },
+              { value: "gamma", label: "Gamma", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
+              { value: "delta", label: "Delta", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
             ],
           },
         ],
@@ -346,8 +346,8 @@ describe("AC-8 — stale upsert rejected, self-heals (FR-22)", () => {
             type: "choice",
             rev: 1,
             options: [
-              { value: "alpha", label: "Alpha" },
-              { value: "beta", label: "Beta" },
+              { value: "alpha", label: "Alpha", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
+              { value: "beta", label: "Beta", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
             ],
           },
         ],
@@ -374,8 +374,8 @@ describe("AC-8 — stale upsert rejected, self-heals (FR-22)", () => {
           type: "choice",
           rev: 1,
           options: [
-            { value: "gamma", label: "Gamma" },
-            { value: "delta", label: "Delta" },
+            { value: "gamma", label: "Gamma", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
+            { value: "delta", label: "Delta", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
           ],
         },
       ],
@@ -529,8 +529,8 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
             type: "choice",
             recommendation: "sqlite",
             options: [
-              { value: "sqlite", label: "SQLite" },
-              { value: "postgres", label: "Postgres" },
+              { value: "sqlite", label: "SQLite", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
+              { value: "postgres", label: "Postgres", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
             ],
           },
           // Never answered — stays open so the close pass after the settle
@@ -612,8 +612,8 @@ describe("AC-14 (state side) — completion record built once, exactly once (FR-
             group: "scope",
             recommendation: "alpha",
             options: [
-              { value: "alpha", label: "Alpha" },
-              { value: "beta", label: "Beta" },
+              { value: "alpha", label: "Alpha", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
+              { value: "beta", label: "Beta", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
             ],
           },
           {
@@ -623,8 +623,8 @@ describe("AC-14 (state side) — completion record built once, exactly once (FR-
             type: "choice",
             group: "scope",
             options: [
-              { value: "alpha", label: "Alpha" },
-              { value: "beta", label: "Beta" },
+              { value: "alpha", label: "Alpha", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
+              { value: "beta", label: "Beta", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
             ],
           },
         ],

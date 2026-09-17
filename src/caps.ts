@@ -5,7 +5,9 @@
  * TRUNCATED WITH A WARNING, never rejected ("q7 description truncated at
  * 2100 chars — restructure if essential"). The model sees exactly what was
  * cut and why, and restructures on its next turn instead of stalling on a
- * hard error.
+ * hard error. The 2026-09-15 deep-view quality pin adds warn-only MINIMUM
+ * floors on the same self-heal pattern (see {@link applyCaps} step 6): thin
+ * deep-view text warns and the model re-upserts it expanded.
  *
  * Purity contract: no I/O, no events, no pi imports, no module state, never
  * throws. Inputs are deep-copied (structuredClone) — the caller's array and
@@ -36,7 +38,7 @@ export const CHARS_PER_TOKEN = 4;
  */
 export const DESCRIPTION_BUDGET_CEILING = 60000;
 
-/** What {@link applyCaps} returns: capped copies plus every warning raised. */
+/** What {@link applyCaps} returns: capped copies plus every warning raised (truncations, drops, and minimum-floor lints). */
 export interface CapsResult {
   /** Deep-copied, capped questions — safe to hand straight to merge.upsert. */
   questions: QuestionInput[];
@@ -96,6 +98,14 @@ export function descriptionCap(caps: CapsConfig, contextWindow: number, question
  *    recommendation always names a surviving option. `recommendation` itself
  *    is left untouched.
  * 5. **goal** — truncate to `caps.goal`.
+ * 6. **minimums (2026-09-15 deep-view quality lint)** — warn (NEVER mutate,
+ *    never reject) when a deep-view field is thinner than its floor: a
+ *    provided description < `caps.minDescription`, an option ramification
+ *    < `caps.minRamification`, or an option with NO ramification at all.
+ *    Floors of 0 disable each lint. Checked against the FINAL stored text
+ *    (post-truncation) so an over-cap shorthand dump still lints. The warning
+ *    text tells the model to re-upsert expanded — the same self-heal path as
+ *    truncation warnings (h2.23).
  *
  * ## Exact warning formats
  * - `questions truncated to ${caps.questions} — ${droppedCount} dropped`
@@ -103,6 +113,9 @@ export function descriptionCap(caps: CapsConfig, contextWindow: number, question
  * - `${id} ramification truncated at ${originalLength} chars`
  * - `${id} options truncated to ${keptCount} (recommendation preserved)`
  * - `goal truncated at ${originalLength} chars`
+ * - `${id} description is only ${n} chars — deep view must stand alone; expand and re-upsert with the current rev`
+ * - `${id} option ${value} ramification is only ${n} chars — expand to standalone consequences and re-upsert`
+ * - `${id} option ${value} has no ramification — give every option standalone consequences and re-upsert`
  *
  * Absent or already-under-cap fields pass silently (no warning).
  *
@@ -186,6 +199,38 @@ export function applyCaps(
     const originalLength = goal.length;
     cappedGoal = goal.slice(0, config.caps.goal);
     warnings.push(`goal truncated at ${originalLength} chars`);
+  }
+
+  // 6. Minimums — 2026-09-15 deep-view quality lint. Warn-only: fields are
+  //    never padded or rejected (a floor that MUTATES would manufacture fake
+  //    detail; a floor that REJECTS would stall the batch — both worse than
+  //    the warning + re-upsert self-heal loop this package already uses for
+  //    over-cap content). Missing descriptions do NOT lint (a question can be
+  //    self-evident from its prompt alone) but a missing ramification on an
+  //    option DOES: every answer choice must carry its own standalone
+  //    explanation — that is the deep view's core guarantee.
+  for (const q of kept) {
+    if (config.caps.minDescription > 0 && typeof q.description === "string" && q.description.length < config.caps.minDescription) {
+      warnings.push(
+        `${q.id} description is only ${q.description.length} chars — deep view must stand alone; expand and re-upsert with the current rev`,
+      );
+    }
+
+    if (Array.isArray(q.options)) {
+      for (const option of q.options) {
+        const r = typeof option?.ramification === "string" ? option.ramification : "";
+        if (config.caps.minRamification === 0) continue;
+        if (r.length === 0) {
+          warnings.push(
+            `${q.id} option ${option.value} has no ramification — give every option standalone consequences and re-upsert`,
+          );
+        } else if (r.length < config.caps.minRamification) {
+          warnings.push(
+            `${q.id} option ${option.value} ramification is only ${r.length} chars — expand to standalone consequences and re-upsert`,
+          );
+        }
+      }
+    }
   }
 
   return { questions: kept, goal: cappedGoal, warnings };

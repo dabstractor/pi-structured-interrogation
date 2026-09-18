@@ -15,8 +15,10 @@
  *
  * This file is the factory. It loads the interrogator config once at startup
  * (async factories are awaited by pi before session_start — docs/extensions.md
- * "The factory can be synchronous or asynchronous"), registers the
- * /interrogate-ping smoke-test command, and registers the `interrogate` tool
+ * "The factory can be synchronous or asynchronous"), registers the ONE
+ * /interrogate command (CMD-001: bare = panel toggle; `ping` smoke test and
+ * `debug upsert|submit|state` verification subcommands ride the same
+ * registration), registers the `interrogate` tool
  * (h2.15) via createInterrogateTool, wires the auto-close lifecycle engine
  * (P1.M2.T2.S1 — h2.44 close pass on agent_settled), and plugs the one-time
  * completion trigger into its onAfterClosePass seam (P1.M2.T2.S2 — h3.9:
@@ -32,7 +34,7 @@ import { createCompletionTrigger } from "./completion.js";
 import { registerInterrogateCommand } from "./command.js";
 import { createCompactionGuard } from "./compaction.js";
 import { loadConfig } from "./config.js";
-import { registerDebugCommands } from "./debug-commands.js";
+import { createDebugSubcommands } from "./debug-commands.js";
 import { drainBatchNotes } from "./delivery.js";
 import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
@@ -51,13 +53,6 @@ import { createInterrogateTool } from "./tool.js";
 
 export default async function interrogatorExtension(pi: ExtensionAPI): Promise<void> {
   const config = await loadConfig(process.cwd());
-
-  pi.registerCommand("interrogate-ping", {
-    description: "Smoke-test: proves the pi-interrogator extension loaded",
-    handler: async (_args: string, ctx) => {
-      ctx.ui.notify("pi-interrogator: pong", "info");
-    },
-  });
 
   // P1.M2.T2.S1 — auto-close engine (h2.44): subscribes tool_execution_start/end
   // + agent_settled and runs the idempotent close pass after each settle.
@@ -112,12 +107,14 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // default compaction (undefined) — never cancels, never blocks.
   createCompactionGuard(pi, { config, mirror });
 
-  // P1.M2.T3.S1 — debug commands for scripted verification (h2.50): share
-  // the tool executor / submission path so keyboard-driven runs are evidence
-  // about the production path. Uses the same single-loaded config. The
-  // lifecycle handle lets the debug submit flow honor the h2.44 line-1
-  // caller contract (noteSubmissionDelivered right after deliverSubmission).
-  registerDebugCommands(pi, config, lifecycle);
+  // P1.M2.T3.S1 — debug subcommands (h2.50, CMD-001): the former
+  // /interrogate-debug-* commands now live under /interrogate debug …,
+  // keeping /interrogate the ONLY command this extension registers (and
+  // thus the top autocomplete hit for "/inter"). Shares the tool
+  // executor / submission path so keyboard-driven runs are evidence about
+  // the production path; the lifecycle handle lets the debug submit flow
+  // honor the h2.44 line-1 caller contract.
+  const debugSubcommands = createDebugSubcommands(pi, config, lifecycle);
 
   // P1.M3.T1.S1 — panel host: opens on the first interrogate upsert in TUI
   // mode (fire-and-forget custom(), h2.0 commitment 1), persists while the
@@ -218,5 +215,5 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // over the panel host's phase API. Shares this closure's config (raw
   // keys.breakOut for the shortcut), panelHost (toggle state source), and
   // drafts (signature-stability pass-through; S1's resume reuses lastOpts).
-  registerInterrogateCommand(pi, config, panelHost, drafts);
+  registerInterrogateCommand(pi, config, panelHost, { drafts, debug: debugSubcommands });
 }

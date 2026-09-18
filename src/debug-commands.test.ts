@@ -20,7 +20,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "./config.js";
-import { registerDebugCommands } from "./debug-commands.js";
+import { createDebugSubcommands } from "./debug-commands.js";
 import { buildStatusLine } from "./results.js";
 import { createInterrogationState, getState, resetState } from "./state.js";
 import { executeInterrogate } from "./tool.js";
@@ -54,30 +54,20 @@ interface CtxStub {
   ui: { notify: NotifyFn };
 }
 
-interface CapturedCommand {
-  description?: string;
-  handler: (args: string, ctx: CtxStub) => Promise<void>;
-}
-
-/** Stub pi + ctx harness; returns an invoke helper per command name. */
-function makeHarness(lifecycle?: Parameters<typeof registerDebugCommands>[2]) {
-  const commands = new Map<string, CapturedCommand>();
+/** Stub pi + ctx harness; returns an invoke helper bridging legacy names. */
+function makeHarness(lifecycle?: Parameters<typeof createDebugSubcommands>[2]) {
   const sendMessage = vi.fn();
-  const registerCommand = vi.fn((name: string, def: CapturedCommand) => {
-    commands.set(name, def);
-  });
-  const pi = { registerCommand, sendMessage } as unknown as Pick<
-    ExtensionAPI,
-    "registerCommand" | "sendMessage"
-  >;
-  registerDebugCommands(pi, DEFAULT_CONFIG, lifecycle);
+  const pi = { sendMessage } as unknown as Pick<ExtensionAPI, "sendMessage">;
+  const handler = createDebugSubcommands(pi, DEFAULT_CONFIG, lifecycle);
   const ctx: CtxStub = { ui: { notify: vi.fn() } };
+  // CMD-001 bridge: the suite's invoke sites still read as command names
+  // ("upsert", …) — translated to the subcommand verb +
+  // args the handler now takes ("upsert <args>").
   const invoke = (name: string, args = ""): Promise<void> => {
-    const def = commands.get(name);
-    if (def === undefined) throw new Error(`command not registered: ${name}`);
-    return def.handler(args, ctx);
+    const verb = name.replace(/^interrogate-debug-/, "");
+    return handler(args === "" ? verb : `${verb} ${args}`, ctx);
   };
-  return { commands, registerCommand, sendMessage, ctx, invoke };
+  return { sendMessage, ctx, invoke };
 }
 
 /** Level of the nth notify call ("info" | "warning" | "error"). */
@@ -89,31 +79,25 @@ beforeEach(() => {
   resetState();
 });
 
-// ------------------------------------------------------------- registration
+// ------------------------------------------------------------- dispatch
 
-describe("registration", () => {
-  test("registers exactly the three h2.3 command names", () => {
-    const { registerCommand, commands } = makeHarness();
-    expect(registerCommand).toHaveBeenCalledTimes(3);
-    expect([...commands.keys()]).toEqual([
-      "interrogate-debug-upsert",
-      "interrogate-debug-submit",
-      "interrogate-debug-state",
-    ]);
-    for (const def of commands.values()) {
-      expect(typeof def.description).toBe("string");
-      expect(def.description!.length).toBeGreaterThan(0);
-      expect(typeof def.handler).toBe("function");
-    }
+describe("dispatch", () => {
+  test("unknown_verb_notifies_usage_error", async () => {
+    const { invoke, ctx } = makeHarness();
+    await invoke("explode");
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.notify.mock.calls[0][0]).toContain("unknown subcommand \"explode\"");
+    expect(ctx.ui.notify.mock.calls[0][0]).toContain("upsert|submit|state");
+    expect(levelOf(ctx)).toBe("error");
   });
 });
 
 // -------------------------------------------------------------------- upsert
 
-describe("/interrogate-debug-upsert", () => {
+describe("/upsert", () => {
   test("valid_fixture_creates_state_and_notifies_status_line", async () => {
     const { invoke, ctx } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
 
     const state = getState();
     expect(state).toBeDefined();
@@ -130,19 +114,19 @@ describe("/interrogate-debug-upsert", () => {
 
   test("invalid_json_notifies_error_and_touches_no_state", async () => {
     const { invoke, ctx } = makeHarness();
-    await invoke("interrogate-debug-upsert", "{not json");
+    await invoke("upsert", "{not json");
 
     expect(getState()).toBeUndefined();
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
     expect(ctx.ui.notify.mock.calls[0][0]).toMatch(
-      /^interrogate-debug-upsert: invalid JSON: /,
+      /^interrogate debug upsert: invalid JSON: /,
     );
     expect(levelOf(ctx)).toBe("error");
   });
 
   test("stale_rev_notifies_ac8_self_heal_message_with_current_rev_and_text", async () => {
     const { invoke, ctx } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     ctx.ui.notify.mockClear();
 
     // q1 exists at rev 1; re-upsert claiming rev 9 → StaleError.
@@ -150,7 +134,7 @@ describe("/interrogate-debug-upsert", () => {
       goal: "Plan the migration",
       questions: [{ ...FIXTURE.questions[0], rev: 9 }],
     });
-    await invoke("interrogate-debug-upsert", stale);
+    await invoke("upsert", stale);
 
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
     const message = ctx.ui.notify.mock.calls[0][0] as string;
@@ -163,7 +147,7 @@ describe("/interrogate-debug-upsert", () => {
 
   test("empty_args_run_the_read_path_harmlessly_on_an_empty_session", async () => {
     const { invoke, ctx } = makeHarness();
-    await invoke("interrogate-debug-upsert", "{}");
+    await invoke("upsert", "{}");
 
     // Synthesized empty read view — NOT persisted (epoch 0 convention).
     expect(getState()).toBeUndefined();
@@ -177,14 +161,14 @@ describe("/interrogate-debug-upsert", () => {
 
 // -------------------------------------------------------------------- submit
 
-describe("/interrogate-debug-submit", () => {
+describe("/submit", () => {
   test("zero_pairs_warns_nothing_to_submit", async () => {
     const { invoke, ctx, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-submit", "   ");
+    await invoke("submit", "   ");
 
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
     expect(ctx.ui.notify.mock.calls[0][0]).toBe(
-      "interrogate-debug-submit: nothing to submit",
+      "interrogate debug submit: nothing to submit",
     );
     expect(levelOf(ctx)).toBe("warning"); // pi's notify enum: warning, not warn
     expect(sendMessage).not.toHaveBeenCalled();
@@ -192,11 +176,11 @@ describe("/interrogate-debug-submit", () => {
 
   test("malformed_token_without_equals_notifies_parse_error", async () => {
     const { invoke, ctx, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-submit", "q1=postgres, oops");
+    await invoke("submit", "q1=postgres, oops");
 
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
     expect(ctx.ui.notify.mock.calls[0][0]).toBe(
-      "interrogate-debug-submit: expected id=value[,id=value...]",
+      "interrogate debug submit: expected id=value[,id=value...]",
     );
     expect(levelOf(ctx)).toBe("error");
     expect(sendMessage).not.toHaveBeenCalled();
@@ -204,21 +188,21 @@ describe("/interrogate-debug-submit", () => {
 
   test("empty_id_notifies_parse_error", async () => {
     const { invoke, ctx } = makeHarness();
-    await invoke("interrogate-debug-submit", " = postgres");
+    await invoke("submit", " = postgres");
 
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
     expect(ctx.ui.notify.mock.calls[0][0]).toBe(
-      "interrogate-debug-submit: expected id=value[,id=value...]",
+      "interrogate debug submit: expected id=value[,id=value...]",
     );
   });
 
   test("no_state_notifies_error_and_never_sends", async () => {
     const { invoke, ctx, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-submit", "q1=postgres");
+    await invoke("submit", "q1=postgres");
 
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
     expect(ctx.ui.notify.mock.calls[0][0]).toBe(
-      "interrogate-debug-submit: no interrogation state",
+      "interrogate debug submit: no interrogation state",
     );
     expect(levelOf(ctx)).toBe("error");
     expect(sendMessage).not.toHaveBeenCalled();
@@ -226,14 +210,14 @@ describe("/interrogate-debug-submit", () => {
 
   test("happy_path_records_flushes_and_delivers_exactly_one_submission", async () => {
     const { invoke, ctx, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     ctx.ui.notify.mockClear();
 
-    await invoke("interrogate-debug-submit", "q1=postgres,q2=sqlite");
+    await invoke("submit", "q1=postgres,q2=sqlite");
 
     // Flush summary notify.
     expect(ctx.ui.notify.mock.calls[0]).toEqual([
-      "interrogate-debug-submit: recorded: q1, q2; unknown: (none)",
+      "interrogate debug submit: recorded: q1, q2; unknown: (none)",
       "info",
     ]);
 
@@ -270,20 +254,20 @@ describe("/interrogate-debug-submit", () => {
 
     // Submission status notify carries the POST-bump epoch.
     expect(ctx.ui.notify.mock.calls[1]).toEqual([
-      "interrogate-debug-submit: submitted epoch 2",
+      "interrogate debug submit: submitted epoch 2",
       "info",
     ]);
   });
 
   test("unknown_ids_are_collected_and_skipped_not_fatal", async () => {
     const { invoke, ctx, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     ctx.ui.notify.mockClear();
 
-    await invoke("interrogate-debug-submit", "q1=postgres,zzz=nope");
+    await invoke("submit", "q1=postgres,zzz=nope");
 
     expect(ctx.ui.notify.mock.calls[0]).toEqual([
-      "interrogate-debug-submit: recorded: q1; unknown: zzz",
+      "interrogate debug submit: recorded: q1; unknown: zzz",
       "info",
     ]);
     // Still one submission for the recorded answer (an all/unknown batch is
@@ -300,9 +284,9 @@ describe("/interrogate-debug-submit", () => {
 
   test("values_run_to_the_next_comma_and_are_trimmed", async () => {
     const { invoke } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
 
-    await invoke("interrogate-debug-submit", " q1 = big postgres , q2=  soonish yes  ");
+    await invoke("submit", " q1 = big postgres , q2=  soonish yes  ");
 
     const state = getState()!;
     expect(state.getQuestion("q1")!.answer!.value).toBe("big postgres");
@@ -312,25 +296,25 @@ describe("/interrogate-debug-submit", () => {
 
 // --------------------------------------------------------------------- state
 
-describe("/interrogate-debug-state", () => {
+describe("/state", () => {
   test("empty_state_is_harmless_info_epoch_0", async () => {
     const { invoke, ctx } = makeHarness();
-    await invoke("interrogate-debug-state");
+    await invoke("state");
 
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
     expect(ctx.ui.notify.mock.calls[0]).toEqual([
-      "interrogate-debug-state: no interrogation state (epoch 0)",
+      "interrogate debug state: no interrogation state (epoch 0)",
       "info",
     ]);
   });
 
   test("populated_state_shows_status_line_then_one_line_per_question", async () => {
     const { invoke, ctx } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     getState()!.applyAnswer("q1", { value: "postgres", at: "2025-01-01T00:00:00.000Z" });
     ctx.ui.notify.mockClear();
 
-    await invoke("interrogate-debug-state");
+    await invoke("state");
 
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
     const text = ctx.ui.notify.mock.calls[0][0] as string;
@@ -348,10 +332,10 @@ describe("/interrogate-debug-state", () => {
       goal: "g",
       questions: [{ id: "q1", prompt: "x".repeat(100), type: "text" }],
     });
-    await invoke("interrogate-debug-upsert", long);
+    await invoke("upsert", long);
     ctx.ui.notify.mockClear();
 
-    await invoke("interrogate-debug-state");
+    await invoke("state");
 
     const lines = (ctx.ui.notify.mock.calls[0][0] as string).split("\n");
     expect(lines[1]).toBe(`- q1 [open] rev1 ${"x".repeat(60)}`);
@@ -363,7 +347,7 @@ describe("/interrogate-debug-state", () => {
 describe("same-code-path proof (Level 4)", () => {
   test("handler_upsert_matches_direct_executeInterrogate_serialize", async () => {
     const { invoke } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     const viaHandler = getState()!.serialize();
 
     resetState();
@@ -378,17 +362,17 @@ describe("same-code-path proof (Level 4)", () => {
 
 // ------------- note= token (R3, P1.M4.T2.S2) — scripted AC coverage
 
-describe("/interrogate-debug-submit — note= token (R3, P1.M4.T2.S2)", () => {
+describe("`submit` — note= token (R3, P1.M4.T2.S2)", () => {
   test("note_token_ships_the_NOTE_line_sets_details_note_and_reports_clearing", async () => {
     const { invoke, ctx, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     ctx.ui.notify.mockClear();
 
-    await invoke("interrogate-debug-submit", "q1=postgres,note=hold this for me");
+    await invoke("submit", "q1=postgres,note=hold this for me");
 
     // The note id never reaches the state engine (not recorded, not unknown).
     expect(ctx.ui.notify.mock.calls[0]).toEqual([
-      "interrogate-debug-submit: recorded: q1; unknown: (none)",
+      "interrogate debug submit: recorded: q1; unknown: (none)",
       "info",
     ]);
     expect(getState()!.getQuestion("note")).toBeUndefined();
@@ -406,32 +390,32 @@ describe("/interrogate-debug-submit — note= token (R3, P1.M4.T2.S2)", () => {
 
     // Cleared-after-shipping report mirrors the panel contract (h2.32).
     expect(ctx.ui.notify.mock.calls[1]).toEqual([
-      'interrogate-debug-submit: submitted epoch 2; note cleared: "hold this for me"',
+      'interrogate debug submit: submitted epoch 2; note cleared: "hold this for me"',
       "info",
     ]);
   });
 
   test("no_note_token_keeps_the_unchanged_notify_format", async () => {
     const { invoke, ctx, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     ctx.ui.notify.mockClear();
 
-    await invoke("interrogate-debug-submit", "q1=postgres");
+    await invoke("submit", "q1=postgres");
 
     const msg = sendMessage.mock.calls[0][0] as { content: string };
     expect(msg.content.split("\n")).toHaveLength(2); // no NOTE line
     expect(ctx.ui.notify.mock.calls[1]).toEqual([
-      "interrogate-debug-submit: submitted epoch 2",
+      "interrogate debug submit: submitted epoch 2",
       "info",
     ]);
   });
 
   test("empty_note_value_is_no_note_at_all", async () => {
     const { invoke, ctx, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     ctx.ui.notify.mockClear();
 
-    await invoke("interrogate-debug-submit", "q1=postgres,note=");
+    await invoke("submit", "q1=postgres,note=");
 
     const msg = sendMessage.mock.calls[0][0] as { content: string };
     expect(msg.content.split("\n")).toHaveLength(2);
@@ -440,10 +424,10 @@ describe("/interrogate-debug-submit — note= token (R3, P1.M4.T2.S2)", () => {
 
   test("note_only_args_submit_a_zero_change_delta_carrying_the_note", async () => {
     const { invoke, ctx, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     ctx.ui.notify.mockClear();
 
-    await invoke("interrogate-debug-submit", "note=zero pending context");
+    await invoke("submit", "note=zero pending context");
 
     const msg = sendMessage.mock.calls[0][0] as { content: string };
     expect(msg.content).toBe(
@@ -452,7 +436,7 @@ describe("/interrogate-debug-submit — note= token (R3, P1.M4.T2.S2)", () => {
         "NOTE: zero pending context",
     );
     expect(ctx.ui.notify.mock.calls[0]).toEqual([
-      "interrogate-debug-submit: recorded: (none); unknown: (none)",
+      "interrogate debug submit: recorded: (none); unknown: (none)",
       "info",
     ]);
   });
@@ -465,14 +449,14 @@ describe("/interrogate-debug-submit — note= token (R3, P1.M4.T2.S2)", () => {
   test("submit_flush_marks_all_pending_answered_submitted_and_notifies_lifecycle", async () => {
     const noteSubmissionDelivered = vi.fn();
     const { invoke, sendMessage } = makeHarness({ noteSubmissionDelivered });
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
+    await invoke("upsert", FIXTURE_JSON);
     const state = getState()!;
 
     // q3 answered EARLIER (never yet submitted) — the flush is not limited
     // to the ids in this command's args (merge.ts: "all pending (answered)").
     state.applyAnswer("q2", { value: "whenever", at: new Date().toISOString() });
 
-    await invoke("interrogate-debug-submit", "q1=postgres");
+    await invoke("submit", "q1=postgres");
 
     expect(state.getQuestion("q1")!.status).toBe("submitted");
     expect(state.getQuestion("q2")!.status).toBe("submitted");
@@ -489,8 +473,8 @@ describe("/interrogate-debug-submit — note= token (R3, P1.M4.T2.S2)", () => {
 
   test("submit_without_lifecycle_handle_still_delivers (seam optional)", async () => {
     const { invoke, sendMessage } = makeHarness();
-    await invoke("interrogate-debug-upsert", FIXTURE_JSON);
-    await invoke("interrogate-debug-submit", "q1=postgres");
+    await invoke("upsert", FIXTURE_JSON);
+    await invoke("submit", "q1=postgres");
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(getState()!.getQuestion("q1")!.status).toBe("submitted");
   });

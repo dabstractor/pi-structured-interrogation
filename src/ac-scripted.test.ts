@@ -44,7 +44,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "./config.js";
 import { createCompletionTrigger, attemptCompletion } from "./completion.js";
 import { buildSubmission, SUBMISSION_REMINDER, type CompletionMessage } from "./delivery.js";
-import { registerDebugCommands } from "./debug-commands.js";
+import { createDebugSubcommands, type DebugSubcommandHandler } from "./debug-commands.js";
 import { DraftStore } from "./draft-store.js";
 import { RELAY_INSTRUCTION } from "./fallback.js";
 import { StaleError } from "./guards.js";
@@ -195,6 +195,37 @@ beforeEach(() => {
 
 // ----------------------------------------------------------------- AC-2 (FR-3)
 
+
+/**
+ * CMD-001 test bridge: register the legacy /interrogate-debug-* command
+ * NAMES (this suite's invoke sites are written against them) on top of the
+ * production subcommand handler — each bridges to "<verb> <args>". The
+ * production surface is the single /interrogate command; the bridge keeps
+ * the acceptance-suite diffs minimal while exercising the same code path.
+ */
+function registerDebugBridge(
+  h: ReturnType<typeof makePiHarness>,
+  lifecycle?: Parameters<typeof createDebugSubcommands>[2],
+): void {
+  const handle = createDebugSubcommands(h.pi, DEFAULT_CONFIG, lifecycle);
+  const bridge =
+    (verb: string) =>
+    async (args: string, ctx: Parameters<DebugSubcommandHandler>[1]) =>
+    handle(args === "" ? verb : `${verb} ${args}`, ctx);
+  h.pi.registerCommand("interrogate-debug-upsert", {
+    description: "test bridge",
+    handler: bridge("upsert"),
+  });
+  h.pi.registerCommand("interrogate-debug-submit", {
+    description: "test bridge",
+    handler: bridge("submit"),
+  });
+  h.pi.registerCommand("interrogate-debug-state", {
+    description: "test bridge",
+    handler: bridge("state"),
+  });
+}
+
 describe("AC-2 — submission delta, reminder, open count, epoch (FR-3)", () => {
   test("AC-2_submission_delta_three_lines_reminder_epoch_27_open", () => {
     // Model upserts the 30-question set through THE production executor.
@@ -248,7 +279,7 @@ describe("AC-3 — auto-close vs re-ask; draft preserved (FR-4, FR-21, R4)", () 
   async function seedSettledPair(): Promise<ReturnType<typeof makePiHarness>> {
     const h = makePiHarness();
     const lifecycle = wireLifecycle(h);
-    registerDebugCommands(h.pi, DEFAULT_CONFIG, lifecycle);
+    registerDebugBridge(h, lifecycle);
     executeInterrogate(fixtureUpsert(), tuiCtx(), DEFAULT_CONFIG);
     await h.invoke("interrogate-debug-submit", "q01=alpha,q02=beta");
     h.emit("agent_settled"); // the agent reply to the submission
@@ -385,7 +416,7 @@ describe("AC-8 — stale upsert rejected, self-heals (FR-22)", () => {
   test("AC-8_stale_upsert_rejected_then_self_heals", async () => {
     const h = makePiHarness();
     const lifecycle = wireLifecycle(h);
-    registerDebugCommands(h.pi, DEFAULT_CONFIG, lifecycle);
+    registerDebugBridge(h, lifecycle);
     await seedStaleWorld(h);
     const state = getState()!;
 
@@ -432,7 +463,7 @@ describe("AC-8 — stale upsert rejected, self-heals (FR-22)", () => {
   test("AC-8_debug_upsert_surfaces_the_verbatim_stale_message", async () => {
     const h = makePiHarness();
     const lifecycle = wireLifecycle(h);
-    registerDebugCommands(h.pi, DEFAULT_CONFIG, lifecycle);
+    registerDebugBridge(h, lifecycle);
     await seedStaleWorld(h);
     h.ctx.ui.notify.mockClear(); // ignore the seeding submits' notifies
 
@@ -449,7 +480,7 @@ describe("AC-8 — stale upsert rejected, self-heals (FR-22)", () => {
     expect(h.ctx.ui.notify).toHaveBeenCalledTimes(1);
     const [text, level] = h.ctx.ui.notify.mock.calls[0] as [string, string];
     expect(level).toBe("error");
-    expect(text).toBe(`interrogate-debug-upsert: ${canonical}`);
+    expect(text).toBe(`interrogate debug upsert: ${canonical}`);
     // State still untouched by the refused batch.
     expect(getState()!.getQuestion("q01")!.rev).toBe(2);
   });
@@ -516,7 +547,7 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
     // Drive one question to closed through the REAL flow.
     const h = makePiHarness();
     const lifecycle = wireLifecycle(h);
-    registerDebugCommands(h.pi, DEFAULT_CONFIG, lifecycle);
+    registerDebugBridge(h, lifecycle);
     executeInterrogate(
       {
         goal: "Pick the store",
@@ -597,7 +628,7 @@ describe("AC-14 (state side) — completion record built once, exactly once (FR-
     // Real wiring: lifecycle engine + completion trigger, index.ts style.
     const h = makePiHarness();
     const lifecycle = wireLifecycle(h);
-    registerDebugCommands(h.pi, DEFAULT_CONFIG, lifecycle);
+    registerDebugBridge(h, lifecycle);
 
     executeInterrogate(
       {

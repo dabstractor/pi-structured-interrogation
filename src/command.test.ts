@@ -28,6 +28,7 @@ import interrogatorExtension from "./index.js";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import { interrogateToggleAction, registerInterrogateCommand } from "./command.js";
+import type { DebugSubcommandHandler } from "./debug-commands.js";
 import { createPanelHost, openPanel, type OpenPanelOptions, type PanelHost } from "./panel/panel.js";
 import { createInterrogationState, getState, resetState, setState, type InterrogationState, type Question } from "./state.js";
 
@@ -147,6 +148,9 @@ function makeMockLifecycle(): MockLifecycle {
 
 interface CapturedCommand {
   description?: string;
+  getArgumentCompletions?: (
+    argumentPrefix: string,
+  ) => Array<{ value: string; label: string; description?: string }> | null;
   handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 }
 
@@ -166,7 +170,10 @@ interface Harness {
 
 /** Fresh host + registration capture. The host record is module-scoped, so
  * every harness re-arms it via createPanelHost (panel.test.ts convention). */
-function makeHarness(config: InterrogatorConfig = DEFAULT_CONFIG): Harness {
+function makeHarness(
+  config: InterrogatorConfig = DEFAULT_CONFIG,
+  opts?: { debug?: DebugSubcommandHandler },
+): Harness {
   const host = createPanelHost(makeMockLifecycle().lifecycle);
   const commands = new Map<string, CapturedCommand>();
   const shortcuts = new Map<string, CapturedShortcut>();
@@ -179,7 +186,7 @@ function makeHarness(config: InterrogatorConfig = DEFAULT_CONFIG): Harness {
     }),
   } as unknown as Pick<ExtensionAPI, "registerCommand" | "registerShortcut">;
 
-  registerInterrogateCommand(pi as ExtensionAPI, config, host);
+  registerInterrogateCommand(pi as ExtensionAPI, config, host, opts);
 
   return {
     host,
@@ -194,6 +201,19 @@ function makeHarness(config: InterrogatorConfig = DEFAULT_CONFIG): Harness {
       return def!.handler(ctx);
     },
   };
+}
+
+/**
+ * CMD-001 dispatch-test helper: harness + a fresh command ctx whose notify
+ * spy is directly assertable (makeCtx's wrapper, exposed flat).
+ */
+function makeHarnessWithCtx(
+  opts?: Parameters<typeof registerInterrogateCommand>[3],
+): ReturnType<typeof makeHarness> & { ctx: ExtensionCommandContext; notify: ReturnType<typeof vi.fn> } {
+  const h = makeHarness(DEFAULT_CONFIG, opts);
+  const notify = vi.fn();
+  const ctx = { ui: { notify }, mode: "tui" } as unknown as ExtensionCommandContext;
+  return { ...h, ctx, notify };
 }
 
 /** Open the panel through the REAL openPanel on a surface pi (phase "open"). */
@@ -220,6 +240,68 @@ describe("registerInterrogateCommand — registration surface", () => {
     expect(def).toBeDefined();
     expect(typeof def!.handler).toBe("function");
     expect(def!.description).toContain("Toggle");
+    // CMD-001: /interrogate is the ONE command — nothing else competes for
+    // the "/inter" autocomplete prefix.
+    expect([...commands.keys()]).toEqual(["interrogate"]);
+  });
+
+  test("test_subcommand_ping_notifies_pong", async () => {
+    const { invokeCommand, ctx } = makeHarnessWithCtx();
+    await invokeCommand("ping", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith("pi-interrogator: pong", "info");
+  });
+
+  test("test_subcommand_debug_delegates_and_reports_unavailable", async () => {
+    const debugCalls: string[] = [];
+    const { commands, ctx } = makeHarnessWithCtx({
+      debug: async (args) => {
+        debugCalls.push(args);
+      },
+    });
+    await commands.get("interrogate")!.handler("debug state", ctx);
+    expect(debugCalls).toEqual(["state"]);
+    await commands.get("interrogate")!.handler("debug  upsert {\"a\":1}", ctx);
+    expect(debugCalls).toEqual(["state", 'upsert {"a":1}']);
+    // No debug seam wired → the branch reports it (never throws).
+    const bare = makeHarnessWithCtx();
+    await bare.commands.get("interrogate")!.handler("debug state", bare.ctx);
+    expect(bare.notify.mock.calls.some((c) => /unavailable/.test(c[0]))).toBe(true);
+  });
+
+  test("test_unknown_subcommand_notifies_usage", async () => {
+    const { invokeCommand, ctx, notify } = makeHarnessWithCtx();
+    await invokeCommand("explode", ctx);
+    const [text, level] = notify.mock.calls[0] as [string, string];
+    expect(text).toContain('unknown subcommand "explode"');
+    expect(text).toContain("ping | debug upsert|submit|state");
+    expect(level).toBe("warning");
+  });
+
+  test("test_bare_invocation_still_toggles_with_mode_guard", async () => {
+    // Empty/whitespace args → the pre-CMD-001 toggle path, TUI guard intact.
+    const { invokeCommand, ctx } = makeHarnessWithCtx();
+    Object.assign(ctx, { mode: "rpc" });
+    await invokeCommand("   ", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith("The interrogation panel requires TUI mode", "info");
+  });
+
+  test("test_argument_completions_surface_subcommands", () => {
+    const { commands } = makeHarness();
+    const comp = commands.get("interrogate")!.getArgumentCompletions!;
+    const values = (prefix: string): string[] =>
+      (comp(prefix) ?? []).map((i: { value: string }) => i.value);
+    // Top level after a space: ping + debug.
+    expect(values("")).toEqual(["ping", "debug"]);
+    expect(values("pi")).toEqual(["ping"]);
+    expect(values("d")).toEqual(["debug"]);
+    expect(values("zzz")).toEqual([]); // null → no suggestions
+    expect(comp("zzz")).toBeNull();
+    // Debug level: values carry the full replacement text (pi-tui swaps the
+    // whole argument prefix for item.value).
+    expect(values("debug ")).toEqual(["debug upsert", "debug submit", "debug state"]);
+    expect(values("debug s")).toEqual(["debug submit", "debug state"]);
+    expect(values("debug up")).toEqual(["debug upsert"]);
+    expect(comp("other ")).toBeNull();
   });
 
   test("test_shortcut_registered_with_config_key", () => {
@@ -383,9 +465,13 @@ describe("/interrogate command handler", () => {
     const { invokeCommand } = makeHarness();
     const { ctx, notify } = makeCtx();
 
-    // h2.15: args are ignored for toggling — never throw, same notify.
+    // CMD-001 supersedes h2.15's "args are ignored": args now dispatch
+    // subcommands, and an UNKNOWN one never throws — it notifies the usage
+    // line (warning) instead of the empty-state message.
     await expect(invokeCommand("focus q1 --whatever", ctx)).resolves.toBeUndefined();
-    expect(notify).toHaveBeenCalledWith(EMPTY_MESSAGE, "info");
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0]).toContain('unknown subcommand "focus"');
+    expect(notify.mock.calls[0][1]).toBe("warning");
   });
 
   test("test_toggle_suspended_answered_pending_resumes_silently", async () => {

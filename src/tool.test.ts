@@ -849,3 +849,86 @@ describe("module hygiene", () => {
     expect(src).not.toMatch(/custom\s*\(/); // never opens the panel itself
   });
 });
+
+// ------------------------------------------- FR-31/D-R6 + FR-34: bridge hooks
+
+describe("remote bridge hooks (FR-31/D-R6; FR-34 digest invariance)", () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  test("onLiveQuestions fires on upsert in BOTH modes, with the post-upsert state", () => {
+    const calls: Array<{ source: string; ids: string[]; mode: string }> = [];
+    const hook = (state: InterrogationState, source: "upsert" | "reopen") => {
+      calls.push({ source, ids: state.orderedQuestions().map((q) => q.id), mode: "recorded" });
+      return true;
+    };
+
+    executeInterrogate({ goal: "g", questions: [qi("q1"), qi("q2")] }, tuiCtx(), DEFAULT_CONFIG, {
+      onLiveQuestions: hook,
+    });
+    expect(calls.map((c) => c.source)).toEqual(["upsert"]);
+    expect(calls[0]!.ids).toEqual(["q1", "q2"]);
+
+    resetState();
+    calls.length = 0;
+    executeInterrogate({ goal: "g", questions: [qi("q1")] }, printCtx(), DEFAULT_CONFIG, {
+      onLiveQuestions: hook,
+    });
+    expect(calls.map((c) => c.source)).toEqual(["upsert"]);
+  });
+
+  test("TUI reopen invokes the hook after the outcome; result unchanged", () => {
+    const st = seedState();
+    seedQ(st, "q1");
+    const seen: string[] = [];
+    const r = executeInterrogate({ reopen: true }, tuiCtx(), DEFAULT_CONFIG, {
+      onReopen: () => "reopened",
+      onLiveQuestions: (_state, source) => {
+        seen.push(source);
+        return true;
+      },
+    });
+    expect(seen).toEqual(["reopen"]);
+    expect(r.content).not.toContain("Remote surface re-surfaced."); // TUI result unchanged
+    expect(r.content).toContain("Panel reopened.");
+  });
+
+  test("non-TUI reopen: read body preserved; re-surface line ONLY when the hook emits", () => {
+    const st = seedState();
+    seedQ(st, "q1");
+    const plain = executeInterrogate({ reopen: true }, printCtx(), DEFAULT_CONFIG, {});
+    const emitted = executeInterrogate({ reopen: true }, printCtx(), DEFAULT_CONFIG, {
+      onLiveQuestions: () => true,
+    });
+    const silent = executeInterrogate({ reopen: true }, printCtx(), DEFAULT_CONFIG, {
+      onLiveQuestions: () => false,
+    });
+    expect(plain.content).toBe(silent.content); // no emission → byte-identical to the bare read
+    expect(emitted.content).toContain("Remote surface re-surfaced.");
+    expect(emitted.content).toContain(plain.content.slice(plain.content.indexOf("0/1"))); // read body rides along
+  });
+
+  test("FR-34 REGRESSION: non-TUI upsert digest is BYTE-IDENTICAL with or without bridge emission", () => {
+    const q = qi("q1", {
+      type: "choice",
+      title: "T",
+      options: [
+        { value: "a", label: "A", ramification: "ra" },
+        { value: "b", label: "B", ramification: "rb" },
+      ],
+      recommendation: "a",
+    });
+    const without = executeInterrogate({ goal: "goal text", questions: [q] }, printCtx());
+    const snapshotWithout = JSON.stringify(without);
+    resetState();
+    const withHook = executeInterrogate({ goal: "goal text", questions: [q] }, printCtx(), DEFAULT_CONFIG, {
+      onLiveQuestions: () => true, // bridge emitted — result must not care
+    });
+    expect(withHook.content).toBe(without.content);
+    expect(JSON.stringify(withHook)).toBe(snapshotWithout);
+    // And it is the digest shape, not a device variant.
+    expect(without.content).toContain("INTERROGATION — goal text (epoch 1)");
+    expect(without.content).toContain(RELAY_INSTRUCTION);
+  });
+});

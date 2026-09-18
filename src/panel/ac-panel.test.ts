@@ -423,15 +423,15 @@ describe("AC-1 — render proof at panel level (FR-1/FR-9)", () => {
 // -------------------------------------------------------------------- AC-12
 
 describe("AC-12 — remapped hotkeys relabel every surface (R5/h2.52)", () => {
-  test("AC-12_remap_updates_footer_and_widget_labels", () => {
-    // Deep-merge style clone: remap deep (deepViewToggle) + breakOut.
+  test("AC-12_remap_updates_footer_labels_widget_names_command_only", () => {
+    // Deep-merge style clone: remap deep (deepViewToggle) + discuss.
     const config = {
       ...DEFAULT_CONFIG,
-      keys: { ...DEFAULT_CONFIG.keys, deep: "ctrl+shift+d", breakOut: "ctrl+q" },
+      keys: { ...DEFAULT_CONFIG.keys, deep: "ctrl+shift+d", discuss: "ctrl+q" },
     };
     const labels = resolveKeyLabels(config);
     expect(labels.deep).toBe("Ctrl+Shift+D");
-    expect(labels.breakOut).toBe("Ctrl+Q");
+    expect(labels.discuss).toBe("Ctrl+Q");
 
     const state = fixtureState();
     const snapshot = state.serialize();
@@ -453,12 +453,11 @@ describe("AC-12 — remapped hotkeys relabel every surface (R5/h2.52)", () => {
     panel.handleInput(CTRL_L); // overview view (binding unchanged — ctrl+l)
     expect(panel.render(120).at(-1)).toContain("Ctrl+Shift+D deep");
 
-    // Widget level: the suspend reminder labels breakOut from the SAME
-    // resolved map (h2.3/h2.52) — the new label, never the stale default.
-    const line = buildSuspendWidgetLine(state, labels);
-    expect(line).toBe("30 open · 0 answered — Ctrl+Q to resume /interrogate");
-    expect(line).not.toContain("Ctrl+Shift+Q"); // stale default gone
-    expect(line).not.toContain("Shift+Q");
+    // Widget level (breakOut removal): the suspend reminder takes NO labels —
+    // it names /interrogate only; no key chord may ever appear in it.
+    const line = buildSuspendWidgetLine(state);
+    expect(line).toBe("30 open · 0 answered — /interrogate to resume");
+    expect(line).not.toMatch(/ctrl|alt\+|super\+|shift\+/i);
   });
 });
 
@@ -715,13 +714,13 @@ describe("AC-4 — suspend → widget → reopen: drafts survive (FR-14/R4)", ()
     expect(mock.calls[0]!.resolved).toBe(true);
     expect(mock.calls[0]!.resolution).toBeNull();
 
-    // The keyed widget appears with counts + resume key (h2.3):
-    // `1 open · 1 answered — Ctrl+Shift+Q to resume /interrogate`.
+    // The keyed widget appears with counts + the /interrogate resume cue
+    // (h2.3, breakOut removal): `1 open · 1 answered — /interrogate to resume`.
     const widgetCall = mock.setWidget.mock.calls.at(-1);
     expect(widgetCall?.[0]).toBe("interrogator");
     const widgetLine = (widgetCall?.[1] as string[] | undefined)?.[0] ?? "";
     expect(widgetLine).toContain("1 open · 1 answered");
-    expect(widgetLine).toMatch(/Ctrl\+Shift\+Q to resume \/interrogate$/);
+    expect(widgetLine).toMatch(/— \/interrogate to resume$/);
 
     // Main-editor side (scripted native-preservation equivalent): the
     // read-back seam still returns the pre-panel text — pi's editor instance

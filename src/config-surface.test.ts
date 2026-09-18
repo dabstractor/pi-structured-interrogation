@@ -1,14 +1,16 @@
 /**
  * src/config-surface.test.ts — AC-12 config-surface validation (P1.M7.T5.S2).
  *
- * End-to-end proof that every one of the 10 `keys.*` actions (R5 / commitment
- * 7 / AC-12) is remappable and that every display string naming a key flows
- * from the resolved config (h2.52): full-remap configs drive the panel router
- * (all 10 actions, both directions), the global registerShortcut surface
- * (breakOut), the footer (all screens + narrow mode), and the suspend widget
- * line — plus the all-10-actions invalid-value fallback sweep and a
- * dialog/warning audit. The companion guard `no-hardcoded-keys.test.ts`
- * makes the no-hardcoded-labels rule un-regressible at the source level.
+ * End-to-end proof that every one of the 9 `keys.*` actions (R5 / commitment
+ * 7 / AC-12, as amended by the breakOut removal) is remappable and that
+ * every display string naming a key flows from the resolved config (h2.52):
+ * full-remap configs drive the panel router (all 9 actions, both
+ * directions), the footer (all screens + narrow mode), and the suspend
+ * widget line — plus the all-9-actions invalid-value fallback sweep and a
+ * dialog/warning audit. NO global registerShortcut surface exists anymore
+ * (the ctrl+shift+q chord was removed — window managers claim it on many
+ * desktops). The companion guard `no-hardcoded-keys.test.ts` makes the
+ * no-hardcoded-labels rule un-regressible at the source level.
  *
  * ## Remappability audit [Mode A] — input to P1.M7.T7.S2's README keymap table
  *
@@ -19,17 +21,19 @@
  * | focusText       | ctrl+t        | ctrl+y         | ✓      | n/a              | none rendered (no string names it)    | |
  * | batchNote       | ctrl+shift+m  | ctrl+shift+n   | ✓      | n/a              | none rendered (note header omits key) | |
  * | submit          | ctrl+s        | f9             | ✓      | n/a              | footer (every screen incl. narrow)    | |
- * | breakOut        | ctrl+shift+q  | ctrl+alt+b     | ✓      | ✓ (normalized)   | widget line ("X to resume")           | both AC-12 surfaces covered |
  * | discuss         | ctrl+shift+e  | ctrl+shift+p   | ✓      | n/a              | none rendered (discuss text omits key)| |
  * | externalEditor  | ctrl+g        | ctrl+u         | ✓      | n/a              | none rendered                         | text-focus gated |
  * | prevQuestion    | tab           | left           | ✓      | n/a              | none rendered                         | |
  * | nextQuestion    | shift+tab     | right          | ✓      | n/a              | none rendered                         | |
  *
  * Fixed keys (NOT config-driven, by design — h2.34, out of AC-12 scope):
- * `up`/`down`/`esc`/`enter` plus digit quick-select 1–9. Rendered strings may
- * name ONLY these (ripple confirm "enter=keep, esc=cancel", footer statics
- * "enter accept" / "esc back" / "↑/↓ scroll" / "enter jump"). No unremappable
- * `keys.*` action exists → no bugs against commitment 7.
+ * `up`/`down`/`left`/`right`/`esc`/`enter` plus digit quick-select 1–9.
+ * left/right are the FULL-list question navigation arrows (prev/next,
+ * view-aware like the config keys; never intercepted in text/note focus).
+ * Rendered strings may name ONLY these (ripple confirm "enter=keep,
+ * esc=cancel", footer statics "enter accept" / "esc back" / "↑/↓ scroll" /
+ * "enter jump"). No unremappable `keys.*` action exists → no bugs against
+ * commitment 7. The historical `breakOut` action is GONE (chord removed).
  *
  * ## Keymap conflict re-verification (hand-off note for P1.M7.T7.S2)
  *
@@ -87,7 +91,6 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
   focusText: "\u0014", // ctrl+t
   batchNote: "\u001b[109;6u", // kitty CSI-u ctrl+shift+m (m = 109)
   submit: "\u0013", // ctrl+s
-  breakOut: "\u001b[113;6u", // kitty CSI-u ctrl+shift+q (q = 113)
   discuss: "\u001b[101;6u", // kitty CSI-u ctrl+shift+e (e = 101)
   externalEditor: "\u0007", // ctrl+g
   prevQuestion: "\t",
@@ -105,14 +108,16 @@ const REMAPS: Record<KeyAction, { key: string; data: string }> = {
   focusText: { key: "ctrl+y", data: "\u0019" }, // 0x19 = ctrl+y
   batchNote: { key: "ctrl+shift+n", data: "\u001b[110;6u" }, // kitty (n = 110)
   submit: { key: "f9", data: "\u001b[20~" },
-  breakOut: { key: "ctrl+alt+b", data: "\u001b[98;7u" }, // kitty (b = 98, ctrl+alt = 7)
   discuss: { key: "ctrl+shift+p", data: "\u001b[112;6u" }, // kitty (p = 112)
   externalEditor: { key: "ctrl+u", data: "\u0015" }, // 0x15 = ctrl+u
-  prevQuestion: { key: "left", data: "\u001b[D" },
-  nextQuestion: { key: "right", data: "\u001b[C" },
+  // NOTE: prev/next deliberately do NOT remap to left/right — those are
+  // FIXED keys now (question navigation); the remap must stay distinct so
+  // the exhaustive remap proves the CONFIG layer, not the fixed branch.
+  prevQuestion: { key: "f5", data: "\u001b[15~" },
+  nextQuestion: { key: "f6", data: "\u001b[17~" },
 };
 
-/** A config with ALL 10 actions remapped — the PRD's example user settings. */
+/** A config with ALL 9 actions remapped — the PRD's example user settings. */
 const FULL_REMAP: InterrogatorConfig = {
   ...DEFAULT_CONFIG,
   keys: Object.fromEntries(ALL_ACTIONS.map((a) => [a, REMAPS[a].key])) as InterrogatorConfig["keys"],
@@ -125,7 +130,6 @@ const SPY_FOR: Record<KeyAction, Exclude<keyof ReturnType<typeof makeActions>, "
   focusText: "onFocusText",
   batchNote: "onBatchNote",
   submit: "submit",
-  breakOut: "onBreakOut",
   discuss: "onDiscuss",
   externalEditor: "onExternalEditor",
   prevQuestion: "prevQuestion",
@@ -139,7 +143,6 @@ const WORDS: Record<KeyAction, string> = {
   focusText: "text",
   batchNote: "note",
   submit: "submit",
-  breakOut: "break out",
   discuss: "discuss",
   externalEditor: "editor",
   prevQuestion: "prev",
@@ -207,7 +210,6 @@ function makeActions() {
     onOverview: vi.fn((_p: InterrogationPanel) => undefined),
     onFocusText: vi.fn((_p: InterrogationPanel) => undefined),
     onBatchNote: vi.fn((_p: InterrogationPanel) => undefined),
-    onBreakOut: vi.fn((_p: InterrogationPanel) => undefined),
     onDiscuss: vi.fn((_p: InterrogationPanel) => undefined),
     onExternalEditor: vi.fn((_p: InterrogationPanel) => undefined),
   };
@@ -319,7 +321,7 @@ describe("AC-12 fixture round-trip (grammar drift fails loudly)", () => {
 
 // ------------------------------------------ exhaustive remap: 10 × 2 directions
 
-describe("AC-12 exhaustive remap — all 10 actions, both directions", () => {
+describe("AC-12 exhaustive remap — all 9 actions, both directions", () => {
   test("test_every_action_fires_on_its_remapped_accelerator", () => {
     for (const action of ALL_ACTIONS) {
       const actions = makeActions();
@@ -357,61 +359,37 @@ describe("AC-12 exhaustive remap — all 10 actions, both directions", () => {
   });
 });
 
-// ------------------------------------------- breakOut global-shortcut surface
+// ------------------------------------------- no global shortcut (breakOut removal)
 
-describe("breakOut global-shortcut surface (registerShortcut) — AC-12 second surface", () => {
+describe("no global shortcut surface (breakOut removal)", () => {
   /** Capture registration through a spy pi (command.test.ts harness, registration-only). */
   function captureRegistration(config: InterrogatorConfig): {
     commands: string[];
-    shortcuts: Array<{ key: string; description: string; invoke: (ctx: unknown) => Promise<void> }>;
+    shortcutCalls: unknown[][];
   } {
     const commands: string[] = [];
-    const shortcuts: Array<{ key: string; description: string; invoke: (ctx: unknown) => Promise<void> }> = [];
+    const shortcutCalls: unknown[][] = [];
     const pi = {
       registerCommand: vi.fn((name: string) => {
         commands.push(name);
       }),
-      registerShortcut: vi.fn((key: string, def: { description: string; handler: (ctx: never) => Promise<void> }) => {
-        shortcuts.push({ key, description: def.description, invoke: (ctx: unknown) => def.handler(ctx as never) });
+      registerShortcut: vi.fn((...args: unknown[]) => {
+        shortcutCalls.push(args);
       }),
     };
     registerInterrogateCommand(pi as unknown as ExtensionAPI, config, {} as unknown as PanelHost);
-    return { commands, shortcuts };
+    return { commands, shortcutCalls };
   }
 
-  test("test_breakOut_remap_reaches_registerShortcut", () => {
-    const { commands, shortcuts } = captureRegistration(FULL_REMAP);
-    expect(commands).toEqual(["interrogate"]);
-    expect(shortcuts).toHaveLength(1);
-    expect(shortcuts[0]!.key).toBe(REMAPS.breakOut.key);
-    expect(shortcuts[0]!.description).toContain("break out / resume");
-  });
-
-  test("test_breakOut_uppercase_whitespace_config_registers_normalized_keyid_matching_router", () => {
-    const config = configWithKeys({ breakOut: "  Ctrl+Alt+B  " });
-    const { shortcuts } = captureRegistration(config);
-    // Global surface normalizes exactly like the in-panel router surface…
-    expect(shortcuts[0]!.key).toBe("ctrl+alt+b");
-    // …so both AC-12 surfaces agree on the same registered/firing KeyId.
-    expect(resolveBindings(config).breakOut).toBe(shortcuts[0]!.key);
-    expect(shortcuts[0]!.key).not.toBe(config.keys.breakOut); // genuinely normalized, not raw
-  });
-
-  test("test_breakOut_invalid_config_falls_back_to_default_registration", () => {
-    const { shortcuts } = captureRegistration(configWithKeys({ breakOut: "ctrl+" }));
-    expect(shortcuts[0]!.key).toBe(parseAccelerator(DEFAULT_CONFIG.keys.breakOut));
-  });
-
-  test("test_default_config_registers_the_default_breakOut_key", () => {
-    const { shortcuts } = captureRegistration(DEFAULT_CONFIG);
-    expect(shortcuts).toHaveLength(1);
-    expect(shortcuts[0]!.key).toBe(DEFAULT_CONFIG.keys.breakOut);
-  });
-
-  test("test_registered_shortcut_handler_is_guarded_and_callable", async () => {
-    const { shortcuts } = captureRegistration(FULL_REMAP);
-    // ctx.ui === undefined → early return (h2.37 guard); must never throw.
-    await expect(shortcuts[0]!.invoke({ ui: undefined })).resolves.toBeUndefined();
+  test("test_no_shortcut_registered_under_default_or_full_remap", () => {
+    // The ctrl+shift+q chord closes windows on many desktop environments
+    // (the WM claims it before the terminal sees the bytes) — the extension
+    // must never register a global shortcut, under ANY config.
+    for (const config of [DEFAULT_CONFIG, FULL_REMAP]) {
+      const { commands, shortcutCalls } = captureRegistration(config);
+      expect(commands).toEqual(["interrogate"]);
+      expect(shortcutCalls).toEqual([]);
+    }
   });
 });
 
@@ -426,10 +404,9 @@ describe("label propagation — full remap (h2.52: config-generated display stri
     }
     // Exact grammar spot checks: capitalized "+"-joined tokens.
     expect(remapped.submit).toBe("F9");
-    expect(remapped.breakOut).toBe("Ctrl+Alt+B");
-    expect(remapped.prevQuestion).toBe("Left");
-    expect(remapped.nextQuestion).toBe("Right");
-    expect(Object.keys(remapped)).toHaveLength(10);
+    expect(remapped.prevQuestion).toBe("F5");
+    expect(remapped.nextQuestion).toBe("F6");
+    expect(Object.keys(remapped)).toHaveLength(9);
   });
 
   test("test_footer_reflects_remapped_labels_and_no_defaults_on_every_screen", () => {
@@ -463,16 +440,14 @@ describe("label propagation — full remap (h2.52: config-generated display stri
     expect(footer).not.toContain("Ctrl+D deep");
   });
 
-  test("test_suspend_widget_line_reflects_remapped_breakOut_label", () => {
-    const remapped = resolveKeyLabels(FULL_REMAP);
+  test("test_suspend_widget_line_names_command_only_never_a_key_chord", () => {
+    // breakOut removal: the widget line takes NO labels at all — it names
+    // /interrogate only. A key chord (which the WM may claim for closing
+    // windows) must never appear, under default OR fully remapped config.
     const state = makeInterrogationState(2, 1);
-    const line = buildSuspendWidgetLine(state, remapped);
-    // Exact-string contract (suspend.test.ts) with the remapped label.
-    expect(line).toBe(`2 open · 1 answered — ${remapped.breakOut} to resume /interrogate`);
-    expect(line).not.toContain(resolveKeyLabels(DEFAULT_CONFIG).breakOut);
-    // The host-side widget path resolves labels from config itself:
-    // updateSuspendWidget(state→config) is covered in suspend.test.ts; here we
-    // pin that resolveKeyLabels(FULL_REMAP).breakOut is what lands in the line.
+    const line = buildSuspendWidgetLine(state);
+    expect(line).toBe("2 open · 1 answered — /interrogate to resume");
+    expect(line).not.toMatch(/ctrl|alt\+|super\+|shift\+|tab/i);
   });
 
   test("test_dialog_and_warning_strings_name_only_fixed_keys", () => {
@@ -494,8 +469,8 @@ describe("label propagation — full remap (h2.52: config-generated display stri
 
 // ------------------------------------------------- invalid-config fallback sweep
 
-describe("invalid-config fallback sweep — all 10 actions (one warn each)", () => {
-  test("test_all_ten_invalid_accelerators_fall_back_to_defaults_with_one_warn_each", () => {
+describe("invalid-config fallback sweep — all 9 actions (one warn each)", () => {
+  test("test_all_nine_invalid_accelerators_fall_back_to_defaults_with_one_warn_each", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const defaults = resolveBindings(DEFAULT_CONFIG);
     const broken = Object.fromEntries(ALL_ACTIONS.map((a) => [a, "ctrl+"])) as InterrogatorConfig["keys"];
@@ -531,14 +506,14 @@ describe("invalid-config fallback sweep — all 10 actions (one warn each)", () 
   test("test_end_to_end_settings_file_loads_normalizes_and_falls_back_with_single_warn", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const p = await writeSettings(
-      JSON.stringify({ interrogator: { keys: { submit: "ctrl+", breakOut: " Ctrl+Alt+B " } } }),
+      JSON.stringify({ interrogator: { keys: { submit: "ctrl+", discuss: " Ctrl+Shift+P " } } }),
     );
     const cfg = await loadConfigFrom({ global: p });
     // Non-empty strings survive load verbatim (validation is the binding layer's job)…
-    expect(cfg.keys.breakOut).toBe(" Ctrl+Alt+B ");
-    // …the valid-but-unnormalized value binds identically on BOTH surfaces…
+    expect(cfg.keys.discuss).toBe(" Ctrl+Shift+P ");
+    // …the valid-but-unnormalized value binds identically to its normalized form…
     const bindings = resolveBindings(cfg); // resolve ONCE — each resolve warns per invalid action
-    expect(bindings.breakOut).toBe("ctrl+alt+b");
+    expect(bindings.discuss).toBe("ctrl+shift+p");
     // …and the invalid grammar falls back with exactly ONE warn (submit only).
     expect(bindings.submit).toBe(DEFAULT_CONFIG.keys.submit);
     expect(warn).toHaveBeenCalledTimes(1);

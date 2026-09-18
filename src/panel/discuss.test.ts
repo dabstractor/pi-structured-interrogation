@@ -327,9 +327,10 @@ describe("discuss handoff wiring — keys.ts router → discussInChat", () => {
     // EXACT h2.35 template (star on sqlite).
     expect(mock.editorCalls).toEqual([[SQLITE_TEMPLATE]]);
 
-    // Resume path untouched by the handoff: ctrl+shift+q equivalent works.
-    // RESUME-001: the fresh panel focuses the FIRST UNANSWERED question
-    // (q1 — everything here is open), not the pre-suspend q3.
+    // Resume path untouched by the handoff: resumePanel (the /interrogate
+    // invoke path's engine) works. RESUME-001: the fresh panel focuses the
+    // FIRST UNANSWERED question (q1 — everything here is open), not the
+    // pre-suspend q3.
     expect(resumePanel(mock.pi)).toBe(true);
     expect(host.isOpen()).toBe(true);
     const reopened = mock.calls[1]!.component as unknown as { currentId: string | undefined };

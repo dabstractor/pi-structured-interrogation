@@ -38,6 +38,13 @@ export type EditorMode =
  * Every bindable interrogator action — the field names of `InterrogatorConfig.keys`.
  * Matching against actual key events happens in panel/keys.ts (P1.M3.T3.S1)
  * via pi's key utilities; this module only stores the accelerator strings.
+ *
+ * NOTE (breakOut removal): there is deliberately NO `breakOut` action. The
+ * historical ctrl+shift+q global shortcut + in-panel accelerator was
+ * removed — on many desktop environments that chord never reaches the
+ * terminal at all (the window manager claims it to close windows), so no
+ * default ships and none is rebindable. Suspending is `esc` (fixed key,
+ * view-descent ladder); resuming is `/interrogate` (immediate invoke).
  */
 export type KeyAction =
   | "deep"
@@ -45,7 +52,6 @@ export type KeyAction =
   | "focusText"
   | "batchNote"
   | "submit"
-  | "breakOut"
   | "discuss"
   | "externalEditor"
   | "prevQuestion"
@@ -86,7 +92,7 @@ export interface CapsConfig {
  */
 export interface InterrogatorConfig {
   /**
-   * Accelerator strings per action, in pi's lowercase form (e.g. "ctrl+shift+q").
+   * Accelerator strings per action, in pi's lowercase form (e.g. "ctrl+shift+m").
    * Display labels are derived via {@link resolveKeyLabels}.
    */
   keys: Record<KeyAction, string>;
@@ -125,7 +131,6 @@ const KEY_ACTIONS = [
   "focusText",
   "batchNote",
   "submit",
-  "breakOut",
   "discuss",
   "externalEditor",
   "prevQuestion",
@@ -155,7 +160,6 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
     focusText: "ctrl+t",
     batchNote: "ctrl+shift+m",
     submit: "ctrl+s",
-    breakOut: "ctrl+shift+q",
     discuss: "ctrl+shift+e",
     externalEditor: "ctrl+g",
     prevQuestion: "tab",
@@ -321,8 +325,9 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  *
  * Set overrides under a top-level `"interrogator"` object in either
  * `~/.pi/agent/settings.json` (global) or `<cwd>/.pi/settings.json` (project).
- * Nested objects merge per-key; scalars replace. 10 keys + 6 caps + 4 toggles
- * + editorMode + escExitWindowMs (defaults = PRD h2.52):
+ * Nested objects merge per-key; scalars replace. 9 keys + 6 caps + 4 toggles
+ * + editorMode + escExitWindowMs (defaults = PRD h2.52 as amended by the
+ * breakOut removal):
  *
  * ### keys — accelerator strings, pi lowercase form
  * | field           | default         | purpose                                        | label consumer |
@@ -332,7 +337,6 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * | `focusText`     | `"ctrl+t"`      | Focus the text editor for the current question | footer          |
  * | `batchNote`     | `"ctrl+shift+m"`| Attach a batch note                            | footer, dialogs |
  * | `submit`        | `"ctrl+s"`      | Submit answers / close the panel               | footer, widget  |
- * | `breakOut`      | `"ctrl+shift+q"`| Break out (cancel) the interrogation           | footer, dialogs |
  * | `discuss`       | `"ctrl+shift+e"`| Discuss the current question in chat           | footer, dialogs |
  * | `externalEditor`| `"ctrl+g"`      | Open the draft in an external editor           | footer, widget  |
  * | `prevQuestion`  | `"tab"`         | Move to the previous question                  | footer          |
@@ -384,8 +388,8 @@ export async function loadConfig(cwd: string): Promise<InterrogatorConfig> {
 
 /**
  * Normalize one accelerator string into a display label: split on "+",
- * trim, lowercase, then capitalize each token. "ctrl+shift+q" →
- * "Ctrl+Shift+Q"; "tab" → "Tab"; "shift+tab" → "Shift+Tab".
+ * trim, lowercase, then capitalize each token. "ctrl+shift+m" →
+ * "Ctrl+Shift+M"; "tab" → "Tab"; "shift+tab" → "Shift+Tab".
  */
 function labelFor(accelerator: string): string {
   return accelerator

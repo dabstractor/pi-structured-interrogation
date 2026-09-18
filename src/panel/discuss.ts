@@ -2,12 +2,12 @@
  * src/panel/discuss.ts — discuss-in-chat handoff (P1.M6.T2.S2).
  *
  * `ctrl+shift+e` (config `keys.discuss`) from ANY panel view suspends the
- * panel (the same done(null) path as break-out, so the suspend widget line
+ * panel (the same done(null) path as esc break-out, so the suspend widget line
  * appears and resume works identically) and preloads the MAIN editor with
  * an EXACT h2.35 template quoting the current question. The user then edits
  * and submits the text NORMALLY — their turn, their words; this module
  * never calls sendMessage. The agent side-chats freely and the panel
- * reopens afterwards via ctrl+shift+q / /interrogate / agent reopen:true,
+ * reopens afterwards via /interrogate / agent reopen:true,
  * with drafts intact (suspend, not resolve).
  *
  * [Mode A] — the preload template is an EXACT contract (prd h2.35, final
@@ -83,7 +83,7 @@ export function buildDiscussTemplate(question: Question): string {
  *      write, the panel simply stays open.
  *   2. Build the template (pure builder above).
  *   3. `panel.suspend()` — the panel's own done(null) path, identical to
- *      the onBreakOut action. NEVER the host's suspendPanel: the key
+ *      the esc-descent suspend. NEVER the host's suspendPanel: the key
  *      handler holds the live panel. openPanel's floating .then flips the
  *      host to suspended and paints the resume-widget line.
  *   4. Defer the editor write past a microtask: `void

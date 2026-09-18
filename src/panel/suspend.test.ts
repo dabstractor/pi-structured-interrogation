@@ -26,10 +26,8 @@ import {
 
 const ESCAPE = "\u001b";
 /** kitty CSI-u ctrl+shift+q (q = 113) — same bytes keys.test.ts routes with. */
-const BREAK_OUT = "\u001b[113;6u";
-const DEFAULT_LABEL = resolveKeyLabels(DEFAULT_CONFIG).breakOut; // "Ctrl+Shift+Q"
 const line = (open: number, answered: number): string =>
-  `${open} open · ${answered} answered — ${DEFAULT_LABEL} to resume /interrogate`;
+  `${open} open · ${answered} answered — /interrogate to resume`;
 
 /** Identity theme so layout renderers run in tests (stub per panel.test.ts). */
 const stubTheme = {
@@ -190,20 +188,19 @@ describe("buildSuspendWidgetLine — exact h2.3 string", () => {
     state.upsertQuestion(choiceQ("m1"));
     state.setStatus("m1", "moot");
 
-    expect(buildSuspendWidgetLine(state, resolveKeyLabels(DEFAULT_CONFIG))).toBe(
-      "3 open · 2 answered — Ctrl+Shift+Q to resume /interrogate",
+    expect(buildSuspendWidgetLine(state)).toBe(
+      "3 open · 2 answered — /interrogate to resume",
     );
   });
 
-  test("test_buildSuspendWidgetLine_rebound_breakOut_label", () => {
+  test("test_buildSuspendWidgetLine_never_names_a_key_chord", () => {
+    // breakOut removal: the reminder must NEVER instruct a keypress — the
+    // historical chord closes windows on many desktop environments. The
+    // line names /interrogate only, regardless of config.
     const state = makeState(1, 0);
-    const rebound = {
-      ...DEFAULT_CONFIG,
-      keys: { ...DEFAULT_CONFIG.keys, breakOut: "ctrl+alt+x" },
-    };
-    expect(buildSuspendWidgetLine(state, resolveKeyLabels(rebound))).toBe(
-      "1 open · 0 answered — Ctrl+Alt+X to resume /interrogate",
-    );
+    const line = buildSuspendWidgetLine(state);
+    expect(line).toBe("1 open · 0 answered — /interrogate to resume");
+    expect(line).not.toMatch(/[Cc]trl|[Aa]lt|[Ss]uper\+/);
   });
 });
 
@@ -264,9 +261,9 @@ describe("updateSuspendWidget — set/clear visibility rule", () => {
     const mock = makeMockPi();
     const state = makeState(2, 1);
 
-    updateSuspendWidget(mock.pi, state, DEFAULT_CONFIG);
+    updateSuspendWidget(mock.pi, state);
     expect(mock.setWidgetCalls).toEqual([
-      [WIDGET_KEY, ["2 open · 1 answered — Ctrl+Shift+Q to resume /interrogate"]],
+      [WIDGET_KEY, ["2 open · 1 answered — /interrogate to resume"]],
     ]);
 
     // BUG-005: answering the last open questions keeps the widget alive —
@@ -274,10 +271,10 @@ describe("updateSuspendWidget — set/clear visibility rule", () => {
     // cleared here, stranding pending answers invisibly).
     state.applyAnswer("q1", { value: "a", at: "t" });
     state.applyAnswer("q2", { value: "a", at: "t" });
-    updateSuspendWidget(mock.pi, state, DEFAULT_CONFIG);
+    updateSuspendWidget(mock.pi, state);
     expect(mock.setWidgetCalls[1]).toEqual([
       WIDGET_KEY,
-      ["0 open · 3 answered — Ctrl+Shift+Q to resume /interrogate"],
+      ["0 open · 3 answered — /interrogate to resume"],
     ]);
   });
 
@@ -285,7 +282,7 @@ describe("updateSuspendWidget — set/clear visibility rule", () => {
     const mock = makeMockPi();
 
     // Empty state (post-clearForCompletion shape) → cleared.
-    updateSuspendWidget(mock.pi, createInterrogationState("goal"), DEFAULT_CONFIG);
+    updateSuspendWidget(mock.pi, createInterrogationState("goal"));
     expect(mock.setWidgetCalls[0]).toEqual([WIDGET_KEY, undefined]);
 
     // All-terminal (moot/withdrawn/closed only) → cleared.
@@ -296,15 +293,15 @@ describe("updateSuspendWidget — set/clear visibility rule", () => {
     state.setStatus("t2", "withdrawn");
     state.upsertQuestion(choiceQ("t3"));
     state.setStatus("t3", "closed");
-    updateSuspendWidget(mock.pi, state, DEFAULT_CONFIG);
+    updateSuspendWidget(mock.pi, state);
     expect(mock.setWidgetCalls[1]).toEqual([WIDGET_KEY, undefined]);
 
     // Post-clearForCompletion (map emptied) → cleared.
     const live = makeState(2, 2);
-    updateSuspendWidget(mock.pi, live, DEFAULT_CONFIG);
+    updateSuspendWidget(mock.pi, live);
     expect(mock.setWidgetCalls[2]?.[1]).toBeDefined();
     live.clearForCompletion();
-    updateSuspendWidget(mock.pi, live, DEFAULT_CONFIG);
+    updateSuspendWidget(mock.pi, live);
     expect(mock.setWidgetCalls[3]).toEqual([WIDGET_KEY, undefined]);
   });
 
@@ -312,7 +309,7 @@ describe("updateSuspendWidget — set/clear visibility rule", () => {
     const mock = makeMockPi();
     const bare = { mode: "tui", ui: { custom: mock.custom } } as unknown as PiUISurface;
     const state = makeState(1, 0);
-    expect(() => updateSuspendWidget(bare, state, DEFAULT_CONFIG)).not.toThrow();
+    expect(() => updateSuspendWidget(bare, state)).not.toThrow();
     expect(mock.setWidgetCalls).toEqual([]);
   });
 });
@@ -336,21 +333,21 @@ describe("suspend — widget set at the single choke point", () => {
     ]);
   });
 
-  test("test_ctrl_shift_q_in_panel_suspend_sets_widget", async () => {
+  test("test_removed_breakOut_chord_no_longer_suspends", async () => {
+    // breakOut removal: the historical in-panel ctrl+shift+q accelerator
+    // (kitty CSI-u bytes) is GONE from the config union — the raw bytes must
+    // forward (not consumed, panel stays open, no widget line appears).
     const host = createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();
     const state = makeState(2, 2);
     openPanel(mock.pi, optsFor(state));
 
     const panel = firstCall(mock).component as unknown as { handleInput(data: string): boolean };
-    expect(panel.handleInput(BREAK_OUT)).toBe(true); // config accelerator → p.suspend()
+    expect(panel.handleInput("\u001b[113;6u")).toBe(false); // unbound sequence → forward
     await flush();
 
-    expect(host.isSuspended()).toBe(true);
-    expect(mock.setWidgetCalls).toEqual([
-      [WIDGET_KEY, undefined],
-      [WIDGET_KEY, [line(2, 2)]],
-    ]);
+    expect(host.isOpen()).toBe(true);
+    expect(mock.setWidgetCalls).toEqual([[WIDGET_KEY, undefined]]); // cleared on open, nothing since
   });
 
   test("test_lifecycle_dismiss_suspend_sets_widget_and_keeps_focus", async () => {
@@ -414,7 +411,7 @@ describe("suspend — widget set at the single choke point", () => {
     // submitted/reasked join neither count bucket but ARE resumable.
     expect(mock.setWidgetCalls[1]).toEqual([
       WIDGET_KEY,
-      ["0 open · 0 answered — Ctrl+Shift+Q to resume /interrogate"],
+      ["0 open · 0 answered — /interrogate to resume"],
     ]);
   });
 

@@ -67,7 +67,6 @@ const ACTION_WORDS: Record<KeyAction, string> = {
   focusText: "text",
   batchNote: "note",
   submit: "submit",
-  breakOut: "break out",
   discuss: "discuss",
   externalEditor: "editor",
   prevQuestion: "prev",

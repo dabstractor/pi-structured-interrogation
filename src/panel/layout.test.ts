@@ -74,7 +74,6 @@ function mkConfig(keys: Partial<Record<string, string>> = {}): InterrogatorConfi
       focusText: "ctrl+t",
       batchNote: "ctrl+n",
       submit: "ctrl+enter",
-      breakOut: "ctrl+o",
       discuss: "ctrl+g",
       externalEditor: "ctrl+e",
       prevQuestion: "ctrl+p",
@@ -270,13 +269,13 @@ describe("renderFooter", () => {
   test("AC-12: labels reflect resolveKeyLabels — rebinding keys.deep changes the string", () => {
     const state = mkState();
     const defaultLabels = resolveKeyLabels(mkConfig());
-    const reboundLabels = resolveKeyLabels(mkConfig({ deep: "ctrl+x", submit: "ctrl+shift+q" }));
+    const reboundLabels = resolveKeyLabels(mkConfig({ deep: "ctrl+x", submit: "f9" }));
     const before = renderFooter(state, "short", defaultLabels, theme, 120);
     const after = renderFooter(state, "short", reboundLabels, theme, 120);
     expect(before).toContain("Ctrl+D deep");
     expect(before).toContain("Ctrl+Enter submit");
     expect(after).toContain("Ctrl+X deep");
-    expect(after).toContain("Ctrl+Shift+Q submit");
+    expect(after).toContain("F9 submit");
     expect(after).not.toContain("Ctrl+D deep");
     expect(after).not.toContain("Ctrl+Enter submit");
   });

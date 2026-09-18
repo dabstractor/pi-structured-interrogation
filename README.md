@@ -44,14 +44,17 @@ materialize; runtime loads via jiti against pi's tree.
    model (rendered as a diff card in your transcript), ending with
    `(state epoch {n})` — the epoch the model must echo when upserting
    existing questions afterwards.
-4. Break out any time with `ctrl+shift+q`: the panel suspends, a widget with
-   question counts stays visible, and you can run side chats. Resume via
-   `/interrogate` or the same key — drafts intact, reopening on the first
-   unanswered question; resume works even
-   when every question is answered but not yet submitted; the model can also
-   reopen the panel itself when it has follow-ups. A submit flushes only the
-   answers that actually shipped — drafts of questions the agent re-asked
-   survive.
+4. Break out any time with `esc` (from the short view): the panel suspends,
+   a widget with question counts stays visible, and you can run side chats.
+   Type `/interrogate` to get the panel back immediately — it invokes the
+   panel in every scenario (never toggles, never asks you to press a key
+   combo; the old `ctrl+shift+q` chord was removed because window managers
+   claim it to close windows on many desktop environments). Drafts are
+   intact, and resume works even when every question is answered but not
+   yet submitted — reopening on the first unanswered question; the model
+   can also reopen the panel itself when it has follow-ups. A submit
+   flushes only the answers that actually shipped — drafts of questions
+   the agent re-asked survive.
 5. When every question is closed, the panel dismisses and the model receives
    **one full completion record** (a recap card lands in the transcript).
 
@@ -96,14 +99,13 @@ All settings live under a top-level `"interrogator"` key in either
 ```jsonc
 {
   "interrogator": {
-    // Accelerators, in pi's lowercase form (e.g. "ctrl+shift+q").
+    // Accelerators, in pi's lowercase form (e.g. "ctrl+shift+m").
     "keys": {
       "deep": "ctrl+d",             // open the deep-dive (ramification) view
       "overview": "ctrl+l",         // open the question overview list
       "focusText": "ctrl+t",        // focus the free-text editor (short view)
       "batchNote": "ctrl+shift+m",  // attach a batch note
       "submit": "ctrl+s",           // submit answers / close the panel
-      "breakOut": "ctrl+shift+q",   // break out (suspend) / resume — also a global shortcut
       "discuss": "ctrl+shift+e",    // discuss the current question in chat
       "externalEditor": "ctrl+g",   // open the draft in an external editor
       "prevQuestion": "tab",        // previous question
@@ -152,7 +154,6 @@ Remappable actions (`interrogator.keys.*`):
 | Focus text editor    | `keys.focusText`      | `ctrl+t`        | Toggle the free-text editor: focus it, or (already focused) close it — draft saved, back to options |
 | Batch note           | `keys.batchNote`      | `ctrl+shift+m`  | Attach a batch note shipped with the next submit |
 | Submit               | `keys.submit`         | `ctrl+s`        | Submit answers (partial ok) / close the panel |
-| Break out / resume   | `keys.breakOut`       | `ctrl+shift+q`  | Suspend to chat / resume — also a global shortcut |
 | Discuss in chat      | `keys.discuss`        | `ctrl+shift+e`  | Discuss the current question in chat          |
 | External editor      | `keys.externalEditor` | `ctrl+g`        | Open the draft in an external editor          |
 | Previous question    | `keys.prevQuestion`   | `tab`           | Move to the previous question                 |
@@ -180,7 +181,9 @@ starts blank (or that question's own saved draft); switching questions while
 typing saves the text to its question automatically.
 
 Navigation defaults: questions move with `tab` / `shift+tab`
-(`keys.prevQuestion` / `keys.nextQuestion`, remappable above).
+(`keys.prevQuestion` / `keys.nextQuestion`, remappable above). Suspending
+is `esc`; resuming is `/interrogate` (invoke-only — never a toggle, never
+a key combo).
 
 While the panel is open, panel keys are intercepted before the embedded
 editor sees them; everything else forwards to the editor. While the editor
@@ -266,7 +269,6 @@ Verified defaults (`src/config.ts` `DEFAULT_CONFIG.keys`):
 | `ctrl+s` (`submit`)                            | panel-safe reuse   | pi: `app.session.toggleSort`, `app.models.save`, `app.thinking.save` (keybindings.md:141,154,156)       |
 | `ctrl+g` (`externalEditor`)                    | panel-safe reuse   | pi: `app.editor.external`, `tui.altScreen.searchNext` (keybindings.md:115,129)                          |
 | `ctrl+shift+m` (`batchNote`)                   | free               | no pi default, no extension claim                                                                       |
-| `ctrl+shift+q` (`breakOut`)                    | free               | no pi default, no extension claim (the one GLOBAL registration — verified unclaimed)                    |
 | `ctrl+shift+e` (`discuss`)                     | free               | no pi default, no extension claim                                                                       |
 | `tab` (`prevQuestion`)                         | fixed/nav (panel)  | pi: `tui.input.tab` (keybindings.md:65) — consumed inside the panel only                                |
 | `shift+tab` (`nextQuestion`)                   | panel-safe reuse   | pi: `app.thinking.cycle` (keybindings.md:155) — shadowed by the panel                                   |
@@ -293,9 +295,10 @@ focus via `ctx.ui.custom()` and intercepts config keys BEFORE forwarding —
 including in text focus — so pi's binding layer never sees those keystrokes
 while the panel is open (`src/panel/keys.ts` header, "Mode A — the intercept
 rule"; wiring in `src/index.ts`). Collisions therefore exist only while the
-panel is open and vanish on suspend. The single genuinely GLOBAL registration
-is `breakOut` (`ctrl+shift+q`, via `pi.registerShortcut` in `src/command.ts`),
-which is why it must be, and was verified to be, fully unclaimed.
+panel is open and vanish on suspend. There is NO global registration: the
+historical `breakOut` chord (`ctrl+shift+q`, via `pi.registerShortcut`) was
+removed entirely — on many desktop environments the window manager claims
+that chord to close windows before the terminal ever sees the bytes.
 
 **Regression guard** — before adding or rebinding any default key:
 
@@ -337,7 +340,7 @@ src/
 ├── persistence.ts     # interrogation-state mirror (append-only audit trail)
 ├── reconstruct.ts     # state reconstruction on session start / branch
 ├── renderers.ts       # transcript cards (submission diff, completion recap, mirror markers)
-├── command.ts         # /interrogate toggle + global break-out/resume shortcut
+├── command.ts         # /interrogate invoke command (open/resume — never toggles)
 ├── debug-commands.ts  # keyboard-driven debug commands
 ├── draft-store.ts     # in-session draft survival across panel open/close
 ├── external-editor.ts # external editor handoff

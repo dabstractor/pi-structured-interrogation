@@ -86,8 +86,11 @@ last open question closes (agent_settled, no re-ask)
 
 ### Suspend / resume / reopen
 ```
-ctrl+shift+q or /interrogate → lifecycle: panel.done(null) (suspend) → setWidget reminder line
-resume: same key/command → re-instantiate panel from state + preserved drafts
+esc (view-descent terminus) or completion dismissal → panel.done(null) (suspend) → setWidget reminder line
+   line: "{n} open · {m} answered — /interrogate to resume" (command only; NO key chord)
+/interrogate → INVOKE-ONLY, immediate in every scenario:
+   open → silent no-op (never suspends) · suspended ∧ live → resume · closed ∧ live state → fresh open
+resume: re-instantiate panel from state + preserved drafts
 agent {reopen:true} → same resume path (no guard; judgment trusted)
 discuss-in-chat: like suspend, plus setEditorText with quoted question + options
 ```
@@ -104,8 +107,8 @@ session_start → persistence: walk buildContextEntries()
 ## pi API surface used
 
 - `pi.registerTool` (interrogate; `renderCall`/`renderResult` compact rows)
-- `pi.registerCommand` ("/interrogate": toggle panel; with args when no state → notify)
-- `pi.registerShortcut` (break-out/resume, global; default `ctrl+shift+q`)
+- `pi.registerCommand` ("/interrogate": invoke panel — open/resume, never toggle; no live state → notify)
+- (no `pi.registerShortcut` — the ctrl+shift+q global chord was removed: window managers claim it to close windows on many desktop environments)
 - `pi.on`: `session_start`, `agent_settled`, `tool_execution_end` (detect upserts for auto-close), `session_before_compact`, `session_shutdown`
 - `ctx.ui.custom` (panel host), `ctx.ui.setWidget` (suspend reminder), `ctx.ui.getEditorComponent` (compose user's editor), `ctx.ui.setEditorText` (discuss handoff), `ctx.ui.notify`
 - `pi.sendMessage` (submission/completion custom messages), `pi.appendEntry` (state mirror)

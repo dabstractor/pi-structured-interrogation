@@ -60,7 +60,6 @@ On committing an answer change to an *answered* question in the panel (the momen
 | focus text field | `ctrl+t` | `keys.focusText` | panel — TOGGLE: press to focus, press again to close the prompt box (draft saved) |
 | batch note | `ctrl+shift+m` | `keys.batchNote` | panel |
 | submit | `ctrl+s` | `keys.submit` | panel |
-| break out / resume | `ctrl+shift+q` | `keys.breakOut` (also `registerShortcut`, global) | global |
 | discuss in chat | `ctrl+shift+e` | `keys.discuss` | panel |
 | external editor | `ctrl+g` | `keys.externalEditor` | text focus |
 | back / suspend | `esc` | fixed | OPTIONS focus: descends (deep→short, overview→back, short→suspend), never destroys. EDITOR focus: single `esc` forwards to the editor (pi-vim); `esc` twice in a row (within `escExitWindowMs`, default 500 ms, 0 disables) closes the prompt box ONLY — draft write-through, blur to options, no suspend |
@@ -68,14 +67,16 @@ On committing an answer change to an *answered* question in the panel (the momen
 
 Non-key config: `escExitWindowMs` (ms, default 500) — the double-esc window for closing the embedded editor without suspending.
 
-Conflict avoidance (verified against pi defaults + installed extensions): `ctrl+b`, `ctrl+shift+b`, `ctrl+shift+x`, `ctrl+shift+j`, `shift+down` are taken by others — avoided. `ctrl+m` avoided (sends `\r`). Dev agent must re-verify at build time and record findings in the PR notes.
+Conflict avoidance (verified against pi defaults + installed extensions): `ctrl+b`, `ctrl+shift+b`, `ctrl+shift+x`, `ctrl+shift+j`, `shift+down` are taken by others — avoided. `ctrl+m` avoided (sends `\r`). NO global shortcut is registered (the historical `ctrl+shift+q` break-out/resume chord was removed — window managers claim it to close windows on many desktop environments, so it never reliably reaches the terminal). Dev agent must re-verify at build time and record findings in the PR notes.
+
 
 ## Suspend / resume / widget
 
-- Suspend: `esc` at top level, `ctrl+shift+q` anywhere, or `/interrogate`. Panel `done(null)`; state + drafts held in extension memory; **main editor text preserved** (pi's editor instance persists across `custom()` sessions; verify in test).
-- **Command surface (CMD-001)**: `/interrogate` is the ONE registered command — bare invocation toggles the panel; `ping` (smoke test) and `debug upsert|submit|state` (the h2.50 verification surface) are subcommands with argument completion, keeping `/interrogate` the top (and only) autocomplete hit for "/inter".
-- Widget (`setWidget("interrogator", [...])`, visible whenever suspended with open questions): `{n} open · {m} answered — {configured breakOut key} to resume /interrogate`.
-- Resume: `ctrl+shift+q`, `/interrogate`, or agent `{reopen:true}` → fresh panel instance rehydrated from state + drafts, focused on the **first unanswered question** (open/reasked, in state order — RESUME-001); when nothing is unanswered (pending-submit state), the last-focused question; else the first resumable one.
+- Suspend: `esc` at top level (the fixed view-descent ladder's terminus) or the completion flow's dismissal. Panel `done(null)`; state + drafts held in extension memory; **main editor text preserved** (pi's editor instance persists across `custom()` sessions; verify in test).
+- **Command surface (CMD-001 + breakOut removal)**: `/interrogate` is the ONE registered command — bare invocation opens or resumes the panel (INVOKE-ONLY, never a suspend toggle); `ping` (smoke test) and `debug upsert|submit|state` (the h2.50 verification surface) are subcommands with argument completion, keeping `/interrogate` the top (and only) autocomplete hit for "/inter".
+- Widget (`setWidget("interrogator", [...])`, visible whenever suspended with open questions): `{n} open · {m} answered — /interrogate to resume`. The line names the command ONLY — no key chord ever appears (the historical `ctrl+shift+q` chord closes windows on many desktop environments and was removed; there is no `keys.breakOut` action and no global `registerShortcut`).
+- Resume: `/interrogate` or agent `{reopen:true}` → fresh panel instance rehydrated from state + drafts, focused on the **first unanswered question** (open/reasked, in state order — RESUME-001); when nothing is unanswered (pending-submit state), the last-focused question; else the first resumable one.
+- `/interrogate` is INVOKE-ONLY (immediate in every scenario): panel open → silent no-op (never suspends); panel suspended with live questions → resume; closed host with live state (e.g. after an extension reload) → fresh open from the session singleton; no/dead state → the empty-state notify below. Typing `/interrogate` must NEVER leave the user behind a "press X to resume" gate.
 - Discuss-in-chat (`ctrl+shift+e`): suspend + `setEditorText` with:
   ```
   > {prompt}
@@ -93,6 +94,7 @@ Conflict avoidance (verified against pi defaults + installed extensions): `ctrl+
 ## Empty/edge states
 
 - `/interrogate` with no state → `notify("No active interrogation — ask the agent to interrogate you", "info")`.
+- `/interrogate` with an existing session → panel invoked immediately in EVERY scenario (see Suspend/resume above); repeated invocations are silent no-ops while the panel is open.
 - 0 open questions but pending submissions → footer `submit pending answers first`; completion triggers after close pass.
 - Model upserts while panel suspended → panel reopens (upsert implies visibility).
 - User presses `ctrl+s` with zero pending → no-op footer flash `nothing to submit`.

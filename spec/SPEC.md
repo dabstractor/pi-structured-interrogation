@@ -8,7 +8,7 @@ Structured interrogation for the pi coding agent: the model asks dozens of plann
 
 1. **Non-blocking tool** — `interrogate` returns immediately after loading questions; the turn ends; the panel persists while idle. Answers flow back later as small delta messages that trigger a new reply. No tool call ever waits on the user.
 2. **Pull-based state** — the extension's in-memory JSON is the single source of truth. Submissions deliver *deltas* (~2 lines) plus a reminder line. The model refreshes by calling `interrogate({})`. The full record is injected into the conversation exactly once, at completion. Per-request context injection is explicitly forbidden (user veto).
-3. **Replace-editor panel** — while questions are open, the panel *is* the bottom editor region (`ctx.ui.custom()`, non-overlay); the chat transcript stays visible above. Break-out suspends it; a widget above the main editor keeps it findable.
+3. **Replace-editor panel** — while questions are open, the panel *is* the bottom editor region (`ctx.ui.custom()`, non-overlay); the chat transcript stays visible above. `esc` suspends it; a widget above the main editor keeps it findable. `/interrogate` invokes/resumes it immediately in every scenario (never toggles, never demands a keypress); no global key shortcut exists (the historical `ctrl+shift+q` chord closes windows on many desktop environments and was removed).
 4. **Commit-everything-up-front** — the model sends *all* questions in the first upsert. Gating (soft) controls interaction order only, never what exists. Display gating is never commit gating.
 5. **Staleness guards** — every question has a `rev` (content version); the session has an `epoch` (bumped per submission). State-changing calls must echo both; mismatches are rejected with current state so the model self-heals in one round trip.
 6. **Drafts are sacred** — typed-but-unsubmitted text survives question navigation, agent re-asks (upserts), suspend/resume, and view toggles. Never destroyed except by explicit user action. (Hard-won lesson: the ask_user extension loses drafts on tab switches — disqualifying.)
@@ -37,7 +37,7 @@ Decision traceability: every requirement traces to a decision in spec/decisions.
 
 - Extension/package: `pi-interrogator`. Tool: `interrogate`. Command: `/interrogate`.
 - Submission message `customType`: `interrogation-submission`. Completion message: `interrogation-completion`. State mirror entry: `interrogation-state`.
-- Suspend widget line: `{n} open · {m} answered — {breakOut key} to resume /interrogate`
+- Suspend widget line: `{n} open · {m} answered — /interrogate to resume` (names the command only — never a key chord)
 
 ## Non-goals (confirmed)
 

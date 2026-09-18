@@ -791,12 +791,13 @@ describe("extension factory wiring (index.ts)", () => {
       on: (_event: string, _handler: unknown) => undefined, // lifecycle subscriptions (P1.M2.T2.S1)
     } as unknown as ExtensionAPI;
     await mod.default(fakePi);
-    // CMD-001: ONE command — /interrogate (bare = toggle; ping + debug ride
-    // as subcommands inside the same registration). The interrogate tool and
-    // the break-out shortcut are unchanged.
+    // CMD-001 + breakOut removal: ONE command — /interrogate (bare =
+    // open/resume invoke; ping + debug ride as subcommands inside the same
+    // registration). The interrogate tool is unchanged; NO global shortcut
+    // is registered anymore (the historical ctrl+shift+q chord closes
+    // windows on many desktop environments).
     expect(commands).toEqual(["interrogate"]);
-    // Global break-out/resume shortcut registered with the RAW config value.
-    expect(shortcuts).toEqual([DEFAULT_CONFIG.keys.breakOut]);
+    expect(shortcuts).toEqual([]);
     // P1.M7.T3.S1+S2 — user-only renderers registered for the EXACT
     // customTypes the delivery message / persistence entry ship (h2.36);
     // the interrogation-state mirror lands via registerEntryRenderer.

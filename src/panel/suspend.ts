@@ -19,7 +19,7 @@
  * - {@link hasResumableQuestions} — the shared resumable predicate.
  * - {@link suspendPanel} — re-export of panel.ts's host-force entry; the
  *   named consumer surface for P1.M6.T1.S2 (/interrogate + global
- *   ctrl+shift+q toggle) and P1.M6.T2.S2 (discuss).
+ *   toggle — now the /interrogate invoke command) and P1.M6.T2.S2 (discuss).
  * - {@link resumePanel} — delegates to panel.ts resumeOpenPanel; consumed by
  *   P1.M6.T1.S2, P1.M6.T2.S1 (agent reopen:true), P1.M6.T2.S2.
  *
@@ -29,7 +29,6 @@
  * suspend.ts import cycle is safe: both sides only touch each other's
  * bindings inside function bodies, never during module evaluation.
  */
-import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
 import type { InterrogationState } from "../state.js";
 import { resumeOpenPanel, type PiUISurface } from "./panel.js";
 
@@ -89,9 +88,10 @@ function countStatuses(ordered: readonly { status: string }[]): {
 }
 
 /**
- * [Mode A] The exact suspend reminder line (h2.3 / h2.35):
+ * [Mode A] The exact suspend reminder line (h2.3 / h2.35, as amended by the
+ * breakOut removal — resume is /interrogate, never a key chord):
  *
- *   `${n} open · ${m} answered — ${breakOutLabel} to resume /interrogate`
+ *   `${n} open · ${m} answered — /interrogate to resume`
  *
  * Exact-string contract:
  * - `n` = questions with status `"open"` ONLY; `m` = status `"answered"`
@@ -100,10 +100,11 @@ function countStatuses(ordered: readonly { status: string }[]): {
  * - Separators are ` · ` (space, U+00B7 middle dot, space) and ` — `
  *   (space, U+2014 em dash, space). The command name is lowercase
  *   `/interrogate`.
- * - `labels` MUST be the config-derived display labels
- *   (`resolveKeyLabels(config).breakOut`, e.g. `"Ctrl+Shift+Q"`) — NEVER
- *   the raw `config.keys.breakOut` accelerator (h2.52: no hardcoded key
- *   names in display strings); rebound keys relabel the line.
+ * - NO key label ever appears in the line: the historical breakOut chord
+ *   (ctrl+shift+q) was removed — on many desktop environments the window
+ *   manager claims that chord to close windows, so the reminder must never
+ *   instruct the user to press it. `/interrogate` invokes the panel
+ *   immediately in every scenario (command.ts invoke semantics).
  *
  * Visibility rule (enforced by {@link updateSuspendWidget}, the only
  * consumer): the widget shows this line ⟺ the host is suspended AND
@@ -113,12 +114,9 @@ function countStatuses(ordered: readonly { status: string }[]): {
  * clearForCompletion (empty map) or all-terminal (moot/withdrawn/closed
  * only).
  */
-export function buildSuspendWidgetLine(
-  state: InterrogationState,
-  labels: Record<KeyAction, string>,
-): string {
+export function buildSuspendWidgetLine(state: InterrogationState): string {
   const { open, answered } = countStatuses(state.orderedQuestions());
-  return `${open} open · ${answered} answered — ${labels.breakOut} to resume /interrogate`;
+  return `${open} open · ${answered} answered — /interrogate to resume`;
 }
 
 /**
@@ -131,16 +129,16 @@ export function buildSuspendWidgetLine(
  * empty-map, and every dismiss variant.
  *
  * No-op when the surface has no setWidget (test fakes / RPC mode) —
- * PiUISurface.setWidget is optional by design.
+ * PiUISurface.setWidget is optional by design. Takes no config: the line
+ * names /interrogate (fixed command), never a key chord (breakOut removal).
  */
 export function updateSuspendWidget(
   pi: PiUISurface,
   state: InterrogationState,
-  config: InterrogatorConfig,
 ): void {
   const setWidget = pi.ui.setWidget;
   if (setWidget === undefined) return;
-  const line = buildSuspendWidgetLine(state, resolveKeyLabels(config));
+  const line = buildSuspendWidgetLine(state);
   // BUG-005: answered/submitted/reasked-but-unsubmitted questions are LIVE —
   // the widget must stay findable so the user can resurface and ctrl+s.
   setWidget.call(pi.ui, WIDGET_KEY, hasResumableQuestions(state) ? [line] : undefined);
@@ -156,7 +154,7 @@ export function updateSuspendWidget(
  *
  * Returns true when the panel (re)opened; false when nothing is resumable,
  * the panel is already open, or the mode guard blocked it. Consumed by
- * P1.M6.T1.S2 (/interrogate + global ctrl+shift+q) and P1.M6.T2.S1/S2.
+ * P1.M6.T1.S2 (/interrogate invoke) and P1.M6.T2.S1/S2.
  */
 export function resumePanel(pi: PiUISurface): boolean {
   return resumeOpenPanel(pi);

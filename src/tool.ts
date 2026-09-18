@@ -132,8 +132,8 @@ export interface ToolDeps {
    * UI call because the executor must stay synchronous and UI-free
    * (h2.0 §1): the panel module retains its own surface carriers
    * (activePi/lastOpts), so the hook needs nothing from this context. It
-   * routes through the SAME resumePanel path as the ctrl+shift+q /
-   * /interrogate hotkey (h2.35 — a single resume path); the host phase
+   * routes through the SAME resumePanel path as the /interrogate
+   * invoke command (h2.35 — a single resume path); the host phase
    * flips synchronously, so the returned outcome is trustworthy at once.
    */
   onReopen?: () => ReopenOutcome;
@@ -348,8 +348,8 @@ export function executeInterrogate(
     // rather than any direct UI call: this executor must stay synchronous
     // and UI-free (h2.0 §1), and the panel module retains its own surface
     // carriers, so the hook needs nothing from this context. The hook
-    // routes through the SAME resumePanel path as the ctrl+shift+q /
-    // /interrogate hotkey (h2.35 — a single resume path); the host phase
+    // routes through the SAME resumePanel path as the /interrogate
+    // invoke command (h2.35 — a single resume path); the host phase
     // flips synchronously, so the outcome is trustworthy immediately and
     // this call stays non-blocking.
     case "reopen": {

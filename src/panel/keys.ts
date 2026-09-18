@@ -59,7 +59,7 @@
  *   3. enter                    (fixed — options focus only → view-aware:
  *      overview jump → deep accept → short accept)
  *   4. config intercepts, in this order:
- *      deep, overview, focusText, batchNote, submit, breakOut, discuss,
+ *      deep, overview, focusText, batchNote, submit, discuss,
  *      externalEditor (only when focus === "text"), prevQuestion,
  *      nextQuestion (view-aware: overview cursor movers), then digits 1–9
  *      (only when digitQuickSelect AND view !== "overview" AND focus is
@@ -111,8 +111,6 @@ export interface RoutedActions {
    * focus/view, exitNoteMode on re-press. Implemented by the default set.
    */
   onBatchNote(p: InterrogationPanel): void;
-  /** Break out. Default: suspend (M6 refines + global shortcut half). */
-  onBreakOut(p: InterrogationPanel): void;
   /** Discuss in chat. Wired host-side at panel.ts's router-construction
    * site (P1.M6.T2.S2 — the closure needs the PiUISurface); default no-op. */
   onDiscuss(p: InterrogationPanel): void;
@@ -293,9 +291,6 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
       if (p.focus === "note") p.exitNoteMode();
       else p.enterNoteMode();
     },
-    onBreakOut: (p) => {
-      p.suspend(); // M6.T1.S2 adds the global registerShortcut half
-    },
     onDiscuss: () => {
       // Wired host-side: panel.ts refines this seam with discussInChat
       // (./discuss.js — P1.M6.T2.S2); the closure needs the PiUISurface,
@@ -431,10 +426,6 @@ export function buildKeyRouter(
       return true;
     }
     if (matchesKey(data, b.submit)) return actions.submit(panel);
-    if (matchesKey(data, b.breakOut)) {
-      actions.onBreakOut(panel);
-      return true;
-    }
     if (matchesKey(data, b.discuss)) {
       actions.onDiscuss(panel);
       return true;

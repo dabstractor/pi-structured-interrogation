@@ -1,33 +1,34 @@
 /**
- * Unit tests for src/command.ts (P1.M6.T1.S2).
+ * Unit tests for src/command.ts (P1.M6.T1.S2 as amended by the breakOut
+ * removal — /interrogate is INVOKE-ONLY).
  *
  * Follows debug-commands.test.ts stubbing conventions (fake pi recording
- * registerCommand/registerShortcut calls; handlers invoked directly with a
- * stub ctx) and panel.test.ts's host-fixture approach (createPanelHost +
- * real InterrogationState seeded through the raw primitives; a `ui.custom`
- * mock returning a promise that never resolves until done()).
+ * registerCommand calls; handlers invoked directly with a stub ctx) and
+ * panel.test.ts's host-fixture approach (createPanelHost + real
+ * InterrogationState seeded through the raw primitives; a `ui.custom` mock
+ * returning a promise that never resolves until done()).
  *
- * suspendPanel/resumePanel are mocked AT THE S1 SEAM (panel/suspend.ts) with
- * spies that DELEGATE to the real implementations — so tests both assert
- * "P1.M6.T1.S2 consumed S1" (call counts / carrier identity) and exercise
- * the real host phase transitions (suspend → isSuspended, resume → open).
+ * resumePanel is mocked AT THE S1 SEAM (panel/suspend.ts) with a spy that
+ * DELEGATES to the real implementation — so tests both assert "the command
+ * consumed S1" (call counts / carrier identity) and exercise the real host
+ * phase transitions (resume → open).
  *
- * Coverage: toggle matrix through both surfaces (suspend when open, resume
- * when suspended with live questions, exact h2.37 empty-state notify when
- * closed/no state/with args, the BUG-005 answered/submitted/reasked-pending
- * resume rows, the terminal-only dead-panel edge), the non-TUI mode guard,
- * config-rebound shortcut key registration, shortcut handler toggling,
- * double-press idempotency (AC-4 cycle safety), and the REAL index.ts
- * onReopen factory hook driven through a captured registerTool execute
- * (BUG-005 resume half: answered/submitted/reasked reopen, terminal-only /
- * post-completion / missing-resume-surface no-state).
+ * Coverage: the invoke decision table (open → silent no-op — NEVER suspend;
+ * suspended ∧ live → resume; suspended ∧ dead → exact h2.37 empty-state
+ * notify; closed ∧ live state → fresh open — the reload row; closed ∧ no
+ * state → notify), the BUG-005 answered/submitted/reasked-pending resume
+ * rows, the terminal-only dead-panel edge, the non-TUI mode guard, NO
+ * registerShortcut call (the ctrl+shift+q chord is gone — window managers
+ * claim it on many desktops), double-invoke idempotency, and the REAL
+ * index.ts onReopen factory hook driven through a captured registerTool
+ * execute (BUG-005 resume half).
  */
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import interrogatorExtension from "./index.js";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
-import { interrogateToggleAction, registerInterrogateCommand } from "./command.js";
+import { interrogateInvokeAction, registerInterrogateCommand } from "./command.js";
 import type { DebugSubcommandHandler } from "./debug-commands.js";
 import { createPanelHost, openPanel, type OpenPanelOptions, type PanelHost } from "./panel/panel.js";
 import { createInterrogationState, getState, resetState, setState, type InterrogationState, type Question } from "./state.js";
@@ -154,18 +155,13 @@ interface CapturedCommand {
   handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 }
 
-interface CapturedShortcut {
-  description?: string;
-  handler: (ctx: ExtensionContext) => Promise<void>;
-}
-
 interface Harness {
   host: PanelHost;
   config: InterrogatorConfig;
   commands: Map<string, CapturedCommand>;
-  shortcuts: Map<string, CapturedShortcut>;
+  /** registerShortcut calls (must stay EMPTY — the breakOut chord is gone). */
+  shortcutCalls: unknown[][];
   invokeCommand(args: string, ctx: ExtensionCommandContext): Promise<void>;
-  invokeShortcut(ctx: ExtensionContext): Promise<void>;
 }
 
 /** Fresh host + registration capture. The host record is module-scoped, so
@@ -176,13 +172,13 @@ function makeHarness(
 ): Harness {
   const host = createPanelHost(makeMockLifecycle().lifecycle);
   const commands = new Map<string, CapturedCommand>();
-  const shortcuts = new Map<string, CapturedShortcut>();
+  const shortcutCalls: unknown[][] = [];
   const pi = {
     registerCommand: vi.fn((name: string, def: CapturedCommand) => {
       commands.set(name, def);
     }),
-    registerShortcut: vi.fn((key: string, def: CapturedShortcut) => {
-      shortcuts.set(key, def);
+    registerShortcut: vi.fn((...args: unknown[]) => {
+      shortcutCalls.push(args);
     }),
   } as unknown as Pick<ExtensionAPI, "registerCommand" | "registerShortcut">;
 
@@ -192,13 +188,9 @@ function makeHarness(
     host,
     config,
     commands,
-    shortcuts,
+    shortcutCalls,
     invokeCommand(args, ctx) {
       return commands.get("interrogate")!.handler(args, ctx);
-    },
-    invokeShortcut(ctx) {
-      const [def] = [...shortcuts.values()];
-      return def!.handler(ctx);
     },
   };
 }
@@ -239,7 +231,7 @@ describe("registerInterrogateCommand — registration surface", () => {
     const def = commands.get("interrogate");
     expect(def).toBeDefined();
     expect(typeof def!.handler).toBe("function");
-    expect(def!.description).toContain("Toggle");
+    expect(def!.description).toContain("Open or resume");
     // CMD-001: /interrogate is the ONE command — nothing else competes for
     // the "/inter" autocomplete prefix.
     expect([...commands.keys()]).toEqual(["interrogate"]);
@@ -277,8 +269,9 @@ describe("registerInterrogateCommand — registration surface", () => {
     expect(level).toBe("warning");
   });
 
-  test("test_bare_invocation_still_toggles_with_mode_guard", async () => {
-    // Empty/whitespace args → the pre-CMD-001 toggle path, TUI guard intact.
+  test("test_bare_invocation_invokes_with_mode_guard", async () => {
+    // Empty/whitespace args → the immediate-invoke path, TUI guard intact
+    // (never a keypress gate; never a suspend toggle).
     const { invokeCommand, ctx } = makeHarnessWithCtx();
     Object.assign(ctx, { mode: "rpc" });
     await invokeCommand("   ", ctx);
@@ -304,25 +297,21 @@ describe("registerInterrogateCommand — registration surface", () => {
     expect(comp("other ")).toBeNull();
   });
 
-  test("test_shortcut_registered_with_config_key", () => {
-    const { shortcuts } = makeHarness(DEFAULT_CONFIG);
-    expect([...shortcuts.keys()]).toEqual([DEFAULT_CONFIG.keys.breakOut]);
-    expect([...shortcuts.keys()]).toEqual(["ctrl+shift+q"]);
-  });
-
-  test("test_shortcut_rebind_registers_raw_rebound_key", () => {
-    // R5/AC-12: the shortcut key follows the RAW config value — registerShortcut
-    // receives it verbatim (never the display label from resolveKeyLabels).
+  test("test_no_global_shortcut_registered", () => {
+    // breakOut removal: the historical ctrl+shift+q registerShortcut is
+    // GONE — that chord closes windows on many desktop environments (the
+    // WM claims it before the terminal sees the bytes), so the extension
+    // must never register it, under any config.
     const rebound: InterrogatorConfig = {
       ...DEFAULT_CONFIG,
-      keys: { ...DEFAULT_CONFIG.keys, breakOut: "ctrl+alt+x" },
+      keys: { ...DEFAULT_CONFIG.keys, submit: "ctrl+alt+x" },
     };
-    const { shortcuts } = makeHarness(rebound);
-    expect([...shortcuts.keys()]).toEqual(["ctrl+alt+x"]);
+    expect(makeHarness(DEFAULT_CONFIG).shortcutCalls).toEqual([]);
+    expect(makeHarness(rebound).shortcutCalls).toEqual([]);
   });
 });
 
-describe("interrogateToggleAction — decision table", () => {
+describe("interrogateInvokeAction — decision table", () => {
   beforeEach(() => {
     resetState();
     vi.clearAllMocks();
@@ -331,72 +320,95 @@ describe("interrogateToggleAction — decision table", () => {
     resetState();
   });
 
-  test("test_toggle_matrix_all_four_rows", () => {
+  test("test_invoke_matrix_all_rows", () => {
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
 
-    // Row 1: open host → suspendPanel → "suspended"
+    // Row 1: open host → ALREADY INVOKED — the command never suspends
+    // (invoke-only semantics: suspending here is what historically demanded
+    // a second keypress to get the panel back).
     const host = createPanelHost(makeMockLifecycle().lifecycle);
     openOnSurface(state);
     expect(host.isOpen()).toBe(true);
     const surface = makeSurfacePi();
-    expect(interrogateToggleAction(host, surface.surface as never, state)).toBe("suspended");
-    expect(host.isSuspended()).toBe(true);
+    expect(interrogateInvokeAction(host, surface.surface as never, state)).toBe("open");
+    expect(host.isOpen()).toBe(true);
+    expect(suspendPanel).not.toHaveBeenCalled();
 
     // Row 2: suspended ∧ open>0 → resumePanel → "resumed"
-    expect(interrogateToggleAction(host, surface.surface as never, state)).toBe("resumed");
+    suspendPanel(host);
+    expect(interrogateInvokeAction(host, surface.surface as never, state)).toBe("resumed");
     expect(host.isOpen()).toBe(true);
 
-    // Row 3 (BUG-005 flip, h2.2/h3.4 repro): suspended ∧ answered-pending
+    // Row 2b (BUG-005 flip, h2.2/h3.4): suspended ∧ answered-pending
     // (0 open) → "resumed" — the panel resurfaces so the user can ctrl+s.
-    interrogateToggleAction(host, surface.surface as never, state); // suspend again
+    suspendPanel(host);
     const answered = createInterrogationState("goal");
     answered.upsertQuestion(choiceQ("q1"));
     answered.applyAnswer("q1", { value: "a", at: new Date().toISOString() }); // open → answered
     setState(answered);
-    expect(interrogateToggleAction(host, surface.surface as never, answered)).toBe("resumed");
+    expect(interrogateInvokeAction(host, surface.surface as never, answered)).toBe("resumed");
     expect(host.isOpen()).toBe(true);
 
-    // Row 3b: submitted-only is live too (BUG-005 set) → "resumed".
-    interrogateToggleAction(host, surface.surface as never, answered); // suspend again
-    const submitted = createInterrogationState("goal");
-    submitted.upsertQuestion(choiceQ("q1"));
-    submitted.setStatus("q1", "submitted");
-    setState(submitted);
-    expect(interrogateToggleAction(host, surface.surface as never, submitted)).toBe("resumed");
-    expect(host.isOpen()).toBe(true);
+    // Row 2c/2d: submitted-only / reasked-only are live too (BUG-005 set).
+    for (const status of ["submitted", "reasked"] as const) {
+      suspendPanel(host);
+      const s = createInterrogationState("goal");
+      s.upsertQuestion(choiceQ("q1"));
+      s.setStatus("q1", status);
+      setState(s);
+      expect(interrogateInvokeAction(host, surface.surface as never, s)).toBe("resumed");
+      expect(host.isOpen()).toBe(true);
+    }
 
-    // Row 3c: reasked-only is live too (BUG-005 set) → "resumed".
-    interrogateToggleAction(host, surface.surface as never, submitted); // suspend again
-    const reasked = createInterrogationState("goal");
-    reasked.upsertQuestion(choiceQ("q1"));
-    reasked.setStatus("q1", "reasked");
-    setState(reasked);
-    expect(interrogateToggleAction(host, surface.surface as never, reasked)).toBe("resumed");
-    expect(host.isOpen()).toBe(true);
-
-    // Row 3d (re-targeted negative coverage): suspended ∧ truly dead —
-    // terminal-only state (moot; withdrawn/closed equally) → "empty", host
-    // stays suspended.
-    interrogateToggleAction(host, surface.surface as never, reasked); // suspend again
+    // Row 3: suspended ∧ truly dead — terminal-only state (moot;
+    // withdrawn/closed equally) → "empty", host stays suspended.
+    suspendPanel(host);
     const dead = createInterrogationState("goal");
     dead.upsertQuestion(choiceQ("q1"));
     dead.setStatus("q1", "moot");
     setState(dead);
-    expect(interrogateToggleAction(host, surface.surface as never, dead)).toBe("empty");
+    expect(interrogateInvokeAction(host, surface.surface as never, dead)).toBe("empty");
     expect(host.isOpen()).toBe(false);
     expect(host.isSuspended()).toBe(true);
 
-    // Row 3e: empty state (zero questions — e.g. post-clearForCompletion
+    // Row 3b: empty state (zero questions — post-clearForCompletion
     // equivalent) is equally dead → "empty".
     const cleared = createInterrogationState("goal");
     setState(cleared);
-    expect(interrogateToggleAction(host, surface.surface as never, cleared)).toBe("empty");
-    expect(host.isSuspended()).toBe(true);
+    expect(interrogateInvokeAction(host, surface.surface as never, cleared)).toBe("empty");
 
-    // Row 4: closed host → "empty"
+    // Row 4: closed host ∧ LIVE state → fresh open from the singleton —
+    // the reload row (extension reload leaves a fresh host record while
+    // reconstruction/last events left live questions in state).
     const closedHost = createPanelHost(makeMockLifecycle().lifecycle);
-    expect(interrogateToggleAction(closedHost, surface.surface as never, undefined)).toBe("empty");
+    const freshSurface = makeSurfacePi();
+    const live = createInterrogationState("goal");
+    live.upsertQuestion(choiceQ("q1"));
+    setState(live);
+    expect(
+      interrogateInvokeAction(closedHost, freshSurface.surface as never, live, {
+        config: DEFAULT_CONFIG,
+      }),
+    ).toBe("opened");
+    expect(closedHost.isOpen()).toBe(true);
+
+    // Row 5: closed host, no state → "empty".
+    const closedHost2 = createPanelHost(makeMockLifecycle().lifecycle);
+    expect(interrogateInvokeAction(closedHost2, surface.surface as never, undefined)).toBe("empty");
+  });
+
+  test("test_closed_host_without_opts_falls_to_empty_not_throw", () => {
+    // The fresh-open row needs opts (config) — without them the action must
+    // degrade to "empty", never throw (the registration always passes opts;
+    // this pins the pure core's guard).
+    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    setState(state);
+    const surface = makeSurfacePi();
+    expect(interrogateInvokeAction(host, surface.surface as never, state)).toBe("empty");
+    expect(host.isOpen()).toBe(false);
   });
 });
 
@@ -409,7 +421,10 @@ describe("/interrogate command handler", () => {
     resetState();
   });
 
-  test("test_toggle_suspends_when_open", async () => {
+  test("test_invoke_on_open_panel_keeps_it_open_and_silent", async () => {
+    // The reload-complaint regression: with the panel OPEN, /interrogate
+    // must NOT suspend it (the old toggle behavior dismissed the panel and
+    // demanded a keypress to bring it back). Silent no-op success.
     const { host, invokeCommand } = makeHarness();
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
@@ -420,15 +435,12 @@ describe("/interrogate command handler", () => {
     const { ctx, notify } = makeCtx();
     await expect(invokeCommand("", ctx)).resolves.toBeUndefined();
 
-    // S1 consumed: suspendPanel called once; real host phase flipped.
-    expect(suspendPanel).toHaveBeenCalledTimes(1);
-    expect(host.isSuspended()).toBe(true);
-    expect(host.isOpen()).toBe(false);
-    // Silent success — no notify on suspend.
+    expect(suspendPanel).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(true);
     expect(notify).not.toHaveBeenCalled();
   });
 
-  test("test_toggle_resumes_when_suspended", async () => {
+  test("test_invoke_resumes_when_suspended", async () => {
     const { host, invokeCommand } = makeHarness();
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
@@ -436,7 +448,7 @@ describe("/interrogate command handler", () => {
     openOnSurface(state);
 
     const first = makeCtx();
-    await invokeCommand("", first.ctx); // open → suspended
+    suspendPanel(host); // esc-equivalent suspend, NOT the command
     expect(host.isSuspended()).toBe(true);
 
     const second = makeCtx();
@@ -449,7 +461,7 @@ describe("/interrogate command handler", () => {
     expect(second.notify).not.toHaveBeenCalled();
   });
 
-  test("test_toggle_empty_state_notifies_exact_string", async () => {
+  test("test_invoke_empty_state_notifies_exact_string", async () => {
     const { invokeCommand } = makeHarness(); // closed host, no singleton state
     const { ctx, notify } = makeCtx();
 
@@ -461,7 +473,7 @@ describe("/interrogate command handler", () => {
     expect(resumePanel).not.toHaveBeenCalled();
   });
 
-  test("test_toggle_empty_state_with_args_same_notify", async () => {
+  test("test_invoke_empty_state_with_args_same_notify", async () => {
     const { invokeCommand } = makeHarness();
     const { ctx, notify } = makeCtx();
 
@@ -474,7 +486,7 @@ describe("/interrogate command handler", () => {
     expect(notify.mock.calls[0][1]).toBe("warning");
   });
 
-  test("test_toggle_suspended_answered_pending_resumes_silently", async () => {
+  test("test_invoke_suspended_answered_pending_resumes_silently", async () => {
     const { host, invokeCommand } = makeHarness();
     // BUG-005 repro (h2.2/h3.4): suspended host, every question ANSWERED
     // (0 open, pending submission). Answered-pending is a LIVE state — the
@@ -485,8 +497,7 @@ describe("/interrogate command handler", () => {
     state.applyAnswer("q1", { value: "a", at: new Date().toISOString() }); // open → answered
     setState(state);
     openOnSurface(state);
-    const first = makeCtx();
-    await invokeCommand("", first.ctx);
+    suspendPanel(host); // esc-equivalent suspend, NOT the command
     expect(host.isSuspended()).toBe(true);
 
     const second = makeCtx();
@@ -497,7 +508,7 @@ describe("/interrogate command handler", () => {
     expect(host.isOpen()).toBe(true);
   });
 
-  test("test_toggle_suspended_terminal_only_dead_panel_notifies", async () => {
+  test("test_invoke_suspended_terminal_only_dead_panel_notifies", async () => {
     const { host, invokeCommand } = makeHarness();
     // Re-targeted negative coverage: a TRULY dead panel (all terminal —
     // moot here; withdrawn/closed identical) still notifies the empty-state
@@ -507,8 +518,7 @@ describe("/interrogate command handler", () => {
     state.setStatus("q1", "moot");
     setState(state);
     openOnSurface(state);
-    const first = makeCtx();
-    await invokeCommand("", first.ctx);
+    suspendPanel(host); // esc-equivalent suspend, NOT the command
     expect(host.isSuspended()).toBe(true);
 
     const second = makeCtx();
@@ -536,7 +546,9 @@ describe("/interrogate command handler", () => {
   });
 });
 
-describe("global break-out/resume shortcut handler", () => {
+// ----------------------------------------- invoke idempotency (cycle safety)
+
+describe("/interrogate — invoke idempotency", () => {
   beforeEach(() => {
     resetState();
     vi.clearAllMocks();
@@ -545,63 +557,51 @@ describe("global break-out/resume shortcut handler", () => {
     resetState();
   });
 
-  test("test_shortcut_handler_toggles", async () => {
-    const { host, invokeShortcut } = makeHarness();
-    const state = createInterrogationState("goal");
-    state.upsertQuestion(choiceQ("q1"));
-    setState(state);
-    openOnSurface(state);
-
-    const first = makeCtx();
-    await expect(invokeShortcut(first.ctx)).resolves.toBeUndefined();
-    expect(host.isSuspended()).toBe(true);
-    expect(suspendPanel).toHaveBeenCalledTimes(1);
-
-    const second = makeCtx();
-    await invokeShortcut(second.ctx);
-    expect(resumePanel).toHaveBeenCalledTimes(1);
-    expect(resumePanel).toHaveBeenCalledWith(second.ctx);
-    expect(host.isOpen()).toBe(true);
-  });
-
-  test("test_shortcut_empty_state_notifies_exact_string", async () => {
-    const { invokeShortcut } = makeHarness(); // closed host, no state
-    const { ctx, notify } = makeCtx();
-
-    await invokeShortcut(ctx);
-
-    expect(notify).toHaveBeenCalledWith(EMPTY_MESSAGE, "info");
-    expect(suspendPanel).not.toHaveBeenCalled();
-  });
-
-  test("test_double_press_idempotent", async () => {
+  test("test_repeated_invoke_never_wedges_the_host", async () => {
     const { host, invokeCommand } = makeHarness();
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
     setState(state);
     openOnSurface(state);
 
-    // Toggle suspends…
-    const ctxA = makeCtx();
-    await invokeCommand("", ctxA.ctx);
-    expect(host.isSuspended()).toBe(true);
+    // Repeated /interrogate on the open panel: silent no-ops every time —
+    // no throw, no duplicate done(), panel stays open exactly once.
+    for (let i = 0; i < 3; i++) {
+      const ctx = makeCtx();
+      await expect(invokeCommand("", ctx.ctx)).resolves.toBeUndefined();
+      expect(ctx.notify).not.toHaveBeenCalled();
+      expect(host.isOpen()).toBe(true);
+    }
+    expect(suspendPanel).not.toHaveBeenCalled();
 
-    // …then a racing duplicate suspend (dual registration / double delivery)
-    // is a no-op: no throw, no duplicate done(), host stays suspended.
-    expect(() => suspendPanel(host)).not.toThrow();
-    expect(suspendPanel).toHaveBeenCalledTimes(2);
-    expect(host.isSuspended()).toBe(true);
-
-    // Resume via toggle…
+    // Suspend (esc-equivalent), then invoke resumes…
+    suspendPanel(host);
     const ctxB = makeCtx();
     await invokeCommand("", ctxB.ctx);
+    expect(resumePanel).toHaveBeenCalledTimes(1);
     expect(host.isOpen()).toBe(true);
 
-    // …then a racing duplicate resume no-ops (openPanel single-instance
+    // …and a racing duplicate resume no-ops (openPanel single-instance
     // guard returns false): no throw, panel stays open exactly once.
     expect(() => resumePanel(ctxB.ctx)).not.toThrow();
     expect(resumePanel).toHaveBeenCalledTimes(2);
     expect(host.isOpen()).toBe(true);
+  });
+
+  test("test_invoke_after_reload_opens_from_closed_host", async () => {
+    // Reload row through the REAL registration: a closed host record with
+    // live state opens the panel immediately — no keypress, no notify.
+    const { host, invokeCommand } = makeHarness();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    setState(state);
+
+    const { ctx, notify, calls } = makeCtx();
+    await invokeCommand("", ctx);
+
+    expect(notify).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(true);
+    expect(calls.length).toBe(1); // a real custom() panel mounted
   });
 });
 

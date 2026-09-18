@@ -31,7 +31,6 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
   focusText: "\u0014", // ctrl+t
   batchNote: "\u001b[109;6u", // kitty CSI-u ctrl+shift+m (m = 109)
   submit: "\u0013", // ctrl+s
-  breakOut: "\u001b[113;6u", // kitty CSI-u ctrl+shift+q (q = 113)
   discuss: "\u001b[101;6u", // kitty CSI-u ctrl+shift+e (e = 101)
   externalEditor: "\u0007", // ctrl+g
   prevQuestion: "\t",
@@ -108,7 +107,6 @@ function makeActions() {
     onOverview: vi.fn((_p: InterrogationPanel) => undefined),
     onFocusText: vi.fn((_p: InterrogationPanel) => undefined),
     onBatchNote: vi.fn((_p: InterrogationPanel) => undefined),
-    onBreakOut: vi.fn((_p: InterrogationPanel) => undefined),
     onDiscuss: vi.fn((_p: InterrogationPanel) => undefined),
     onExternalEditor: vi.fn((_p: InterrogationPanel) => undefined),
   };
@@ -226,8 +224,8 @@ describe("buildKeyRouter — default config dispatch (h2.34 table)", () => {
     spotRouter.route(DEFAULT_DATA.submit, makePanel());
     expect(spot.submit).toHaveBeenCalledTimes(1);
     expect(spot.onDeep).not.toHaveBeenCalled();
-    spotRouter.route(DEFAULT_DATA.breakOut, makePanel());
-    expect(spot.onBreakOut).toHaveBeenCalledTimes(1);
+    spotRouter.route(DEFAULT_DATA.discuss, makePanel());
+    expect(spot.onDiscuss).toHaveBeenCalledTimes(1);
     spotRouter.route(DEFAULT_DATA.batchNote, makePanel());
     expect(spot.onBatchNote).toHaveBeenCalledTimes(1);
     spotRouter.route(DEFAULT_DATA.prevQuestion, makePanel());
@@ -288,7 +286,6 @@ describe("buildKeyRouter — h2.34 intercept rule with focus === text", () => {
     expect(route(DEFAULT_DATA.focusText, makePanel({ focus: "text" }))).toBe(true);
     expect(route(DEFAULT_DATA.batchNote, makePanel({ focus: "text" }))).toBe(true);
     expect(route(DEFAULT_DATA.discuss, makePanel({ focus: "text" }))).toBe(true);
-    expect(route(DEFAULT_DATA.breakOut, makePanel({ focus: "text" }))).toBe(true);
     expect(route(DEFAULT_DATA.prevQuestion, makePanel({ focus: "text" }))).toBe(true);
     expect(route(DEFAULT_DATA.nextQuestion, makePanel({ focus: "text" }))).toBe(true);
 
@@ -401,6 +398,8 @@ describe("buildKeyRouter — fixed keys and gating", () => {
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
     expect(route(UP, makePanel())).toBe(false);
   });
+
+
 });
 
 // ------------------------------------------------------------- collisions
@@ -450,9 +449,6 @@ describe("defaultRoutedActions — seam defaults", () => {
 
     actions.onFocusText(panel);
     expect(panel.focus).toBe("text");
-
-    actions.onBreakOut(panel); // suspend terminus (M6 refines)
-    expect(panel.suspendCalls).toBe(1);
 
     // Wired seams: the batch-note toggle hits the panel methods (R3), the
     // wired external-editor seam fire-and-forgets into the panel method.

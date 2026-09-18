@@ -20,7 +20,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 **M5 — Deep view, overview, gate, ripples.** `deep-view.ts` (scrollable pane, sticky option headers, select-from-deep), `overview.ts`, group dimming + gate warnings, `dependsOn` evaluator + moot marks + ripple confirm. Verify AC-5, 6, 7.
 
-**M6 — Suspend/resume ecosystem.** `ctrl+shift+q` + `/interrogate` + widget, reopen action, discuss-in-chat handoff with `setEditorText`, editor-text preservation across suspend. Verify AC-4.
+**M6 — Suspend/resume ecosystem.** `esc` suspend + invoke-only `/interrogate` (immediate in every scenario) + widget naming `/interrogate`, reopen action, discuss-in-chat handoff with `setEditorText`, editor-text preservation across suspend. The `ctrl+shift+q` chord and its global shortcut were removed (window managers claim it on many desktops). Verify AC-4.
 
 **M7 — Persistence + polish.** `persistence.ts` (mirror, reconstruction, auto-open), compaction instructions, message/entry renderers (cards), round detection (FR-26), terminal fallbacks (<24/<12 rows, <60 cols), config reference, README. Verify AC-8, 9, 10, 11, 12.
 
@@ -65,7 +65,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 ```jsonc
 {
   "keys": { "deep": "ctrl+d", "overview": "ctrl+l", "focusText": "ctrl+t",
-            "batchNote": "ctrl+shift+m", "submit": "ctrl+s", "breakOut": "ctrl+shift+q",
+            "batchNote": "ctrl+shift+m", "submit": "ctrl+s",
             "discuss": "ctrl+shift+e", "externalEditor": "ctrl+g",
             "prevQuestion": "tab", "nextQuestion": "shift+tab" },
   "caps": { "description": 1200, "ramification": 600, "options": 7,

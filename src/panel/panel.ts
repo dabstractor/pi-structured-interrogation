@@ -1583,7 +1583,7 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       // 0 open, and lifecycle dismiss (updateSuspendWidget guards the
       // optional setWidget itself).
       if (activePi !== undefined && lastOpts !== undefined) {
-        updateSuspendWidget(activePi, lastOpts.state, lastOpts.config);
+        updateSuspendWidget(activePi, lastOpts.state);
       }
     })
     .catch(() => {
@@ -1593,7 +1593,7 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       currentPanel?.dispose();
       markSuspended(); // log-safe swallow: a crashed panel must not wedge the host
       if (activePi !== undefined && lastOpts !== undefined) {
-        updateSuspendWidget(activePi, lastOpts.state, lastOpts.config);
+        updateSuspendWidget(activePi, lastOpts.state);
       }
     });
   return true;

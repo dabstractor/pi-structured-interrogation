@@ -40,7 +40,6 @@ const ALL_ACTIONS: KeyAction[] = [
 	"focusText",
 	"batchNote",
 	"submit",
-	"breakOut",
 	"discuss",
 	"externalEditor",
 	"prevQuestion",

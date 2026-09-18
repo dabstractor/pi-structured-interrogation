@@ -144,7 +144,7 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
 
   // P1.M6.T2.S1 — agent-judgment reopen (FR-6/Q12, h2.35): the tool's
   // {reopen:true} action resumes a suspended panel through the SAME
-  // resumePanel path as the ctrl+shift+q / /interrogate hotkey — no
+  // resumePanel path as the /interrogate invoke command — no
   // deterministic guard beyond host phase + open-question existence (the
   // agent's judgment is the gate; the always-visible suspend widget is the
   // user's safety net). Registered AFTER createPanelHost so the hook
@@ -210,10 +210,13 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   registerCompletionRecapRenderer(pi);
   registerStateEntryRenderer(pi);
 
-  // P1.M6.T1.S2 — /interrogate toggle command + the global break-out/resume
-  // shortcut (h2.15/h2.34/h2.35/h2.37): ONE seam registering both surfaces
-  // over the panel host's phase API. Shares this closure's config (raw
-  // keys.breakOut for the shortcut), panelHost (toggle state source), and
-  // drafts (signature-stability pass-through; S1's resume reuses lastOpts).
+  // P1.M6.T1.S2 (as amended by the breakOut removal + CMD-001) — the
+  // /interrogate invoke command (h2.15/h2.35/h2.37): ONE seam, invoke-only
+  // semantics — an existing session gets the panel IMMEDIATELY (open stays
+  // open, suspended resumes, closed host opens fresh from state). No global
+  // shortcut is registered (the ctrl+shift+q chord closes windows on many
+  // desktop environments). Shares this closure's config, panelHost (phase
+  // state source), drafts (load-bearing for the fresh-open row), and the
+  // /interrogate debug subcommand handler (h2.50 verification surface).
   registerInterrogateCommand(pi, config, panelHost, { drafts, debug: debugSubcommands });
 }

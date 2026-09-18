@@ -58,6 +58,14 @@ export interface CompletionTriggerOptions {
   getBatchNotes?: () => string[] | undefined;
   /** Idle probe for deliverSubmission; mirrors ExtensionContext.isIdle. */
   ctx?: { isIdle?: () => boolean };
+  /**
+   * FR-33 (remote bridge surface): fired once per completed interrogation,
+   * AFTER the completion flow finishes (delivery → dismiss → clear).
+   * index.ts routes it to remote-bridge's completeAll so no outstanding
+   * `itg:` flow leaves a conformant client surface stuck open. Absent →
+   * no-op (tests).
+   */
+  onCompleted?: () => void;
 }
 
 /** Outcome of one completion attempt (the testable core's return value). */
@@ -127,6 +135,7 @@ export function attemptCompletion(
   deliverSubmission(pi, msg, opts.ctx); // exactly one pi.sendMessage — the delivery matrix lives there
   opts.lifecycle.dismissPanel(); // safe no-op stub until P1.M3.T1.S1 wires a panel
   state.clearForCompletion(); // LAST: clears questions/order, retains goal/epoch/snapshots, sets completed=true
+  opts.onCompleted?.(); // FR-33: resolve outstanding bridge flows AFTER the state settles
 
   return { fired: true };
 }

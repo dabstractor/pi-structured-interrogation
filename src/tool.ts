@@ -137,6 +137,15 @@ export interface ToolDeps {
    * flips synchronously, so the returned outcome is trustworthy at once.
    */
   onReopen?: () => ReopenOutcome;
+  /**
+   * FR-31/D-R6 remote-surface hook: invoked after EVERY successful upsert/
+   * reopen (all modes — TUI dual-surface included). index.ts routes it to
+   * remote-bridge's `emitFlow`; returning a truthy value lets the non-TUI
+   * reopen result report that a remote flow was emitted. The executor stays
+   * UI-free AND event-free (h2.0 §1) — hooks only. NO other bridge surface:
+   * no result-text variant ever depends on bridge activity (FR-34).
+   */
+  onLiveQuestions?: (state: InterrogationState, source: "upsert" | "reopen") => boolean | void;
 }
 
 // ------------------------------------------------------------------- helpers
@@ -319,6 +328,13 @@ export function executeInterrogate(
         state.setGoal(capped.goal);
       }
 
+      // FR-31/D-R6: remote-surface hook — fires in ALL modes (TUI dual
+      // surface included) after the upsert has settled. emitFlow gates on
+      // live questions + config itself, so the hook call is unconditional.
+      // FR-34: the digest fallback below stays BYTE-IDENTICAL regardless of
+      // bridge activity — no model-facing result ever depends on it.
+      deps.onLiveQuestions?.(state, "upsert");
+
       const serialized = state.serialize();
       // Tolerant withdrawal reporting (2026-09-15 pin, warn-don't-refuse):
       // deliberate withdrawals surface as an informational line in the same
@@ -356,11 +372,26 @@ export function executeInterrogate(
       if (!existing) throw new Error("no interrogation state to reopen");
       const serialized = existing.serialize();
       if (isNonTui(ctx.mode, ctx.hasUI)) {
-        // Nothing to resurface in a non-TUI run — a read re-orients instead.
-        return buildReadResult(serialized);
+        // FR-31/D-R6: non-TUI reopen re-surfaces the REMOTE flow when live
+        // questions exist (emitFlow gates internally); the read body still
+        // re-orients the model. The hook's truthy return proves emission.
+        const emitted = deps.onLiveQuestions?.(existing, "reopen") ?? false;
+        const base = buildReadResult(serialized);
+        if (emitted) {
+          return {
+            content: `${buildStatusLine(serialized)}\nRemote surface re-surfaced.\n\n${base.content}`,
+            details: base.details,
+          };
+        }
+        // Nothing to resurface (no live questions / remote disabled) — a
+        // read re-orients instead.
+        return base;
       }
       const statusLine = buildStatusLine(serialized);
       const outcome = deps.onReopen?.() ?? "reopened";
+      // FR-31/D-R6: dual-surface — the desktop panel resumes AND every
+      // connected bridge client re-renders (emitFlow gates internally).
+      deps.onLiveQuestions?.(existing, "reopen");
       const line =
         outcome === "already-open"
           ? "Panel already open."

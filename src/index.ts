@@ -42,6 +42,7 @@ import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
 import { hasResumableQuestions, resumePanel } from "./panel/suspend.js";
 import { createStateMirror } from "./persistence.js";
+import { createRemoteBridge } from "./remote-bridge.js";
 import { createReconstruction } from "./reconstruct.js";
 import {
   registerCompletionRecapRenderer,
@@ -59,6 +60,9 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // P1.M2.T2.S2 — completion trigger (h3.9) plugged into onAfterClosePass:
   // injects the one full interrogation-completion record, dismisses the
   // panel, then clears in-memory state (exactly once per interrogation).
+  // FR-33 (remote bridge surface): onCompleted resolves every outstanding
+  // `itg:` flow AFTER the state settles so no conformant client surface
+  // lingers past completion.
   //
   // Circularity note: the trigger needs the lifecycle (dismissPanel) and the
   // engine needs the trigger (onAfterClosePass). Resolved with a late-binding
@@ -77,8 +81,21 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       // (deliverSubmission); draining here is the notes' final destination,
       // so a follow-up interrogation starts from an empty ledger.
       getBatchNotes: drainBatchNotes,
+      // FR-33: resolve every outstanding `itg:` flow after the completion
+      // flow settles (late-binding closure — remoteBridge is assigned a few
+      // statements below, before any close pass can ever fire).
+      onCompleted: () => remoteBridge.completeAll(),
     }),
   });
+
+  // FR-31..34 — remote bridge surface: speak the pi-ask bridge contract on
+  // the shared `pi.events` bus. Any conformant client (remote-pi's app
+  // today) renders started flows natively and returns submits, which ride
+  // the panel-parity pipeline (remote-submit.ts). Emission is inert when
+  // nothing listens; submits are filtered by the `itg:` flow registry.
+  // Created BEFORE the tool/reconstruction wiring below so every consumer
+  // captures the same handle; disposed on session_shutdown (below).
+  const remoteBridge = createRemoteBridge(pi, { config, lifecycle });
 
   // P1.M7.T4.S1 — plain-text round detection (FR-26, h2.27): TUI-only,
   // config-gated (roundDetection), throttled once per 3 turns; never
@@ -96,7 +113,10 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // extension dispose seam exists in this factory, so mirror.dispose()
   // stays available-but-unwired (subscriptions die with the runtime).
   const mirror = createStateMirror(pi);
-  pi.on("session_shutdown", () => mirror.flush());
+  pi.on("session_shutdown", () => {
+    mirror.flush();
+    remoteBridge.dispose(); // FR-33: resolve outstanding flows + unsub the submit listener
+  });
 
   // P1.M7.T2.S1 — compaction preservation (FR-29, h2.42): when pi compacts
   // mid-interrogation, the guard flushes THIS mirror (fresh interrogation-state
@@ -140,7 +160,17 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // digest fallback flag. resetState() at the top of every run guarantees no
   // caching across session_shutdown. Drafts are NEVER restored (Q6=B) — the
   // store above passes through untouched (empty at start, by design).
-  createReconstruction(pi, { config, host: panelHost, drafts });
+  createReconstruction(pi, {
+    config,
+    host: panelHost,
+    drafts,
+    // FR-34: restored-with-live-content → re-emit a bridge flow
+    // (`ask:resume`) so conformant clients re-render after a restart
+    // (rpc daemon has no panel to auto-open). emitFlow gates internally.
+    onRestored: (state) => {
+      remoteBridge.emitFlow(state, "ask:resume");
+    },
+  });
 
   // P1.M6.T2.S1 — agent-judgment reopen (FR-6/Q12, h2.35): the tool's
   // {reopen:true} action resumes a suspended panel through the SAME
@@ -186,6 +216,10 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
         resumePanel(resumeSurface);
         return "reopened";
       },
+      // FR-31/D-R6: emission hook — upserts AND reopens (both modes) emit a
+      // bridge flow for the live question set; truthy return = emitted (the
+      // non-TUI reopen result reports the re-surface).
+      onLiveQuestions: (state) => remoteBridge.emitFlow(state, "tool") !== null,
     }),
   );
 

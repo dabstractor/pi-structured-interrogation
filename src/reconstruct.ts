@@ -163,6 +163,17 @@ export interface ReconstructionOptions {
    * NEVER read or written by reconstruction itself (FR-28, Q6=B).
    */
   drafts?: DraftStore;
+  /**
+   * FR-34 (remote bridge surface): invoked once per run with the restored
+   * state whenever the branch yielded a non-empty interrogation — BEFORE
+   * the mode split, so BOTH the TUI auto-open and the non-TUI fallback
+   * paths see it. index.ts routes it to remote-bridge's emitFlow
+   * (`ask:resume`) so a conformant client re-renders the question set
+   * after a restart even when no desktop panel exists (rpc daemon). The
+   * hook must not throw into reconstruction (bridge handlers stay
+   * defensive); emitFlow gates on live questions + config internally.
+   */
+  onRestored?: (state: InterrogationState) => void;
 }
 
 /**
@@ -386,6 +397,10 @@ export function reconstructFromBranch(
     }
     return { source, replayed, opened: false, fallbackActive: false };
   }
+
+  // FR-34: restored with live content — hand the state to the remote
+  // bridge surface (before the mode split: TUI and non-TUI alike).
+  opts.onRestored?.(state);
 
   // Auto-open / fallback (module JSDoc step 5).
   if (isNonTui(ctx.mode ?? "tui", ctx.hasUI ?? true)) {

@@ -55,6 +55,21 @@ export interface RemoteConfig {
    * Default true.
    */
   resurface: boolean;
+  /**
+   * Include an optional `display` parameter in the interrogate tool schema
+   * (first position) that instructs the model to attach a plain-text digest
+   * of the batch — numbered questions with long-form descriptions and every
+   * option's ramification (D-R10). For clients that render raw tool-call
+   * arguments as a key=value dump (e.g. the remote-pi phone app's generic
+   * tool card): the digest appears as readable text before the JSON blob.
+   * Invisible on the desktop TUI (renderCall compacts the call to one line).
+   * Costs duplicated tokens in the call (the digest restates the questions),
+   * hence default false — opt in when you read interrogations from a dumb
+   * client. Detection of such clients is impossible pre-call (the model
+   * composes args before the extension sees them; the bridge is one-way),
+   * so this is config, not auto. Default false.
+   */
+  displayDigest: boolean;
 }
 
 /**
@@ -103,6 +118,12 @@ export interface CapsConfig {
   questions: number;
   /** Max characters for the goal statement. Default 400. */
   goal: number;
+  /**
+   * Max characters for the optional `display` plain-text digest param
+   * (D-R10; only in the schema when remote.displayDigest is on). Over-cap
+   * display is truncated with a warning in the tool result. Default 4000.
+   */
+  display: number;
   /** Max percentage of the context window budgeted for interrogator content. Default 4. */
   contextBudgetPct: number;
 }
@@ -163,6 +184,7 @@ const CAP_KEYS = [
   "questions",
   "goal",
   "contextBudgetPct",
+  "display",
 ] as const satisfies readonly (keyof CapsConfig)[];
 
 /**
@@ -190,6 +212,7 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
     questions: 40,
     goal: 400,
     contextBudgetPct: 4,
+    display: 4000,
   },
   gateWarnings: true,
   roundDetection: true,
@@ -197,7 +220,7 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
   compactionPreservation: true,
   editorMode: "composed",
   escExitWindowMs: 500,
-  remote: { enabled: true, resurface: true },
+  remote: { enabled: true, resurface: true, displayDigest: false },
 };
 
 /** The settings.json key under which this extension's config lives (open-schema; stable). */
@@ -287,6 +310,7 @@ function coerceRemote(raw: unknown): RemoteConfig {
   return {
     enabled: coerceBoolean(src.enabled, DEFAULT_CONFIG.remote.enabled),
     resurface: coerceBoolean(src.resurface, DEFAULT_CONFIG.remote.resurface),
+    displayDigest: coerceBoolean(src.displayDigest, DEFAULT_CONFIG.remote.displayDigest),
   };
 }
 

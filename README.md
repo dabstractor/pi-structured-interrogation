@@ -120,7 +120,13 @@ All settings live under a top-level `"interrogator"` key in either
       "options": 7,           // max multiple-choice options per question
       "questions": 40,        // max questions in one interrogation
       "goal": 400,            // max characters for the goal statement (enforced on stored state; updates past 400 are truncated with a warning)
-      "contextBudgetPct": 4   // max % of the context window budgeted for interrogator content
+      "contextBudgetPct": 4,  // max % of the context window budgeted for interrogator content
+      "display": 4000         // max characters for the optional `display` plain-text digest (D-R10)
+    },
+    "remote": {
+      "enabled": true,        // speak the pi-ask bridge contract (phone/remote clients render questions natively)
+      "resurface": true,      // re-present remaining questions after a partial remote submission
+      "displayDigest": false  // add a `display` plain-text digest to interrogate calls — for clients that dump raw args (e.g. the remote-pi phone tool card); costs duplicated tokens
     },
     "gateWarnings": true,           // FR-9: warn on panel submit when foundational gate questions are unanswered
     "roundDetection": true,         // detect interrogation rounds from plain chat text (TUI)

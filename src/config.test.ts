@@ -199,7 +199,7 @@ test("test_load_config_from_with_no_paths_returns_defaults", async () => {
 
 test("remote_defaults_to_enabled_and_resurface", async () => {
   const cfg = await loadConfigFrom({});
-  expect(cfg.remote).toEqual({ enabled: true, resurface: true });
+  expect(cfg.remote).toEqual({ enabled: true, resurface: true, displayDigest: false });
 });
 
 test("remote_merges_per_key_over_defaults", async () => {
@@ -210,7 +210,7 @@ test("remote_merges_per_key_over_defaults", async () => {
     JSON.stringify({ interrogator: { remote: { resurface: false } } }),
   );
   const cfg = await loadConfigFrom({ global, project });
-  expect(cfg.remote).toEqual({ enabled: false, resurface: false }); // project + global each win their key
+  expect(cfg.remote).toEqual({ enabled: false, resurface: false, displayDigest: false }); // project + global each win their key
 });
 
 test("remote_coerces_boolean_strings", async () => {
@@ -218,7 +218,7 @@ test("remote_coerces_boolean_strings", async () => {
     JSON.stringify({ interrogator: { remote: { enabled: "false", resurface: "true" } } }),
   );
   const cfg = await loadConfigFrom({ project });
-  expect(cfg.remote).toEqual({ enabled: false, resurface: true });
+  expect(cfg.remote).toEqual({ enabled: false, resurface: true, displayDigest: false });
 });
 
 test("remote_ill_typed_object_yields_defaults", async () => {
@@ -226,7 +226,7 @@ test("remote_ill_typed_object_yields_defaults", async () => {
     JSON.stringify({ interrogator: { remote: "yes" } }),
   );
   const cfg = await loadConfigFrom({ project });
-  expect(cfg.remote).toEqual({ enabled: true, resurface: true });
+  expect(cfg.remote).toEqual({ enabled: true, resurface: true, displayDigest: false });
 });
 
 test("remote_ill_typed_keys_fall_back_per_key", async () => {
@@ -234,5 +234,5 @@ test("remote_ill_typed_keys_fall_back_per_key", async () => {
     JSON.stringify({ interrogator: { remote: { enabled: 3, resurface: null } } }),
   );
   const cfg = await loadConfigFrom({ project });
-  expect(cfg.remote).toEqual({ enabled: true, resurface: true });
+  expect(cfg.remote).toEqual({ enabled: true, resurface: true, displayDigest: false });
 });

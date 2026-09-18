@@ -32,7 +32,9 @@ import {
   setState,
   InterrogationState,
 } from "./state.js";
-import { InterrogateParams, type QuestionInput } from "./tool-schema.js";
+import {
+  InterrogateParamsCore,
+  parseInterrogateParams, InterrogateParams, type QuestionInput } from "./tool-schema.js";
 import {
   createInterrogateTool,
   executeInterrogate,
@@ -817,7 +819,9 @@ describe("registration shape", () => {
     expect(tool.description).toBe(INTERROGATE_TOOL_DESCRIPTION);
     expect(tool.promptSnippet).toBe(INTERROGATE_PROMPT_SNIPPET);
     expect(tool.promptGuidelines).toBe(INTERROGATE_PROMPT_GUIDELINES);
-    expect(tool.parameters).toBe(InterrogateParams);
+    // D-R10: displayDigest off (DEFAULT_CONFIG) → the CORE schema (no
+    // display param); on → the full schema with display in FIRST position.
+    expect(tool.parameters).toBe(InterrogateParamsCore);
     expect(typeof tool.execute).toBe("function");
     expect(typeof tool.renderCall).toBe("function");
     expect(typeof tool.renderResult).toBe("function");
@@ -934,5 +938,29 @@ describe("remote bridge hooks (FR-31/D-R6; FR-34 digest invariance)", () => {
     // And it is the digest shape, not a device variant.
     expect(without.content).toContain("INTERROGATION — goal text (epoch 1)");
     expect(without.content).toContain(RELAY_INSTRUCTION);
+  });
+});
+
+// ------------------------------------------- D-R10: display digest param
+
+describe("display digest param (D-R10)", () => {
+  test("schema carries display FIRST when remote.displayDigest is on; core schema when off", () => {
+    const on = createInterrogateTool({ ...DEFAULT_CONFIG, remote: { ...DEFAULT_CONFIG.remote, displayDigest: true } });
+    expect(on.parameters).toBe(InterrogateParams);
+    expect(Object.keys(InterrogateParams.properties)[0]).toBe("display");
+    expect(InterrogateParamsCore.properties).not.toHaveProperty("display");
+  });
+
+  test("parser accepts display, truncates at the cap with a warning, and never routes by it", () => {
+    const long = "x".repeat(DEFAULT_CONFIG.caps.display + 50);
+    const r = parseInterrogateParams({ display: long }, DEFAULT_CONFIG);
+    expect(r.ok).toBe(true);
+    expect(r.action).toEqual({ action: "read" }); // display alone never routes an upsert
+    expect(r.warnings.some((w) => w.startsWith("display truncated at"))).toBe(true);
+    const r2 = parseInterrogateParams(
+      { display: "1. DB?\n desc...", questions: [qi("q1")] },
+      DEFAULT_CONFIG,
+    );
+    expect(r2.action?.action).toBe("upsert"); // rides alongside questions harmlessly
   });
 });

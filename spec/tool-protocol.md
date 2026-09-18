@@ -30,6 +30,7 @@ const QuestionSchema = Type.Object({
 });
 
 const InterrogateParams = Type.Object({
+  display: Type.Optional(Type.String({ description: "Plain-text digest of this batch for clients that render raw arguments: numbered questions, each with its prompt, its long-form standalone description, and every option's label + ramification (the deep-view text). First group's questions first; no JSON, no meta commentary. Keep under the display cap." })),
   goal: Type.Optional(Type.String({ description: "What these questions drive toward; shown in the panel header" })),
   epoch: Type.Optional(Type.Integer({ description: "REQUIRED with questions/answers: the session epoch you last saw (guards stale updates)" })),
   questions: Type.Optional(Type.Array(QuestionSchema, { description: "Upsert (surgical): only the ids sent are created or updated — omitted live questions are untouched. To prune by omission, resend the full live set with withdrawOmitted: true" })),
@@ -40,6 +41,10 @@ const InterrogateParams = Type.Object({
   }), { description: "Non-TUI fallback only: record the user's chat answers" })),
 });
 ```
+
+## Display digest param (D-R10, config-gated)
+
+`remote.displayDigest` (default false) adds the optional `display` param in FIRST position. Presentation-only: parsed, capped (`caps.display`, default 4000 — truncate + warn over cap), never stored, never routed by (a call with only `display` reads). Purpose: clients that render raw tool-call args as a key=value dump (the remote-pi phone app's generic tool card) show it as readable long-form text before the JSON; the desktop TUI never shows it (renderCall compacts the call to one line). Costs duplicated tokens in the call, hence opt-in — detection of dumb clients pre-call is impossible (the model composes args before the extension sees them; the bridge is one-way). When off, the param is omitted from the schema entirely (`InterrogateParamsCore`), so models stop sending it.
 
 ## Actions
 

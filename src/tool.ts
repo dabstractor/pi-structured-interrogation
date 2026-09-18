@@ -47,7 +47,12 @@ import {
   type Question,
   type SerializedState,
 } from "./state.js";
-import { InterrogateParams, parseInterrogateParams, type QuestionInput } from "./tool-schema.js";
+import {
+  InterrogateParams,
+  InterrogateParamsCore,
+  parseInterrogateParams,
+  type QuestionInput,
+} from "./tool-schema.js";
 
 // ------------------------------------------------------- resident text (h2.24)
 
@@ -501,7 +506,16 @@ export function createInterrogateTool(
     description: INTERROGATE_TOOL_DESCRIPTION,
     promptSnippet: INTERROGATE_PROMPT_SNIPPET,
     promptGuidelines: INTERROGATE_PROMPT_GUIDELINES,
-    parameters: InterrogateParams,
+    // D-R10: the `display` plain-text digest param rides the schema ONLY
+    // when remote.displayDigest is on — desktop renderCall compacts the
+    // call to one line either way, so the param is invisible there; dumb
+    // clients (raw key=value dumps) show it as readable text first.
+    // (cast: the definition is typed on the FULL schema — the core variant
+    // is the same surface minus an optional param, a structural subset; the
+    // executor's parser accepts either presence pattern regardless)
+    parameters: config.remote.displayDigest
+      ? InterrogateParams
+      : (InterrogateParamsCore as typeof InterrogateParams),
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
       const result = executeInterrogate(params, ctx, config, deps);
       return { content: [{ type: "text", text: result.content }], details: result.details };

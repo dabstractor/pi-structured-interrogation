@@ -228,7 +228,7 @@ describe("emitFlow lifecycle", () => {
   });
 
   test("remote.enabled=false → null, no events", () => {
-    const config = { ...DEFAULT_CONFIG, remote: { enabled: false, resurface: true } };
+    const config = { ...DEFAULT_CONFIG, remote: { enabled: false, resurface: true, displayDigest: false } };
     const { bridge, bus } = makeBridge(config);
     expect(bridge.emitFlow(fixtureState(), "tool")).toBeNull();
     expect(bus.emitted).toHaveLength(0);
@@ -461,7 +461,7 @@ describe("submit handling", () => {
   });
 
   test("resurface=false → no replay after a partial submit", () => {
-    const config = { ...DEFAULT_CONFIG, remote: { enabled: true, resurface: false } };
+    const config = { ...DEFAULT_CONFIG, remote: { enabled: true, resurface: false, displayDigest: false } };
     const { bridge, bus } = makeBridge(config);
     const state = fixtureState();
     setState(state);
@@ -471,7 +471,7 @@ describe("submit handling", () => {
   });
 
   test("remote.enabled=false → submits ignored entirely", () => {
-    const config = { ...DEFAULT_CONFIG, remote: { enabled: false, resurface: true } };
+    const config = { ...DEFAULT_CONFIG, remote: { enabled: false, resurface: true, displayDigest: false } };
     const { bridge, bus, sent } = makeBridge(config);
     const state = fixtureState();
     setState(state);

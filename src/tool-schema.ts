@@ -110,6 +110,7 @@ export const QuestionSchema = Type.Object({
  * P1.M1.T3.S3 caps engine.
  */
 export const InterrogateParams = Type.Object({
+  display: Type.Optional(Type.String({ description: "Plain-text digest of this batch for clients that render raw arguments: numbered questions, each with its prompt, its long-form standalone description, and every option's label + ramification (the deep-view text). First group's questions first; no JSON, no meta commentary. Keep under the display cap." })),
   goal: Type.Optional(Type.String({ description: "What these questions drive toward; shown in the panel header. Updatable: a goal sent on ANY upsert replaces the current one (capped at config caps.goal, default 400 chars)." })),
   epoch: Type.Optional(Type.Integer({ description: "Required when recording answers and when upserting questions that already exist (include the epoch from your last read/result); optional for a first upsert of brand-new questions (guards stale updates)." })),
   questions: Type.Optional(Type.Array(QuestionSchema, { description: "Upsert (surgical): only the ids sent are created or updated — omitted live questions are untouched. To prune by omission, resend the full live set with withdrawOmitted: true" })),
@@ -119,6 +120,16 @@ export const InterrogateParams = Type.Object({
     id: Type.String(), value: Type.String(), text: Type.Optional(Type.String()),
   }), { description: "Non-TUI fallback only: record the user's chat answers" })),
 });
+
+/**
+ * D-R10: the schema WITHOUT the presentation-only `display` digest param —
+ * registered when `remote.displayDigest` is off so models stop sending it
+ * (token discipline: the digest restates the questions). Derived, never
+ * hand-duplicated; {@link InterrogateParams} remains the static source of
+ * truth for types (Static<typeof InterrogateParams> includes display as
+ * optional, which the core schema satisfies structurally).
+ */
+export const InterrogateParamsCore = Type.Omit(InterrogateParams, ["display"]);
 
 // -------------------------------------------------------------- static types
 
@@ -264,6 +275,25 @@ export function parseInterrogateParams(args: unknown, config: InterrogatorConfig
   }
 
   // -- top-level scalars (tolerant: wrong type → structured error, dropped)
+  // `display` (D-R10) is PRESENTATION-ONLY: parsed + capped here, never
+  // stored, never echoed into state — the executor ignores it. When
+  // remote.displayDigest is off the schema omits the param entirely (models
+  // stop sending it); a stale call that still carries it parses harmlessly.
+  let display: string | undefined;
+  if (args.display !== undefined) {
+    if (typeof args.display === "string") {
+      const cap = config.caps.display;
+      if (cap > 0 && args.display.length > cap) {
+        display = args.display.slice(0, cap);
+        warnings.push(`display truncated at ${cap} — restructure if essential`);
+      } else {
+        display = args.display;
+      }
+    } else {
+      errors.push({ path: "display", message: "display must be a string" });
+    }
+  }
+
   let goal: string | undefined;
   if (args.goal !== undefined) {
     if (typeof args.goal === "string") goal = args.goal;

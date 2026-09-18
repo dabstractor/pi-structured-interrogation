@@ -6,9 +6,12 @@
  * InterrogationStates seeded through the raw primitives + merge.js.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, test, vi, type Mock } from "vitest";
+import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 import { applyUpsert, markAnswered, markSubmitted } from "./merge.js";
 import { createLifecycle, type ClosePassResult } from "./lifecycle.js";
+import { attemptCompletion } from "./completion.js";
+import { DEFAULT_CONFIG } from "./config.js";
+import { executeInterrogate } from "./tool.js";
 import {
   createInterrogationState,
   resetState,
@@ -576,5 +579,88 @@ describe("upsertedThisRun (P1.M7.T4.S1 getter)", () => {
     mock.emit("tool_execution_end", { toolCallId: "call-3", toolName: "interrogate", result: undefined, isError: false });
     lifecycle.dispose();
     expect(lifecycle.upsertedThisRun()).toBe(false);
+  });
+});
+
+// ------------------------------------------------- AC-11 regression (FR-32)
+
+describe("close pass × non-TUI record (live RPC itest repro)", () => {
+  afterEach(() => resetState());
+
+  test("re-ask then in-run answers[] record re-arms the close pass — completion fires at settle", () => {
+    resetState();
+    const mock = makeMockPi();
+    const st = newState();
+    setState(st); // the executor resolves the singleton, not the lifecycle opt
+    // The bridge/panel shipped q1 (status submitted) — the world right after
+    // a remote submission or panel ctrl+s.
+    seedSubmitted(st, ["q1"]);
+    let fired: boolean | undefined;
+    const sent: string[] = [];
+    const sendPi = { sendMessage: (m: { customType: string }) => sent.push(m.customType) };
+    const lifecycle = createLifecycle(mock.pi, {
+      getState: () => st,
+      onAfterClosePass: (r) => {
+        fired = attemptCompletion(
+          sendPi as unknown as Parameters<typeof attemptCompletion>[0],
+          { lifecycle: { dismissPanel: () => {} }, getState: () => st },
+          r,
+        ).fired;
+      },
+    });
+
+    // 1. Same-run agent re-upsert touching the submitted id (the itest's
+    //    lint re-upsert): the end-handler marks it reasked + arms the
+    //    reaskedThisRun suppression.
+    mock.emit("tool_execution_start", { toolCallId: "c1", toolName: "interrogate", args: upsertArgs(["q1"]) });
+    mock.emit("tool_execution_end", { toolCallId: "c1", toolName: "interrogate", result: undefined, isError: false });
+    expect(statusOf(st, "q1")).toBe("reasked");
+
+    // 2. The model records the user's (re-)answer via the fallback answers[]
+    //    path, wired exactly like index.ts: onAnswersRecorded →
+    //    noteSubmissionDelivered. Record applies + marks submitted…
+    executeInterrogate(
+      { epoch: st.epoch, answers: [{ id: "q1", value: "a" }] },
+      { mode: "print", hasUI: false },
+      DEFAULT_CONFIG,
+      { onAnswersRecorded: () => lifecycle.noteSubmissionDelivered() },
+    );
+    expect(statusOf(st, "q1")).toBe("submitted");
+
+    // 3. Settle: WITHOUT the onAnswersRecorded clearing, reaskedThisRun
+    //    suppresses toClose and the completion record never fires (the
+    //    itest deadlock). With it, the id closes and completion injects.
+    mock.emit("agent_settled");
+    // Completion fired and clearForCompletion consumed the question map —
+    // the id is ABSENT (not "closed"): the deadlock is gone.
+    expect(statusOf(st, "q1")).toBe("(absent)");
+    expect(fired).toBe(true);
+    expect(sent).toEqual(["interrogation-completion"]);
+    lifecycle.dispose();
+  });
+
+  test("suppression still holds when the record records nothing (unknown ids only)", () => {
+    resetState();
+    const mock = makeMockPi();
+    const st = newState();
+    setState(st);
+    seedSubmitted(st, ["q1"]);
+    const lifecycle = createLifecycle(mock.pi, { getState: () => st });
+    mock.emit("tool_execution_start", { toolCallId: "c1", toolName: "interrogate", args: upsertArgs(["q1"]) });
+    mock.emit("tool_execution_end", { toolCallId: "c1", toolName: "interrogate", result: undefined, isError: false });
+    expect(statusOf(st, "q1")).toBe("reasked");
+    // All-unknown record: zero side effects, hook NOT invoked → suppression
+    // must survive (the user has NOT re-answered; the panel gets its chance).
+    const hook = vi.fn();
+    executeInterrogate(
+      { epoch: st.epoch, answers: [{ id: "zz", value: "x" }] },
+      { mode: "print", hasUI: false },
+      DEFAULT_CONFIG,
+      { onAnswersRecorded: () => { hook(); lifecycle.noteSubmissionDelivered(); } },
+    );
+    expect(hook).not.toHaveBeenCalled();
+    mock.emit("agent_settled");
+    expect(statusOf(st, "q1")).toBe("reasked"); // still open for the user
+    lifecycle.dispose();
   });
 });

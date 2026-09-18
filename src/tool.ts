@@ -138,14 +138,26 @@ export interface ToolDeps {
    */
   onReopen?: () => ReopenOutcome;
   /**
-   * FR-31/D-R6 remote-surface hook: invoked after EVERY successful upsert/
-   * reopen (all modes — TUI dual-surface included). index.ts routes it to
+   * FR-31/D-R6 remote-surface hook: invoked after a successful REOPEN only
+   * (all modes — TUI dual-surface included). index.ts routes it to
    * remote-bridge's `emitFlow`; returning a truthy value lets the non-TUI
-   * reopen result report that a remote flow was emitted. The executor stays
-   * UI-free AND event-free (h2.0 §1) — hooks only. NO other bridge surface:
-   * no result-text variant ever depends on bridge activity (FR-34).
+   * reopen result report that a remote flow was emitted. UPSERT emission is
+   * deliberately NOT here: it is deferred to index.ts's tool_execution_end
+   * phase, after the lifecycle's rule-1 flip (touched submitted → reasked) —
+   * which runs only after the executor returns — so the live-question
+   * predicate holds for rule-1 re-upserts too (live RPC itest deadlock #2).
+   * The executor stays UI-free AND event-free (h2.0 §1) — hooks only. NO
+   * other bridge surface: no result-text variant ever depends on bridge
+   * activity (FR-34).
    */
   onLiveQuestions?: (state: InterrogationState, source: "upsert" | "reopen") => boolean | void;
+  /**
+   * AC-11 close-pass re-arm: invoked after a non-TUI `answers[]` record that
+   * recorded ≥1 answer (the chat answer IS a delivery). index.ts routes it to
+   * `lifecycle.noteSubmissionDelivered()` so re-asked-then-re-answered ids
+   * close at this run's settle instead of deadlocking the completion record.
+   */
+  onAnswersRecorded?: () => void;
 }
 
 // ------------------------------------------------------------------- helpers
@@ -328,12 +340,15 @@ export function executeInterrogate(
         state.setGoal(capped.goal);
       }
 
-      // FR-31/D-R6: remote-surface hook — fires in ALL modes (TUI dual
-      // surface included) after the upsert has settled. emitFlow gates on
-      // live questions + config itself, so the hook call is unconditional.
+      // FR-31/D-R6: upsert emission is DEFERRED to the tool_execution_end
+      // phase in index.ts (NOT this in-executor hook): the lifecycle's
+      // rule-1 flip (touched submitted → reasked) runs only AFTER the
+      // executor returns, so the live-question predicate is not yet true in
+      // here for re-upserts touching submitted questions — emitting at end
+      // time captures the post-flip set (live RPC itest deadlock #2). The
+      // reopen action keeps the in-executor hook (no flip applies to it).
       // FR-34: the digest fallback below stays BYTE-IDENTICAL regardless of
       // bridge activity — no model-facing result ever depends on it.
-      deps.onLiveQuestions?.(state, "upsert");
 
       const serialized = state.serialize();
       // Tolerant withdrawal reporting (2026-09-15 pin, warn-don't-refuse):
@@ -420,6 +435,16 @@ export function executeInterrogate(
       }
 
       const { recorded, unknown, ignored } = recordAnswers(state, parsed.action.answers);
+      // AC-11 / FR-32 parity: a record IS a delivery of user answers (the
+      // chat answer already happened). Clear the h2.44 per-run suppression
+      // flags so the settle's close pass can archive ids that were re-asked
+      // EARLIER in this same run and then re-answered by this record —
+      // without this, reaskedThisRun suppresses toClose at the settle and
+      // the completion record never fires (found by the live RPC itest:
+      // bridge submit → model lint re-upsert (statuses → reasked) → model
+      // re-record via answers[] → settle → deadlock). The bridge path has
+      // the same clearing via remote-submit step 9 (noteSubmissionDelivered).
+      if (recorded.length > 0) deps.onAnswersRecorded?.();
       const serialized = state.serialize(); // POST-record: epoch bumped inside (iff anything recorded)
       const statusLine = buildStatusLine(serialized);
       const lines = [statusLine];

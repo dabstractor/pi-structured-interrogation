@@ -414,8 +414,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  *
  * Boolean strings ("false") coerce; a missing or ill-typed `remote` object
  * yields the defaults. Consumers: remote-bridge.ts (emission gates),
- * remote-submit.ts (resurface), tool.ts (hasRemoteSurface dep), index.ts
- * (reconstruction re-emit gate).
+ * remote-submit.ts (resurface), index.ts (reconstruction re-emit gate).
  */
 export async function loadConfig(cwd: string): Promise<InterrogatorConfig> {
   return loadConfigFrom({

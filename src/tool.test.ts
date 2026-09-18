@@ -857,25 +857,29 @@ describe("remote bridge hooks (FR-31/D-R6; FR-34 digest invariance)", () => {
     resetState();
   });
 
-  test("onLiveQuestions fires on upsert in BOTH modes, with the post-upsert state", () => {
-    const calls: Array<{ source: string; ids: string[]; mode: string }> = [];
+  test("onLiveQuestions does NOT fire on upsert (end-phase emission) in either mode", () => {
+    // FR-31/D-R6 amendment (live RPC itest deadlock #2): upsert emission is
+    // deferred to the tool_execution_END phase in index.ts — after the
+    // lifecycle's rule-1 flip (touched submitted → reasked) which runs only
+    // after the executor returns. In-executor the live predicate is not yet
+    // true for rule-1 re-upserts touching submitted questions, so the hook
+    // must stay silent on upserts; index.ts owns the end-phase emission.
+    const calls: Array<{ source: string; ids: string[] }> = [];
     const hook = (state: InterrogationState, source: "upsert" | "reopen") => {
-      calls.push({ source, ids: state.orderedQuestions().map((q) => q.id), mode: "recorded" });
+      calls.push({ source, ids: state.orderedQuestions().map((q) => q.id) });
       return true;
     };
 
     executeInterrogate({ goal: "g", questions: [qi("q1"), qi("q2")] }, tuiCtx(), DEFAULT_CONFIG, {
       onLiveQuestions: hook,
     });
-    expect(calls.map((c) => c.source)).toEqual(["upsert"]);
-    expect(calls[0]!.ids).toEqual(["q1", "q2"]);
+    expect(calls).toEqual([]); // deferred — NOT emitted in-executor
 
     resetState();
-    calls.length = 0;
     executeInterrogate({ goal: "g", questions: [qi("q1")] }, printCtx(), DEFAULT_CONFIG, {
       onLiveQuestions: hook,
     });
-    expect(calls.map((c) => c.source)).toEqual(["upsert"]);
+    expect(calls).toEqual([]);
   });
 
   test("TUI reopen invokes the hook after the outcome; result unchanged", () => {

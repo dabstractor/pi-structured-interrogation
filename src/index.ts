@@ -197,8 +197,29 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // checked by the executor BEFORE the hook, and a suspended host implies
   // a prior panel ctx existed.
   let resumeSurface: ExtensionContext | undefined;
+  // FR-31/D-R6 end-phase emission: upsert flows emit at tool_execution_END —
+  // AFTER the lifecycle's rule-1 flip (touched submitted → reasked), which
+  // runs in ITS tool_execution_end handler after the executor returns. The
+  // registration order below guarantees it: createLifecycle subscribed its
+  // end handler earlier in this factory, so by the time this handler runs
+  // the flip has landed and emitFlow's live predicate sees the post-flip
+  // set (live RPC itest deadlock #2: a rule-1 re-upsert touching submitted
+  // questions found nothing live in-executor and left the re-asked set
+  // surfaceless). Args ride a start-phase stash (end events may lack them).
+  const pendingUpsertArgs = new Map<string, unknown>();
   pi.on("tool_execution_start", (event, ctx) => {
-    if (event.toolName === "interrogate") resumeSurface = ctx;
+    if (event.toolName === "interrogate") {
+      resumeSurface = ctx;
+      pendingUpsertArgs.set(event.toolCallId, event.args);
+    }
+  });
+  pi.on("tool_execution_end", (event) => {
+    if (event.toolName !== "interrogate") return;
+    const args = pendingUpsertArgs.get(event.toolCallId);
+    pendingUpsertArgs.delete(event.toolCallId);
+    if (event.isError || !Array.isArray((args as { questions?: unknown } | undefined)?.questions)) return;
+    const state = getState();
+    if (state !== undefined) remoteBridge.emitFlow(state, "tool");
   });
   pi.registerTool(
     createInterrogateTool(config, {
@@ -216,10 +237,13 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
         resumePanel(resumeSurface);
         return "reopened";
       },
-      // FR-31/D-R6: emission hook — upserts AND reopens (both modes) emit a
-      // bridge flow for the live question set; truthy return = emitted (the
-      // non-TUI reopen result reports the re-surface).
+      // FR-31/D-R6: REOPEN emission hook (both modes; upserts emit at the
+      // end phase above — see tool.ts upsert comment); truthy return =
+      // emitted (the non-TUI reopen result reports the re-surface).
       onLiveQuestions: (state) => remoteBridge.emitFlow(state, "tool") !== null,
+      // AC-11: a non-TUI record re-arms the close pass (re-asked-then-
+      // re-answered ids must close at this run's settle — see tool.ts record).
+      onAnswersRecorded: () => lifecycle.noteSubmissionDelivered(),
     }),
   );
 

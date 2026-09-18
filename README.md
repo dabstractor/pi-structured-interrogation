@@ -44,7 +44,8 @@ materialize; runtime loads via jiti against pi's tree.
    existing questions afterwards.
 4. Break out any time with `ctrl+shift+q`: the panel suspends, a widget with
    question counts stays visible, and you can run side chats. Resume via
-   `/interrogate` or the same key — drafts intact, and resume works even
+   `/interrogate` or the same key — drafts intact, reopening on the first
+   unanswered question; resume works even
    when every question is answered but not yet submitted; the model can also
    reopen the panel itself when it has follow-ups. A submit flushes only the
    answers that actually shipped — drafts of questions the agent re-asked

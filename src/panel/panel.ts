@@ -1437,10 +1437,20 @@ export function suspendPanel(host: PanelHost): void {
 /**
  * Explicit resume entry (P1.M6.T1.S1; suspend.ts resumePanel delegates here,
  * consumed by P1.M6.T1.S2 / M6.T2.S1 / M6.T2.S2): reopen the suspended panel
- * like the upsert path (h2.37) but restore the PRE-SUSPEND focus —
- * {@link lastFocusId} when it still names an active question (ACTIVE_STATUSES),
- * else the first active question in state order (the firstActiveUpsertedId
- * pattern). The upsert-driven auto-reopen (handleUpserted) keeps its own
+ * like the upsert path (h2.37) with the RESUME-FOCUS ladder (RESUME-001):
+ *
+ *   1. FIRST UNANSWERED question in state order (status open or reasked —
+ *      the same UNANSWERED_STATUSES the accept-advance algorithm uses,
+ *      via nextUnanswered(ordered, -1), which scans from index 0). Closing
+ *      and reopening /interrogate means "take me to what needs answering",
+ *      not "take me back where I was standing".
+ *   2. Else (everything answered/submitted/terminal — the pending-submit
+ *      state) the pre-suspend focus {@link lastFocusId} when it still names
+ *      an active question (ACTIVE_STATUSES).
+ *   3. Else the first active question in state order (the
+ *      firstActiveUpsertedId pattern).
+ *
+ * The upsert-driven auto-reopen (handleUpserted) keeps its own
  * first-upserted focus — this entry is ONLY for explicit resume.
  *
  * Reuses lastOpts (same state/config/drafts instances — R4 survival) and
@@ -1452,13 +1462,19 @@ export function suspendPanel(host: PanelHost): void {
 export function resumeOpenPanel(pi: PiUISurface): boolean {
   if (lastOpts === undefined) return false;
   const state = lastOpts.state;
-  let focusId = lastFocusId;
-  if (focusId !== undefined) {
-    const q = state.getQuestion(focusId);
-    if (q === undefined || !ACTIVE_STATUSES.includes(q.status)) focusId = undefined;
-  }
+  // RESUME-001 rung 1: first unanswered (open/reasked) in state order —
+  // nextUnanswered with fromIndex -1 normalizes to the LAST index, so its
+  // wrap scan visits index 0 first: exactly "first unanswered in order".
+  let focusId = nextUnanswered(state.orderedQuestions(), -1);
   if (focusId === undefined) {
-    focusId = firstActiveUpsertedId(state, state.orderedQuestions().map((q) => q.id));
+    focusId = lastFocusId;
+    if (focusId !== undefined) {
+      const q = state.getQuestion(focusId);
+      if (q === undefined || !ACTIVE_STATUSES.includes(q.status)) focusId = undefined;
+    }
+    if (focusId === undefined) {
+      focusId = firstActiveUpsertedId(state, state.orderedQuestions().map((q) => q.id));
+    }
   }
   return openPanel(pi, { ...lastOpts, focusQuestionId: focusId });
 }

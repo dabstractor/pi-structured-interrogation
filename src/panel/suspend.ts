@@ -5,7 +5,7 @@
  * Breaking out of the panel (done(null) suspend) must leave the user a
  * findable way back: ONE keyed widget line above the restored editor, plus
  * an explicit resume entry that rehydrates a FRESH panel from the shared
- * state + DraftStore with focus restored to the pre-suspend question.
+ * state + DraftStore with focus restored to the first unanswered question.
  *
  * Module map:
  * - {@link buildSuspendWidgetLine} — the exact h2.3 string (pure).
@@ -148,9 +148,10 @@ export function updateSuspendWidget(
 
 /**
  * Explicit resume entry (h3.10): clear the widget, reopen a FRESH panel
- * rehydrated from the shared state + DraftStore (R4), focused on the
- * pre-suspend current question — falling back to the first active question
- * when that id is unset or no longer active (never a dead focus). Delegates
+ * rehydrated from the shared state + DraftStore (R4), focused on the FIRST
+ * UNANSWERED question in state order (open/reasked — RESUME-001), falling
+ * back to the pre-suspend current question when nothing is unanswered,
+ * then to the first active question (never a dead focus). Delegates
  * to panel.ts {@link resumeOpenPanel} (no duplicated openPanel logic).
  *
  * Returns true when the panel (re)opened; false when nothing is resumable,

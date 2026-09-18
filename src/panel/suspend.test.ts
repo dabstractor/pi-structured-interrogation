@@ -357,7 +357,10 @@ describe("suspend — widget set at the single choke point", () => {
     const mockLifecycle = makeMockLifecycle();
     const host = createPanelHost(mockLifecycle.lifecycle);
     const mock = makeMockPi();
-    const state = makeState(2, 1);
+    // RESUME-001: nothing unanswered (both answered-pending) so the resume
+    // ladder's FIRST rung is empty and the pre-suspend focus memory decides —
+    // exactly what this host-forced-dismiss test exercises.
+    const state = makeState(0, 2);
     openPanel(mock.pi, optsFor(state, { focusQuestionId: "q2" }));
 
     mockLifecycle.dismiss(); // → suspendCurrent → done(null) → floating .then
@@ -366,7 +369,7 @@ describe("suspend — widget set at the single choke point", () => {
     expect(host.isSuspended()).toBe(true);
     expect(mock.setWidgetCalls).toEqual([
       [WIDGET_KEY, undefined],
-      [WIDGET_KEY, [line(2, 1)]],
+      [WIDGET_KEY, [line(0, 2)]],
     ]);
 
     // Focus memory comes from suspendCurrent itself: currentPanel was already
@@ -468,7 +471,10 @@ describe("resumePanel — widget clear + fresh instance + focus restore", () => 
     };
     expect(fresh).not.toBe(first); // fresh instance
     expect(fresh.deepSticky).toBe(false); // per-session state reset (h2.29)
-    expect(fresh.currentId).toBe("q2"); // focus restored from lastFocusId
+    // RESUME-001: first unanswered question in order — q1 (open), NOT the
+    // pre-suspend q2. Reopening /interrogate means "take me to what needs
+    // answering".
+    expect(fresh.currentId).toBe("q1");
     expect(fresh.drafts?.getDraft("q2")).toBe("in-progress draft"); // R4
     expect(drafts.hasDraft("q2")).toBe(true); // shared store untouched
     expect(host.isOpen()).toBe(true);
@@ -488,7 +494,44 @@ describe("resumePanel — widget clear + fresh instance + focus restore", () => 
 
     expect(resumePanel(mock.pi)).toBe(true);
     const fresh = mock.calls[1]!.component as unknown as { currentId: string | undefined };
-    expect(fresh.currentId).toBe("q1"); // first active question — never a dead focus
+    expect(fresh.currentId).toBe("q1"); // first unanswered (also first active)
+  });
+
+  test("test_resumePanel_first_unanswered_wins_over_lastFocus_and_counts_reasked", async () => {
+    // RESUME-001 ladder, rung by rung:
+    //   1. first open/reasked in order beats the pre-suspend focus;
+    //   2. a reasked question counts as unanswered (advance algorithm's
+    //      UNANSWERED_STATUSES);
+    //   3. with nothing unanswered, the pre-suspend focus is restored.
+    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    const mock = makeMockPi();
+
+    // Rung 1 + 2: order [answered, reasked, open]; pre-suspend focus is the
+    // LAST question — resume must land on the reasked q2 (first unanswered
+    // in order), not the open q3 and not the pre-suspend focus.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.applyAnswer("q1", { value: "a", at: "t" });
+    state.upsertQuestion(choiceQ("q2"));
+    state.setStatus("q2", "reasked");
+    state.upsertQuestion(choiceQ("q3"));
+    openPanel(mock.pi, optsFor(state, { focusQuestionId: "q3" }));
+    firstCall(mock).done(null);
+    await flush();
+    expect(resumePanel(mock.pi)).toBe(true);
+    const first = mock.calls[1]!.component as unknown as { currentId: string | undefined };
+    expect(first.currentId).toBe("q2"); // reasked = unanswered, first in order
+
+    // Rung 3: answer the remaining questions, suspend while focused on q3
+    // (answered), resume → nothing unanswered → pre-suspend focus restored.
+    state.applyAnswer("q2", { value: "a", at: "t" });
+    state.applyAnswer("q3", { value: "a", at: "t" });
+    (first as unknown as { currentId: string | undefined }).currentId = "q3";
+    (first as unknown as { suspend(): void }).suspend();
+    await flush();
+    expect(resumePanel(mock.pi)).toBe(true);
+    const second = mock.calls[2]!.component as unknown as { currentId: string | undefined };
+    expect(second.currentId).toBe("q3"); // pending-submit state: focus memory
   });
 
   test("test_resumePanel_noop_when_open_or_never_opened", () => {

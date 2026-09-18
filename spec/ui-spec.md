@@ -53,21 +53,25 @@ On committing an answer change to an *answered* question in the panel (the momen
 | accept + advance | `enter` | fixed | options focus |
 | toggle deep view | `ctrl+d` | `keys.deep` | panel |
 | overview list | `ctrl+l` | `keys.overview` | panel |
-| focus text field | `ctrl+t` | `keys.focusText` | panel |
+| focus text field | `ctrl+t` | `keys.focusText` | panel — TOGGLE: press to focus, press again to close the prompt box (draft saved) |
 | batch note | `ctrl+shift+m` | `keys.batchNote` | panel |
 | submit | `ctrl+s` | `keys.submit` | panel |
 | break out / resume | `ctrl+shift+q` | `keys.breakOut` (also `registerShortcut`, global) | global |
 | discuss in chat | `ctrl+shift+e` | `keys.discuss` | panel |
 | external editor | `ctrl+g` | `keys.externalEditor` | text focus |
-| back / suspend | `esc` | fixed | descends, never destroys |
+| back / suspend | `esc` | fixed | OPTIONS focus: descends (deep→short, overview→back, short→suspend), never destroys. EDITOR focus: single `esc` forwards to the editor (pi-vim); `esc` twice in a row (within `escExitWindowMs`, default 500 ms, 0 disables) closes the prompt box ONLY — draft write-through, blur to options, no suspend |
+| interrupt / escape | `ctrl+c` | fixed | closes the prompt (suspend) and stays unconsumed so pi's own ctrl+c flow (clear; double-press shutdown) resumes on the restored editor; works from any panel state including modals (CTRL-C-001) |
+
+Non-key config: `escExitWindowMs` (ms, default 500) — the double-esc window for closing the embedded editor without suspending.
 
 Conflict avoidance (verified against pi defaults + installed extensions): `ctrl+b`, `ctrl+shift+b`, `ctrl+shift+x`, `ctrl+shift+j`, `shift+down` are taken by others — avoided. `ctrl+m` avoided (sends `\r`). Dev agent must re-verify at build time and record findings in the PR notes.
 
 ## Suspend / resume / widget
 
 - Suspend: `esc` at top level, `ctrl+shift+q` anywhere, or `/interrogate`. Panel `done(null)`; state + drafts held in extension memory; **main editor text preserved** (pi's editor instance persists across `custom()` sessions; verify in test).
+- **Command surface (CMD-001)**: `/interrogate` is the ONE registered command — bare invocation toggles the panel; `ping` (smoke test) and `debug upsert|submit|state` (the h2.50 verification surface) are subcommands with argument completion, keeping `/interrogate` the top (and only) autocomplete hit for "/inter".
 - Widget (`setWidget("interrogator", [...])`, visible whenever suspended with open questions): `{n} open · {m} answered — {configured breakOut key} to resume /interrogate`.
-- Resume: `ctrl+shift+q`, `/interrogate`, or agent `{reopen:true}` → fresh panel instance rehydrated from state + drafts (focus restored to last question).
+- Resume: `ctrl+shift+q`, `/interrogate`, or agent `{reopen:true}` → fresh panel instance rehydrated from state + drafts, focused on the **first unanswered question** (open/reasked, in state order — RESUME-001); when nothing is unanswered (pending-submit state), the last-focused question; else the first resumable one.
 - Discuss-in-chat (`ctrl+shift+e`): suspend + `setEditorText` with:
   ```
   > {prompt}

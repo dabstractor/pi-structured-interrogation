@@ -364,6 +364,22 @@ export function renderHintLine(q: Question, theme: Theme, width: number, dim = f
 }
 
 /**
+ * Footer hints for the embedded-editor exit affordances (ESC-002). While
+ * the editor holds focus the standard "enter accept" prefix becomes
+ * "enter save", and the close gestures append: "esc esc back" when the
+ * double-esc window is armed (escEscHint), plus the editor-mode toggle
+ * label (focusText for the explain field, batchNote for note duty — labels
+ * from the caller's resolved `labels`, never hardcoded; "esc" is a fixed
+ * key so it may appear as a static hint word per h2.52).
+ */
+export interface FooterEditorExit {
+  /** Which duty the editor is on: "text" (explain field) or "note". */
+  mode: "text" | "note";
+  /** True when escExitWindowMs > 0 (the esc-esc hint would otherwise lie). */
+  escEscHint: boolean;
+}
+
+/**
  * Footer line (h2.29): `└ {progress} · {key hints} ⏎ ┘` where progress is
  * `"{answered}/{total} answered · {reasked} re-asked ·"` (the trailing `·`
  * separates progress from the hints) and key hints are `"{label} {action}"`
@@ -381,6 +397,10 @@ export function renderHintLine(q: Question, theme: Theme, width: number, dim = f
  * key hints survive longest. Default false → byte-identical to the
  * pre-P1.M7.T5.S1 behavior for every existing caller.
  *
+ * Editor exit (ESC-002): `editorExit` swaps the hints for the embedded
+ * editor's own affordances (see {@link FooterEditorExit}) — enter saves,
+ * the mode toggle closes, esc-esc closes. Omitted → the standard hints.
+ *
  * @param state   plain-JSON state snapshot (read-only)
  * @param screen  which view the footer is for (selects SCREEN_KEYS + statics)
  * @param labels  resolved key labels (resolveKeyLabels(config) — memoized by
@@ -389,6 +409,7 @@ export function renderHintLine(q: Question, theme: Theme, width: number, dim = f
  * @param width   total render width budget for the line
  * @param narrow  h2.30 narrow fallback (cols < 60): key hints collapse to
  *                submit + deep. Default false.
+ * @param editorExit ESC-002 editor-affordance hints; omit for standard hints.
  */
 export function renderFooter(
   state: SerializedState,
@@ -397,6 +418,7 @@ export function renderFooter(
   theme: Theme,
   width: number,
   narrow = false,
+  editorExit?: FooterEditorExit,
 ): string {
   const { answered, reasked, total } = statusCounts(state);
   const progress = `${answered}/${total} answered · ${reasked} re-asked`;
@@ -406,6 +428,21 @@ export function renderFooter(
   if (screen === "short") hints.unshift("enter accept"); // enter is not remappable
   if (screen === "deep") hints.push("esc back", "↑/↓ scroll");
   if (screen === "overview") hints.push("enter jump", "esc back");
+  if (editorExit !== undefined) {
+    // While the editor holds focus the screen statics lie: enter no longer
+    // accepts/jumps (it SAVES — two-stage, h2.31), esc does not descend
+    // (single esc forwards to the editor), arrows do not scroll. Drop the
+    // descent statics and swap in the editor's own affordances; the fit
+    // loop drops the appended close gestures right-to-left first.
+    const statics = new Set(["enter accept", "enter jump", "esc back", "↑/↓ scroll"]);
+    const kept = hints.filter((h) => !statics.has(h));
+    hints.length = 0;
+    hints.push("enter save", ...kept);
+    if (editorExit.escEscHint) hints.push("esc esc back");
+    hints.push(
+      editorExit.mode === "note" ? `${labels.batchNote} close` : `${labels.focusText} close`,
+    );
+  }
 
   // Drop hints right-to-left until the full form fits; progress-only is the
   // final degradation (never dropped, never truncated).

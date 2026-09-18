@@ -304,6 +304,49 @@ describe("renderFooter", () => {
     const line = renderFooter(mkState({ order: [], questions: {} }), "short", labels, theme, 120);
     expect(line).toContain("0/0 answered · 0 re-asked");
   });
+
+  test("editor-exit hints: enter save, esc-esc back, toggle close (ESC-002)", () => {
+    const labels = resolveKeyLabels(mkConfig());
+    const state = mkState();
+
+    // Text focus (short screen): enter SAVES (not accepts), esc-esc back,
+    // and the focusText toggle closes.
+    const text = renderFooter(state, "short", labels, theme, 160, false, {
+      mode: "text",
+      escEscHint: true,
+    });
+    expect(text).toContain("enter save");
+    expect(text).not.toContain("enter accept");
+    expect(text).toContain("esc esc back");
+    expect(text).toContain("Ctrl+T close");
+
+    // Note duty: the toggle hint is the batchNote key instead.
+    const note = renderFooter(state, "short", labels, theme, 160, false, {
+      mode: "note",
+      escEscHint: true,
+    });
+    expect(note).toContain("enter save");
+    expect(note).toContain("Ctrl+N close"); // mkConfig rebinds batchNote
+
+    // Window disabled (escExitWindowMs = 0): the esc-esc hint must not lie.
+    const noWindow = renderFooter(state, "short", labels, theme, 160, false, {
+      mode: "text",
+      escEscHint: false,
+    });
+    expect(noWindow).not.toContain("esc esc");
+    expect(noWindow).toContain("Ctrl+T close");
+
+    // Deep-screen editor exit: the descent statics are dropped (esc belongs
+    // to the editor while focused) and the editor affordances swap in.
+    const deep = renderFooter(state, "deep", labels, theme, 160, false, {
+      mode: "text",
+      escEscHint: true,
+    });
+    expect(deep).toContain("enter save");
+    expect(deep).toContain("esc esc back");
+    expect(deep.split("esc esc back").join("")).not.toContain("esc back");
+    expect(deep).not.toContain("↑/↓ scroll");
+  });
 });
 
 // ---------------------------------------------- width-invariant sweep (L4)

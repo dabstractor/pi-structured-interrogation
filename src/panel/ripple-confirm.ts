@@ -39,7 +39,10 @@
  * stage-1 semantics ({@link applyTextConfirm} — draft slots + DraftStore
  * seam + blur + arm, NEVER an applyAnswer: stage-1 saves do not touch
  * state), esc restores the recorded answer's text into the editor and
- * keeps text focus ({@link cancelTextConfirm}).
+ * keeps text focus ({@link cancelTextConfirm}). The editor-exit gestures
+ * (ctrl+t toggle / double-esc, ESC-002) run the same gate with `arm: false`
+ * — backing out of the editor saves the draft but never arms the one-shot
+ * advance (a back-out is not an answer gesture).
  *
  * enter/esc are FIXED keys (keys.ts Mode A) — the footer copy hardcodes
  * them; there is deliberately no config surface (AC-12 unaffected).
@@ -62,6 +65,14 @@ export interface RippleConfirmState {
   kind: "choice" | "text";
   /** Text: the staged stage-1 payload (deferred draft save). */
   text?: string;
+  /**
+   * Text: whether the deferred commit arms the one-shot advance flag
+   * (ESC-002). Stage-1 enter saves arm (h2.31 two-stage contract); the
+   * editor-exit gestures (ctrl+t toggle / double-esc) pass false — backing
+   * out of the editor is not an answer gesture. Default true (undefined
+   * reads as armed, the pre-ESC-002 behavior).
+   */
+  arm?: boolean;
   /** Answered/submitted ripple ids, in computeRipple BFS order (footer copy). */
   victims: string[];
   /** esc restore fallback when the recorded answer's option is not findable. */

@@ -30,9 +30,21 @@
  * FORWARDS so the embedded field (P1.M4.T1.S2) can implement its two-stage
  * save — this is the single exception to the intercept rule (note focus is
  * intercepted even earlier, at the panel level: stage-1 saves + exits).
- * `esc` descends the view ladder — exiting note mode first when note focus
- * is active (h2.32) — and finally suspends without destroying anything
- * (FR-16).
+ *
+ * EDITOR-FOCUS FORWARDING (ESC-002): while the embedded editor holds focus
+ * (`focus === "text"` OR `"note"` — the SAME composed editor, pi-vim
+ * etc.), `up`/`down` and SINGLE `esc` FORWARD to the editor instead of
+ * driving the panel: arrows move the editor caret (not the option cursor)
+ * and esc is the editor's own key (vim insert-mode exit). The esc-descent
+ * ladder runs only from options focus. Closing the editor region WITHOUT
+ * suspending is the double-esc exit: a second esc within
+ * `config.escExitWindowMs` (default 500ms; 0 disables) of the first closes
+ * the prompt box only — draft write-through + blur back to options
+ * (panel.exitTextField / exitNoteMode). The first esc of the pair still
+ * reached the editor, so vim users keep their mode semantics; "twice in a
+ * row" is strict (any other key resets the window via `panel.lastEscAt`).
+ * The deterministic single-key companion is the ctrl+t toggle (onFocusText
+ * seam): press in options focus to enter, press again to close.
  *
  * ## Mode A — single dispatch + collision ordering
  *
@@ -207,23 +219,37 @@ export function resolveBindings(config: InterrogatorConfig): Record<KeyAction, K
 
 /**
  * The esc-descent ladder (fixed; FR-16 — backing out never destroys state):
- * note focus → exit note mode FIRST (the innermost level — h2.32: esc exits
- * note mode; the panel's write-through exit keeps the draft); deep → short;
- * overview → deepSticky ? deep : short; short → suspend (done(null): the
- * editor region is restored and the host flips to suspended, but state and
- * drafts survive). Descending from deep does NOT clear deepSticky — only
- * ENTERING deep sets it (mirrors panel.ts).
+ * deep → short; overview → deepSticky ? deep : short; short → suspend
+ * (done(null): the editor region is restored and the host flips to
+ * suspended, but state and drafts survive). Descending from deep does NOT
+ * clear deepSticky — only ENTERING deep sets it (mirrors panel.ts). NOTE:
+ * this ladder runs only from OPTIONS focus — while the embedded editor is
+ * focused, esc belongs to the editor (single) or closes the editor only
+ * (double-esc, ESC-002); see the module JSDoc's editor-focus forwarding.
  */
 function escapeDescend(panel: InterrogationPanel): void {
-  if (panel.focus === "note") {
-    panel.exitNoteMode();
-  } else if (panel.view === "deep") {
+  if (panel.view === "deep") {
     panel.setView("short");
   } else if (panel.view === "overview") {
     panel.setView(panel.deepSticky ? "deep" : "short");
   } else {
     panel.suspend();
   }
+}
+
+/**
+ * The double-esc exit (ESC-002) — invoked when esc arrives while the
+ * embedded editor holds focus (text OR note) AND `panel.lastEscAt` marks a
+ * first esc still inside `config.escExitWindowMs`. Closes the PROMPT BOX
+ * ONLY: text focus → exitTextField (draft write-through + blur, no advance
+ * arming); note focus → exitNoteMode (the same write-through contract, h2.32).
+ * Never suspends, never descends a view — "back to normal question
+ * selection".
+ */
+function escExitEditor(panel: InterrogationPanel): void {
+  panel.lastEscAt = undefined;
+  if (panel.focus === "note") panel.exitNoteMode();
+  else panel.exitTextField();
 }
 
 /**
@@ -301,30 +327,62 @@ export function buildKeyRouter(
   actions: RoutedActions,
 ): (data: string, panel: InterrogationPanel) => boolean {
   const b = resolveBindings(config);
+  const escWindow = Math.max(0, config.escExitWindowMs);
   return function route(data: string, panel: InterrogationPanel): boolean {
     if (panel.isResolved()) return false; // defensive; handleInput already guards
+
+    // Editor-focus flag (ESC-002): the embedded editor (text or note duty)
+    // owns the fixed NAVIGATION keys while focused — same class of exception
+    // as enter below (h2.34's single documented exception, now a family).
+    const editorFocused = panel.focus === "text" || panel.focus === "note";
+    // Double-esc window reset (ESC-002): "esc twice in a row" is STRICT — any
+    // non-esc input (letters, arrows, enter, config keys…) clears the anchor.
+    // Arrow sequences (ESC-prefixed bytes) parse as up/down/left/right, not
+    // escape, so they reset too — exactly right.
+    if (!matchesKey(data, Key.escape)) panel.lastEscAt = undefined;
 
     // 1. Fixed arrows — BEFORE anything esc-related (arrows are ESC-prefixed).
     //    ONE view-switch (overview P1.M5.T2.S1, deep P1.M5.T1.S1, h2.29):
     //    ↑/↓ move the overview CURSOR ROW / the deep SELECTION — they never
     //    navigate questions or fire the short-view option cursor (question
     //    navigation is prev/next only; in overview even prev/next move the
-    //    cursor).
-    if (matchesKey(data, Key.up)) {
+    //    cursor). EDITOR FOCUS (ESC-002): arrows forward to the embedded
+    //    editor (caret movement) — the option cursor never moves while the
+    //    user types.
+    if (!editorFocused && matchesKey(data, Key.up)) {
       if (panel.view === "overview") return overviewUp(panel);
       if (panel.view === "deep") return deepSelectionUp(panel);
       return actions.optionUp(panel);
     }
-    if (matchesKey(data, Key.down)) {
+    if (!editorFocused && matchesKey(data, Key.down)) {
       if (panel.view === "overview") return overviewDown(panel);
       if (panel.view === "deep") return deepSelectionDown(panel);
       return actions.optionDown(panel);
     }
 
-    // 2. Fixed esc — the view-descent ladder, terminus suspend (FR-16).
+    // 2. Fixed esc. OPTIONS focus: the view-descent ladder, terminus suspend
+    //    (FR-16). EDITOR FOCUS (ESC-002): a single esc FORWARDS to the
+    //    editor (pi-vim insert-mode exit etc. — return false → panel.ts
+    //    hands the byte to the embedded editor); a second esc within
+    //    escWindow closes the prompt box only (escExitEditor — draft
+    //    write-through + blur, never suspend). escWindow === 0 disables the
+    //    pair (every esc forwards; close via the ctrl+t toggle or enter).
     if (matchesKey(data, Key.escape)) {
-      escapeDescend(panel);
-      return true;
+      if (!editorFocused) {
+        escapeDescend(panel);
+        return true;
+      }
+      const now = Date.now();
+      if (
+        escWindow > 0 &&
+        panel.lastEscAt !== undefined &&
+        now - panel.lastEscAt <= escWindow
+      ) {
+        escExitEditor(panel);
+        return true;
+      }
+      if (escWindow > 0) panel.lastEscAt = now;
+      return false; // single esc → the editor
     }
 
     // 3. Fixed enter — options focus only. In text focus enter FORWARDS so
@@ -355,8 +413,16 @@ export function buildKeyRouter(
     // note mode, a separate focus); focusing it from deep/overview would
     // arm an invisible editor (blind typing, silent stage-1 draft saves).
     // In those views ctrl+t falls through to normal panel handling (arrows
-    // scroll/navigate, enter keeps its view-specific meaning).
-    if (panel.view === "short" && matchesKey(data, b.focusText)) {
+    // scroll/navigate, enter keeps its view-specific meaning). NOTE focus
+    // (ESC-002): ctrl+t also falls through — the note editor owns it (the
+    // note's own toggle is the batchNote key), so it forwards to the editor
+    // instead of swapping the same TextField to text duty mid-note (which
+    // would strand the un-exited note buffer).
+    if (
+      panel.view === "short" &&
+      panel.focus !== "note" &&
+      matchesKey(data, b.focusText)
+    ) {
       actions.onFocusText(panel);
       return true;
     }

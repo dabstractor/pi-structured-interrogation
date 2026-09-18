@@ -1100,6 +1100,160 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     expect(panel.textField.getText()).toBe("saved draft");
   });
 
+  test("test_text_question_editor_blank_for_other_question_after_answer", () => {
+    // EXPLAIN-002 (the reported bug): answer one long-form question, move to
+    // another — the editor region (auto-rendered for text questions) must
+    // show a NEW BLANK box, never the previous question's text.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(textQ("t1"));
+    state.upsertQuestion(textQ("t2"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+
+    panel.focusTextField(); // t1's editor
+    panel.textField.setText("long-form answer for t1");
+    panel.handleInput("\r"); // stage-1 enter: save draft, blur
+    expect(panel.draftTextFor("t1")).toBe("long-form answer for t1");
+
+    // Navigate to t2 (any currentId mutation): buffer re-seeded from t2's
+    // (absent) draft → blank — not t1's leftover text.
+    panel.currentId = "t2";
+    expect(panel.textField.getText()).toBe("");
+    // Round-trip back: t1's draft restores (R4 — scoping is not deletion).
+    panel.currentId = "t1";
+    expect(panel.textField.getText()).toBe("long-form answer for t1");
+  });
+
+  test("test_navigation_while_editor_focused_writes_through_and_reseeds", () => {
+    // tab/shift+tab fire even in text focus (h2.34 intercept rule): the
+    // outgoing buffer is written through to ITS question (R4) and the new
+    // question gets a blank/fresh box — typing continues seamlessly.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(textQ("t1"));
+    state.upsertQuestion(textQ("t2"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.currentId = "t1";
+
+    panel.handleInput("\u0014"); // ctrl+t — focus the editor on t1
+    panel.textField.setText("half-typed on t1");
+    expect(panel.focus).toBe("text");
+
+    panel.handleInput("\u001b[Z"); // shift+tab — nextQuestion WHILE focused
+    expect(panel.currentId).toBe("t2");
+    expect(panel.focus).toBe("text"); // editor stays focused
+    expect(panel.textField.getText()).toBe(""); // blank box for t2
+    expect(panel.draftTextFor("t1")).toBe("half-typed on t1"); // written through
+
+    // And back: t1's half-typed text is exactly where it was left.
+    panel.handleInput("\t"); // tab — prevQuestion
+    expect(panel.currentId).toBe("t1");
+    expect(panel.textField.getText()).toBe("half-typed on t1");
+  });
+
+  test("test_note_mode_exit_rescopes_buffer_to_current_question", () => {
+    // The note rides the SAME editor — after exiting note mode the buffer
+    // must not leak note text into a text question's editor region.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(textQ("t1"));
+    state.upsertQuestion(textQ("t2"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+
+    panel.enterNoteMode();
+    panel.textField.setText("batch note text");
+    panel.handleInput("\r"); // enter saves + exits note mode
+    expect(panel.batchNote).toBe("batch note text"); // note preserved…
+    expect(panel.textField.getText()).toBe(""); // …but the buffer re-scoped
+
+    // Navigating while IN note mode leaves the note buffer alone (the note
+    // is question-agnostic) — then exiting re-scopes to wherever we landed.
+    panel.currentId = "t1";
+    panel.enterNoteMode();
+    panel.textField.setText("still the note");
+    panel.handleInput("\u001b[Z"); // shift+tab → t2 while note editing
+    expect(panel.currentId).toBe("t2");
+    expect(panel.textField.getText()).toBe("still the note"); // untouched
+    panel.handleInput("\r"); // enter exits note mode
+    expect(panel.batchNote).toBe("still the note");
+    expect(panel.textField.getText()).toBe(""); // t2 has no draft → blank
+  });
+
+  test("test_explain_then_enter_enter_is_answered_and_submittable", () => {
+    // EXPLAIN-003 money test — the reported bug end-to-end: explain on a
+    // choice question, enter, enter on the option → the question is
+    // ANSWERED with the elaboration attached, and ctrl+s actually SHIPS it
+    // (partial submission with just this one answer).
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+
+    panel.cursorIndex = 2; // ✎ explain affordance (2 options → index 2)
+    panel.handleInput("\r"); // open the editor
+    panel.textField.setText("because migration risk"); // (fake editor: no-op handleInput)
+    panel.handleInput("\r"); // stage-1 save + blur (choice → no arm)
+    panel.handleInput("\r"); // accept ★ option "a" + advance
+
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a");
+
+    // Submit: the draft attaches as answer.text and the delta ships.
+    const sendMessage = vi.fn();
+    expect(panelActions.submit(panel, { sendMessage, isIdle: () => true })).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const payload = sendMessage.mock.calls[0][0] as {
+      details: { changed: Array<{ id: string; to: string }> };
+    };
+    const entry = payload.details.changed.find((c) => c.id === "q1");
+    expect(entry).toBeDefined();
+    // The elaboration rides the delta's answer summary (NEW-003 grammar:
+    // "{label} — {free text}").
+    expect(entry!.to).toContain("because migration risk");
+  });
+
+  test("test_submit_flash_names_explained_but_unselected_questions", () => {
+    // EXPLAIN-003 discoverability: draft-only choice question → the flash
+    // says WHY nothing shipped instead of a bare "nothing to submit".
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.focusTextField();
+    panel.textField.setText("undecided elaboration");
+    panel.exitTextField(); // draft saved, no option selected
+
+    expect(panelActions.submit(panel, { sendMessage: vi.fn(), isIdle: () => true })).toBe(true);
+    expect(panel.footerFlash?.text).toContain("nothing to submit");
+    expect(panel.footerFlash?.text).toContain("1 explained question still needs an option choice");
+  });
+
+  test("test_ctrl_t_repress_closes_field_saving_draft_without_arming", () => {
+    // ESC-002: ctrl+t is a TOGGLE — the re-press exits the prompt box with a
+    // draft write-through (R4) and, unlike the enter stage-1 save, does NOT
+    // arm the two-stage advance (the next enter ACCEPTS, it never advances).
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const drafts = {
+      getDraft: vi.fn(() => undefined),
+      setDraft: vi.fn(),
+      getNote: () => "",
+      setNote: vi.fn(),
+    };
+    const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
+
+    panel.handleInput("\u0014"); // open
+    panel.textField.setText("elaboration");
+    panel.handleInput("\u0014"); // re-press = close
+    expect(panel.focus).toBe("options");
+    expect(panel.textField.focused).toBe(false);
+    expect(drafts.setDraft).toHaveBeenCalledWith("q1", "elaboration");
+    expect(panel.draftTextFor("q1")).toBe("elaboration");
+    expect(panel.advanceArmed).toBe(false); // back-out, not an answer
+
+    // The next enter accepts the highlighted option — no stage-2 advance.
+    expect(panel.handleInput("\r")).toBe(true);
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a");
+    expect(panel.currentId).toBe("q2"); // accept-advance, not the armed skip
+  });
+
   test("test_blurTextField_returns_focus_to_options", () => {
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
@@ -1404,9 +1558,35 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     expect(panel.handleInput("x")).toBe(true); // typing reaches the note editor
     expect(editor.handleInput).toHaveBeenCalledWith("x");
 
-    expect(panel.handleInput(ESCAPE)).toBe(true); // router descent → note exit
+    // ESC-002: a SINGLE esc forwards to the (composed) editor — the note
+    // mode is NOT exited and the key reaches the editor (pi-vim semantics).
+    expect(panel.handleInput(ESCAPE)).toBe(true);
+    expect(editor.handleInput).toHaveBeenCalledWith(ESCAPE);
+    expect(panel.focus).toBe("note");
+    expect(panel.textField.focused).toBe(true);
+
+    // The SECOND esc in a row (inside escExitWindowMs) closes the prompt
+    // box only — note write-through exit, no view descent, no suspend.
+    expect(panel.handleInput(ESCAPE)).toBe(true);
     expect(panel.focus).toBe("options");
     expect(panel.textField.focused).toBe(false);
+  });
+
+  test("test_esc_exit_window_zero_disables_double_esc_in_note_mode", () => {
+    // escExitWindowMs = 0: every esc forwards to the editor — the pair
+    // never fires (close via ctrl+shift+m re-press or enter instead).
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { config: { ...DEFAULT_CONFIG, escExitWindowMs: 0 } }),
+    );
+    panel.enterNoteMode();
+    const editor = panel.textField.editor as unknown as { handleInput: Mock };
+
+    expect(panel.handleInput(ESCAPE)).toBe(true);
+    expect(panel.handleInput(ESCAPE)).toBe(true);
+    expect(editor.handleInput).toHaveBeenCalledTimes(2);
+    expect(panel.focus).toBe("note");
   });
 
   test("test_note_survives_suspend_resume_via_store_seam_money_test", () => {
@@ -1419,6 +1599,7 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     p1.enterNoteMode();
     p1.textField.setText("resume-safe note");
     p1.handleInput(ESCAPE);
+    p1.handleInput(ESCAPE); // esc-esc exits note mode (ESC-002) with write-through
     expect(store.getNote()).toBe("resume-safe note");
 
     const p2 = new InterrogationPanel(panelArgsFor(state, { drafts: store }));

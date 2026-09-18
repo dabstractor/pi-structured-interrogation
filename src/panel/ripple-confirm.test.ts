@@ -114,6 +114,10 @@ function fakeEditor(): EditorComponent & { handleInput: Mock } {
       lines = t.split("\n");
     }),
     handleInput: vi.fn((data: string) => {
+      // A lone ESC is a parsed-but-unbound key for the stock Editor — never
+      // inserted (ESC-002 forwards single escs to the editor; the fake
+      // mirrors real semantics instead of naively appending the byte).
+      if (data === "\u001b") return;
       const cur = lines[0] ?? "";
       lines[0] = cur + data;
     }),
@@ -441,6 +445,33 @@ describe("ripple confirm — text stage-1 gate", () => {
     // The armed enter then advances via the standard stage-2 algorithm.
     expect(handle.panel.handleInput("\r")).toBe(true);
     expect(handle.panel.currentId).toBe("c3"); // t1 answered, c2 answered, c3 open
+  });
+
+  test("test_editor_exit_gate_defers_save_WITHOUT_arm", () => {
+    // ESC-002: the editor-exit gestures (ctrl+t toggle / double-esc) run the
+    // SAME FR-18 text gate, but a back-out is not an answer gesture — the
+    // deferred commit must save + blur WITHOUT arming the two-stage advance.
+    const state = seedTextChain();
+    const handle = makePanel(state);
+    handle.panel.currentId = "t1";
+    handle.panel.focusTextField();
+    handle.panel.handleInput("new text");
+
+    // Double-esc exit: first esc forwards to the editor, second exits — but
+    // the ripple gate defers the write into the modal (victims: ["c2"]).
+    expect(handle.panel.handleInput("\u001b")).toBe(true);
+    expect(handle.panel.focus).toBe("text"); // still editing after one esc
+    expect(handle.panel.handleInput("\u001b")).toBe(true);
+    expect(handle.panel.confirmMode?.kind).toBe("text");
+    expect(handle.panel.confirmMode?.arm).toBe(false); // the exit differentiator
+    expect(handle.drafts.setDraft).not.toHaveBeenCalled(); // nothing written yet
+
+    // Confirm-enter keeps: deferred save runs, blur — NO arm.
+    expect(handle.panel.handleInput("\r")).toBe(true);
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(handle.drafts.setDraft).toHaveBeenCalledWith("t1", "new text");
+    expect(handle.panel.focus).toBe("options");
+    expect(handle.panel.advanceArmed).toBe(false); // back-out ≠ answer gesture
   });
 });
 

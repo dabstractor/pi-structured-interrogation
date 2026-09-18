@@ -149,7 +149,7 @@ Remappable actions (`interrogator.keys.*`):
 | -------------------- | --------------------- | --------------- | --------------------------------------------- |
 | Deep-dive view       | `keys.deep`           | `ctrl+d`        | Open/close the ramification view              |
 | Overview list        | `keys.overview`       | `ctrl+l`        | Open the question overview list               |
-| Focus text editor    | `keys.focusText`      | `ctrl+t`        | Focus the free-text editor (short view only)  |
+| Focus text editor    | `keys.focusText`      | `ctrl+t`        | Toggle the free-text editor: focus it, or (already focused) close it — draft saved, back to options |
 | Batch note           | `keys.batchNote`      | `ctrl+shift+m`  | Attach a batch note shipped with the next submit |
 | Submit               | `keys.submit`         | `ctrl+s`        | Submit answers (partial ok) / close the panel |
 | Break out / resume   | `keys.breakOut`       | `ctrl+shift+q`  | Suspend to chat / resume — also a global shortcut |

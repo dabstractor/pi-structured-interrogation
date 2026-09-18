@@ -79,6 +79,10 @@ function makePanel(
     },
     suspendCalls: 0,
     invalidate: vi.fn(),
+    // ESC-002 exit seams: the router's double-esc exit calls exactly one of
+    // these (note duty → exitNoteMode, text duty → exitTextField).
+    exitTextField: vi.fn(),
+    lastEscAt: undefined as number | undefined,
     // Batch-note toggle seams (R3, P1.M4.T2.S2): the default action calls
     // exactly one of these per dispatch (focus === "note" ? exit : enter).
     enterNoteMode: vi.fn(),
@@ -481,16 +485,83 @@ describe("batch note (R3, P1.M4.T2.S2) — ctrl+shift+m toggle + esc exit", () =
     }
   });
 
-  test("test_esc_in_note_focus_exits_note_mode_before_view_descent", () => {
-    // FR-16 + h2.32: esc in note focus is the innermost esc action — it
-    // exits note mode and must NOT descend the view ladder nor suspend.
+  test("test_esc_in_note_focus_single_forwards_double_exits_note_mode", () => {
+    // ESC-002: esc while the embedded editor holds focus belongs to the
+    // editor FIRST — a single esc forwards (route returns false → the
+    // panel hands the byte to the editor, pi-vim insert-mode exit etc.);
+    // the SECOND esc within the window closes the prompt box only (note
+    // write-through exit, no view descent, no suspend).
     const actions = defaultRoutedActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
     const panel = makePanel({ view: "deep", focus: "note" });
-    expect(route(ESCAPE, panel)).toBe(true);
+
+    expect(route(ESCAPE, panel)).toBe(false); // forwarded to the editor
+    expect(panel.exitNoteMode).not.toHaveBeenCalled();
+    expect(panel.lastEscAt).toBeDefined(); // window armed
+
+    expect(route(ESCAPE, panel)).toBe(true); // pair completes
     expect(panel.exitNoteMode).toHaveBeenCalledTimes(1);
+    expect(panel.lastEscAt).toBeUndefined(); // anchor consumed
     expect(panel.view).toBe("deep"); // ladder untouched
     expect(panel.suspendCalls).toBe(0);
+  });
+
+  test("test_esc_in_text_focus_double_esc_closes_field_not_panel", () => {
+    // Same contract on the explain editor: double esc = exitTextField (draft
+    // write-through + blur), NEVER suspend.
+    const actions = defaultRoutedActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ view: "short", focus: "text" });
+
+    expect(route(ESCAPE, panel)).toBe(false);
+    expect(route(ESCAPE, panel)).toBe(true);
+    expect(panel.exitTextField).toHaveBeenCalledTimes(1);
+    expect(panel.suspendCalls).toBe(0);
+  });
+
+  test("test_double_esc_window_reset_by_any_other_key", () => {
+    // "Twice in a row" is strict: esc, then a non-esc key, then esc — the
+    // second pair member never fires (the anchor was reset).
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ focus: "note" });
+
+    expect(route(ESCAPE, panel)).toBe(false);
+    expect(route("x", panel)).toBe(false); // forwarded to the editor, resets
+    expect(panel.lastEscAt).toBeUndefined();
+    expect(route(ESCAPE, panel)).toBe(false); // a NEW first esc, not a pair
+    expect(panel.exitNoteMode).not.toHaveBeenCalled();
+  });
+
+  test("test_esc_exit_window_zero_disables_the_pair", () => {
+    const config = { ...DEFAULT_CONFIG, escExitWindowMs: 0 };
+    const actions = defaultRoutedActions();
+    const { route } = makeRouter(config, actions);
+    const panel = makePanel({ focus: "note" });
+
+    expect(route(ESCAPE, panel)).toBe(false);
+    expect(route(ESCAPE, panel)).toBe(false); // still forwarded — no pair
+    expect(panel.exitNoteMode).not.toHaveBeenCalled();
+  });
+
+  test("test_arrows_forward_to_the_editor_in_text_and_note_focus", () => {
+    // ESC-002: while the editor is focused the fixed arrows belong to the
+    // editor (caret movement) — the option cursor never moves.
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+
+    for (const focus of ["text", "note"] as PanelFocus[]) {
+      const panel = makePanel({ focus });
+      expect(route(UP, panel)).toBe(false);
+      expect(route(DOWN, panel)).toBe(false);
+      expect(actions.optionUp).not.toHaveBeenCalled();
+      expect(actions.optionDown).not.toHaveBeenCalled();
+    }
+
+    // Options focus: unchanged — arrows drive the option cursor.
+    const options = makePanel({ focus: "options" });
+    expect(route(UP, options)).toBe(true);
+    expect(actions.optionUp).toHaveBeenCalledTimes(1);
   });
 
   test("test_esc_outside_note_focus_still_descends_to_suspend", () => {

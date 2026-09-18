@@ -44,7 +44,7 @@ On committing an answer change to an *answered* question in the panel (the momen
 
 ## Hotkeys — defaults and config
 
-**Intercept rule**: panel-level keys are intercepted *before* the embedded editor sees them, whenever the panel is open (including text focus). Everything else forwards to the embedded editor. All keys rebindable via config `interrogator.keys.*`; no exceptions (R5).
+**Intercept rule**: panel-level keys are intercepted *before* the embedded editor sees them, whenever the panel is open (including text focus). Everything else forwards to the embedded editor. **Exception — fixed keys while the editor is focused (ESC-002)**: when the explain/note editor holds focus, `↑`/`↓` and a single `esc` forward to the editor itself (caret movement; pi-vim mode exit) instead of driving the panel. All keys rebindable via config `interrogator.keys.*`; no exceptions (R5).
 
 | Action | Default | Config key | Context |
 |---|---|---|---|

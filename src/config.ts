@@ -106,6 +106,16 @@ export interface InterrogatorConfig {
   compactionPreservation: boolean;
   /** Which editor the panel composes for text entry. Default "composed". */
   editorMode: EditorMode;
+  /**
+   * Double-esc window (ms) for closing the embedded explain/note editor
+   * without suspending the panel (ESC-002): while the editor holds focus,
+   * a SINGLE esc forwards to the editor (pi-vim insert-mode exit etc.); a
+   * SECOND esc within this window closes the prompt box only (draft
+   * write-through + blur back to options). 0 disables the double-esc exit
+   * (single esc still forwards; close via the focusText toggle or enter).
+   * Default 500.
+   */
+  escExitWindowMs: number;
 }
 
 /** All KeyActions in a stable iteration order (drives coercion + label maps). */
@@ -166,6 +176,7 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
   digitQuickSelect: true,
   compactionPreservation: true,
   editorMode: "composed",
+  escExitWindowMs: 500,
 };
 
 /** The settings.json key under which this extension's config lives (open-schema; stable). */
@@ -270,6 +281,7 @@ function coerceConfig(raw: unknown): InterrogatorConfig {
     digitQuickSelect: coerceBoolean(src.digitQuickSelect, DEFAULT_CONFIG.digitQuickSelect),
     compactionPreservation: coerceBoolean(src.compactionPreservation, DEFAULT_CONFIG.compactionPreservation),
     editorMode: coerceEditorMode(src.editorMode),
+    escExitWindowMs: Math.max(0, coerceNumber(src.escExitWindowMs, DEFAULT_CONFIG.escExitWindowMs)),
   };
 }
 
@@ -310,7 +322,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * Set overrides under a top-level `"interrogator"` object in either
  * `~/.pi/agent/settings.json` (global) or `<cwd>/.pi/settings.json` (project).
  * Nested objects merge per-key; scalars replace. 10 keys + 6 caps + 4 toggles
- * + editorMode (defaults = PRD h2.52):
+ * + editorMode + escExitWindowMs (defaults = PRD h2.52):
  *
  * ### keys — accelerator strings, pi lowercase form
  * | field           | default         | purpose                                        | label consumer |
@@ -348,6 +360,15 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * | `roundDetection`   | true    | Detect interrogation rounds                          | detect.ts (P1.M7.T4.S1) |
  * | `digitQuickSelect` | true    | Press 1–9 to quick-select an option                  | panel keys (P1.M3.T3.S1) |
  * | `compactionPreservation` | true | Prepend preservation instructions to mid-interrogation compaction summaries | compaction.ts (P1.M7.T2.S1) |
+ *
+ * ### escExitWindowMs
+ * Double-esc window (milliseconds) for closing the embedded explain/note
+ * editor without suspending the panel (ESC-002). While the editor holds
+ * focus a single esc forwards to the editor itself (pi-vim insert-mode
+ * exit); a second esc within the window closes the prompt box only (draft
+ * write-through + blur back to options). `0` disables the double-esc exit
+ * (single esc still forwards; close via the `focusText` toggle or enter).
+ * Negative values coerce to 0. Default 500.
  *
  * ### editorMode
  * `"composed"` (default) — the panel composes its own editor experience —

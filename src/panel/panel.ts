@@ -400,6 +400,15 @@ export class InterrogationPanel implements Component {
   advanceArmed = false;
 
   /**
+   * Timestamp of the last esc KEY PRESS while the embedded editor held
+   * focus (ESC-002): the double-esc exit window's anchor. Written/cleared
+   * by the key router (keys.ts) — the panel only hosts the state. Any
+   * non-esc input clears it ("esc twice IN A ROW" is strict), and leaving
+   * editor focus (blur, suspend, mode exits) clears it via the exit paths.
+   */
+  lastEscAt: number | undefined;
+
+  /**
    * Batch note text (R3) — written by {@link exitNoteMode} (enter, esc, and
    * ctrl+shift+m re-press all write through) and read at submit time as the
    * fallback when no DraftStore seam carries a note. Cleared by the submit
@@ -552,10 +561,15 @@ export class InterrogationPanel implements Component {
     // P1.M3.T3.S1): the seam default wires the named actions + view-toggle
     // seams; an explicit args.keys (host override) replaces it wholesale.
     // Host-side refinement of the onFocusText seam (keys.ts itself is
-    // untouched): ctrl+t / the ✎ affordance accept path now focus + seed
-    // the embedded editor, not just flip the focus flag.
+    // untouched): ctrl+t is now a TOGGLE (ESC-002) — options focus → focus
+    // + seed the embedded editor; text focus → exitTextField (draft
+    // write-through + blur, no advance arming). A deterministic single-key
+    // "close the prompt box" companion to the double-esc exit.
     const routed = defaultRoutedActions(args.delivery);
-    routed.onFocusText = (p) => p.focusTextField();
+    routed.onFocusText = (p) => {
+      if (p.focus === "text") p.exitTextField();
+      else p.focusTextField();
+    };
     // Host-side refinement of the discuss seam (P1.M6.T2.S2): discussInChat
     // needs the PiUISurface to preload the editor (h2.35), so the closure
     // is injected HERE — keys.ts stays UI-free. args.keys (host override)
@@ -667,6 +681,9 @@ export class InterrogationPanel implements Component {
     // may act. "\n" (ctrl+j newline) is excluded from keep exactly as in
     // the stage checks below; esc matches the router's fixed Key.escape.
     if (this.confirmMode !== null) {
+      // ESC-002: a modal-consumed key breaks any pending esc-esc pair — the
+      // editor never saw the modal's esc, so it cannot be its "second".
+      this.lastEscAt = undefined;
       if (parseKey(data) === "enter" && data !== "\n") {
         if (this.confirmMode.kind === "text") applyTextConfirm(this);
         else applyConfirmedEdit(this);
@@ -1004,10 +1021,13 @@ export class InterrogationPanel implements Component {
 
   /**
    * Blur path back to the options region (two-stage enter wiring is
-   * P1.M4.T1.S2; the router/actions call this once landed).
+   * P1.M4.T1.S2; the router/actions call this once landed). Also the
+   * double-esc anchor reset: leaving editor focus ends any pending
+   * esc-esc pair (ESC-002 — "twice in a row" never spans focus modes).
    */
   blurTextField(): void {
     this.focus = "options";
+    this.lastEscAt = undefined;
     this.textField.blur();
     this.invalidate(); // drop the editor region from the layout
   }
@@ -1141,7 +1161,10 @@ export class InterrogationPanel implements Component {
    * (FR-18) the standard footer is REPLACED wholesale — in every view and
    * in note mode — by the single-line confirm footer, so the keep/cancel
    * decision is always the only footer surface (exactly one line, never
-   * double-pushed).
+   * double-pushed). While the embedded editor holds focus (ESC-002) the
+   * footer hints swap to the editor's exit affordances: enter saves (not
+   * accepts), the editor-mode toggle key closes, and esc-esc closes when
+   * the double-esc window is armed (escExitWindowMs > 0).
    */
   private footerLine(snapshot: SerializedState, width: number, narrow: boolean): string {
     if (this.confirmMode !== null) {
@@ -1150,7 +1173,10 @@ export class InterrogationPanel implements Component {
     // h2.30 cols < 60 (P1.M7.T5.S1): narrow footer — key hints collapse to
     // submit + deep (labels from this.labels, resolved at construction —
     // h2.52); renderFooter's right-to-left fit loop stays the width net.
-    return renderFooter(snapshot, this.view, this.labels, this.theme, width, narrow);
+    const editorExit = this.focus === "text" || this.focus === "note";
+    return renderFooter(snapshot, this.view, this.labels, this.theme, width, narrow, editorExit
+      ? { mode: this.focus === "note" ? "note" : "text", escEscHint: this.config.escExitWindowMs > 0 }
+      : undefined);
   }
 
   /**

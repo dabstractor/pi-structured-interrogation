@@ -389,7 +389,26 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
     (e) => pendingIds.includes(e.id) || !(e.to === "(unanswered)"),
   );
   if (diff.changed.length === 0 || userChanged.length === 0) {
-    panel.flash("nothing to submit");
+    // EXPLAIN-003 discoverability: a draft-only choice question is the
+    // classic "why won't my partial submission ship" trap — the
+    // elaboration attaches to a SELECTED option, so when explanations are
+    // sitting on unanswered questions, say exactly that instead of a bare
+    // "nothing to submit".
+    const explainedUnanswered = panel.state
+      .orderedQuestions()
+      .filter(
+        (q) =>
+          q.type !== "text" &&
+          (q.status === "open" || q.status === "reasked") &&
+          (panel.draftTextFor(q.id)?.trim() ?? "") !== "",
+      ).length;
+    panel.flash(
+      explainedUnanswered > 0
+        ? `nothing to submit — ${explainedUnanswered} explained ` +
+          `question${explainedUnanswered === 1 ? "" : "s"} still ` +
+          `need${explainedUnanswered === 1 ? "s" : ""} an option choice`
+        : "nothing to submit",
+    );
     return true; // held note stays held — nothing user-shipped (R3)
   }
   // Soft-gate submit warning (P1.M5.T3.S1, Q32=B / h2.56): DISPLAY-ONLY.

@@ -60,6 +60,17 @@ function seedOpen(ids: string[]): InterrogationState {
   return state;
 }
 
+/**
+ * EXPLAIN-003: text-question variant — the two-stage advance arms ONLY on
+ * text questions (the draft completes the answer); choice-question arming
+ * tests below seed with this.
+ */
+function seedOpenText(ids: string[]): InterrogationState {
+  const state = createInterrogationState("goal");
+  for (const id of ids) state.upsertQuestion({ ...choiceQ(id), type: "text", options: undefined });
+  return state;
+}
+
 /** Fresh DraftStore seam spy (P1.M4.T2.S1 lands the real one). */
 function draftsSpy(): DraftStore & {
   getDraft: Mock;
@@ -159,7 +170,9 @@ function focusText(panel: InterrogationPanel): void {
 
 describe("two-stage enter — stage 1 save, stage 2 advance (h2.31)", () => {
   test("test_stage1_enter_saves_draft_blurs_and_arms", () => {
-    const state = seedOpen(["q1", "q2"]);
+    // EXPLAIN-003: arming is TEXT-question behavior (the draft completes
+    // the answer there).
+    const state = seedOpenText(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
     focusText(panel);
     panel.handleInput("my explanation");
@@ -181,7 +194,7 @@ describe("two-stage enter — stage 1 save, stage 2 advance (h2.31)", () => {
   });
 
   test("test_stage2_enter_advances_to_next_unanswered_and_consumes_flag", () => {
-    const state = seedOpen(["q1", "q2", "q3"]);
+    const state = seedOpenText(["q1", "q2", "q3"]);
     const { panel, keys } = makePanel(state, true);
     panel.focusTextField();
     panel.handleInput("draft q1");
@@ -201,24 +214,53 @@ describe("two-stage enter — stage 1 save, stage 2 advance (h2.31)", () => {
   });
 
   test("test_enter_after_stage2_is_normal_accept_again", () => {
-    const state = seedOpen(["q1", "q2"]);
+    const state = seedOpenText(["q1", "q2"]);
     const { panel } = makePanel(state);
     panel.focusTextField();
     panel.handleInput("draft");
     panel.handleInput("\r"); // stage 1
     panel.handleInput("\r"); // stage 2 → q2
 
-    // Third consecutive enter: flag is gone → normal router accept path
-    // (cursor sits on the ★ recommendation → option "a" accepted).
+    // Third consecutive enter: flag is gone → normal router accept path.
+    // On a TEXT question accept is the consumed no-op seam (the answer is
+    // the draft — nothing to select).
     expect(panel.handleInput("\r")).toBe(true);
-    expect(state.getQuestion("q2")?.status).toBe("answered");
-    expect(state.getQuestion("q2")?.answer?.value).toBe("a");
+    expect(panel.advanceArmed).toBe(false);
+    expect(panel.currentId).toBe("q2");
+    expect(state.getQuestion("q2")?.status).toBe("open");
+    expect(state.getQuestion("q2")?.answer).toBeUndefined();
+  });
+
+  test("test_stage1_on_choice_question_does_not_arm_next_enter_accepts", () => {
+    // EXPLAIN-003 (the reported bug): explain → enter → enter on a CHOICE
+    // question must ANSWER the highlighted option — the old armed stage-2
+    // advance skipped the question unanswered, leaving nothing submittable.
+    const state = seedOpen(["q1", "q2"]);
+    const { panel, drafts } = makePanel(state);
+    panel.cursorIndex = 2; // ✎ explain affordance (options.length)
+    panel.handleInput("\r"); // accept ✎ → focus the editor
+    panel.handleInput("my elaboration");
+    expect(panel.handleInput("\r")).toBe(true); // stage 1: save + blur
+
+    expect(panel.focus).toBe("options");
+    expect(panel.advanceArmed).toBe(false); // NOT armed on choice questions
+    expect(drafts.setDraft).toHaveBeenCalledWith("q1", "my elaboration");
+    // Cursor re-seeded ✎ → ★ preselect (index 0, option "a").
+    expect(panel.cursorIndex).toBe(0);
+
+    // The next enter is a NORMAL accept: ★ "a" selected, elaboration kept,
+    // accept-advance moves on — the question is now answered + submittable.
+    expect(panel.handleInput("\r")).toBe(true);
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a");
+    expect(panel.draftTextFor("q1")).toBe("my elaboration"); // attaches at submit
+    expect(panel.currentId).toBe("q2"); // Q14 accept-advance
   });
 });
 
 describe("two-stage enter — one-shot disarm", () => {
   test("test_non_enter_key_disarms_and_next_enter_falls_through", () => {
-    const state = seedOpen(["q1", "q2"]);
+    const state = seedOpenText(["q1", "q2"]);
     const { panel, keys } = makePanel(state, true);
     panel.focusTextField();
     panel.handleInput("\r"); // arm (empty draft, still saves "")
@@ -234,7 +276,7 @@ describe("two-stage enter — one-shot disarm", () => {
   });
 
   test("test_armed_enter_in_options_focus_survives_disarm_check_order", () => {
-    const state = seedOpen(["q1", "q2"]);
+    const state = seedOpenText(["q1", "q2"]);
     const { panel } = makePanel(state, true);
     panel.focusTextField();
     panel.handleInput("\r"); // stage 1 arms — must NOT be disarmed by itself
@@ -290,7 +332,7 @@ describe("two-stage enter — newline safety (R4)", () => {
   test("test_kitty_plain_enter_is_stage1_not_newline", () => {
     // parseKey resolves "\x1b[13u" (kitty CSI-u plain enter) to "enter" —
     // it MUST stage-save, not insert a newline.
-    const state = seedOpen(["q1", "q2"]);
+    const state = seedOpenText(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
     panel.focusTextField();
     panel.handleInput("kitty draft");

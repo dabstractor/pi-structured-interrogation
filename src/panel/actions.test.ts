@@ -651,7 +651,12 @@ describe("submit — flush pending answers", () => {
     const epochBefore = state.epoch;
     expect(submit(panel, deps)).toBe(true);
 
-    expect(panel.footerFlash?.text).toBe("nothing to submit"); // exact h2.37 string
+    expect(panel.footerFlash?.text).toBe(
+      // EXPLAIN-003: the preserved ✎ draft on the re-asked choice question
+      // surfaces in the flash — it cannot ship until an option is (re)chosen
+      // (the elaboration attaches to a selection, never replaces it).
+      "nothing to submit — 1 explained question still needs an option choice",
+    );
     expect(sendMessage).toHaveBeenCalledTimes(1); // only the first submit
     expect(state.snapshots).toHaveLength(snapsBefore); // NO snapshot
     expect(state.epoch).toBe(epochBefore); // NO epoch bump

@@ -36,7 +36,9 @@ materialize; runtime loads via jiti against pi's tree.
    an option with digits `1`–`9` or arrows + `enter`, press `ctrl+t` to focus
    the free-text editor (short view), `ctrl+d` for the deep-dive view, `ctrl+l` for the
    overview, `ctrl+shift+m` to attach a batch note, `ctrl+g` to finish the
-   draft in an external editor.
+   draft in an external editor. Explain then press `enter`, `enter` — the
+   highlighted option is accepted with your explanation attached and the
+   question becomes submittable.
 3. Press `ctrl+s` to submit. Partial submissions are fine — unanswered
    questions stay open. Each submit streams a compact delta message to the
    model (rendered as a diff card in your transcript), ending with

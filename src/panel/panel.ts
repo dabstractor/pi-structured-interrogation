@@ -676,8 +676,11 @@ export class InterrogationPanel implements Component {
     // below is never undone by this check — order is load-bearing.
     if (this.advanceArmed && !enter) this.advanceArmed = false;
     // (b) Stage 2: the NEXT enter (options focus) advances to the next
-    // unanswered question. Runs BEFORE the keys seam so the armed enter
-    // cannot be shadowed by the router's enter→accept interception.
+    // unanswered question — armed ONLY by stage-1 saves on TEXT questions
+    // (EXPLAIN-003); on choice questions the draft is an elaboration, so
+    // the enter falls through to the normal options accept (Q14). Runs
+    // BEFORE the keys seam so the armed enter cannot be shadowed by the
+    // router's enter→accept interception.
     if (this.advanceArmed && enter && this.focus === "options") {
       this.advanceArmed = false;
       this.advanceToNextUnanswered();
@@ -714,15 +717,43 @@ export class InterrogationPanel implements Component {
    * {@link handleInput} for why the trigger is panel-level interception.
    */
   private saveTextDraft(): void {
-    const text = this.textField.getText();
+    // EXPLAIN-003: the two-stage advance arms ONLY on text questions (the
+    // draft completes the answer there — h2.31's original purpose). On a
+    // CHOICE question the draft is an elaboration, not the answer: the next
+    // enter must fall through to the normal options accept (Q14), so the
+    // explain → enter → enter flow ANSWERS the highlighted option instead
+    // of stage-2-advancing past an unanswered question (the reported
+    // "explained it but nothing was submittable" trap).
+    const q =
+      this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;
+    this.stageText(this.textField.getText(), q?.type === "text");
+  }
+
+  /**
+   * Editor-exit gesture (ESC-002): back out of the explain editor to normal
+   * question selection — write the buffer through to the draft slot (R4:
+   * the typed text is sacred; a bare blur would let the next refocus seed a
+   * STALE draft over it), blur to options, and deliberately do NOT arm the
+   * advance flag (going back is not an answer gesture — the next enter
+   * accepts the highlighted option, it does not advance). Fires from the
+   * ctrl+t toggle and the double-esc exit (keys.ts); never suspends the
+   * panel and never touches state (same stage-1 discipline).
+   */
+  exitTextField(): void {
+    this.stageText(this.textField.getText(), false);
+  }
+
+  /**
+   * Shared stage-1 core for the enter-save and the editor-exit gestures:
+   * FR-18 text gate first (re-saving a draft on an answered/submitted
+   * question whose ripple would invalidate answered/submitted questions
+   * defers the save into the modal confirm — arm flag carried through so an
+   * exit-confirm blurs without arming), then the unconditional commit tail
+   * with the caller's arming.
+   */
+  private stageText(text: string, arm: boolean): void {
     const id = this.currentId;
     if (id !== undefined) {
-      // FR-18 text gate (P1.M5.T4.S1): re-saving a draft on an
-      // answered/submitted question (recorded answer present — stage-1
-      // saves never APPLY answers, so the gate keys off the recorded
-      // q.answer) whose ripple would invalidate answered/submitted
-      // questions defers the save into the modal confirm. Zero victims →
-      // the unconditional tail below, byte-identical to pre-task behavior.
       const q = this.state.getQuestion(id);
       if (
         q !== undefined &&
@@ -730,31 +761,45 @@ export class InterrogationPanel implements Component {
         (q.status === "answered" || q.status === "submitted") &&
         rippleVictims(this, id).length > 0
       ) {
-        beginTextConfirm(this, text);
-        return; // deferred — commitTextDraft runs on confirm-enter
+        beginTextConfirm(this, text, { arm });
+        return; // deferred — applyTextConfirm runs on confirm-enter
       }
     }
-    this.commitTextDraft(id, text);
+    this.commitTextDraft(id, text, { arm });
   }
 
   /**
    * The unconditional stage-1 tail shared by the direct save path and the
    * ripple-confirm apply path (applyTextConfirm): write the panel-local
    * slot ({value, text} per h2.45), persist via the DraftStore seam, blur
-   * back to options, and arm the one-shot advance flag. Never advances and
-   * never applies an answer (stage-1 semantics — h2.31). Takes the question
-   * id explicitly so a deferred confirm commits against the STASHED id even
+   * back to options, and — unless `arm: false` (the editor-exit gestures,
+   * ESC-002) — arm the one-shot advance flag. Never advances and never
+   * applies an answer (stage-1 semantics — h2.31). Takes the question id
+   * explicitly so a deferred confirm commits against the STASHED id even
    * though the modal guarantees currentId cannot drift while it is open.
    */
-  commitTextDraft(questionId: string | undefined, text: string): void {
+  commitTextDraft(questionId: string | undefined, text: string, opts?: { arm?: boolean }): void {
     if (questionId !== undefined) {
       this.draftSlots.set(questionId, { value: questionId, text });
       this.drafts?.setDraft(questionId, text);
+      // EXPLAIN-003 cursor landing: when the explain editor closes on a
+      // CHOICE question with the cursor resting on the ✎ affordance,
+      // re-seed to the ★ preselect (R2 discipline) — the affordance's job
+      // is done (draft saved) and the next enter should ACCEPT the
+      // recommendation, not re-open the editor.
+      const q = this.state.getQuestion(questionId);
+      if (
+        q !== undefined &&
+        q.type !== "text" &&
+        this.currentId === questionId &&
+        this.cursorIndex >= (q.options?.length ?? 0)
+      ) {
+        this.cursorIndex = initialCursorIndex(q);
+      }
     }
     this.blurTextField(); // focus = "options" + editor blur + invalidate
-    this.advanceArmed = true;
+    if (opts?.arm !== false) this.advanceArmed = true;
   }
-
 
   /**
    * Stage 2 target: the accept-advance algorithm (h2.38) via the shared

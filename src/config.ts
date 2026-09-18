@@ -35,6 +35,29 @@ export type EditorMode =
   | "stock";
 
 /**
+ * Remote bridge-surface config (FR-31..34, spec/decisions.md §Remote
+ * bridge surface, D-R7): gates the pi-ask bridge-contract speaker — any
+ * conformant client (remote-pi's app today; status cards, desktop helpers
+ * per pi-ask's own docs) renders the question set natively. Emission is
+ * inert when nothing listens on `pi.events`, so `enabled: true` is a safe
+ * default in every environment.
+ */
+export interface RemoteConfig {
+  /**
+   * Master gate: emit `@eko24ive/pi-ask:*` flows on upsert/reopen/reconstruct
+   * AND accept bridge submissions through the panel-parity pipeline (D-R5).
+   * `false` restores pre-FR-31 behavior byte-for-byte. Default true.
+   */
+  enabled: boolean;
+  /**
+   * Re-emit a fresh flow with the remaining live questions after a partial
+   * bridge submission (D-R6) — the bridge analogue of the panel staying open.
+   * Default true.
+   */
+  resurface: boolean;
+}
+
+/**
  * Every bindable interrogator action — the field names of `InterrogatorConfig.keys`.
  * Matching against actual key events happens in panel/keys.ts (P1.M3.T3.S1)
  * via pi's key utilities; this module only stores the accelerator strings.
@@ -112,16 +135,9 @@ export interface InterrogatorConfig {
   compactionPreservation: boolean;
   /** Which editor the panel composes for text entry. Default "composed". */
   editorMode: EditorMode;
-  /**
-   * Double-esc window (ms) for closing the embedded explain/note editor
-   * without suspending the panel (ESC-002): while the editor holds focus,
-   * a SINGLE esc forwards to the editor (pi-vim insert-mode exit etc.); a
-   * SECOND esc within this window closes the prompt box only (draft
-   * write-through + blur back to options). 0 disables the double-esc exit
-   * (single esc still forwards; close via the focusText toggle or enter).
-   * Default 500.
-   */
   escExitWindowMs: number;
+  /** Remote bridge-surface gates — see {@link RemoteConfig}. */
+  remote: RemoteConfig;
 }
 
 /** All KeyActions in a stable iteration order (drives coercion + label maps). */
@@ -181,6 +197,7 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
   compactionPreservation: true,
   editorMode: "composed",
   escExitWindowMs: 500,
+  remote: { enabled: true, resurface: true },
 };
 
 /** The settings.json key under which this extension's config lives (open-schema; stable). */
@@ -264,6 +281,15 @@ function coerceEditorMode(value: unknown): EditorMode {
   return value === "stock" || value === "composed" ? value : DEFAULT_CONFIG.editorMode;
 }
 
+/** Coerce the remote section (D-R9): booleans coerce per-key; a missing/ill-typed object contributes nothing. */
+function coerceRemote(raw: unknown): RemoteConfig {
+  const src = isPlainObject(raw) ? raw : {};
+  return {
+    enabled: coerceBoolean(src.enabled, DEFAULT_CONFIG.remote.enabled),
+    resurface: coerceBoolean(src.resurface, DEFAULT_CONFIG.remote.resurface),
+  };
+}
+
 /**
  * Post-merge shape enforcement: walk the merged value and coerce every field
  * to its contractual type, falling back to the h2.52 default for anything
@@ -286,6 +312,7 @@ function coerceConfig(raw: unknown): InterrogatorConfig {
     compactionPreservation: coerceBoolean(src.compactionPreservation, DEFAULT_CONFIG.compactionPreservation),
     editorMode: coerceEditorMode(src.editorMode),
     escExitWindowMs: Math.max(0, coerceNumber(src.escExitWindowMs, DEFAULT_CONFIG.escExitWindowMs)),
+    remote: coerceRemote(src.remote),
   };
 }
 
@@ -378,6 +405,17 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * `"composed"` (default) — the panel composes its own editor experience —
  * or `"stock"` — defer to pi's stock editor behavior. Any other value falls
  * back to "composed".
+ *
+ * ### remote (FR-31..34)
+ * | field       | default | purpose                                                      |
+ * |-------------|---------|--------------------------------------------------------------|
+ * | `enabled`   | true    | Emit pi-ask bridge-contract flows + accept submissions (inert without a listener) |
+ * | `resurface` | true    | Re-emit remaining questions after a partial bridge submission |
+ *
+ * Boolean strings ("false") coerce; a missing or ill-typed `remote` object
+ * yields the defaults. Consumers: remote-bridge.ts (emission gates),
+ * remote-submit.ts (resurface), tool.ts (hasRemoteSurface dep), index.ts
+ * (reconstruction re-emit gate).
  */
 export async function loadConfig(cwd: string): Promise<InterrogatorConfig> {
   return loadConfigFrom({

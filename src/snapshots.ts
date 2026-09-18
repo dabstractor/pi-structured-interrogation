@@ -29,6 +29,24 @@ import type { InterrogationState, Question, SerializedState, Snapshot } from "./
 /** Ring bound for `state.snapshots` (h2.39: bounded ring of 10, oldest dropped). */
 export const SNAPSHOT_RING_SIZE = 10;
 
+/**
+ * Pending-answer diff baseline over a bare state (FR-32; extracted from
+ * panel/actions.ts `submissionBaseline` so the remote bridge-submission
+ * pipeline shares the EXACT baseline semantics): the latest snapshot's
+ * state ("answered since the LAST submission"), or a fresh empty baseline
+ * before the first snapshot exists. The empty baseline is safe: computeDiff
+ * compares answer signatures, and a question missing from `prev` with no
+ * answer in `next` has signature `undefined` on BOTH sides — so only
+ * genuinely ANSWERED questions surface as pending. buildSubmission takes a
+ * NEW snapshot + bumps epoch, making this baseline fresh for the next submit.
+ */
+export function submissionBaselineOf(state: InterrogationState): SerializedState {
+  const snaps = state.snapshots;
+  const last = snaps[snaps.length - 1];
+  if (last !== undefined) return last.state;
+  return { goal: "", epoch: 0, order: [], questions: {}, completed: false };
+}
+
 /** Summary used on either diff side when the question/answer is missing. */
 const UNANSWERED = "(unanswered)";
 

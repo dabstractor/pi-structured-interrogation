@@ -23,7 +23,7 @@
 import { evaluateDependsOn } from "../depends-on.js";
 import { buildSubmission, deliverSubmission } from "../delivery.js";
 import { markSubmitted } from "../merge.js";
-import { computeDiff } from "../snapshots.js";
+import { computeDiff, submissionBaselineOf } from "../snapshots.js";
 import type { Question, SerializedState } from "../state.js";
 import { countUnansweredGate, gateGroupNames } from "./gate.js";
 import type { InterrogationPanel } from "./panel.js";
@@ -135,19 +135,12 @@ function currentQuestion(panel: InterrogationPanel): Question | undefined {
 }
 
 /**
- * Pending-answer diff baseline: the latest snapshot's state ("answered since
- * the LAST submission"), or a fresh empty baseline before the first
- * snapshot exists. The empty baseline is safe: computeDiff compares answer
- * signatures, and a question missing from `prev` with no answer in `next`
- * has signature `undefined` on BOTH sides — so only genuinely ANSWERED
- * questions surface as pending. buildSubmission then takes a NEW snapshot +
- * bumps epoch, making this baseline fresh for the next submit.
+ * Pending-answer diff baseline — now a thin delegation to snapshots.ts's
+ * {@link submissionBaselineOf} (FR-32: the remote phone-submission pipeline
+ * shares the EXACT baseline semantics; extracted with no behavior change).
  */
 export function submissionBaseline(panel: InterrogationPanel): SerializedState {
-  const snaps = panel.state.snapshots;
-  const last = snaps[snaps.length - 1];
-  if (last !== undefined) return last.state;
-  return { goal: "", epoch: 0, order: [], questions: {}, completed: false };
+  return submissionBaselineOf(panel.state);
 }
 
 // ---------------------------------------------------------------- actions

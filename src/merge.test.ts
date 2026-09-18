@@ -169,7 +169,7 @@ test("test_rule4_omitted_id_withdrawn_kept_in_map_answer_preserved_rev_unchanged
   const st = newState();
   seedQ(st, choiceQ("q1"), { answer: ans("a") });
   seedQ(st, choiceQ("q2"));
-  const r = applyUpsert(st, [choiceQ("q2")]); // q1 omitted
+  const r = applyUpsert(st, [choiceQ("q2")], true); // q1 omitted, set-replace mode
   const q1 = st.getQuestion("q1")!;
   expect(q1).toBeDefined(); // kept in map (Q34=A audit trail)
   expect(q1.status).toBe("withdrawn");
@@ -178,6 +178,17 @@ test("test_rule4_omitted_id_withdrawn_kept_in_map_answer_preserved_rev_unchanged
   expect(r.withdrawn).toEqual([{ id: "q1", reason: "withdrawn" }]);
   expect(r.revBumped).toEqual(["q2"]); // only the incoming (rule-1) id bumped
   expect(r.transitions).toHaveLength(1); // transitions cover incoming ids only
+});
+
+test("test_rule4_patch_semantics_omitted_live_ids_untouched_by_default", () => {
+  // 2026-09-15 pin: default is surgical — a 1-question edit must NEVER
+  // withdraw the rest of the plan (the first-agent footgun).
+  const st = newState();
+  seedQ(st, choiceQ("q1"), { answer: ans("a") });
+  seedQ(st, choiceQ("q2"));
+  const r = applyUpsert(st, [choiceQ("q2")]); // no flag → patch semantics
+  expect(st.getQuestion("q1")!.status).toBe("answered"); // untouched, answer kept
+  expect(r.withdrawn).toEqual([]);
 });
 
 test("test_rule4_noop_for_withdrawn_and_leaves_moot_closed_untouched", () => {

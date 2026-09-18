@@ -111,6 +111,7 @@ describe("routing (h2.20 four action shapes)", () => {
     expect(r.ok).toBe(true);
     expect(r.action).toEqual({
       action: "upsert",
+      withdrawOmitted: false,
       goal: "pick a db",
       epoch: 2,
       questions: [

@@ -113,9 +113,16 @@ describe("buildReadResult", () => {
         `${UNGROUPED_LABEL}: 0/1 answered`,
         "Risk: 0/1 answered",
         "db: Database — answered (rev 2) · answered: postgres",
+        "  prompt: prompt for db",
+        "  group: Scope",
         `auth: ${"a".repeat(60)} — open (rev 1)`,
+        `  prompt: ${longPrompt}`,
+        "  group: Scope",
         "roll: Rollback plan — reasked (rev 3)",
+        "  prompt: prompt for roll",
         "vendor: Vendor lock-in — moot (rev 1)",
+        "  prompt: prompt for vendor",
+        "  group: Risk",
       ].join("\n"),
     );
   });
@@ -226,6 +233,8 @@ describe("details contract (h2.40)", () => {
         "Scope: 1/1 answered",
         `${UNGROUPED_LABEL}: 0/1 answered`,
         "q1: Database — answered (rev 1) · answered: postgres",
+        "  prompt: prompt for q1",
+        "  group: Scope",
         "q2: prompt for q2 — reasked (rev 1)",
       ].join("\n"),
     );

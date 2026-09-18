@@ -44,15 +44,16 @@ import {
 
 // ------------------------------------------------------------------ fixtures
 
-/** The h2.24 tool description, copied byte-for-byte from prd_snapshot.md. */
+/** The h2.24 tool description as amended by the 2026-09-15 patch-semantics pin (spec/decisions.md). */
 const PRD_H2_24_DESCRIPTION =
-  "Structured interrogation: plan by asking the user questions they answer in a persistent panel. Upsert `questions[]` (stable ids; existing questions require their current `rev`; omitting an id withdraws it). Call with `{}` to read current state, goal, and epoch. Answers arrive as submission messages — consider how they affect your other questions and re-ask only those materially affected (upsert with new rev). First round: few broad foundational questions with key ramifications; refine in later rounds; send the full set up front. The question set is the plan: when it completes, the full record is injected — derive the spec from it, don't re-plan. If unsure your view is current, read before upserting.";
+  "Structured interrogation: plan by asking the user questions they answer in a persistent panel. Upsert `questions[]` surgically — only sent ids are created or updated (stable ids; existing questions require their current `rev`); omitted questions are untouched. To prune, resend the full live set with `withdrawOmitted: true` so omitted ids withdraw. Call with `{}` to read full current state, goal, and epoch. Answers arrive as submission messages — re-ask only those materially affected. First round: few broad foundational questions with key ramifications; send the full set up front. The question set is the plan: when it completes, the full record is injected — derive the spec from it, don't re-plan. If unsure your view is current, read before upserting.";
 
-/** The h2.24 guideline bullets, byte-for-byte — the first two are PRD h2.24; the third is the 2026-09-15 deep-view quality pin (spec/decisions.md). */
+/** Guideline bullets — first two PRD h2.24; third is the 2026-09-15 deep-view quality pin; fourth is the 2026-09-15 patch-semantics pin (spec/decisions.md). */
 const PRD_H2_24_GUIDELINES = [
   "Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.",
   "After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.",
   "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords). If the tool result warns a deep-view field is thin, re-upsert it expanded with the current rev.",
+  "Omission never withdraws: edit surgically by resending only the questions you are changing (with their current revs). Prune deliberately by resending the kept set with withdrawOmitted: true.",
 ];
 
 /** Minimal wire question; overrides win (caps.test.ts pattern). */
@@ -128,9 +129,9 @@ describe("h2.24 resident text", () => {
     expect(PRD_H2_24_DESCRIPTION.trim().split(/\s+/).length).toBeLessThanOrEqual(120);
   });
 
-  test("promptGuidelines are the three h2.24 bullets (2 PRD + deep-view pin), byte-identical, in order", () => {
+  test("promptGuidelines are the four h2.24 bullets (2 PRD + deep-view pin + patch-semantics pin), byte-identical, in order", () => {
     expect(INTERROGATE_PROMPT_GUIDELINES).toEqual(PRD_H2_24_GUIDELINES);
-    expect(INTERROGATE_PROMPT_GUIDELINES).toHaveLength(3);
+    expect(INTERROGATE_PROMPT_GUIDELINES).toHaveLength(4);
   });
 
   test("promptSnippet is the one-liner (ours, not PRD-verbatim)", () => {
@@ -419,12 +420,12 @@ describe("executeInterrogate: upsert dependsOn evaluation (BUG-006a)", () => {
     // Re-upsert WITHOUT dependsOn (same options → merge rule 1 keeps the
     // moot status); evaluation inside the upsert must reopen it — no manual
     // evaluateDependsOn in the test after this call. dep is omitted from the
-    // batch, so merge rule 4 withdraws it (answer retained for audit) — the
-    // child's reopen must still fire.
+    // batch and stays live/answered (2026-09-15 patch semantics — omission
+    // never withdraws) — the child's reopen must still fire.
     const r = executeInterrogate(childReupsert(), tuiCtx());
 
     expect(r.details.state.questions.child?.status).toBe("open"); // post-evaluation in the SAME result
-    expect(r.content.split("\n")[0]).toBe("0/2 answered · 0 re-asked · 0 moot · epoch 1");
+    expect(r.content.split("\n")[0]).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 1");
     expect(getState()!.getQuestion("child")!.status).toBe("open");
   });
 
@@ -441,7 +442,7 @@ describe("executeInterrogate: upsert dependsOn evaluation (BUG-006a)", () => {
     );
 
     expect(r.details.state.questions.child?.status).toBe("moot"); // unmet pg ≠ sqlite, same result
-    expect(r.content.split("\n")[0]).toBe("0/2 answered · 0 re-asked · 1 moot · epoch 1");
+    expect(r.content.split("\n")[0]).toBe("1/2 answered · 0 re-asked · 1 moot · epoch 1");
     expect(getState()!.getQuestion("child")!.status).toBe("moot");
   });
 
@@ -481,11 +482,12 @@ describe("executeInterrogate: upsert dependsOn evaluation (BUG-006a)", () => {
     const r = executeInterrogate(childReupsert(), printCtx());
 
     const lines = r.content.split("\n");
-    expect(lines[0]).toBe("0/2 answered · 0 re-asked · 0 moot · epoch 1");
-    // The reopened child renders in the digest again (moot AND withdrawn
-    // questions are skipped — dep was withdrawn by the child-only batch) —
+    expect(lines[0]).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 1");
+    // The reopened child renders in the digest again (moot questions are
+    // skipped — dep stays live/answered under 2026-09-15 patch semantics:
+    // the child-only batch omits dep without withdrawing it) —
     // both the digest and the envelope carry post-evaluation state.
-    expect(lines).toContain("**1. prompt child** (`child`)");
+    expect(lines).toContain("**2. prompt child** (`child`)"); // dep (answered, live) renders as **1** under patch semantics
     expect(r.details.state.questions.child?.status).toBe("open");
   });
 });
@@ -789,16 +791,10 @@ describe("extension factory wiring (index.ts)", () => {
       on: (_event: string, _handler: unknown) => undefined, // lifecycle subscriptions (P1.M2.T2.S1)
     } as unknown as ExtensionAPI;
     await mod.default(fakePi);
-    // T1 contract preserved (ping first), plus the P1.M2.T3.S1 debug
-    // commands registered after the lifecycle wiring (h2.50), plus the
-    // P1.M6.T1.S2 /interrogate toggle (last — inside the factory closure).
-    expect(commands).toEqual([
-      "interrogate-ping",
-      "interrogate-debug-upsert",
-      "interrogate-debug-submit",
-      "interrogate-debug-state",
-      "interrogate",
-    ]);
+    // CMD-001: ONE command — /interrogate (bare = toggle; ping + debug ride
+    // as subcommands inside the same registration). The interrogate tool and
+    // the break-out shortcut are unchanged.
+    expect(commands).toEqual(["interrogate"]);
     // Global break-out/resume shortcut registered with the RAW config value.
     expect(shortcuts).toEqual([DEFAULT_CONFIG.keys.breakOut]);
     // P1.M7.T3.S1+S2 — user-only renderers registered for the EXACT

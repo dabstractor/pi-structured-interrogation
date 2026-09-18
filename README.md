@@ -53,11 +53,15 @@ materialize; runtime loads via jiti against pi's tree.
    **one full completion record** (a recap card lands in the transcript).
 
 **Model behavior note** — the model drives the `interrogate` tool, not you: it
-upserts questions (stable ids, `rev`- and epoch-guarded — upserts touching
-existing ids must echo the current epoch), reads current state with `{}`,
-receives your submissions as delta messages, and gets one full completion
-record when the interrogation completes. Between submissions it reconciles
-contradictions and re-asks only the questions materially affected. The goal
+upserts questions **surgically** — only the ids it sends are created or
+updated; omitted live questions are untouched (stable ids, `rev`- and
+epoch-guarded — upserts touching existing ids must echo the current epoch).
+Pruning is deliberate: the model resends the kept set with
+`withdrawOmitted: true`, and the result reports what withdrew. It reads
+current state with `{}` — full question content, so edits survive
+compaction — receives your submissions as delta messages, and gets one full
+completion record when the interrogation completes. Between submissions it
+reconciles contradictions and re-asks only the questions materially affected. The goal
 statement may be updated on any upsert — it is capped at 400 characters and
 truncated with a warning beyond that — and an upsert sent after completion
 starts a fresh interrogation (the epoch restarts at 1) that completes

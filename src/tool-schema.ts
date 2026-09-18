@@ -81,14 +81,16 @@ export const QuestionSchema = Type.Object({
  *
  * | args                              | action   | effect                                      |
  * |-----------------------------------|----------|---------------------------------------------|
- * | `{questions:[...], goal?, epoch?}` | upsert   | Create/update/withdraw questions            |
+ * | `{questions:[...], goal?, epoch?}` | upsert   | Create/update ONLY sent ids (patch)         |
  * | `{}`                               | read     | Return current panel state                  |
  * | `{reopen:true}`                    | reopen   | Resurface the panel with existing state     |
  * | `{answers:[...], epoch?}`          | record   | Record the user's chat answers              |
  *
  * - **upsert** — every entry of `questions` is a full {@link QuestionSchema}
  *   object. New ids are created; existing ids are replaced wholesale;
- *   omitting a previously-sent id withdraws it. Include `epoch` (the session
+ *   OMITTED live ids are untouched (2026-09-15 patch-semantics pin) unless
+ *   `withdrawOmitted: true` is sent (set-replace mode for deliberate pruning).
+ *   Include `epoch` (the session
  *   epoch you last saw) and per-question `rev` when updating existing
  *   questions — stale values are rejected downstream by the guard layer.
  * - **read** — `{}` (or any args that name no action, including
@@ -110,7 +112,8 @@ export const QuestionSchema = Type.Object({
 export const InterrogateParams = Type.Object({
   goal: Type.Optional(Type.String({ description: "What these questions drive toward; shown in the panel header. Updatable: a goal sent on ANY upsert replaces the current one (capped at config caps.goal, default 400 chars)." })),
   epoch: Type.Optional(Type.Integer({ description: "Required when recording answers and when upserting questions that already exist (include the epoch from your last read/result); optional for a first upsert of brand-new questions (guards stale updates)." })),
-  questions: Type.Optional(Type.Array(QuestionSchema, { description: "Upsert. Omitting an existing id withdraws it" })),
+  questions: Type.Optional(Type.Array(QuestionSchema, { description: "Upsert (surgical): only the ids sent are created or updated — omitted live questions are untouched. To prune by omission, resend the full live set with withdrawOmitted: true" })),
+  withdrawOmitted: Type.Optional(Type.Boolean({ description: "Set-replace mode: live ids omitted from this batch withdraw (answers kept). Only meaningful alongside questions[]; omission alone NEVER withdraws" })),
   reopen: Type.Optional(Type.Boolean({ description: "Resurface the panel with existing state" })),
   answers: Type.Optional(Type.Array(Type.Object({
     id: Type.String(), value: Type.String(), text: Type.Optional(Type.String()),
@@ -171,6 +174,8 @@ export interface InterrogateParamsValue {
   epoch?: number;
   /** Upsert batch — non-empty array routes to `upsert`. */
   questions?: QuestionInput[];
+  /** Set-replace mode: omitted live ids withdraw (default false — patch semantics). */
+  withdrawOmitted?: boolean;
   /** Resurface the panel with existing state. */
   reopen?: boolean;
   /** Non-TUI answer recording — non-empty array routes to `record`. */
@@ -184,7 +189,7 @@ export interface InterrogateParamsValue {
  * `read` (includes `{}` and `{questions: []}`).
  */
 export type ParsedAction =
-  | { action: "upsert"; goal?: string; epoch?: number; questions: QuestionInput[] }
+  | { action: "upsert"; questions: QuestionInput[]; withdrawOmitted?: boolean; goal?: string; epoch?: number }
   | { action: "read" }
   | { action: "reopen" }
   | { action: "record"; epoch?: number; answers: AnswerInput[] };
@@ -277,6 +282,12 @@ export function parseInterrogateParams(args: unknown, config: InterrogatorConfig
     else errors.push({ path: "reopen", message: "reopen must be a boolean" });
   }
 
+  let withdrawOmitted = false;
+  if (args.withdrawOmitted !== undefined) {
+    if (typeof args.withdrawOmitted === "boolean") withdrawOmitted = args.withdrawOmitted;
+    else errors.push({ path: "withdrawOmitted", message: "withdrawOmitted must be a boolean" });
+  }
+
   // -- questions (truncate FIRST at the cap, then validate what survives —
   //    errors on dropped entries would be noise)
   let questions: QuestionInput[] | undefined;
@@ -315,7 +326,7 @@ export function parseInterrogateParams(args: unknown, config: InterrogatorConfig
   // -- deterministic routing (h2.20 precedence)
   let action: ParsedAction;
   if (questions !== undefined && questions.length > 0) {
-    action = { action: "upsert", questions };
+    action = { action: "upsert", questions, withdrawOmitted };
     if (goal !== undefined) action.goal = goal;
     if (epoch !== undefined) action.epoch = epoch;
   } else if (answers !== undefined && answers.length > 0) {

@@ -57,7 +57,7 @@ import { InterrogateParams, parseInterrogateParams, type QuestionInput } from ".
  * injection API is used (per-request injection is vetoed, h2.4).
  */
 export const INTERROGATE_TOOL_DESCRIPTION =
-  "Structured interrogation: plan by asking the user questions they answer in a persistent panel. Upsert `questions[]` (stable ids; existing questions require their current `rev`; omitting an id withdraws it). Call with `{}` to read current state, goal, and epoch. Answers arrive as submission messages — consider how they affect your other questions and re-ask only those materially affected (upsert with new rev). First round: few broad foundational questions with key ramifications; refine in later rounds; send the full set up front. The question set is the plan: when it completes, the full record is injected — derive the spec from it, don't re-plan. If unsure your view is current, read before upserting.";
+  "Structured interrogation: plan by asking the user questions they answer in a persistent panel. Upsert `questions[]` surgically — only sent ids are created or updated (stable ids; existing questions require their current `rev`); omitted questions are untouched. To prune, resend the full live set with `withdrawOmitted: true` so omitted ids withdraw. Call with `{}` to read full current state, goal, and epoch. Answers arrive as submission messages — re-ask only those materially affected. First round: few broad foundational questions with key ramifications; send the full set up front. The question set is the plan: when it completes, the full record is injected — derive the spec from it, don't re-plan. If unsure your view is current, read before upserting.";
 
 /**
  * The h2.24 guideline bullets (pi-api-validation.md adaptation
@@ -71,6 +71,7 @@ export const INTERROGATE_PROMPT_GUIDELINES: string[] = [
   "Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.",
   "After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.",
   "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords). If the tool result warns a deep-view field is thin, re-upsert it expanded with the current rev.",
+  "Omission never withdraws: edit surgically by resending only the questions you are changing (with their current revs). Prune deliberately by resending the kept set with withdrawOmitted: true.",
 ];
 
 /**
@@ -293,7 +294,9 @@ export function executeInterrogate(
 
       // Fires `questions-upserted` + `changed` — THE panel trigger
       // (P1.M2.T2.S1 lifecycle). This executor must not open anything.
-      applyUpsert(state, capped.questions.map(toMergeQuestion));
+      // withdrawOmitted (2026-09-15 pin): default patch semantics — omitted
+      // live ids untouched; true switches rule 4 to set-replace mode.
+      const merged = applyUpsert(state, capped.questions.map(toMergeQuestion), parsed.action.withdrawOmitted);
 
       // BUG-006(a) / FR-17: re-derive moot-ness from the just-merged state —
       // agent edits to dependsOn conditions take effect INSTANTLY, on this
@@ -317,14 +320,21 @@ export function executeInterrogate(
       }
 
       const serialized = state.serialize();
+      // Tolerant withdrawal reporting (2026-09-15 pin, warn-don't-refuse):
+      // deliberate withdrawals surface as an informational line in the same
+      // warnings block — never an error, always visible to the model.
+      const warnings = upsertWarnings(parsed.warnings, capped.warnings);
+      if (merged.withdrawn.length > 0) {
+        warnings.push(`withdrew (withdrawOmitted): ${merged.withdrawn.map((w) => w.id).join(", ")}`);
+      }
       if (isNonTui(ctx.mode, ctx.hasUI)) {
         // h2.26 fallback: status line + numbered digest (ends with the relay
         // sentence from fallback.ts) + warnings. Envelope minted inline.
         const statusLine = buildStatusLine(serialized);
-        const content = [statusLine, ...buildFallbackDigest(serialized).split("\n"), ...upsertWarnings(parsed.warnings, capped.warnings)].join("\n");
+        const content = [statusLine, ...buildFallbackDigest(serialized).split("\n"), ...warnings].join("\n");
         return { content, details: inlineEnvelope(serialized, "upsert", statusLine) };
       }
-      return buildUpsertResult(serialized, upsertWarnings(parsed.warnings, capped.warnings));
+      return buildUpsertResult(serialized, warnings);
     }
 
     // ---------------------------------------------------------- reopen

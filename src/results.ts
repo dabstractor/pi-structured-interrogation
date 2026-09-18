@@ -99,8 +99,11 @@ export function buildStatusLine(state: SerializedState): string {
 }
 
 /**
- * Build the `read` result (h3.7): the full one-line-per-question digest the
- * model uses to re-orient after compaction or a stale rejection.
+ * Build the `read` result (h3.7, full-content per the 2026-09-15 pin): the
+ * re-orientation digest the model uses after compaction, a stale rejection,
+ * or before a surgical edit — carrying EVERYTHING needed to reconstruct a
+ * complete question object, so a full-set resend never depends on context
+ * that compaction may have summarized away.
  *
  * Content line order:
  * 1. `Goal: {goal}` — omitted entirely when goal is `""`
@@ -108,11 +111,15 @@ export function buildStatusLine(state: SerializedState): string {
  * 3. one group summary per group, first-appearance order following
  *    `state.order`: `{group}: {answered}/{total} answered`; questions
  *    without `group` bucket under `"(none)"` (the `UNGROUPED_LABEL`)
- * 4. per-question one-liners in `state.order`:
- *    `{id}: {title} — {status} (rev {rev})` plus ` · answered: {value}`
- *    when an answer exists. Titles are short by contract and never
- *    truncated; a missing `title` falls back to `prompt` sliced to 60 chars
- *    (plain slice, no ellipsis).
+ * 4. per-question blocks in `state.order`. Each block starts with the
+ *    one-liner `{id}: {title} — {status} (rev {rev})` plus ` · answered: {value}`
+ *    when an answer exists (titles are short by contract and never
+ *    truncated; a missing `title` falls back to `prompt` sliced to 60 chars,
+ *    plain slice, no ellipsis), followed by indented detail lines, only when
+ *    the field is present: `  prompt: {full}` (when a title hides it or the
+ *    60-char slice cut it), `  description: {full}`,
+ *    `  - {value} = {label}[ ★][ — {ramification}]` per option, and one
+ *    combined `  group: … · gate: true · dependsOn: {id}={v}|{id}≠{v}` line.
  *
  * `details.state` is the canonical persistence layer (h2.40 layer 2) —
  * reconstruction (P1.M7.T1.S2) replays the latest interrogate result on the
@@ -127,7 +134,7 @@ export function buildReadResult(state: SerializedState): InterrogateResult {
   lines.push(...groupSummaryLines(state));
   for (const id of state.order) {
     const q = state.questions[id];
-    if (q !== undefined) lines.push(questionLine(q));
+    if (q !== undefined) lines.push(...questionBlock(q));
   }
   return { content: lines.join("\n"), details: envelope(state, "read", statusLine) };
 }
@@ -198,6 +205,30 @@ function groupSummaryLines(state: SerializedState): string[] {
     if (q.status === "answered") groups[i].answered++;
   }
   return groups.map((g) => `${g.name}: ${g.answered}/${g.total} answered`);
+}
+
+/** One h3.7 per-question BLOCK: the one-liner plus full-content detail lines (2026-09-15 pin). */
+function questionBlock(q: Question): string[] {
+  // Titles are short by contract — never truncated. Only the prompt
+  // fallback gets the 60-char plain slice (no ellipsis).
+  const label = q.title ?? q.prompt.slice(0, 60);
+  const lines = [questionLine(q)];
+  // Full prompt when the header line does not already show it verbatim.
+  if (q.title !== undefined || q.prompt.length > 60) lines.push(`  prompt: ${q.prompt}`);
+  if (q.description !== undefined) lines.push(`  description: ${q.description}`);
+  for (const opt of q.options ?? []) {
+    const star = q.recommendation === opt.value ? " ★" : "";
+    const ram = opt.ramification !== undefined ? ` — ${opt.ramification}` : "";
+    lines.push(`  - ${opt.value} = ${opt.label}${star}${ram}`);
+  }
+  const meta: string[] = [];
+  if (q.group !== undefined) meta.push(`group: ${q.group}`);
+  if (q.gate === true) meta.push("gate: true");
+  if (q.dependsOn !== undefined && q.dependsOn.length > 0) {
+    meta.push(`dependsOn: ${q.dependsOn.map((d) => (d.equals !== undefined ? `${d.id}=${d.equals}` : `${d.id}≠${d.notEquals}`)).join(", ")}`);
+  }
+  if (meta.length > 0) lines.push(`  ${meta.join(" · ")}`);
+  return lines;
 }
 
 /** One h3.7 per-question line: `{id}: {label} — {status} (rev {rev})[ · answered: {value}]`. */

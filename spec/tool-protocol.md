@@ -32,7 +32,8 @@ const QuestionSchema = Type.Object({
 const InterrogateParams = Type.Object({
   goal: Type.Optional(Type.String({ description: "What these questions drive toward; shown in the panel header" })),
   epoch: Type.Optional(Type.Integer({ description: "REQUIRED with questions/answers: the session epoch you last saw (guards stale updates)" })),
-  questions: Type.Optional(Type.Array(QuestionSchema, { description: "Upsert. Omitting an existing id withdraws it" })),
+  questions: Type.Optional(Type.Array(QuestionSchema, { description: "Upsert (surgical): only the ids sent are created or updated — omitted live questions are untouched. To prune by omission, resend the full live set with withdrawOmitted: true" })),
+  withdrawOmitted: Type.Optional(Type.Boolean({ description: "Set-replace mode: live ids omitted from this batch withdraw (answers kept). Only meaningful alongside questions[]; omission alone NEVER withdraws" })),
   reopen: Type.Optional(Type.Boolean({ description: "Resurface the panel with existing state" })),
   answers: Type.Optional(Type.Array(Type.Object({
     id: Type.String(), value: Type.String(), text: Type.Optional(Type.String()),
@@ -45,7 +46,7 @@ const InterrogateParams = Type.Object({
 | Call | Action | Returns |
 |---|---|---|
 | `{questions:[...], goal?}` | Upsert (merge rules below) | Status line + "end your turn" instruction + caps warnings if any |
-| `{}` | Read | goal, epoch, group summary, per-question one-liners `{id, title, status, rev, answer?}` |
+| `{}` | Read | goal, epoch, group summary, per-question FULL content blocks (one-liner + prompt/description/options/meta — 2026-09-15 pin) |
 | `{reopen:true}` | Resurface panel | Confirmation |
 | `{answers:[...]}` | Record user answers (non-TUI only; ignored in TUI) | Status line |
 
@@ -54,7 +55,7 @@ const InterrogateParams = Type.Object({
 1. Existing id, same option values → text/description/ramification updates apply silently; existing answer and rev-bump; drafts untouched.
 2. Existing id, changed options → answer reset, status `reasked` (⟳ marker), rev-bump; panel draft *preserved* (surfaces when the user revisits).
 3. New id → appended, status `open`, rev 1.
-4. Existing id omitted → withdrawn (⊗ marker, kept in map with reason "withdrawn").
+4. FLAG-GATED (2026-09-15 pin): omitted live ids withdraw (⊗ marker, kept in map with reason "withdrawn") ONLY when `withdrawOmitted: true` is sent. Default is patch semantics — omitted live ids are UNTOUCHED, so a surgical 1–2 question edit can never withdraw the plan.
 
 ## Guards (Q38=A)
 
@@ -73,13 +74,14 @@ const InterrogateParams = Type.Object({
 
 **Tool description:**
 
-> Structured interrogation: plan by asking the user questions they answer in a persistent panel. Upsert `questions[]` (stable ids; existing questions require their current `rev`; omitting an id withdraws it). Call with `{}` to read current state, goal, and epoch. Answers arrive as submission messages — consider how they affect your other questions and re-ask only those materially affected (upsert with new rev). First round: few broad foundational questions with key ramifications; refine in later rounds; send the full set up front. The question set is the plan: when it completes, the full record is injected — derive the spec from it, don't re-plan. If unsure your view is current, read before upserting.
+> Structured interrogation: plan by asking the user questions they answer in a persistent panel. Upsert `questions[]` surgically — only sent ids are created or updated (stable ids; existing questions require their current `rev`); omitted questions are untouched. To prune, resend the full live set with `withdrawOmitted: true` so omitted ids withdraw. Call with `{}` to read full current state, goal, and epoch. Answers arrive as submission messages — re-ask only those materially affected. First round: few broad foundational questions with key ramifications; send the full set up front. The question set is the plan: when it completes, the full record is injected — derive the spec from it, don't re-plan. If unsure your view is current, read before upserting.
 
-**promptGuidelines (3 bullets — third added by the 2026-09-15 deep-view quality pin):**
+**promptGuidelines (4 bullets — third added by the 2026-09-15 deep-view quality pin, fourth by the 2026-09-15 patch-semantics pin):**
 
 - Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.
 - After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.
 - The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords). If the tool result warns a deep-view field is thin, re-upsert it expanded with the current rev.
+- Omission never withdraws: edit surgically by resending only the questions you are changing (with their current revs). Prune deliberately by resending the kept set with withdrawOmitted: true.
 
 ## Result rendering (TUI)
 

@@ -93,8 +93,12 @@ function ensureKnown(state: InterrogationState, id: string): void {
  *    marker), rev-bump; panel draft *preserved* (surfaces when the user
  *    revisits).
  * 3. New id → appended, status `open`, rev 1.
- * 4. Existing id omitted → withdrawn (⊗ marker, kept in map with reason
- *    "withdrawn").
+ * 4. FLAG-GATED (2026-09-15 patch-semantics pin): omitted live ids withdraw
+ *    (⊗ marker, kept in map with reason "withdrawn") ONLY when the caller
+ *    passes `withdrawOmitted: true`. By default (patch semantics) the batch
+ *    touches ONLY the ids it carries — omitted live questions are
+ *    UNTOUCHED, so a surgical 1–2 question edit can never withdraw the plan.
+ *    Deliberate pruning = resend the kept set + the flag.
  *
  * Reopen semantics (h2.38 decision table): a re-upsert of a `withdrawn` or
  * `closed` id bumps rev like any content mutation. Same option values keep
@@ -111,23 +115,28 @@ function ensureKnown(state: InterrogationState, id: string): void {
  * `getQuestion()` is never mutated, and existing ids keep their `order[]`
  * position (guaranteed by `upsertQuestion`).
  *
- * Rule 4 runs over the stored ids NOT present in the batch, but only "live"
- * statuses (open/answered/submitted/reasked) withdraw. `moot` is S3's
- * domain, `closed` is archived, and an already-`withdrawn` id is a no-op —
- * none of them re-withdraw. Withdrawn questions stay in the map with their
- * answer preserved for audit (Q34=A); rule 4 never bumps rev (h2.39).
+ * Rule 4 runs ONLY when `withdrawOmitted` is true (2026-09-15 pin), over the
+ * stored ids NOT present in the batch, and only "live" statuses
+ * (open/answered/submitted/reasked) withdraw. `moot` is S3's domain,
+ * `closed` is archived, and an already-`withdrawn` id is a no-op — none of
+ * them re-withdraw (tolerant posture: warn-level differences, never refuses).
+ * Withdrawn questions stay in the map with their answer preserved for audit
+ * (Q34=A); rule 4 never bumps rev (h2.39).
  *
  * Throws `Error("duplicate question id in upsert batch: <id>")` when the
  * batch repeats an id — the whole batch is refused before any mutation.
  *
  * @param state - The interrogation state (raw primitives only; never edited).
  * @param incoming - The upsert batch, applied in array order.
+ * @param withdrawOmitted - When true, rule 4 withdraws live ids omitted from
+ *        the batch (set-replace mode). Default false: patch semantics —
+ *        omitted live ids are untouched (2026-09-15 pin).
  * @returns The structured {@link UpsertResult} — the questionRevBumped seam:
  * `revBumped[]` is the event surface; the raw 'questions-upserted'
  * EventEmitter event also fires via `upsertQuestion` — panel and tool.ts
  * subscribe there and read this result for per-rule detail.
  */
-export function applyUpsert(state: InterrogationState, incoming: Question[]): UpsertResult {
+export function applyUpsert(state: InterrogationState, incoming: Question[], withdrawOmitted = false): UpsertResult {
   // Duplicate ids inside one batch are a model protocol error — refuse the
   // whole batch before touching any state.
   const seen = new Set<string>();
@@ -208,15 +217,20 @@ export function applyUpsert(state: InterrogationState, incoming: Question[]): Up
     revBumped.push(incomingQ.id);
   }
 
-  // PASS 2 — rule 4: stored ids omitted from the batch. Only live statuses
-  // withdraw; moot (S3's domain), closed (archived), and already-withdrawn
-  // ids are left untouched (no-op: no rev bump, no second withdrawal).
+  // PASS 2 — rule 4 (FLAG-GATED, 2026-09-15 pin): stored ids omitted from
+  // the batch withdraw ONLY in set-replace mode (`withdrawOmitted: true`).
+  // Default patch semantics skips this pass entirely — a surgical edit of
+  // one or two ids can never withdraw the rest of the plan. Only live
+  // statuses withdraw; moot (S3's domain), closed (archived), and already-
+  // withdrawn ids are left untouched (no-op: no rev bump, no re-withdrawal).
   const withdrawn: WithdrawalInfo[] = [];
-  for (const q of state.orderedQuestions()) {
-    if (seen.has(q.id)) continue;
-    if (!WITHDRAWABLE.includes(q.status)) continue;
-    state.setStatus(q.id, "withdrawn"); // stays in map, answer kept for audit
-    withdrawn.push({ id: q.id, reason: "withdrawn" });
+  if (withdrawOmitted) {
+    for (const q of state.orderedQuestions()) {
+      if (seen.has(q.id)) continue;
+      if (!WITHDRAWABLE.includes(q.status)) continue;
+      state.setStatus(q.id, "withdrawn"); // stays in map, answer kept for audit
+      withdrawn.push({ id: q.id, reason: "withdrawn" });
+    }
   }
 
   return { transitions, revBumped, withdrawn, appended };

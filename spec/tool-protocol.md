@@ -87,13 +87,11 @@ const InterrogateParams = Type.Object({
 
 `renderCall`: one-line row `interrogate {n} questions {+m new ~k updated}`. `renderResult`: status line + epoch; `expanded` shows full state summary. Renderers stay compact — the panel is the display, not the tool row.
 
-## Non-TUI fallback (FR-25, amended by FR-34)
+## Non-TUI fallback (FR-25 — unchanged by the remote bridge)
 
-`ctx.mode !== "tui" || !ctx.hasUI` → no panel. Default: the upsert result contains a numbered markdown digest (id, title, prompt, options with ★ marks, recommendation); the description instructs the model to relay it verbatim in chat. The user answers in their next prompt; the model records via `{answers:[...]}` (epoch-guarded). Read/completion work identically. Completion record is still injected once at close.
+`ctx.mode !== "tui" || !ctx.hasUI` → no panel. The upsert result contains a numbered markdown digest (id, title, prompt, options with ★ marks, recommendation); the description instructs the model to relay it verbatim in chat. The user answers in their next prompt; the model records via `{answers:[...]}` (epoch-guarded). Read/completion work identically. Completion record is still injected once at close. Bridge activity NEVER alters this result — the digest is the no-panel surface, a bridge client answering simply delivers answers sooner through the same state machine.
 
-**Remote-surface variant (FR-34):** once a phone submit has proven a remote listener (`phoneSeen` latch, set by remote-bridge on the first successful phone submission; in-memory, resets on restart), non-TUI upsert results instead return status line + `Questions delivered to the user's remote device; answers will arrive as submission messages.` + caps warnings — no digest, no relay instruction. The executor reads the latch through an injected `hasRemoteSurface()` dep (stays pure).
-
-**Emission hooks:** the executor calls an injected `onLiveQuestions(state, "upsert"|"reopen")` dep after every successful upsert/reopen with live questions, in ALL modes (TUI dual-surface included); index.ts routes it to remote-bridge's `emitFlow`. Non-TUI `reopen` additionally re-emits a remote flow when live questions exist. The executor remains UI-free and event-free — hooks only.
+**Emission hook:** the executor calls an injected `onLiveQuestions(state, "upsert"|"reopen")` dep after every successful upsert/reopen with live questions, in ALL modes; index.ts routes it to remote-bridge's `emitFlow` (conformant clients re-render; inert otherwise). The executor stays UI-free and event-free — hooks only.
 
 ## Plain-text round detection (FR-26, TUI only)
 

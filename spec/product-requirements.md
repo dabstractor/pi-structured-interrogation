@@ -60,12 +60,11 @@ In default pi, when a model asks dozens of planning questions, the question list
 - FR-29 `session_before_compact` supplies custom instructions: preserve verbatim the user's stated goals and plan constraints from all messages, all interrogation answers and changes, and the goal field.
 - FR-30 Goal field: agent-supplied, updatable, shown in the panel header at all times; anchors re-asks and compaction summaries.
 
-### Remote phone surface (remote-pi app; details in ui-spec.md §Remote)
-- FR-31 When remote-pi's extension is loaded in the same pi process, every successful upsert/reopen with ≥1 live question emits a pi-ask-compatible `started` flow on `pi.events`, so the paired phone renders a native multi-question modal. Zero remote_pi/app changes required. Config gate `interrogator.remote.enabled` (default true; inert without a listener).
-- FR-32 A phone submission flows through the SAME pipeline as a panel `ctrl+s`: answers apply to state, one submission delta message is delivered (triggers a model reply), epoch bumps once, `noteSubmissionDelivered` fires. A partial submission re-surfaces a fresh modal with the remaining questions (`remote.resurface`, default true).
-- FR-33 Phone cancel = defer: the modal dismisses, the interrogation stays open, no model-visible message. Recovery: bridge session-sync replay, agent `reopen` (re-emits), or any new upsert.
-- FR-34 Non-TUI upsert results adapt: digest fallback (FR-25) until the first successful phone submit proves a listener (`phoneSeen` latch, in-memory); afterwards the result states the questions were delivered to the user's device. Restart safely re-latches.
-- FR-35 Session restart with open questions re-emits a flow (`ask:resume`) after reconstruction; interrogation completion emits `completed` for all outstanding flows (no lingering modal).
+### Remote bridge surface (pi-ask contract; details in ui-spec.md §Remote bridge)
+- FR-31 The extension speaks the pi-ask bridge contract on `pi.events` (`@eko24ive/pi-ask:started|completed|submit|submit-result`, verbatim names and payload shapes): every successful upsert/reopen/restore with ≥1 live question emits a `started` flow; any conformant client (remote-pi's app, status cards, desktop helpers) renders it natively with zero bespoke integration. Config gate `interrogator.remote.enabled` (default true; inert without a listener).
+- FR-32 A bridge submission rides the SAME pipeline as a panel `ctrl+s`: answers apply to state, one submission delta message is delivered (triggers a model reply), epoch bumps once, `noteSubmissionDelivered` fires. Partial submissions leave remaining questions open; `remote.resurface` (default true) re-emits a fresh flow with them.
+- FR-33 Bridge cancel = defer: the flow resolves, the interrogation stays open, no model-visible message. Interrogation completion and session shutdown complete all outstanding flows (no lingering client surface). Stale `itg:` flows nack `flow_not_found`; submits for foreign flowIds are ignored silently (pi-ask's business).
+- FR-34 Session restart with open questions re-emits a flow (`ask:resume`) after reconstruction. Non-TUI behavior is otherwise unchanged: the FR-25 digest fallback stays exactly as is — no model-facing result text ever depends on bridge activity.
 
 ## Hard requirements (from user tooling evaluations)
 - R1 navigation freedom (FR-9) · R2 unmistakable recommendation marks (FR-7) · R3 batch note (FR-13) · R4 draft preservation (commitment 6) · R5 all hotkeys configurable (commitment 7).

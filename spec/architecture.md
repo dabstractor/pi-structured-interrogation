@@ -18,8 +18,8 @@ pi-interrogator/
 │   ├── text-field.ts         # embedded editor wrapper (factory composition)
 │   └── keys.ts               # key routing: config-driven, panel-intercept rules
 ├── fallback.ts             # non-TUI digest + chat answer recording
-├── remote-bridge.ts        # pi-ask-compatible event emission + phone submit handling (FR-31..35)
-├── remote-submit.ts        # phone-submission pipeline (mirrors panel ctrl+s ordering)
+├── remote-bridge.ts        # pi-ask bridge contract: event emission + submit handling (FR-31..34)
+├── remote-submit.ts        # bridge-submission pipeline (mirrors panel ctrl+s ordering)
 ├── lifecycle.ts              # auto-close on agent_settled, reopen, suspend/resume, widget
 ├── renderers.ts              # registerMessageRenderer / registerEntryRenderer cards
 ├── persistence.ts            # details mirroring, session_start reconstruction
@@ -35,8 +35,8 @@ pi-interrogator/
 | `panel/*` | The bottom-dock UI while open. Owns drafts (typed-not-submitted answers + batch note) |
 | `delivery.ts` | Builds delta custom messages (`interrogation-submission`) and the one-time completion record |
 | `lifecycle.ts` | Panel open/suspend/resume orchestration, `agent_settled` auto-close, suspend widget, reopen handling |
-| `remote-bridge.ts` | Emits `@eko24ive/pi-ask:*` flows on `pi.events` (remote-pi's bridge renders them on the phone); accepts phone submits; `phoneSeen` latch; resurface-after-partial-submit |
-| `remote-submit.ts` | Phone answers → state → submission delta (same ordering contract as `panel/actions.submit`) |
+| `remote-bridge.ts` | Speaks the pi-ask bridge contract on `pi.events` (`started`/`submit`/`submit-result`/`completed`); accepts bridge submits; resurface-after-partial-submit; flow registry with foreign/stale filtering |
+| `remote-submit.ts` | Bridge answers → state → submission delta (same ordering contract as `panel/actions.submit`) |
 | `persistence.ts` | Mirrors state to `interrogation-state` custom entries (debounced); reconstructs on `session_start` |
 
 ## Key flows
@@ -130,17 +130,17 @@ session_start → persistence: walk buildContextEntries()
 | `session_before_compact` | return customInstructions (FR-29) |
 | `session_shutdown` | flush mirror entry; dispose remote bridge (complete outstanding flows) |
 
-### Phone submit (remote-pi app; FR-32)
+### Bridge submit (pi-ask contract; FR-32)
 
 ```
-phone modal submit → remote-pi bridge emits @eko24ive/pi-ask:submit
+bridge client submit → remote-pi (or any conformant bridge) emits @eko24ive/pi-ask:submit
   remote-bridge.ts: parse → flowId registry check (foreign/stale/malformed filtered)
   remote-submit.ts: validate answers vs current options → applyAnswer ×n
       → baseline/computeDiff/pendingIds (BUG-008 filter) → markSubmitted
       → buildSubmission (snapshot+bump once) → deliverSubmission (steer|followUp)
       → lifecycle.noteSubmissionDelivered()
-  emit submit-result ok:true → completed (dismiss modal)
-  → remaining live questions? emit fresh flow (ask:replay)
+  emit submit-result ok:true → completed (resolve the flow)
+  → remaining live questions + remote.resurface? emit fresh flow (ask:replay)
 model receives interrogation-submission delta → replies (identical to panel ctrl+s)
 ```
 | `session_shutdown` | flush mirror entry |

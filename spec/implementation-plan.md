@@ -76,8 +76,8 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 }
 ```
 
-## Remote integration milestone (2026-09-18; spec/decisions.md § Remote)
+## Remote integration milestone (2026-09-18; spec/decisions.md §Remote bridge surface)
 
-Build order: config surface → `remote-bridge.ts` (emission + submit handling + latch) → `remote-submit.ts` (panel-parity pipeline; extract `submissionBaselineOf` into snapshots.ts) → tool.ts hooks (`onLiveQuestions`, `hasRemoteSurface`) → index/completion/reconstruct wiring (`onCompleted`, `onRestored`) → tests (unit, real-bridge contract compat, live RPC round trip) → README.
+Build order: config surface → `remote-bridge.ts` (pi-ask contract emission + submit handling) → `remote-submit.ts` (panel-parity pipeline; extract `submissionBaselineOf` into snapshots.ts) → tool.ts `onLiveQuestions` hook → index/completion/reconstruct wiring (`onCompleted`, `onRestored`) → tests (unit, real-bridge contract compat, live RPC round trip) → README. The FR-25 digest fallback is untouched by all of it.
 
 Every display string that names a key (footer, widget, dialogs) is generated from the resolved config — never hardcode a key label.

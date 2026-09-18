@@ -174,20 +174,17 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
     createInterrogateTool(config, {
       onReopen: () => {
         if (panelHost.isOpen()) return "already-open";
-        if (panelHost.isSuspended()) {
-          // BUG-005: dead = no live questions (the shared resumable
-          // predicate — FR-6: state-existence plumbing, never a
-          // recency/epoch gate).
-          const state = getState();
-          if (
-            !(state !== undefined && hasResumableQuestions(state)) ||
-            resumeSurface === undefined
-          )
-            return "no-state";
-          resumePanel(resumeSurface);
-          return "reopened";
-        }
-        return "no-state";
+        // Suspended AND cold-resume stuck-open hosts (isOpen() false with a
+        // phantom never-mounted panel) both land here — resumePanel routes
+        // through openPanel, whose stuck-open guard remounts.
+        const state = getState();
+        if (
+          !(state !== undefined && hasResumableQuestions(state)) ||
+          resumeSurface === undefined
+        )
+          return "no-state";
+        resumePanel(resumeSurface);
+        return "reopened";
       },
     }),
   );

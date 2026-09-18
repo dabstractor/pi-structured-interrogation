@@ -502,6 +502,8 @@ export class InterrogationPanel implements Component {
    */
   private readonly labels: Record<KeyAction, string>;
   private cached: string[] | undefined;
+  /** Liveness signal: true once pi actually rendered this panel (cold-resume fix). */
+  renderedOnce = false;
   /**
    * Last render width (-1 before the first render). Public so the deep-view
    * scroll actions clamp offsets against the width the pane was last
@@ -606,6 +608,7 @@ export class InterrogationPanel implements Component {
    */
   render(width: number): string[] {
     const rows = this.currentRows();
+    this.renderedOnce = true; // liveness: pi mounted and painted us at least once
     if (this.cached !== undefined && width === this.lastWidth && rows === this.lastRows) {
       return this.cached;
     }
@@ -1372,6 +1375,30 @@ let upsertState: InterrogationState | undefined;
  * points BEFORE the panel reference is dropped; consumed by resumeOpenPanel.
  */
 let lastFocusId: string | undefined;
+/** When the current open attempt started (ms) — the stuck-open clock. */
+let openedAt = 0;
+/** Monotonic open sequence — stale custom() resolutions are ignored. */
+let openSeq = 0;
+
+/**
+ * STUCK-OPEN DETECTION (cold-resume fix): `phase === "open"` is set as soon
+ * as custom() returns a promise, but the panel only truly exists once the
+ * custom() BODY runs (it assigns `currentPanel`). On a cold `--session`
+ * resume, reconstruction auto-opens during session_start and that body can
+ * never run — the UI never mounts the component, the promise never
+ * resolves, and the host deadlocks on a phantom panel: every entry point
+ * (/interrogate, agent upserts, {reopen:true}) sees "already open" and
+ * silently no-ops. Self-heal rule: an open that has NO mounted panel well
+ * past the mount window is treated as NOT open, so callers remount. 5s is
+ * orders of magnitude above the real body-run gap yet invisible to users.
+ */
+function stuckOpen(): boolean {
+  return (
+    phase === "open" &&
+    currentPanel?.renderedOnce !== true &&
+    Date.now() - openedAt > 5000
+  );
+}
 
 /**
  * custom() resolution / rejection landing spot. ANY resolution counts as
@@ -1389,6 +1416,12 @@ function markSuspended(): void {
 /** questions-upserted while open → invalidate; while suspended → reopen. */
 function handleUpserted(ids: string[]): void {
   if (phase === "open") {
+    // Stuck-open (cold-resume phantom): remount instead of invalidating a
+    // panel that never mounted — same shape as the suspended branch below.
+    if (stuckOpen() && activePi !== undefined && lastOpts !== undefined) {
+      openPanel(activePi, { ...lastOpts, focusQuestionId: firstActiveUpsertedId(lastOpts.state, ids) });
+      return;
+    }
     // Open-but-stale: just invalidate — the panel re-reads state on render.
     currentPanel?.invalidate();
     return;
@@ -1469,7 +1502,7 @@ export function createPanelHost(
       ? () => lifecycle.noteSubmissionDelivered?.()
       : undefined;
   return {
-    isOpen: () => phase === "open",
+    isOpen: () => phase === "open" && !stuckOpen(),
     isSuspended: () => phase === "suspended",
     suspend: () => suspendCurrent(),
     getPanel: () => currentPanel,
@@ -1493,6 +1526,9 @@ export function createPanelHost(
  * - Guards `mode === "tui"` (custom() resolves undefined in RPC mode).
  * - Single-instance: while a panel is open this is a no-op returning false
  *   (an upsert and a reconstruction can otherwise double-replace the editor).
+ *   EXCEPT a stuck-open (no mounted panel past the mount window — see
+ *   {@link stuckOpen}): the call falls through and remounts, healing the
+ *   cold-resume phantom.
  * - Subscribes questions-upserted on the given state instance for the
  *   open-invalidate / suspended-reopen behavior (h2.37); a prior
  *   subscription on an older state instance is replaced.
@@ -1503,7 +1539,7 @@ export function createPanelHost(
  */
 export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   if (pi.mode !== undefined && pi.mode !== "tui") return false;
-  if (phase === "open") return false;
+  if (phase === "open" && !stuckOpen()) return false;
 
   // NEW-001 — production submit wiring: when the caller supplied no explicit
   // delivery, derive the SubmitDeps from THIS surface (every real open path —
@@ -1559,13 +1595,19 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   // nothing mounted — do not flip to open.
   if (promise === undefined || typeof promise.then !== "function") return false;
 
+  // Stuck-open remount invalidates any PRIOR pending custom(): this open
+  // supersedes it, and its (never-arriving or late) resolution must not
+  // suspend the NEW panel. Capture the sequence and ignore stale landings.
+  const seq = ++openSeq;
   phase = "open";
+  openedAt = Date.now();
   // A live panel makes the reminder stale — clear it NOW, before `return
   // true`: openPanel is synchronous until the promise resolves, so waiting
   // for .then would leave the line up while the panel is live.
   activePi?.ui.setWidget?.(WIDGET_KEY, undefined);
   void promise
     .then(() => {
+      if (seq !== openSeq) return; // superseded by a remount — ignore
       // Belt-and-braces cleanup: pi disposes the component on done(), but the
       // host must not depend on it — drop the state subscription ourselves
       // (dispose is idempotent). Dispose BEFORE markSuspended clears the
@@ -1587,6 +1629,7 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       }
     })
     .catch(() => {
+      if (seq !== openSeq) return; // superseded by a remount — ignore
       // Crashed panel: same suspend semantics — capture focus, then apply
       // the identical widget rule (symmetric with .then).
       if (currentPanel !== undefined) lastFocusId = currentPanel.currentId;

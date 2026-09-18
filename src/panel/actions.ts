@@ -219,9 +219,12 @@ export function accept(panel: InterrogationPanel): boolean {
   if (q.type === "text") return true;
   const optionCount = q.options?.length ?? 0;
   if (panel.cursorIndex >= optionCount) {
-    // ✎ explain affordance — hand focus to the text editor (M4.T1.S2).
-    panel.focus = "text";
-    panel.invalidate();
+    // ✎ explain affordance — focus the editor through the panel's seeding
+    // path (M4.T1.S2): focusTextField seeds the freshest draft
+    // (panel-local slot → DraftStore seam → ""), so re-entering the ✎ on a
+    // revisited question restores its saved draft instead of whatever
+    // buffer the editor still holds from the previous question (R4).
+    panel.focusTextField();
     return true;
   }
   return acceptOptionIndex(panel, q, panel.cursorIndex);

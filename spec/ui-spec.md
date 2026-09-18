@@ -28,6 +28,7 @@ The panel is hosted by `ctx.ui.custom()` (non-overlay): it *is* the bottom edito
 
 ## Free-text field (Q17=A)
 
+**Semantics — the explanation is EXTRA, not an answer of its own** (on choice questions): it is an elaboration that attaches to whichever option the user selects, shipping at submit as `answer.text` alongside `answer.value`. Selecting options remains fully available before, during, and after explaining — the draft and the option choice are orthogonal (the draft is stored per question, R4, and attaches to whatever option is pending at submit; changing the selection re-attaches the same draft). A choice question with an explanation but no selected option does not ship. On `type:"text"` questions the editor IS the answer (there are no options) — the draft becomes `answer.value` at submit.
 - Instantiated once per panel via `ctx.ui.getEditorComponent()(tui, theme, keybindings)` — composes the user's active editor (vim modes etc.). Not focused by default; `ctrl+t` (or clicking the `✎` affordance region) focuses it.
 - `enter` saves the draft and returns focus to options; the *next* `enter` advances (two-stage, so multi-line typing with `shift+enter`/`ctrl+j` is safe). Separate history (never calls `addToHistory`).
 - `ctrl+g` (mirrors `app.editor.external`): opens `$VISUAL`/`$EDITOR` (nano fallback) seeded with the draft via temp file; on clean exit the text replaces the field.

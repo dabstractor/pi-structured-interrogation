@@ -330,6 +330,13 @@ export class InterrogationPanel implements Component {
     this.currentIdValue = id;
     const q = id !== undefined ? this.state.getQuestion(id) : undefined;
     this.cursorIndex = q !== undefined ? initialCursorIndex(q) : 0;
+    // EXPLAIN-002: the editor buffer is QUESTION-SCOPED — switching
+    // questions writes the outgoing buffer through to its owner question's
+    // draft and re-seeds from the new question's draft. Without this, the
+    // one-per-panel editor (h2.31) shows the PREVIOUS question's text when
+    // a text-type question renders its editor region unfocused, or when
+    // tab/shift+tab navigate while the editor is focused.
+    this.syncBufferToQuestion(id);
   }
 
   /**
@@ -370,6 +377,18 @@ export class InterrogationPanel implements Component {
    * belong to P1.M4.T2.S1.
    */
   private draftSlots = new Map<string, TextDraft>();
+
+  /**
+   * EXPLAIN-002 — which question (or duty) the TextField's buffer currently
+   * holds: a question id, "note" while the editor is on note duty, or
+   * undefined before the first assignment. The single editor component is
+   * per-PANEL (h2.31) but its CONTENT is per-QUESTION: {@link syncBufferToQuestion}
+   * maintains that invariant at every switch point so a long-form answer
+   * never bleeds across questions (a text-type question renders the editor
+   * region unfocused — it must show ITS draft, blank when none, never the
+   * previous question's leftovers).
+   */
+  private bufferOwner: string | "note" | undefined;
 
   /**
    * One-shot two-stage enter flag (h2.31, Mode A): armed by stage-1 (enter
@@ -899,24 +918,76 @@ export class InterrogationPanel implements Component {
   }
 
   /**
+   * EXPLAIN-002 — re-scope the editor buffer to `id` (called from the
+   * currentId setter and the note-exit path):
+   *
+   * - NOTE duty (owner "note") is QUESTION-AGNOSTIC: navigating while the
+   *   note editor is open must not touch the note buffer (the note rides
+   *   the next submission regardless of the current question) — no-op.
+   * - Same owner → no-op (the buffer already IS that question's draft;
+   *   every unfocused write path keeps slot and buffer in sync, so a
+   *   re-seed here could only clobber identical text).
+   * - Different owner → R4 WRITE-THROUGH first: the buffer's typed-but-
+   *   unsubmitted text belongs to its OWNER question, so persist it to that
+   *   question's slot + DraftStore seam BEFORE switching (navigation never
+   *   destroys drafts — this is what keeps tab-away-and-back lossless while
+   *   the editor is focused). Then seed the incoming question's freshest
+   *   draft (panel-local slot → seam → "" — a NEW BLANK box when it has
+   *   never been drafted). The write-through is deliberately UNGATED (no
+   *   FR-18 ripple modal): navigation is not an answer gesture — the modal
+   *   guards only the explicit save/exit gestures (enter, ctrl+t, esc-esc).
+   */
+  private syncBufferToQuestion(id: string | undefined): void {
+    if (this.bufferOwner === "note") return; // note duty ignores question switches
+    if (this.bufferOwner === id) return; // already showing this question's draft
+    if (this.bufferOwner !== undefined) {
+      const text = this.textField.getText();
+      // Absent-draft discipline (the store's "empty slot = absent draft"
+      // rule): a never-drafted owner with an empty buffer writes NOTHING;
+      // a buffer deleted-to-empty over an existing draft DOES write ""
+      // (the deletion is honored — same as a stage-1 enter on an emptied
+      // buffer).
+      const existing = this.freshestDraftFor(this.bufferOwner);
+      if (text.trim() !== "" || existing.trim() !== "") {
+        this.draftSlots.set(this.bufferOwner, { value: this.bufferOwner, text });
+        this.drafts?.setDraft(this.bufferOwner, text);
+      }
+    }
+    this.bufferOwner = id;
+    const draft = this.freshestDraftFor(id);
+    this.textField.seed(draft);
+  }
+
+  /**
+   * Freshest draft text for a question: panel-local stage-1 slot first
+   * ({@link saveTextDraft}), falling back to the DraftStore seam — the same
+   * precedence as {@link focusTextField}'s seeding. "" when the question
+   * has no draft (or no question is current).
+   */
+  private freshestDraftFor(questionId: string | undefined): string {
+    if (questionId === undefined) return "";
+    return this.draftSlots.get(questionId)?.text ?? this.drafts?.getDraft(questionId) ?? "";
+  }
+
+  /**
    * Focus path for the router's onFocusText seam (keys.focusText / ctrl+t,
    * and the ✎ affordance route refined in the constructor): focus the
-   * embedded editor and seed the current draft. P1.M4.T1.S2 refines S1's
-   * empty-only seeding (h2.31 seed-on-refocus): the freshest read is the
+   * embedded editor and seed the current draft. P1.M4.T1.S2's seed-on-
+   * refocus contract (h2.31) is preserved: the freshest read is the
    * panel-local slot written by stage-1 enter ({@link saveTextDraft}),
    * falling back to the DraftStore seam (P1.M4.T2.S1 supplies it) and
    * finally "". {@link TextField.seed} is idempotent — a same-question
    * re-focus whose buffer already matches is a textual no-op — while a
    * cross-question re-focus re-seeds instead of showing the previous
-   * question's leftover text.
+   * question's leftover text. EXPLAIN-002: the buffer owner is (re)claimed
+   * for the current question after seeding.
    */
   focusTextField(): void {
     this.focus = "text";
+    this.syncBufferToQuestion(this.currentId);
+    this.textField.seed(this.freshestDraftFor(this.currentId));
+    this.bufferOwner = this.currentId;
     this.textField.focus();
-    const id = this.currentId;
-    const draft =
-      id !== undefined ? (this.draftSlots.get(id)?.text ?? this.drafts?.getDraft(id)) : undefined;
-    this.textField.seed(draft ?? "");
     this.invalidate(); // the editor region appears immediately
   }
 
@@ -963,6 +1034,7 @@ export class InterrogationPanel implements Component {
   enterNoteMode(): void {
     this.focus = "note";
     this.textField.seed(this.drafts?.getNote() || this.batchNote || "");
+    this.bufferOwner = "note"; // EXPLAIN-002: note duty suspends question scoping
     this.textField.focus();
     this.invalidate(); // the note header + editor region appear immediately
   }
@@ -980,6 +1052,15 @@ export class InterrogationPanel implements Component {
     const text = this.textField.getText();
     this.batchNote = text;
     this.drafts?.setNote(text);
+    // EXPLAIN-002: the buffer just held the NOTE — re-scope it to the
+    // current question BEFORE anything renders the editor region for it
+    // (a text-type question renders unfocused; it must never show note
+    // text). Seeding from the question's freshest draft does not lose the
+    // note: it was written through to batchNote + the seam above. Direct
+    // seeding (not syncBufferToQuestion) — the note is not an answer draft
+    // to write through anywhere.
+    this.bufferOwner = this.currentId;
+    this.textField.seed(this.freshestDraftFor(this.currentId));
     this.blurTextField(); // focus = "options" + editor blur + invalidate
   }
 
@@ -1018,6 +1099,7 @@ export class InterrogationPanel implements Component {
         if (id !== undefined) {
           this.draftSlots.set(id, { value: id, text: result.content });
           this.drafts?.setDraft(id, result.content);
+          this.bufferOwner = id; // EXPLAIN-002: buffer now belongs to this question
         }
         this.invalidate();
       }
@@ -1135,7 +1217,10 @@ export class InterrogationPanel implements Component {
         // question (its primary affordance per short-view.ts). Sync the
         // wrapper flag with panel focus first so non-router focus paths
         // (actions.ts ✎ accept sets panel.focus directly) keep the editor's
-        // own focused flag truthful.
+        // own focused flag truthful. EXPLAIN-002: the buffer is question-
+        // scoped (synced at every currentId change) — this UNFOCUSED render
+        // for a text question shows THAT question's draft (blank when none),
+        // never another question's leftover text or the batch note.
         if (this.focus === "text" && !this.textField.focused) this.textField.focus();
         if (this.focus === "text" || current.type === "text") {
           lines.push(...this.textField.render(width));

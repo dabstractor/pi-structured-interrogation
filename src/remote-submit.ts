@@ -26,10 +26,17 @@
  * 4. BUG-008(b) user-shipped filter (exact predicate from actions.ts):
  *    entries whose `to` is "(unanswered)" AND that the user did not ship
  *    are agent-caused rule-2 re-ask resets — never shipped, drafts survive.
- * 5. Zero shippable change → `nothing_shippable` (the panel's "nothing to
+ * 5. STATUS FLUSH — `markSubmitted(pendingIds)` (h2.38: pending ids are
+ *    submitted so the agent_settled close pass can archive them) happens
+ *    BEFORE the zero-change early return, iff anything is pending: a
+ *    conformant client re-submits the FULL answer set after every re-ask,
+ *    and a rule-1 re-ask (same options) KEEPS the answers — identical
+ *    values produce an empty diff, and skipping the flush there would
+ *    leave freshly-answered ids stuck at "answered" (never submitted,
+ *    never closed, completion deadlocked — live RPC itest deadlock #3).
+ * 6. Zero shippable change → `nothing_shippable` (the panel's "nothing to
  *    submit" flash analogue) — NO snapshot, NO epoch bump, NO delivery.
- * 6. `markSubmitted(pendingIds)` (h2.38: pending ids are submitted at this
- *    epoch so the agent_settled close pass can archive them).
+ *    The status flush above has already run; only the delta is skipped.
  * 7. `buildSubmission(state, { ...diff, changed: userChanged })` — it alone
  *    performs takeSnapshot + bumpEpoch, EXACTLY ONCE. Callers must never
  *    snapshot/bump around it.
@@ -106,13 +113,21 @@ export function recordRemoteSubmission(
     (e) => pendingIds.includes(e.id) || !(e.to === "(unanswered)"),
   );
 
-  // 5. Nothing user-shipped → nothing to submit (no snapshot/bump/delivery).
+  // 5. STATUS FLUSH (before the zero-change return — see module contract:
+  // identical-value re-selections after a rule-1 re-ask still count as the
+  // user's current delivered answer; only the delta message is optional).
+  if (pendingIds.length > 0) markSubmitted(state, pendingIds);
+
+  // 6. Nothing user-shipped → nothing to submit (no snapshot/bump/delivery).
+  //    The h2.44 line-1 contract STILL fires when the flush above ran: the
+  //    answers were accepted (statuses now submitted), so the close-pass
+  //    suppression flags must clear — a rule-1 re-upsert earlier in the run
+  //    armed reaskedThisRun, and leaving it armed deadlocks completion
+  //    exactly like the shipped-path variant (live RPC itest deadlock #4).
   if (diff.changed.length === 0 || userChanged.length === 0) {
+    if (pendingIds.length > 0) deps.lifecycle?.noteSubmissionDelivered();
     return { ok: false, reason: "nothing_shippable" };
   }
-
-  // 6. h2.38 flush: pending ids are submitted at this epoch.
-  markSubmitted(state, pendingIds);
 
   // 7. buildSubmission alone performs takeSnapshot + bumpEpoch (exactly once).
   const msg = buildSubmission(state, { ...diff, changed: userChanged });

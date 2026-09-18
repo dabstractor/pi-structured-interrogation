@@ -158,3 +158,53 @@ describe("recordRemoteSubmission (D-R5 parity)", () => {
     expect(busy.opts).toEqual([{ deliverAs: "steer" }]);
   });
 });
+
+// ------------------------------------------- itest deadlock #3 regression
+
+describe("recordRemoteSubmission — status flush on identical re-selection", () => {
+  test("rule-1 re-ask + identical values: nothing_shippable BUT pending ids flush to submitted (close pass can archive)", () => {
+    const st = fixture();
+    // Ship a first submission so a snapshot baseline exists.
+    const first = makePi();
+    recordRemoteSubmission(first.pi, st, [{ id: "q1", value: "sqlite" }], {});
+    expect(st.getQuestion("q1")?.status).toBe("submitted");
+    // Rule-1 re-ask (same options): answers kept, status flipped to reasked
+    // by the lifecycle end handler — simulate the post-flip world directly.
+    st.setStatus("q1", "reasked");
+    const sent2: unknown[] = [];
+    const out = recordRemoteSubmission(
+      { sendMessage: (m: unknown) => sent2.push(m) } as never,
+      st,
+      [{ id: "q1", value: "sqlite" }], // IDENTICAL value — empty diff
+      {},
+    );
+    expect(out).toEqual({ ok: false, reason: "nothing_shippable" });
+    // THE FIX: the answer flushed to submitted despite the empty diff —
+    // without it the id sticks at "answered" and completion deadlocks.
+    expect(st.getQuestion("q1")?.status).toBe("submitted");
+    expect(sent2).toEqual([]); // no delta message, no snapshot, no epoch burn
+    expect(st.snapshots).toHaveLength(1);
+    // Deadlock #4: the flush path must ALSO honor the h2.44 line-1 contract
+    // (clear suppression flags) — an armed reaskedThisRun must not survive an
+    // accepted answer just because no delta message was warranted.
+    const cleared: string[] = [];
+    const st2 = fixture();
+    recordRemoteSubmission(
+      { sendMessage: () => cleared.push("ship") } as never,
+      st2,
+      [{ id: "q1", value: "sqlite" }],
+      {},
+    );
+    st2.setStatus("q1", "reasked");
+    const noted = { calls: 0 };
+    const out2 = recordRemoteSubmission(
+      { sendMessage: () => cleared.push("ship2") } as never,
+      st2,
+      [{ id: "q1", value: "sqlite" }],
+      { lifecycle: { noteSubmissionDelivered: () => noted.calls++ } },
+    );
+    expect(out2).toEqual({ ok: false, reason: "nothing_shippable" });
+    expect(noted.calls).toBe(1); // cleared even with nothing to ship
+    expect(cleared).toEqual(["ship"]); // only the FIRST (real) change ships
+  });
+});

@@ -39,6 +39,8 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
 
 const UP = "\u001b[A";
 const DOWN = "\u001b[B";
+const LEFT = "\u001b[D";
+const RIGHT = "\u001b[C";
 const ESCAPE = "\u001b";
 const ENTER = "\r";
 const F9 = "\u001b[20~";
@@ -399,7 +401,42 @@ describe("buildKeyRouter — fixed keys and gating", () => {
     expect(route(UP, makePanel())).toBe(false);
   });
 
+  test("test_left_right_navigate_full_question_list", () => {
+    // Fixed keys: a config that remaps prevQuestion/nextQuestion cannot
+    // shadow the arrows (they are not in the KeyAction union).
+    const actions = makeActions();
+    const { route } = makeRouter(configWithKeys({ prevQuestion: "f7", nextQuestion: "f8" }), actions);
+    const panel = makePanel();
+    expect(route(LEFT, panel)).toBe(true);
+    expect(actions.prevQuestion).toHaveBeenCalledTimes(1);
+    expect(route(RIGHT, panel)).toBe(true);
+    expect(actions.nextQuestion).toHaveBeenCalledTimes(1);
+    expect(dispatchCount(actions)).toBe(2);
+  });
 
+  test("test_left_right_in_deep_view_move_questions", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ view: "deep" });
+    expect(route(RIGHT, panel)).toBe(true);
+    expect(actions.nextQuestion).toHaveBeenCalledTimes(1);
+    expect(route(LEFT, panel)).toBe(true);
+    expect(actions.prevQuestion).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_left_right_forward_to_editor_in_text_and_note_focus", () => {
+    // Caret ownership: while the embedded editor holds focus (text answer
+    // or batch note), horizontal arrows belong to the editor — the router
+    // must NOT intercept them (return false → panel.ts forwards).
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    for (const focus of ["text", "note"] as PanelFocus[]) {
+      expect(route(LEFT, makePanel({ focus }))).toBe(false);
+      expect(route(RIGHT, makePanel({ focus }))).toBe(false);
+    }
+    expect(actions.prevQuestion).not.toHaveBeenCalled();
+    expect(actions.nextQuestion).not.toHaveBeenCalled();
+  });
 });
 
 // ------------------------------------------------------------- collisions
@@ -811,6 +848,22 @@ describe("buildKeyRouter — overview view-gating (P1.M5.T2.S1)", () => {
     expect(panel.overviewCursor).toBe(1);
     // currentId untouched — only enter/esc leave the overview list.
     expect(panel.currentId).toBe("q1");
+    expect(actions.prevQuestion).not.toHaveBeenCalled();
+    expect(actions.nextQuestion).not.toHaveBeenCalled();
+  });
+  test("test_left_right_in_overview_move_cursor_row_not_currentId", () => {
+    // Fixed-key mirror of the config prev/next contract: in the overview
+    // the horizontal arrows drive the CURSOR ROW via overviewUp/overviewDown
+    // — never currentId and never the short-view option cursor.
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeOverviewPanel();
+    panel.overviewCursor = 1;
+
+    expect(route(LEFT, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.overviewCursor).toBe(0);
+    expect(route(RIGHT, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.overviewCursor).toBe(1);
     expect(actions.prevQuestion).not.toHaveBeenCalled();
     expect(actions.nextQuestion).not.toHaveBeenCalled();
   });

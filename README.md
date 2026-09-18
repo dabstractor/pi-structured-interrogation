@@ -167,6 +167,7 @@ Fixed keys (not configurable):
 | `esc`    | Back / suspend — descends, never destroys. While the text/note editor is focused, a single `esc` goes to the editor (vim modes); `esc` twice in a row (within `escExitWindowMs`, default 500 ms, `0` disables) closes the editor only |
 | `ctrl+c` | Closes the prompt (suspend) and stays unconsumed — pi's own ctrl+c flow (clear editor; double-press shuts down) resumes on the restored editor |
 | `↑` `↓`  | Move among options; scroll. In the editor: caret movement |
+| `←` `→`  | Previous / next question — the FULL list (every status navigable, clamped at the ends), view-aware (overview: cursor row); not intercepted in text/note focus (the editor caret owns them there) |
 | `1`–`9`  | Quick-select an option (when `digitQuickSelect` is on) |
 
 Non-key option: `"escExitWindowMs": 500` under `"interrogator"` in settings —
@@ -180,10 +181,10 @@ editor's contents are **per-question** — opening it on another question
 starts blank (or that question's own saved draft); switching questions while
 typing saves the text to its question automatically.
 
-Navigation defaults: questions move with `tab` / `shift+tab`
-(`keys.prevQuestion` / `keys.nextQuestion`, remappable above). Suspending
-is `esc`; resuming is `/interrogate` (invoke-only — never a toggle, never
-a key combo).
+Navigation defaults: questions move with `←` / `→` (fixed keys, above) or
+`tab` / `shift+tab` (`keys.prevQuestion` / `keys.nextQuestion`, remappable
+above). Suspending is `esc`; resuming is `/interrogate` (invoke-only — never
+a toggle, never a key combo).
 
 While the panel is open, panel keys are intercepted before the embedded
 editor sees them; everything else forwards to the editor. While the editor

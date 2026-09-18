@@ -21,11 +21,16 @@
  *
  * ## Mode A — fixed keys (never config-driven)
  *
- * `up`, `down`, `esc`, and `enter` are FIXED: they are deliberately absent
- * from the `KeyAction` config union (config.ts), so a user cannot remap or
- * shadow them by construction. They are checked BEFORE every config
- * accelerator — arrows first, because arrow sequences are ESC-prefixed and
- * an esc branch checked earlier would eat them. `enter` interception applies
+ * `up`, `down`, `left`, `right`, `esc`, and `enter` are FIXED: they are
+ * deliberately absent from the `KeyAction` config union (config.ts), so a
+ * user cannot remap or shadow them by construction. They are checked BEFORE
+ * every config accelerator — arrows first, because arrow sequences are
+ * ESC-prefixed and an esc branch checked earlier would eat them. `←`/`→`
+ * navigate the FULL question list (prev/next — every status navigable, R1/
+ * FR-9, clamped at the ends) and are view-aware exactly like the config
+ * prev/next keys (overview: cursor row; short/deep: current question); they
+ * are NOT intercepted in text/note focus, where the editor caret owns them.
+ * `enter` interception applies
  * only when focus is on the options region; in text/note focus `enter`
  * FORWARDS so the embedded field (P1.M4.T1.S2) can implement its two-stage
  * save — this is the single exception to the intercept rule (note focus is
@@ -53,8 +58,9 @@
  * order below wins — this is documented, deliberate behavior, not an error.
  * Resolution order (load-bearing — do not reorder casually):
  *
- *   1. up / down                (fixed — view-aware: overview cursor →
- *      deep selection → short-form option cursor)
+ *   1. up / down / left / right   (fixed — view-aware: overview cursor →
+ *      deep selection → short-form option cursor; left/right = question
+ *      navigation, full list)
  *   2. esc                      (fixed — view-descent ladder, then suspend)
  *   3. enter                    (fixed — options focus only → view-aware:
  *      overview jump → deep accept → short accept)
@@ -353,6 +359,25 @@ export function buildKeyRouter(
       if (panel.view === "overview") return overviewDown(panel);
       if (panel.view === "deep") return deepSelectionDown(panel);
       return actions.optionDown(panel);
+    }
+
+    // 1b. Fixed ←/→ — question navigation through the FULL list (R1/FR-9:
+    // every status navigable, clamped — stepQuestion), view-aware exactly
+    // like the config prev/next keys: overview moves the CURSOR ROW, short
+    // and deep move currentId. NOT intercepted in text/note focus — there
+    // the embedded editor owns horizontal caret movement (the same
+    // editor-forwarding contract as every non-intercept key). Checked with
+    // the other fixed arrows, BEFORE esc: left/right sequences are
+    // ESC-prefixed and the esc ladder must not eat them.
+    if (panel.focus !== "text" && panel.focus !== "note") {
+      if (matchesKey(data, Key.left)) {
+        if (panel.view === "overview") return overviewUp(panel);
+        return actions.prevQuestion(panel);
+      }
+      if (matchesKey(data, Key.right)) {
+        if (panel.view === "overview") return overviewDown(panel);
+        return actions.nextQuestion(panel);
+      }
     }
 
     // 2. Fixed esc. OPTIONS focus: the view-descent ladder, terminus suspend

@@ -52,6 +52,7 @@ On committing an answer change to an *answered* question in the panel (the momen
 | Action | Default | Config key | Context |
 |---|---|---|---|
 | prev/next question | `tab` / `shift+tab` | `keys.prevQuestion`/`nextQuestion` | short form |
+| prev/next question | `←` / `→` | fixed (not configurable) | panel (all views; full list incl. moot/withdrawn; overview: cursor row) |
 | move among options | `↑`/`↓` | fixed | short form |
 | quick-select 1–9 | `1`–`9` | `digitQuickSelect` toggle | short form |
 | accept + advance | `enter` | fixed | options focus |
@@ -69,6 +70,7 @@ Non-key config: `escExitWindowMs` (ms, default 500) — the double-esc window fo
 
 Conflict avoidance (verified against pi defaults + installed extensions): `ctrl+b`, `ctrl+shift+b`, `ctrl+shift+x`, `ctrl+shift+j`, `shift+down` are taken by others — avoided. `ctrl+m` avoided (sends `\r`). NO global shortcut is registered (the historical `ctrl+shift+q` break-out/resume chord was removed — window managers claim it to close windows on many desktop environments, so it never reliably reaches the terminal). Dev agent must re-verify at build time and record findings in the PR notes.
 
+Fixed-key notes: `←`/`→` navigate the FULL question list (every status navigable, clamped at the ends — no wrap), view-aware exactly like the config prev/next keys (overview: cursor row; short/deep: current question), and are NOT intercepted while the embedded editor holds focus (text/note) — the editor caret owns horizontal movement there.
 
 ## Suspend / resume / widget
 

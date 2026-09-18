@@ -17,7 +17,9 @@ pi-interrogator/
 │   ├── overview.ts           # ctrl+l list
 │   ├── text-field.ts         # embedded editor wrapper (factory composition)
 │   └── keys.ts               # key routing: config-driven, panel-intercept rules
-├── delivery.ts               # submission deltas, completion record, reminder line
+├── fallback.ts             # non-TUI digest + chat answer recording
+├── remote-bridge.ts        # pi-ask-compatible event emission + phone submit handling (FR-31..35)
+├── remote-submit.ts        # phone-submission pipeline (mirrors panel ctrl+s ordering)
 ├── lifecycle.ts              # auto-close on agent_settled, reopen, suspend/resume, widget
 ├── renderers.ts              # registerMessageRenderer / registerEntryRenderer cards
 ├── persistence.ts            # details mirroring, session_start reconstruction
@@ -33,6 +35,8 @@ pi-interrogator/
 | `panel/*` | The bottom-dock UI while open. Owns drafts (typed-not-submitted answers + batch note) |
 | `delivery.ts` | Builds delta custom messages (`interrogation-submission`) and the one-time completion record |
 | `lifecycle.ts` | Panel open/suspend/resume orchestration, `agent_settled` auto-close, suspend widget, reopen handling |
+| `remote-bridge.ts` | Emits `@eko24ive/pi-ask:*` flows on `pi.events` (remote-pi's bridge renders them on the phone); accepts phone submits; `phoneSeen` latch; resurface-after-partial-submit |
+| `remote-submit.ts` | Phone answers → state → submission delta (same ordering contract as `panel/actions.submit`) |
 | `persistence.ts` | Mirrors state to `interrogation-state` custom entries (debounced); reconstructs on `session_start` |
 
 ## Key flows
@@ -112,6 +116,7 @@ session_start → persistence: walk buildContextEntries()
 - `pi.on`: `session_start`, `agent_settled`, `tool_execution_end` (detect upserts for auto-close), `session_before_compact`, `session_shutdown`
 - `ctx.ui.custom` (panel host), `ctx.ui.setWidget` (suspend reminder), `ctx.ui.getEditorComponent` (compose user's editor), `ctx.ui.setEditorText` (discuss handoff), `ctx.ui.notify`
 - `pi.sendMessage` (submission/completion custom messages), `pi.appendEntry` (state mirror)
+- `pi.events.on/emit` (`@eko24ive/pi-ask:*` contract; emission inert without remote-pi listening)
 - `pi.registerMessageRenderer` ×2, `pi.registerEntryRenderer` ×1
 - `ctx.mode` / `ctx.hasUI` guards throughout; `ctx.model.contextWindow` for cap scaling
 
@@ -123,6 +128,21 @@ session_start → persistence: walk buildContextEntries()
 | `agent_settled` | auto-close pass (FR-4); completion check (FR-5) |
 | `tool_execution_end` | record whether this agent run upserted (feeds auto-close) |
 | `session_before_compact` | return customInstructions (FR-29) |
+| `session_shutdown` | flush mirror entry; dispose remote bridge (complete outstanding flows) |
+
+### Phone submit (remote-pi app; FR-32)
+
+```
+phone modal submit → remote-pi bridge emits @eko24ive/pi-ask:submit
+  remote-bridge.ts: parse → flowId registry check (foreign/stale/malformed filtered)
+  remote-submit.ts: validate answers vs current options → applyAnswer ×n
+      → baseline/computeDiff/pendingIds (BUG-008 filter) → markSubmitted
+      → buildSubmission (snapshot+bump once) → deliverSubmission (steer|followUp)
+      → lifecycle.noteSubmissionDelivered()
+  emit submit-result ok:true → completed (dismiss modal)
+  → remaining live questions? emit fresh flow (ask:replay)
+model receives interrogation-submission delta → replies (identical to panel ctrl+s)
+```
 | `session_shutdown` | flush mirror entry |
 
 ## Data shapes (authoritative in tool-protocol.md / state-and-persistence.md)

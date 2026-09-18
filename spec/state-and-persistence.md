@@ -79,6 +79,8 @@ Aborted runs count as settled (agent_settled fires; the model saw the answers be
 
 ## Drafts lifecycle (R4)
 
+The `phoneSeen` latch (FR-34) is remote-bridge instance state, same lifecycle discipline as drafts: in-memory only, never serialized, never reconstructed — a restart safely re-latches on the first phone submit.
+
 Panel-local `{questionId → {value, text}}` + `batchNote`. Preserved across navigation, view toggles, upserts, suspend/resume. Flushed into state on submit; cleared on submit or explicit clear. **Not** written to any persistent layer — restart loses drafts by design (documented limitation, Q6=B).
 
 ## Completion record format (the one full injection)

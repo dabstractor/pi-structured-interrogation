@@ -71,8 +71,13 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
   "caps": { "description": 1200, "ramification": 600, "options": 7,
             "questions": 40, "goal": 400, "contextBudgetPct": 4 },
   "gateWarnings": true, "roundDetection": true, "digitQuickSelect": true,
-  "editorMode": "composed"
+  "editorMode": "composed",
+  "remote": { "enabled": true, "resurface": true }
 }
 ```
+
+## Remote integration milestone (2026-09-18; spec/decisions.md § Remote)
+
+Build order: config surface → `remote-bridge.ts` (emission + submit handling + latch) → `remote-submit.ts` (panel-parity pipeline; extract `submissionBaselineOf` into snapshots.ts) → tool.ts hooks (`onLiveQuestions`, `hasRemoteSurface`) → index/completion/reconstruct wiring (`onCompleted`, `onRestored`) → tests (unit, real-bridge contract compat, live RPC round trip) → README.
 
 Every display string that names a key (footer, widget, dialogs) is generated from the resolved config — never hardcode a key label.

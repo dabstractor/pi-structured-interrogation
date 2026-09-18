@@ -21,6 +21,25 @@ The panel is hosted by `ctx.ui.custom()` (non-overlay): it *is* the bottom edito
 - **Gate rendering (soft, Q32=B)**: gate group renders normal; non-gate groups dimmed (still navigable/answerable — R1). Submitting with gate questions unanswered → dismissible footer warning: `⚠ {n} foundational unanswered — later answers may shift`.
 - **Goal**: always in the header (FR-30). Truncated to fit, full text in deep view.
 
+## Remote phone surface (remote-pi; 2026-09-18)
+
+Emission contract: pi-ask event names + payload shapes, verbatim (`@eko24ive/pi-ask:started|completed|submit|submit-result`), emitted on the shared `pi.events` bus. remote-pi's `extension_ui_bridge` translates them into `extension_ui_request` frames its Flutter app renders natively. pi-ask is NOT a dependency; the contract is copied with citation. Zero remote_pi/app changes.
+
+| Extension field | Wire field | Notes |
+|---|---|---|
+| question.prompt (+ `\n\n` + description) | AskQuestion.prompt | phone user = the standalone reader the deep-view contract targets; never truncated |
+| question.title | AskQuestion.label | `""` when absent (never omit — the bridge would duplicate the whole prompt into label) |
+| type choice/text | AskQuestion.type "single" | text questions send `options: []` (app still shows the free-text field) |
+| option.value/label | AskOption.value/label | label gets `" ★"` appended on the recommended option (no native star in the app) |
+| option.ramification | AskOption.description | muted prose under the label |
+| goal | flow title | `goal || "Interrogation"`, ~80-char soft cap |
+| gate/dependsOn/rev/epoch | not carried | state machine stays extension-side |
+| statuses open+reasked | questions[] | answered/terminal excluded — the phone cannot edit past answers in v1 (desktop panel's role) |
+
+Phone submit mapping: `values[0]` → answer.value (validated against CURRENT option values); `customText` → answer.text and, when values empty, answer.value; text questions take `customText ?? values[0]`; `note`/`optionNotes` dropped. Submit pipeline mirrors panel `ctrl+s` exactly (baseline → computeDiff → pendingIds → BUG-008 filter → markSubmitted → buildSubmission [snapshot+bump once] → deliverSubmission → noteSubmissionDelivered).
+
+FlowIds are namespaced `itg:<rand>:<seq>`; submits for foreign flowIds are ignored silently (pi-ask's business), stale `itg:` flows nack with `flow_not_found`. Co-installed pi-ask cross-talk (its `flow_not_found` nack on our submits → one transient phone warning) is bounded and accepted. Every upsert with live questions re-emits (completing the previous flow) — modal replacement is self-healing; in-modal progress is expendable (draft sacredness is a panel commitment, not a modal one).
+
 ## Terminal fallbacks
 
 - Height < 24 rows: hint line suppressed; deep view still available (it's a full replacement). Height < 12: overview list paginates 5 rows.

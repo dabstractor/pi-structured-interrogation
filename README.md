@@ -162,16 +162,45 @@ Fixed keys (not configurable):
 
 | Key      | Effect                                              |
 | -------- | --------------------------------------------------- |
-| `enter`  | Accept + advance; confirm dialogs                   |
-| `esc`    | Back / suspend — descends, never destroys           |
-| `↑` `↓`  | Move among options; scroll                          |
+| `enter`  | Accept + advance; confirm dialogs; in the editor: save + return to options |
+| `esc`    | Back / suspend — descends, never destroys. While the text/note editor is focused, a single `esc` goes to the editor (vim modes); `esc` twice in a row (within `escExitWindowMs`, default 500 ms, `0` disables) closes the editor only |
+| `ctrl+c` | Closes the prompt (suspend) and stays unconsumed — pi's own ctrl+c flow (clear editor; double-press shuts down) resumes on the restored editor |
+| `↑` `↓`  | Move among options; scroll. In the editor: caret movement |
 | `1`–`9`  | Quick-select an option (when `digitQuickSelect` is on) |
+
+Non-key option: `"escExitWindowMs": 500` under `"interrogator"` in settings —
+the double-esc window for closing the embedded editor without suspending.
+
+The free-text "explain" field is an **elaboration, not an answer of its own**
+(on choice questions): it attaches to whichever option you select and ships
+as the answer's text. Selecting options stays available before/after
+explaining; on `type:"text"` questions the editor IS the answer. The
+editor's contents are **per-question** — opening it on another question
+starts blank (or that question's own saved draft); switching questions while
+typing saves the text to its question automatically.
 
 Navigation defaults: questions move with `tab` / `shift+tab`
 (`keys.prevQuestion` / `keys.nextQuestion`, remappable above).
 
 While the panel is open, panel keys are intercepted before the embedded
-editor sees them; everything else forwards to the editor.
+editor sees them; everything else forwards to the editor. While the editor
+is focused, `esc` (single) and `↑`/`↓` also forward to the editor — vim
+users keep their keys.
+
+### Subcommands (one command, no autocomplete noise)
+
+`/interrogate` is the only command this extension registers — bare use
+toggles the panel. It also carries the dev surface:
+
+```
+/interrogate ping                      # smoke test: extension loaded
+/interrogate debug upsert <json>       # upsert via the tool's exact code path
+/interrogate debug submit [id=value,…] # record answers + full submission path
+/interrogate debug state               # status line + one line per question
+```
+
+Argument completion lists them (`/interrogate ` → `ping`, `debug`; …).
+Unknown subcommands print a usage line — nothing ever throws.
 
 ## Limitations
 

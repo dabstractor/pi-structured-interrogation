@@ -118,6 +118,10 @@ function fakeEditor(): EditorComponent & { handleInput: Mock; addToHistory: Mock
         insertNewline();
         return;
       }
+      // A lone ESC is a parsed-but-unbound key for the stock Editor — it is
+      // dropped, never inserted (ESC-002 now forwards single escs here, so
+      // the fake must mirror that instead of naively inserting the byte).
+      if (data === "\u001b") return;
       for (const ch of data) {
         const cur = lines[line] ?? "";
         lines[line] = cur.slice(0, col) + ch + cur.slice(col);
@@ -393,7 +397,11 @@ describe("two-stage enter — note mode (R3)", () => {
     expect(panel.textField.focused).toBe(true);
     panel.textField.setText("cross-cutting context");
 
-    panel.handleInput("\u001b"); // esc — router descent, note exit first
+    // ESC-002: single esc forwards to the (composed) editor; the esc-esc
+    // PAIR exits note mode — write-through, no view descent, no suspend.
+    panel.handleInput("\u001b");
+    expect(panel.focus).toBe("note"); // still in the editor after one esc
+    panel.handleInput("\u001b"); // second esc in a row — note exit
 
     expect(panel.focus).toBe("options");
     expect(panel.batchNote).toBe("cross-cutting context"); // write-through

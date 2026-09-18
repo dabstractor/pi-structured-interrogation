@@ -674,6 +674,20 @@ export class InterrogationPanel implements Component {
    */
   handleInput(data: string): boolean {
     if (this.resolved) return false;
+    // CTRL-C-001 (SIGINT-style escape): ctrl+c closes the prompt FIRST —
+    // suspend() (done(null): pi restores + refocuses the main editor; state
+    // and drafts preserved) — and returns UNCONSUMED so pi's own ctrl+c
+    // flow (app.clear: clear editor, then a second press within 500ms →
+    // shutdown) resumes on the restored editor. Checked before the ripple
+    // confirm modal and every other branch: an interrupt must always find
+    // its way out. Built via Key.ctrl("c") (pi-tui's KeyId builder — never
+    // a hardcoded label, h2.52) and matched like the fixed keys: it mirrors
+    // the terminal SIGINT convention, not a panel hotkey (R5 covers the
+    // panel's OWN keys).
+    if (parseKey(data) === Key.ctrl("c")) {
+      this.suspend();
+      return false;
+    }
     // CONFIRM MODE (FR-18 / Q39=B, P1.M5.T4.S1) — FIRST check after the
     // resolved guard, BEFORE the gate-warning dismissal: while a pending
     // answer edit awaits keep/cancel, no other key (including a gate-

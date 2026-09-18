@@ -35,6 +35,7 @@ import {
   type PiUISurface,
 } from "./panel.js";
 import { renderFooter, renderHeader, renderHintLine, renderQuestionLine } from "./layout.js";
+import { panelActions } from "./actions.js";
 import { renderShortViewOptions } from "./short-view.js";
 import {
   editInExternalEditor,
@@ -1079,6 +1080,67 @@ describe("embedded editor — construction + wiring (P1.M4.T1.S1)", () => {
     expect(factory).toHaveBeenCalledTimes(1);
     mock.calls[0]?.component.render(80);
     expect(factory).toHaveBeenCalledTimes(1); // renders never re-instantiate
+  });
+});
+
+describe("ctrl+c — SIGINT-style escape (CTRL-C-001)", () => {
+  function makeSuspendPanel(state: InterrogationState): {
+    panel: InterrogationPanel;
+    done: ReturnType<typeof vi.fn>;
+  } {
+    const done = vi.fn();
+    const panel = new InterrogationPanel({ ...panelArgsFor(state), done });
+    return { panel, done };
+  }
+
+  test("test_ctrl_c_closes_the_prompt_and_stays_unconsumed", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const { panel, done } = makeSuspendPanel(state);
+
+    // Unconsumed (false) so pi's own ctrl+c flow — clear editor, then a
+    // second press within 500ms shuts down — resumes on the restored editor.
+    expect(panel.handleInput("\u0003")).toBe(false);
+    expect(done).toHaveBeenCalledWith(null); // suspend, never destroy
+    expect(panel.isResolved()).toBe(true);
+    expect(state.getQuestion("q1")?.status).toBe("open"); // state intact
+  });
+
+  test("test_ctrl_c_escapes_the_ripple_confirm_modal", () => {
+    // The interrupt check runs BEFORE the modal branch — ctrl+c must always
+    // find a way out, even mid-confirm.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const { panel, done } = makeSuspendPanel(state);
+    panel.confirmMode = {
+      questionId: "q1",
+      kind: "choice",
+      proposed: { value: "a", at: "t" },
+      victims: ["q2"],
+      priorCursorIndex: 0,
+    };
+    expect(panel.handleInput("\u0003")).toBe(false);
+    expect(done).toHaveBeenCalledWith(null);
+  });
+
+  test("test_ctrl_c_escapes_note_mode_and_editor_focus", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const { panel, done } = makeSuspendPanel(state);
+    panel.enterNoteMode();
+    expect(panel.focus).toBe("note");
+    expect(panel.handleInput("\u0003")).toBe(false);
+    expect(done).toHaveBeenCalledWith(null);
+  });
+
+  test("test_ctrl_c_after_suspend_is_inert", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const { panel, done } = makeSuspendPanel(state);
+    panel.handleInput("\u0003");
+    done.mockClear();
+    expect(panel.handleInput("\u0003")).toBe(false); // resolved guard
+    expect(done).not.toHaveBeenCalled();
   });
 });
 

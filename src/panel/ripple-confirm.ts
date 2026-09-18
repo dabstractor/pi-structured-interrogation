@@ -174,16 +174,22 @@ export function cancelConfirm(panel: InterrogationPanel): void {
  * Text stage-1 gate entry (called by panel.saveTextDraft when the current
  * question is answered/submitted with a recorded answer AND the ripple has
  * victims): stash the staged text as a text-pending confirm. The slot
- * write, DraftStore write, blur, and arming are ALL deferred to
- * {@link applyTextConfirm} — nothing is saved until the user decides.
+ * write, DraftStore write, blur, and (unless `arm: false`) the arming are
+ * ALL deferred to {@link applyTextConfirm} — nothing is saved until the
+ * user decides.
  */
-export function beginTextConfirm(panel: InterrogationPanel, text: string): void {
+export function beginTextConfirm(
+  panel: InterrogationPanel,
+  text: string,
+  opts?: { arm?: boolean },
+): void {
   const id = panel.currentId;
   if (id === undefined) return;
   panel.confirmMode = {
     questionId: id,
     kind: "text",
     text,
+    arm: opts?.arm !== false,
     victims: rippleVictims(panel, id),
     priorCursorIndex: panel.cursorIndex,
   };
@@ -201,7 +207,7 @@ export function applyTextConfirm(panel: InterrogationPanel): void {
   const cm = panel.confirmMode;
   panel.confirmMode = null;
   if (cm === null || cm.kind !== "text" || cm.text === undefined) return;
-  panel.commitTextDraft(cm.questionId, cm.text);
+  panel.commitTextDraft(cm.questionId, cm.text, { arm: cm.arm !== false });
 }
 
 /**

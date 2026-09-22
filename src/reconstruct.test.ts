@@ -13,6 +13,7 @@ import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent
 import { beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG } from "./config.js";
 import { createPanelHost, openPanel, suspendPanel, type PanelHost } from "./panel/panel.js";
+import { resumeOpenPanel } from "./panel/panel.js";
 import { DraftStore } from "./draft-store.js";
 import {
   INTERROGATION_STATE_ENTRY_TYPE,
@@ -350,7 +351,7 @@ describe("reconstructFromBranch — surface decision", () => {
     expect((ctx.ui.custom as Mock)).not.toHaveBeenCalled();
   });
 
-  test("suspended host reopens through openPanel with the FRESH state (f)", () => {
+  test("suspended host reopens through openPanel with the FRESH state (f — session-start origin)", () => {
     const oldState = createInterrogationState("old branch");
     const base = seededState((s) => {
       applyUpsert(s, [choiceQ("q1")]);
@@ -372,6 +373,121 @@ describe("reconstructFromBranch — surface decision", () => {
     expect(getState()?.goal).toBe("test goal");
     // Drafts pass through UNTOUCHED (FR-28: never read, never written here).
     expect(drafts.getDraft("q1")).toBe("wip draft");
+  });
+
+  test("tree navigation NEVER reopens a suspended host; state follows silently (BUG fix)", () => {
+    const oldState = createInterrogationState("old branch");
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const host = makeHost();
+    const drafts = new DraftStore();
+    drafts.setDraft("q1", "wip draft");
+    openPanel(makeCtx([]), { config: DEFAULT_CONFIG, state: oldState, drafts });
+    suspendPanel(host);
+    expect(host.isSuspended()).toBe(true);
+
+    const ctx = makeCtx([toolResultEntry(base)]);
+    const result = reconstructFromBranch(ctx, makeOpts(host, drafts), "session-tree");
+
+    // Silent: nothing opened, host still suspended, no surface touched.
+    expect(result.opened).toBe(false);
+    expect((ctx.ui.custom as Mock)).not.toHaveBeenCalled();
+    expect(host.isSuspended()).toBe(true);
+    // State still followed the branch (branch-relativity is not optional).
+    expect(getState()?.goal).toBe("test goal");
+    // Drafts pass through UNTOUCHED (FR-28: never read, never written here).
+    expect(drafts.getDraft("q1")).toBe("wip draft");
+
+    // The NEXT deliberate resume (/interrogate path) is branch-correct:
+    // resumeOpenPanel must mount on the retargeted state — the OLD branch's
+    // goal would prove lastOpts was left pre-navigation.
+    const resumeCtx = makeCtx([toolResultEntry(base)]);
+    expect(resumeOpenPanel(resumeCtx)).toBe(true);
+    expect((resumeCtx.ui.custom as Mock)).toHaveBeenCalledTimes(1);
+    expect(host.isOpen()).toBe(true);
+  });
+
+  test("tree navigation keeps h2.37 alive: a model upsert while suspended reopens on the CURRENT surface", () => {
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const host = makeHost();
+    openPanel(makeCtx([]), { config: DEFAULT_CONFIG, state: createInterrogationState("old"), drafts: new DraftStore() });
+    suspendPanel(host);
+
+    const ctx = makeCtx([toolResultEntry(base)]);
+    reconstructFromBranch(ctx, makeOpts(host), "session-tree");
+    expect(host.isSuspended()).toBe(true);
+
+    // A later upsert on the NEW singleton (the retargeted instance) fires
+    // questions-upserted → handleUpserted reopens on the retargeted surface
+    // (ctx), proving the subscription followed the branch — not the orphaned
+    // pre-navigation state instance.
+    applyUpsert(getState()!, [choiceQ("q2")]);
+    expect((ctx.ui.custom as Mock)).toHaveBeenCalledTimes(1);
+    expect(host.isOpen()).toBe(true);
+  });
+
+  test("tree navigation suspends an OPEN panel instead of leaving stale branch content", () => {
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const host = makeHost();
+    openPanel(makeCtx([]), { config: DEFAULT_CONFIG, state: createInterrogationState("old"), drafts: new DraftStore() });
+    expect(host.isOpen()).toBe(true);
+
+    const ctx = makeCtx([toolResultEntry(base)]);
+    const result = reconstructFromBranch(ctx, makeOpts(host), "session-tree");
+
+    // No popup on the NEW surface, and the stale panel descended.
+    expect(result.opened).toBe(false);
+    expect((ctx.ui.custom as Mock)).not.toHaveBeenCalled();
+    expect(host.isSuspended()).toBe(true);
+    expect(host.isOpen()).toBe(false);
+  });
+
+  test("tree navigation onto an interrogation-free branch tears every residue down", () => {
+    const host = makeHost();
+    openPanel(makeCtx([]), { config: DEFAULT_CONFIG, state: createInterrogationState("old"), drafts: new DraftStore() });
+    expect(host.isOpen()).toBe(true);
+
+    const result = reconstructFromBranch(makeCtx([userEntry()]), makeOpts(host), "session-tree");
+
+    expect(result).toEqual({ source: "none", replayed: 0, opened: false, fallbackActive: false });
+    expect(getState()).toBeUndefined();
+    // Neither open nor suspended: the widget + resume record are gone, so
+    // nothing advertises the abandoned branch's interrogation.
+    expect(host.isOpen()).toBe(false);
+    expect(host.isSuspended()).toBe(false);
+  });
+
+  test("tree navigation in non-TUI stays silent but arms the digest fallback flag", () => {
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const ctx = makeCtx([toolResultEntry(base)], "rpc");
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()), "session-tree");
+
+    // The flag is a tool-result SHAPE decision input, not a surface.
+    expect(result.opened).toBe(false);
+    expect(result.fallbackActive).toBe(true);
+    expect(isFallbackActive()).toBe(true);
+    expect((ctx.ui.custom as Mock)).not.toHaveBeenCalled();
+  });
+
+  test("tree navigation never fires the FR-34 bridge; session start does", () => {
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const onRestored = vi.fn();
+    const opts: ReconstructionOptions = { ...makeOpts(makeHost()), onRestored };
+
+    reconstructFromBranch(makeCtx([toolResultEntry(base)]), opts, "session-tree");
+    expect(onRestored).not.toHaveBeenCalled();
+
+    reconstructFromBranch(makeCtx([toolResultEntry(base)]), opts, "session-start");
+    expect(onRestored).toHaveBeenCalledTimes(1);
   });
 
   test("completed (empty) state installs but opens nothing", () => {
@@ -404,7 +520,7 @@ describe("createReconstruction — wiring (h)", () => {
     return { pi: { on } as unknown as Pick<ExtensionAPI, "on">, emit, on };
   }
 
-  test("subscribes BOTH session_start and session_tree; both run the walk", () => {
+  test("subscribes BOTH session_start and session_tree; start opens, tree is silent", () => {
     const mock = makeMockPi();
     const host = makeHost();
     createReconstruction(mock.pi, makeOpts(host));
@@ -414,12 +530,37 @@ describe("createReconstruction — wiring (h)", () => {
     const base = seededState((s) => {
       applyUpsert(s, [choiceQ("q1")]);
     });
-    // session_start reconstructs…
-    mock.emit("session_start", makeCtx([toolResultEntry(base)]));
+    // session_start reconstructs AND opens (FR-28)…
+    const startCtx = makeCtx([toolResultEntry(base)]);
+    mock.emit("session_start", startCtx);
     expect(getState()?.getQuestion("q1")).toBeDefined();
-    // …and session_tree re-runs on a branch without traces → cleared.
+    expect((startCtx.ui.custom as Mock)).toHaveBeenCalledTimes(1);
+
+    // …and session_tree on a branch WITHOUT traces re-runs the walk →
+    // cleared, torn down, nothing surfaced.
     mock.emit("session_tree", makeCtx([userEntry()]));
     expect(getState()).toBeUndefined();
+    expect(host.isOpen()).toBe(false);
+    expect(host.isSuspended()).toBe(false);
+  });
+
+  test("session_tree on a state-carrying branch installs state WITHOUT opening", () => {
+    const mock = makeMockPi();
+    const host = makeHost();
+    createReconstruction(mock.pi, makeOpts(host));
+
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const ctx = makeCtx([toolResultEntry(base)]);
+    mock.emit("session_tree", ctx);
+
+    // Branch-relativity held…
+    expect(getState()?.getQuestion("q1")).toBeDefined();
+    // …but the panel never popped (the reported bug: navigating the tree
+    // opened the interrogate interface even when it was never in use).
+    expect((ctx.ui.custom as Mock)).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false);
   });
 });
 

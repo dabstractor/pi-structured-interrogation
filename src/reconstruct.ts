@@ -5,14 +5,14 @@
  *
  * [Mode A] — the full reconstruction algorithm:
  *
- * Fired on BOTH `session_start` (every reason: startup|reload|new|resume|fork)
- * and `session_tree` (branch navigation — `/tree`, `/fork`, `/resume` — fires
- * MID-SESSION, and by the time it does, the handler's `ctx.sessionManager`
- * already reflects the NEW leaf; the event payload is ignored entirely and
- * the ctx branch is walked). Old in-memory state is always discarded:
- * branch-relativity (h2.43) means the destination branch's history is the
- * only truth, and `resetState()` at the TOP of every run guarantees no state
- * is ever cached across `session_shutdown`.
+ * Fired on BOTH `session_start` (every reason: startup|reload|new|resume|fork
+ * — pi's session REPLACEMENT flows) and `session_tree` (MID-SESSION `/tree`
+ * branch navigation; by the time it fires, the handler's
+ * `ctx.sessionManager` already reflects the NEW leaf — the event payload is
+ * ignored entirely and the ctx branch is walked). Old in-memory state is
+ * always discarded: branch-relativity (h2.43) means the destination
+ * branch's history is the only truth, and `resetState()` at the TOP of every
+ * run guarantees no state is ever cached across `session_shutdown`.
  *
  * 1. RAW BRANCH WALK — `ctx.sessionManager.getBranch()`, deliberately NOT
  *    `buildContextEntries()`. h2.41's pseudocode names buildContextEntries,
@@ -62,24 +62,44 @@
  * 4. MOOT RECOMPUTE — `evaluateDependsOn(state)` exactly once, after
  *    install + replay (idempotent; h2.29 reasons re-derived — reasons are
  *    never persisted).
- * 5. AUTO-OPEN / FALLBACK — if the reconstructed state has at least one
- *    question (any status):
- *      - TUI (per the h2.26 guard predicate isNonTui(mode, hasUI) === false):
- *        auto-open through the EXISTING host path — `openPanel(ctx, {
- *        config, state, drafts })`, mirroring maybeAutoOpen's call shape.
- *        openPanel no-ops while a panel is already open (single-instance
- *        guard) and reopens a suspended host; passing the FRESH state is
- *        load-bearing — `resumePanel` would rehydrate the PRE-reconstruction
- *        lastOpts.state, violating branch-relativity, so it is deliberately
- *        NOT used here. NO drafts are restored (FR-28, Q6=B): the factory's
- *        DraftStore is passed through untouched (empty at session start by
- *        design — restart loses drafts, never reconstructs them).
- *      - Non-TUI: the module fallback flag is set —
+ * 5. SURFACING — split strictly by origin (BUG: tree navigation used to
+ *    ride the FR-28 auto-open and popped the panel in the user's face on
+ *    every `/tree` hop onto a branch with interrogation history, even when
+ *    the panel was suspended or the user never had it open):
+ *      - `session-start` (a fresh session runtime — restart/resume/fork):
+ *        FR-28 auto-open. TUI: `openPanel(ctx, { config, state, drafts })`
+ *        through the EXISTING host path, mirroring maybeAutoOpen's call
+ *        shape. openPanel no-ops while a panel is already open
+ *        (single-instance guard) and reopens a suspended host; passing the
+ *        FRESH state is load-bearing — `resumePanel` would rehydrate the
+ *        PRE-reconstruction lastOpts.state, violating branch-relativity, so
+ *        it is deliberately NOT used here. NO drafts are restored (FR-28,
+ *        Q6=B): the factory's DraftStore is passed through untouched (empty
+ *        at session start by design — restart loses drafts, never
+ *        reconstructs them). Non-TUI: the module fallback flag is set —
  *        {@link isFallbackActive} is the contract the interrogate tool
  *        executor (h2.26 digest decision, later milestone) consumes to pick
- *        digest-vs-panel mode after a restart. The flag is recomputed on
- *        every reconstruction run (reset at the top), so navigating to a
- *        branch without an interrogation deactivates it again.
+ *        digest-vs-panel mode after a restart. `onRestored` (FR-34) fires
+ *        so a conformant remote client re-renders after the restart.
+ *      - `session-tree` (mid-session `/tree` navigation): SILENT. The state
+ *        singleton is installed (later tool reads, `/interrogate` resumes,
+ *        and the completion path must reflect the branch the user is on
+ *        NOW), but NO surface ever appears: no `openPanel`, no reopen of a
+ *        suspended host, no FR-34 `onRestored` bridge emission (re-emitting
+ *        would pop remote clients exactly the way the panel popped). A
+ *        panel that is STILL OPEN at navigation time is suspended — it can
+ *        never keep rendering the abandoned branch's questions — and the
+ *        host's stored references are retargeted (`retargetState`) onto the
+ *        fresh state + current surface so the NEXT deliberate resume
+ *        (`/interrogate`, a model upsert while suspended, `{reopen:true}`)
+ *        rehydrates branch-correctly. The user's next surfacing action is
+ *        theirs to make. A branch with NO interrogation state tears every
+ *        residue down (open panel suspended first, then widget + resume
+ *        record disposed) — navigating to an interrogation-free branch must
+ *        not leave a stale reminder advertising a foreign branch's questions.
+ *        The non-TUI fallback flag is still recomputed — it is a digest
+ *        decision input, not a surface, and the tool executor on the new
+ *        branch must keep emitting the right result shape.
  *
  * This module is READ-ONLY toward persistence: the mirror owns writing
  * (S1), this module only consumes entries. Reconstruction via setState
@@ -136,6 +156,15 @@ const UNANSWERED_SUMMARY = "(unanswered)";
 
 /** Where the reconstructed base state came from. */
 export type ReconstructSource = "tool-result" | "mirror-entry" | "none";
+
+/**
+ * Which event triggered the run — the ONLY input that splits surfacing
+ * behavior (module JSDoc step 5). `session-start` (pi's session replacement
+ * flows: startup|reload|new|resume|fork) may auto-open per FR-28;
+ * `session-tree` (mid-session `/tree` navigation) is always silent — state
+ * reconstructs, surfaces never move.
+ */
+export type ReconstructionOrigin = "session-start" | "session-tree";
 
 /** Result of one {@link reconstructFromBranch} run. */
 export interface ReconstructResult {
@@ -326,12 +355,17 @@ function replaySubmission(state: LiveState, details: SubmissionMessage["details"
  * every entry access is guarded, so a malformed session file degrades to
  * "no state" instead of crashing the event.
  *
- * @param ctx  the handler's ExtensionContext (structurally narrowed)
- * @param opts shared config + panel host + the factory DraftStore
+ * @param ctx    the handler's ExtensionContext (structurally narrowed)
+ * @param opts   shared config + panel host + the factory DraftStore
+ * @param origin which event fired the run — "session-start" (FR-28
+ *               auto-open allowed; the default keeps direct callers on the
+ *               historical restart contract) or "session-tree" (silent:
+ *               state only, NEVER a surface — see module JSDoc step 5)
  */
 export function reconstructFromBranch(
   ctx: ReconstructionContext,
   opts: ReconstructionOptions,
+  origin: ReconstructionOrigin = "session-start",
 ): ReconstructResult {
   // h2.43: discard ALL prior in-memory state before looking at the branch —
   // also invalidates the fallback flag; recomputed below.
@@ -363,7 +397,13 @@ export function reconstructFromBranch(
     // No interrogation traces on this branch (step 2c): drop any residue of
     // a suspended host from the previous branch (stale reminder widget +
     // stale lastOpts.state) so nothing stale stays resumable.
-    if (!isNonTui(ctx.mode ?? "tui", ctx.hasUI ?? true) && !opts.host.isOpen()) {
+    if (origin === "session-tree") {
+      // Tree navigation onto an interrogation-free branch is a full
+      // teardown: an open panel descends (suspend — it renders a dead
+      // branch's questions), then the widget + resume record go too.
+      if (opts.host.isOpen()) opts.host.suspend();
+      opts.host.dispose();
+    } else if (!isNonTui(ctx.mode ?? "tui", ctx.hasUI ?? true) && !opts.host.isOpen()) {
       opts.host.dispose();
     }
     return { source: "none", replayed: 0, opened: false, fallbackActive: false };
@@ -392,35 +432,60 @@ export function reconstructFromBranch(
   if (!nonEmpty) {
     // E.g. a completed interrogation (questions cleared, completed flag
     // restored for exactly-once). State stays installed; no surface.
-    if (!isNonTui(ctx.mode ?? "tui", ctx.hasUI ?? true) && !opts.host.isOpen()) {
+    if (origin === "session-tree") {
+      // Same full teardown as the no-traces branch: a completed interrogation
+      // has nothing to resume, so no reminder may linger after navigation.
+      if (opts.host.isOpen()) opts.host.suspend();
+      opts.host.dispose();
+    } else if (!isNonTui(ctx.mode ?? "tui", ctx.hasUI ?? true) && !opts.host.isOpen()) {
       opts.host.dispose();
     }
     return { source, replayed, opened: false, fallbackActive: false };
   }
 
-  // FR-34: restored with live content — hand the state to the remote
-  // bridge surface (before the mode split: TUI and non-TUI alike).
-  opts.onRestored?.(state);
-
-  // Auto-open / fallback (module JSDoc step 5).
+  // Non-TUI: the digest fallback flag only — no surface exists to move.
+  // Recomputed on BOTH origins: it is a tool-result shape decision input,
+  // not a popup, and the branch the user is on NOW decides it.
   if (isNonTui(ctx.mode ?? "tui", ctx.hasUI ?? true)) {
     setFallbackActive(true);
+    // FR-34 (restart only): a fresh runtime re-renders on conformant remote
+    // clients. Deliberately NOT fired on session-tree — re-emitting would
+    // surface the question set on remote clients the same way the panel
+    // popped on tree navigation.
+    if (origin === "session-start") opts.onRestored?.(state);
     return { source, replayed, opened: false, fallbackActive: true };
   }
 
-  // TUI: the existing host path only — same call shape as maybeAutoOpen.
-  // Fresh state is load-bearing on the suspended-reopen path (resumePanel
-  // would reuse the pre-reconstruction lastOpts.state). Drafts pass through
-  // untouched (FR-28).
+  if (origin === "session-tree") {
+    // SILENT branch-follow (module JSDoc step 5): never open, never reopen.
+    // Retarget FIRST (sync) so the suspend's async landing spots — the
+    // reminder widget reads lastOpts.state in the custom() .then — render
+    // the CURRENT branch's counts, and a later deliberate resume rehydrates
+    // from the fresh state on the CURRENT surface.
+    opts.host.retargetState(state, ctx);
+    if (opts.host.isOpen()) opts.host.suspend();
+    return { source, replayed, opened: false, fallbackActive: false };
+  }
+
+  // FR-34: restored with live content on a fresh runtime — hand the state
+  // to the remote bridge surface (before the TUI auto-open below).
+  opts.onRestored?.(state);
+
+  // session-start TUI: the existing host path only — same call shape as
+  // maybeAutoOpen. Fresh state is load-bearing on the suspended-reopen path
+  // (resumePanel would reuse the pre-reconstruction lastOpts.state). Drafts
+  // pass through untouched (FR-28).
   const opened = openPanel(ctx, { config: opts.config, state, drafts: opts.drafts });
   return { source, replayed, opened, fallbackActive: false };
 }
 
 /**
  * Subscribe reconstruction to BOTH branch-truth events: `session_start`
- * (every reason — startup|reload|new|resume|fork) and `session_tree`
- * (mid-session branch navigation; ctx already reflects the new leaf).
- * Event payloads are ignored — the ctx branch is the only input.
+ * (every reason — startup|reload|new|resume|fork; FR-28 auto-open allowed)
+ * and `session_tree` (mid-session `/tree` branch navigation; ctx already
+ * reflects the new leaf — SILENT: state only, never a surface). Event
+ * payloads are ignored — the ctx branch is the only input; the ORIGIN is
+ * the only thing the two subscriptions disagree on.
  *
  * ONE instance per extension activation, created in the index.ts factory
  * after the panel host + drafts exist. No dispose seam: subscriptions die
@@ -430,12 +495,14 @@ export function createReconstruction(
   pi: Pick<ExtensionAPI, "on">,
   opts: ReconstructionOptions,
 ): void {
-  const run = (event: SessionStartEvent | SessionTreeEvent, ctx: ReconstructionContext): void => {
+  const run = (
+    event: SessionStartEvent | SessionTreeEvent,
+    ctx: ReconstructionContext,
+    origin: ReconstructionOrigin,
+  ): void => {
     void event;
-    reconstructFromBranch(ctx, opts);
+    reconstructFromBranch(ctx, opts, origin);
   };
-  // The shared handler's event param is the union — contravariantly
-  // assignable to each per-event handler type, no cast needed.
-  pi.on("session_start", run);
-  pi.on("session_tree", run);
+  pi.on("session_start", (event, ctx) => run(event, ctx, "session-start"));
+  pi.on("session_tree", (event, ctx) => run(event, ctx, "session-tree"));
 }

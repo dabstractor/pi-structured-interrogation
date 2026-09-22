@@ -152,14 +152,20 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   maybeAutoOpen(pi, config, panelHost, drafts);
 
   // P1.M7.T1.S2 — reconstruction (h2.41/h2.43/h3.11, FR-28): on session_start
-  // (all reasons) AND session_tree (mid-session branch navigation — ctx
+  // (all reasons) AND session_tree (mid-session /tree branch navigation — ctx
   // already reflects the new leaf), rebuild the state from the RAW branch
   // (compaction not applied, so the canonical tool-result details.state
   // survives /compact), newest-mirror fallback, replay submission deltas,
-  // recompute moot-ness, then auto-open the panel (TUI) or set the non-TUI
-  // digest fallback flag. resetState() at the top of every run guarantees no
-  // caching across session_shutdown. Drafts are NEVER restored (Q6=B) — the
-  // store above passes through untouched (empty at start, by design).
+  // recompute moot-ness, then split BY ORIGIN: session_start auto-opens the
+  // panel (TUI, FR-28) or sets the non-TUI digest fallback flag; session_tree
+  // is SILENT — state follows the branch but NO surface ever appears (no
+  // panel open/reopen, no bridge re-emit); a still-open panel suspends and
+  // the host retargets onto the fresh state so the next deliberate resume
+  // (/interrogate, model upsert, {reopen:true}) is branch-correct. Navigating
+  // the tree must never pop the panel in the user's face. resetState() at the
+  // top of every run guarantees no caching across session_shutdown. Drafts
+  // are NEVER restored (Q6=B) — the store above passes through untouched
+  // (empty at start, by design).
   createReconstruction(pi, {
     config,
     host: panelHost,

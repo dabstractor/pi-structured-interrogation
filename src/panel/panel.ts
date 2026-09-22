@@ -140,6 +140,18 @@ export interface PanelHost {
   suspend(): void;
   /** The live panel instance while open (renderers/tests may inspect). */
   getPanel(): InterrogationPanel | undefined;
+  /**
+   * Branch-follow seam (session_tree): re-point the host's stored state
+   * references — `lastOpts.state`, the h2.37 `questions-upserted`
+   * subscription, and (when `surface` is given) the active surface — at a
+   * reconstructed state instance WITHOUT opening, suspending, or otherwise
+   * surfacing anything. Reconstruction on tree navigation calls this so a
+   * later deliberate resume (`/interrogate`, model upsert, `{reopen:true}`)
+   * rehydrates from the branch the user is actually on — never the
+   * pre-navigation state. No-op when no panel was ever opened on this host
+   * (nothing is resumable, so nothing needs retargeting).
+   */
+  retargetState(state: InterrogationState, surface?: PiUISurface): void;
   /** Teardown seam: unhook state listeners. */
   dispose(): void;
 }
@@ -1459,11 +1471,45 @@ function resetHostRecord(): void {
   // dropping the surface — activePi is nulled below, so this is the last
   // chance to leave no stale "…to resume /interrogate" line behind.
   activePi?.ui.setWidget?.(WIDGET_KEY, undefined);
+  // A live panel component must not outlive its host record (the reset
+  // would orphan its state subscription — the same leak the maybeAutoOpen
+  // stale-record hardening guards). Idempotent: disposed already, or never
+  // mounted (suspended/closed hosts), it is a no-op.
+  currentPanel?.dispose();
   phase = "closed";
   currentPanel = undefined;
   activePi = undefined;
   lastOpts = undefined;
   lastFocusId = undefined;
+}
+
+/**
+ * Branch-follow retarget (PanelHost.retargetState): swap every stored
+ * reference to the panel's state onto a reconstructed instance WITHOUT any
+ * surfacing side effect. Call order matters when the caller also suspends:
+ * retarget synchronously (below) BEFORE the suspend's async landing spots —
+ * updateSuspendWidget in the custom() `.then` reads `lastOpts.state` only
+ * after the microtask runs, so the reminder widget shows the CURRENT
+ * branch's counts. The pre-suspend focus memory (`lastFocusId`) is left
+ * alone: resumeOpenPanel validates it against the retargeted state and
+ * falls through its ladder when the old branch's question no longer exists.
+ */
+function retargetHostState(state: InterrogationState, surface?: PiUISurface): void {
+  if (lastOpts === undefined) return; // never opened — nothing resumable
+  lastOpts = { ...lastOpts, state };
+  // Re-arm the ONE upsert subscription on the new instance (off-then-on of
+  // the same handler cannot stack) so h2.37 suspended-reopen observes the
+  // branch-correct state. An OPEN panel's own reference is deliberately NOT
+  // swapped here — the tree-nav caller suspends it first (panels re-read
+  // their constructor state on remount, so a stale open panel would render
+  // the abandoned branch's questions).
+  upsertState?.off("questions-upserted", handleUpserted);
+  upsertState = state;
+  state.on("questions-upserted", handleUpserted);
+  // Fresh surface when the caller has one (the session_tree handler ctx): a
+  // later suspended-reopen mounts on the CURRENT ui, not the pre-navigation
+  // surface pi may have torn down with the old branch.
+  if (surface !== undefined) activePi = surface;
 }
 
 /**
@@ -1506,6 +1552,7 @@ export function createPanelHost(
     isSuspended: () => phase === "suspended",
     suspend: () => suspendCurrent(),
     getPanel: () => currentPanel,
+    retargetState: retargetHostState,
     dispose: () => resetHostRecord(),
   };
 }

@@ -46,9 +46,11 @@ const InterrogateParams = Type.Object({
 | Call | Action | Returns |
 |---|---|---|
 | `{questions:[...], goal?}` | Upsert (merge rules below) | Status line + "end your turn" instruction + caps warnings if any |
-| `{}` | Read | goal, epoch, group summary, per-question FULL content blocks (one-liner + prompt/description/options/meta — 2026-09-15 pin) |
+| `{}` | Read | goal, epoch, group summary, per-question FULL content blocks (one-liner + prompt/description/options/meta — 2026-09-15 pin). NEVER surfaces the panel (SURFACE-001) |
 | `{reopen:true}` | Resurface panel | Confirmation |
 | `{answers:[...]}` | Record user answers (non-TUI only; ignored in TUI) | Status line |
+
+Answer values in results and deltas may be WRITE-INS (WRITEIN-001): the user's own text, committed via the Other row or a bridge customText-only submit, shown as `✎ {text}` and flagged `custom`. Submissions may arrive without any user submit keypress — the panel auto-submits the moment every question is answered, and again on every subsequent answer commit while the set stays complete (AUTOSUBMIT-001): expect several small deltas during an edit pass instead of one batch; the read `{}` is the pull-refresh between them.
 
 ## Merge rules on upsert (by id)
 

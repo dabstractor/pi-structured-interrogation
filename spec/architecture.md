@@ -32,7 +32,7 @@ pi-interrogator/
 |---|---|
 | `tool.ts` | Validates params, enforces caps + rev/epoch guards, mutates state via `state.ts`, returns result text + `details` (full state snapshot) |
 | `state.ts` | Single in-memory source of truth. Never touches UI. Emits change events for panel/widget/renderers |
-| `panel/*` | The bottom-dock UI while open. Owns drafts (typed-not-submitted answers + batch note) |
+| `panel/*` | The bottom-dock UI while open. Owns drafts (typed-not-submitted answers + batch note), the Other write-in row + two editor duties (WRITEIN-001), and the completeness auto-submit hook (AUTOSUBMIT-001) |
 | `delivery.ts` | Builds delta custom messages (`interrogation-submission`) and the one-time completion record |
 | `lifecycle.ts` | Panel open/suspend/resume orchestration, `agent_settled` auto-close, suspend widget, reopen handling |
 | `remote-bridge.ts` | Speaks the pi-ask bridge contract on `pi.events` (`started`/`submit`/`submit-result`/`completed`); accepts bridge submits; resurface-after-partial-submit; flow registry with foreign/stale filtering |
@@ -52,10 +52,12 @@ model → interrogate({goal, questions[]})
   agent ends turn. Panel persists while idle.
 ```
 
-### Submit (partial, immediate)
+### Submit (partial, immediate; auto-submits at completeness — AUTOSUBMIT-001)
 ```
-user ctrl+s (panel)
+user ctrl+s (panel) — OR maybeAutoSubmit after ANY answer commit (option accept,
+  Other write-in, text enter, edit re-commit) while zero open/reasked questions remain
   panel flushes pending answers into state (applying FR-18 ripple confirms already done at edit time)
+  gate questions unanswered → NO auto-submit; ⚠ footer line instead (ctrl+s overrides)
   delivery.ts: sendMessage customType "interrogation-submission"
       content  = "Submitted {k}: {id→value list, changed marked} (state epoch {n})\n
                   Consider how these affect your other questions."
@@ -105,7 +107,20 @@ session_start → persistence: walk buildContextEntries()
     latest interrogate tool-result details = base state
     replay subsequent interrogation-submission messages (deltas) on top
     fallback: scan interrogation-state custom entries
-  if open questions && mode==="tui" → auto-open panel (drafts not restored)
+  mode==="tui" → NEVER auto-open the panel (SURFACE-002)
+    set the suspend widget line when resumable questions exist (the only cue);
+    /interrogate opens on demand (drafts not restored)
+```
+
+### Tree navigation (`session_tree`) — SILENT
+```
+session_tree → same reconstruction walk against the new branch
+  state follows the branch (reset + rebuild + replay + moot recompute)
+  NEVER open/reopen the panel; never re-emit the bridge flow
+  panel open → suspend (stale-branch content must not linger)
+  panel suspended → stays suspended; host state refs retargeted
+    (next /interrogate, model upsert, {reopen:true} resumes branch-correct)
+  branch without (live) interrogation → full teardown (widget + record)
 ```
 
 ## pi API surface used
@@ -113,7 +128,7 @@ session_start → persistence: walk buildContextEntries()
 - `pi.registerTool` (interrogate; `renderCall`/`renderResult` compact rows)
 - `pi.registerCommand` ("/interrogate": invoke panel — open/resume, never toggle; no live state → notify)
 - (no `pi.registerShortcut` — the ctrl+shift+q global chord was removed: window managers claim it to close windows on many desktop environments)
-- `pi.on`: `session_start`, `agent_settled`, `tool_execution_end` (detect upserts for auto-close), `session_before_compact`, `session_shutdown`
+- `pi.on`: `session_start`, `session_tree` (silent reconstruction — never a surface), `agent_settled`, `tool_execution_end` (detect upserts for auto-close), `session_before_compact`, `session_shutdown`
 - `ctx.ui.custom` (panel host), `ctx.ui.setWidget` (suspend reminder), `ctx.ui.getEditorComponent` (compose user's editor), `ctx.ui.setEditorText` (discuss handoff), `ctx.ui.notify`
 - `pi.sendMessage` (submission/completion custom messages), `pi.appendEntry` (state mirror)
 - `pi.events.on/emit` (`@eko24ive/pi-ask:*` contract; emission inert without remote-pi listening)
@@ -124,9 +139,10 @@ session_start → persistence: walk buildContextEntries()
 
 | Event | Handler |
 |---|---|
-| `session_start` | reconstruct state; auto-open panel (FR-28) |
+| `session_start` | reconstruct state; set the suspend widget when resumable questions exist — NEVER auto-open the panel (FR-28, SURFACE-002) |
+| `session_tree` | reconstruct state SILENTLY — never opens/reopens the panel; open panel suspends; no-residue teardown on branches without interrogation (FR-28 scope) |
 | `agent_settled` | auto-close pass (FR-4); completion check (FR-5) |
-| `tool_execution_end` | record whether this agent run upserted (feeds auto-close) |
+| `tool_execution_end` | record whether this agent run upserted (feeds auto-close); `maybeAutoOpen` opens the panel ONLY for upsert calls leaving unanswered questions (SURFACE-001 — reads never surface) |
 | `session_before_compact` | return customInstructions (FR-29) |
 | `session_shutdown` | flush mirror entry; dispose remote bridge (complete outstanding flows) |
 

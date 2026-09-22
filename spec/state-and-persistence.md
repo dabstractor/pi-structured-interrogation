@@ -29,8 +29,12 @@
 ## rev and epoch semantics
 
 - `rev` (per question, integer, starts 1): bumps on any content mutation (agent upsert text/options/dependsOn, or withdrawal-re-add). The model must echo the current rev when upserting an existing question. User answers do **not** bump rev (answers are epoch territory).
-- `epoch` (session, integer, starts 1): bumps on every submission. Any `questions`/`answers` call must carry the epoch it was based on (top-level `epoch` param). Read is never guarded. Both guards reject with current state + delta digest (tool-protocol.md).
+- `epoch` (session, integer, starts 1): bumps on every submission — including every auto-submitted one (AUTOSUBMIT-001; each firing is a full submission). Any `questions`/`answers` call must carry the epoch it was based on (top-level `epoch` param). Read is never guarded. Both guards reject with current state + delta digest (tool-protocol.md).
 - Snapshots: full state copied on every submission (bounded ring of 10) — powers diff cards and post-hoc recovery; not user-facing undo in v1.
+
+## Answer shape (WRITEIN-001)
+
+`answer = { value, at, text?, custom? }`. `custom: true` marks a WRITE-IN: `value` holds the user's own text (not an option value), committed via the synthetic Other row (panel) or a `customText`-only bridge submission. Renderers, diff cards, and the completion record display write-ins as `✎ {text}`. Replay/reconstruction is value-first and needs no special case; the bridge's answer validation accepts custom values as-is (they are not checked against option lists).
 
 ## Storage (three layers, one source of truth)
 
@@ -47,8 +51,12 @@
    else: no state; done
 3. replay subsequent interrogation-submission messages: apply details.changed (answers, epochs)
 4. if any question status ∈ {open, reasked, answered, submitted, moot, withdrawn} (non-empty set):
-     if ctx.mode === "tui": open panel (no drafts) [FR-28]
-     else: mark fallback active
+     TUI: NEVER open the panel (SURFACE-002 — session-start auto-open is
+       disabled entirely; the user runs /interrogate). Set the suspend widget
+       line directly when resumable questions exist — it is the ONLY cue.
+       [The `session_tree` run of the same algorithm never opens anything
+       either, see Branching.]
+     non-TUI: mark fallback active
 5. recompute dependsOn moot-ness from current answers (cheap, idempotent)
 ```
 
@@ -64,6 +72,42 @@ No other compaction machinery. Post-compaction, the model pull-refreshes; recons
 
 `session_start` reconstruction is branch-relative (`buildContextEntries()`), so forked/resumed sessions inherit exactly the questions/answers visible on that branch. The entry-mirror fallback scans the same branch. Never cache state across `session_shutdown`.
 
+### Tree navigation (`session_tree`) — silent, never a surface
+
+Mid-session `/tree` navigation fires `session_tree` — NOT `session_start`
+(pi reserves `session_start` for session replacement: startup | reload | new |
+resume | fork). The same reconstruction algorithm re-runs against the
+destination branch (raw branch walk, same base selection, same delta replay,
+same moot recompute), with one absolute rule:
+
+> **The panel NEVER auto-opens or reopens on tree navigation.** Surfacing is
+> user-driven (`/interrogate`) or model-driven (an upsert while suspended,
+> `{reopen:true}`) — never navigation-driven. A user who is not using the
+> interrogation must never see it appear because they browsed the tree.
+
+Consequences:
+
+- State still follows the branch — branch-relativity is not optional: the
+  singleton is reset and rebuilt from the destination branch; the non-TUI
+  digest fallback flag is recomputed (it shapes tool results, never surfaces).
+- Panel open at navigation time → suspends (descend, never destroy): an open
+  panel must never keep rendering the abandoned branch's questions.
+- Panel suspended → stays suspended, with the host's stored state references
+  retargeted onto the reconstructed instance (and the current UI surface), so
+  the next deliberate resume rehydrates from the branch the user is on now —
+  never the pre-navigation state — and the suspend reminder line reflects the
+  destination branch.
+- Destination branch has no interrogation (or only a completed one) → full
+  teardown: open panel suspended, reminder widget cleared, resume record
+  disposed — nothing may stay resumable advertising a foreign branch's
+  questions.
+- FR-34 `onRestored` bridge emission does NOT fire on `session_tree` —
+  re-emitting would surface the question set on remote clients exactly the
+  way the panel used to pop on the TUI.
+
+Design rationale: navigation is a read-only act on the user's part. Any
+surprise surface movement on a read-only act is a bug, not a convenience.
+
 ## Auto-close algorithm (Q9=B)
 
 ```
@@ -77,9 +121,13 @@ on agent_settled:
 Aborted runs count as settled (agent_settled fires; the model saw the answers before abort and can re-ask).
 ```
 
+Submissions now also arrive via auto-submit (AUTOSUBMIT-001) — the per-submission contracts (one epoch bump, one delta, one close-pass arming via `noteSubmissionDelivered`) are unchanged; auto-submit simply fires the same pipeline more often. A model turn triggered by an auto-submission may interleave with further user edits; each submission's snapshot ring keeps the diffs correct.
+
 ## Drafts lifecycle (R4)
 
 Panel-local `{questionId → {value, text}}` + `batchNote`. Preserved across navigation, view toggles, upserts, suspend/resume. Flushed into state on submit; cleared on submit or explicit clear. **Not** written to any persistent layer — restart loses drafts by design (documented limitation, Q6=B).
+
+Role binding (WRITEIN-002): a slot's text is elaboration (`answer.text`) when its question's answer is a real option, and the answer itself (`answer.value`, `custom: true`) when the answer came via Other or the question is `type:"text"`; the binding is evaluated at commit/submit time from the current selection. Superseding a write-in with an option accept keeps the slot (R4) and re-binds it as elaboration.
 
 ## Completion record format (the one full injection)
 

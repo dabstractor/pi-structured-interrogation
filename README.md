@@ -54,7 +54,12 @@ materialize; runtime loads via jiti against pi's tree.
    yet submitted — reopening on the first unanswered question; the model
    can also reopen the panel itself when it has follow-ups. A submit
    flushes only the answers that actually shipped — drafts of questions
-   the agent re-asked survive.
+   the agent re-asked survive. Navigating the conversation tree (`/tree`)
+   never opens or reopens the panel: the interrogation state silently
+   follows the branch you land on (and clears away on branches without
+   one), so resurfacing stays deliberate — `/interrogate`, or a model
+   upsert when it has follow-ups. Auto-(re)open happens only on the first
+   model upsert and after a session restart/resume.
 5. When every question is closed, the panel dismisses and the model receives
    **one full completion record** (a recap card lands in the transcript).
 
@@ -339,7 +344,9 @@ src/
 ├── detect.ts          # plain-text round detection
 ├── compaction.ts      # compaction preservation guard
 ├── persistence.ts     # interrogation-state mirror (append-only audit trail)
-├── reconstruct.ts     # state reconstruction on session start / branch
+├── reconstruct.ts     # state reconstruction: session start (auto-open,
+│                     # FR-28) + /tree navigation (silent branch follow —
+│                     # NEVER opens/reopens the panel)
 ├── renderers.ts       # transcript cards (submission diff, completion recap, mirror markers)
 ├── command.ts         # /interrogate invoke command (open/resume — never toggles)
 ├── debug-commands.ts  # keyboard-driven debug commands

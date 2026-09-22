@@ -16,13 +16,23 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 **M3 — Panel short form.** `panel/panel.ts`, `short-view.ts`, `keys.ts`: replace-editor hosting, header/goal, options with ★ marks + preselect, digits/enter accept-advance, tab navigation, footer status. Verify AC-1 (minus gate dimming), AC-5 partially.
 
-**M4 — Text field + drafts.** `text-field.ts`: compose `getEditorComponent()`, two-stage enter, `ctrl+g` `$EDITOR`, per-question drafts + batch note + `ctrl+shift+m`. Verify draft survival across navigation and upserts (R4).
+**M4 — Text field + drafts.** `text-field.ts`: compose `getEditorComponent()`, `ctrl+g` `$EDITOR`, per-question drafts + batch note + `ctrl+shift+m`. ~~Two-stage enter~~ REMOVED (WRITEIN-001): the editor has three duties (write-in via the Other row / elaboration via `ctrl+t` / note), `enter` commits wherever the text completes an answer. Verify draft survival across navigation and upserts (R4).
 
 **M5 — Deep view, overview, gate, ripples.** `deep-view.ts` (scrollable pane, sticky option headers, select-from-deep), `overview.ts`, group dimming + gate warnings, `dependsOn` evaluator + moot marks + ripple confirm. Verify AC-5, 6, 7.
 
 **M6 — Suspend/resume ecosystem.** `esc` suspend + invoke-only `/interrogate` (immediate in every scenario) + widget naming `/interrogate`, reopen action, discuss-in-chat handoff with `setEditorText`, editor-text preservation across suspend. The `ctrl+shift+q` chord and its global shortcut were removed (window managers claim it on many desktops). Verify AC-4.
 
-**M7 — Persistence + polish.** `persistence.ts` (mirror, reconstruction, auto-open), compaction instructions, message/entry renderers (cards), round detection (FR-26), terminal fallbacks (<24/<12 rows, <60 cols), config reference, README. Verify AC-8, 9, 10, 11, 12.
+**M7 — Persistence + polish.** `persistence.ts` (mirror, reconstruction; auto-open removed per SURFACE-002 — widget line only), compaction instructions, message/entry renderers (cards), round detection (FR-26), terminal fallbacks (<24/<12 rows, <60 cols), config reference, README. Verify AC-8, 9, 10, 11, 12.
+
+**M8 — Write-ins, auto-submit, surfacing gates (2026-09-19 interrogation; spec/decisions.md post-session pins).**
+- `short-view.ts`/`deep-view.ts`/`overview.ts`: synthetic `✎ Other — write your own` trailing row (cursor index `options.length` — the old ✎ slot), extension-supplied deep-view ramification, `✎` marker = write-in/text answer; digits never select Other.
+- `panel/panel.ts` + `panel/actions.ts`: editor duties (write-in commit = `applyAnswer({value, custom:true})` + advance; elaboration save+blur, never advances; `ctrl+t` duty follows cursor-on-Other/text); REMOVE `advanceArmed` two-stage machinery; `maybeAutoSubmit(panel, deps)` after every commit (zero open/reasked + ≥1 pending → exact submit pipeline + flash; gate questions unanswered → ⚠ hold line + no auto-submit); `reconcileDraftsForSubmit` role-binding (real option → `answer.text`; Other/text → `answer.value custom`); zero-pending flash: held-elaboration wording.
+- `panel/panel.ts` `maybeAutoOpen` + `handleUpserted`: SURFACE-001 gates (upsert-call via the `pendingUpsertArgs` stash, unanswered-exist, not-completed); reads never surface.
+- `reconstruct.ts`: SURFACE-002 — session_start NEVER opens the panel (auto-open disabled entirely); set the suspend widget line when resumable questions exist (non-TUI fallback flag unchanged: it shapes tool results, not surfaces).
+- `remote-submit.ts`: run `maybeAutoSubmit` at the pipeline tail; customText-only bridge answers set `custom: true` (WRITEIN-001 parity).
+- `state.ts`/`snapshots.ts`/`renderers.ts`/`completion.ts`: `answer.custom` marker; `✎ {text}` display in diff cards + completion record; replay stays value-first.
+- Tests: FLIP the four characterizations in `src/tree-nav-repro.test.ts` (reads/all-answered/completed must NOT open; suspended-at-nav and open-at-nav stay green); flip the reconstruction auto-open assertions (reconstruct.test.ts / ac-panel.test.ts `opened: true` session-start rows → widget-set, no panel); new ACs 2a–2d, 15 (AC-9 rewritten: restart opens nothing); existing two-stage tests (`two-stage.test.ts`) rewrite for commit-at-enter semantics.
+- Verify AC-2a/2b/2c/2d/15 + rewritten AC-9 (product-requirements.md).
 
 ## File checklist
 
@@ -46,7 +56,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 - **Unit (node/tsx script or vitest)**: state machine transitions; merge rules 1–4; rev/epoch guard math; dependsOn closure (transitive ripples); caps formula; reconstruction from fixture entries (tool-result details + deltas + entry-mirror fallback); delta digest formatting.
 - **Integration (launch `pi -e .`)**: scripted model turns are unreliable — drive the tool directly via a debug command (`/interrogate-debug-upsert <json>`) that invokes the same code path as the tool; then manual verification per the AC runbook below.
   - **AUTOMATION AMENDMENT (binding, supersedes the above in automated runs — see plan/001_0d6760db6bc5/AUTOMATION-POLICY.md)**: automated pipeline runs NEVER launch a live `pi -e .` TUI session, NEVER call the `interrogate` tool for real, and NEVER wait for user answers. Automation drives the same code paths via vitest integration tests over `executeInterrogate`/the debug handlers plus headless `pi -p` one-shot probes. "Launch `pi -e .`" and "manual verification" above describe the HUMAN test procedure (recorded in MANUAL-TUI-AC-RUNBOOK.md), not an automated step.
-- **AC runbook**: execute acceptance criteria 1–14 from product-requirements.md in order; each cites the FR it proves. AC-12 (rebinding) proves R5. AC-4 includes verifying the *main editor's* draft survives panel suspend/resume. In automation, ACs are proven by scripted tests; interactive-only ACs are deferred to the human runbook and never block the pipeline.
+- **AC runbook**: execute acceptance criteria 1–15 (incl. 2a–2d) from product-requirements.md in order; each cites the FR it proves. AC-12 (rebinding) proves R5; AC-15 (reads never surface) proves R6/SURFACE-001. AC-4 includes verifying the *main editor's* draft survives panel suspend/resume. In automation, ACs are proven by scripted tests; interactive-only ACs are deferred to the human runbook and never block the pipeline.
 - **Regression guard**: keymap conflict re-verification (grep installed extensions' `registerShortcut` + pi `keybindings.md`) recorded in README.
 
 ## Risks

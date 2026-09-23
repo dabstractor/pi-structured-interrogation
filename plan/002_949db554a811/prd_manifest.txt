@@ -1,0 +1,8 @@
+06f750b2c19a spec/SPEC.md
+a201401f575c spec/product-requirements.md
+cd2131342f9a spec/architecture.md
+f3f46e42f0cd spec/tool-protocol.md
+92b9e6cf1b21 spec/ui-spec.md
+b3dc8f5c2f64 spec/state-and-persistence.md
+95052b85bf59 spec/implementation-plan.md
+0f47386e5521 spec/decisions.md

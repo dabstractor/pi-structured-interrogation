@@ -1,0 +1,89 @@
+h1.0 pi-interrogator — SPEC
+ h2.0 Core commitments (do not deviate)
+ h2.1 Deliverable files
+ h2.2 Defaulted decisions (user may veto)
+ h2.3 Naming and strings (final)
+ h2.4 Non-goals (confirmed)
+h1.1 Product Requirements — pi-interrogator
+ h2.5 Problem
+ h2.6 Goals
+ h2.7 Users
+ h2.8 Functional requirements
+  h3.0 Interrogation lifecycle
+  h3.1 Panel UX (details in ui-spec.md)
+  h3.2 Dependency and ripple semantics
+  h3.3 Agent protocol (details in tool-protocol.md)
+  h3.4 Persistence and recovery (details in state-and-persistence.md)
+  h3.5 Remote bridge surface (pi-ask contract; details in ui-spec.md §Remote bridge)
+ h2.9 Hard requirements (from user tooling evaluations)
+ h2.10 Acceptance criteria (all must pass; scripted where possible)
+ h2.11 Non-goals
+h1.2 Architecture — pi-interrogator
+ h2.12 Module layout
+ h2.13 Components and responsibilities
+ h2.14 Key flows
+  h3.6 Ask (non-blocking)
+  h3.7 Submit (partial, immediate; auto-submits at completeness — AUTOSUBMIT-001)
+  h3.8 Read / refresh
+  h3.9 Stale guard rejection
+  h3.10 Completion
+  h3.11 Suspend / resume / reopen
+  h3.12 Restart / resume session
+  h3.13 Tree navigation (session_tree) — SILENT
+ h2.15 pi API surface used
+ h2.16 Event subscriptions table
+  h3.14 Bridge submit (pi-ask contract; FR-32)
+ h2.17 Data shapes (authoritative in tool-protocol.md / state-and-persistence.md)
+ h2.18 Config surface (all hotkeys + caps + toggles)
+h1.3 Tool Protocol — interrogate
+ h2.19 Schema (typebox)
+ h2.20 Actions
+ h2.21 Merge rules on upsert (by id)
+ h2.22 Guards (Q38=A)
+ h2.23 Caps (Q27=A, configurable + scaled)
+ h2.24 Agent-facing text (resident; ≤120 words)
+ h2.25 Result rendering (TUI)
+ h2.26 Non-TUI fallback (FR-25 — unchanged by the remote bridge)
+ h2.27 Plain-text round detection (FR-26, TUI only)
+ h2.28 Status line format (shared by results and panel footer)
+h1.4 UI Spec — the panel and renderers
+ h2.29 Layout (TUI, replace-editor mode)
+ h2.30 Remote bridge surface (pi-ask contract; 2026-09-18)
+ h2.31 Terminal fallbacks
+ h2.32 Free-text field (Q17=A, as amended by WRITEIN-001/002 — 2026-09-18 interrogation)
+ h2.33 Auto-submit at completeness (AUTOSUBMIT-001/002 — 2026-09-18 interrogation)
+ h2.34 Batch note (R3)
+ h2.35 Ripple confirm (FR-18, Q39=B)
+ h2.36 Hotkeys — defaults and config
+ h2.37 Suspend / resume / widget
+ h2.38 Renderers
+ h2.39 Empty/edge states
+h1.5 State & Persistence — pi-interrogator
+ h2.40 Question state machine
+ h2.41 rev and epoch semantics
+ h2.42 Answer shape (WRITEIN-001)
+ h2.43 Storage (three layers, one source of truth)
+ h2.44 Reconstruction (session_start)
+ h2.45 Compaction (session_before_compact)
+ h2.46 Branching (/tree, /fork, /resume)
+  h3.15 Tree navigation (session_tree) — silent, never a surface
+ h2.47 Auto-close algorithm (Q9=B)
+ h2.48 Drafts lifecycle (R4)
+ h2.49 Completion record format (the one full injection)
+h1.6 Implementation Plan — pi-interrogator
+ h2.50 Prerequisites
+ h2.51 Milestones
+ h2.52 File checklist
+ h2.53 Testing
+ h2.54 Risks
+ h2.55 Config reference (settings.json → "interrogator")
+ h2.56 Remote integration milestone (2026-09-18; spec/decisions.md §Remote bridge surface)
+h1.7 Decision Ledger — extracted from the structured interrogation session
+ h2.57 Architecture & data flow
+ h2.58 UI
+ h2.59 Protocol
+ h2.60 Remote bridge surface (2026-09-18; FR-31..34)
+ h2.61 Staging philosophy (discussion resolution)
+ h2.62 Defaulted (user may veto)
+---
+code:17 para:55 list:41 table:7 quote:3

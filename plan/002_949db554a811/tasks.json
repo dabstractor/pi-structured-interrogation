@@ -1,0 +1,476 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Delta D1 — Write-ins, editor duties, answer shape (WRITEIN-001/002)",
+      "status": "Planned",
+      "description": "FR-D1/D2/D3: synthetic '✎ Other — write your own' row on every choice question; one editor, three duties (write-in | elaboration | note) with commit-at-enter; two-stage arming removed; draft role binds to selection at commit/submit; answer.custom marker + ✎ {text} display plumbing.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "State and display support for custom answers (FR-D3)",
+          "status": "Planned",
+          "description": "No UI dependency — build first. Adds the custom marker to schema/state and threads ✎ {text} display through every surface, enabling P1.M2 and Phase P2 in parallel.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Answer shape: custom marker in schema, state, and commit path",
+              "status": "Planned",
+              "description": "AnswerInput/QuestionAnswer gain custom?: true; state commit path accepts {value, custom} mirroring applyAnswer.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Add custom?: true to AnswerInput, QuestionAnswer, and the state commit path",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.42", "h2.19", "h2.17", "h2.40", "h2.0", "h2.51"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/002_949db554a811/architecture/state-display-seams.md — `QuestionAnswer { value, text?, at }` (state.ts:42–49), `AnswerInput { id, value, text? }` (tool-schema.ts:156), `narrowAnswer` (tool-schema.ts:494), `applyAnswer` (state.ts:354, copies answer → status answered → emits changed). No `custom` concept exists anywhere yet. CRITICAL: `reviveQuestion` (state.ts:557) must carry the new field or reconstruction drops it.\n2. INPUT: none (leaf subtask).\n3. LOGIC: Implement FR-D3 (spec h2.42): add optional `custom?: true` to `AnswerInput` (typebox `Type.Optional(Type.Boolean())` in tool-schema.ts) and `QuestionAnswer` (state.ts); `applyAnswer` and the `narrowAnswer` parse path must round-trip it. Write-ins carry the user's text in `value` (NOT checked against option lists anywhere downstream). Mock nothing — pure state layer.\n4. OUTPUT: extended types + state round-trip, consumed by P1.M1.T2.S1/S2 (display), P1.M2.T2.S1 (write-in commit), P2.M1.T3.S1 (bridge parity).\n5. DOCS: [Mode A] JSDoc on the `custom` field in tool-schema.ts and state.ts ('WRITEIN-001: value holds free text, not an option value; renders as ✎ {text}'). No user-facing config/API change beyond the optional field's JSDoc."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "Write-in display plumbing: ✎ {text} across all surfaces",
+              "status": "Planned",
+              "description": "FR-D3: write-ins display as ✎ {text} (truncated to fit) in submission diff cards (expanded = full text), completion record + recap, {} read one-liners + status output, non-TUI digest, snapshot diffs. Replay/reconstruction stays value-first.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "✎ {text} in diff surfaces: snapshots.answerSummary, delivery.completionAnswerSummary, renderers card line",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.38", "h2.42", "h2.10", "h2.25", "h2.49", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: state-display-seams.md — display chokepoints: `snapshots.ts answerSummary` (:124, label-preferred, raw value for unknown text today) AND its BY-DESIGN duplicate `delivery.ts completionAnswerSummary` (:269, carries a sync comment — BOTH must gain the branch in tandem or they drift); card line renderer `renderers.ts:171` (`{title}: {old} → {new (changed)}`).\n2. INPUT: `answer.custom === true` + `answer.value` (free text) from P1.M1.T1.S1.\n3. LOGIC: FR-D3 — when `custom`, render `✎ {value}` (truncated to fit per existing truncation helpers; `expanded` shows the FULL text in renderers.ts). Diff `from`/`to` for write-ins show the ✎-prefixed text. Mock nothing (pure formatting).\n4. OUTPUT: updated summary helpers consumed by P1.M1.T2.S2 context and the existing card renderer tests; P2.M1.T1.S1's flash/submission tests will assert these strings.\n5. DOCS: [Mode A] JSDoc on both summary helpers noting the ✎ write-in branch and that they are intentional duplicates (keep the sync comment true)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S2",
+                  "title": "✎ {text} in read results, completion record lines, recap card, fallback digest",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.38", "h2.49", "h2.20", "h2.26", "h2.28", "h2.42", "h2.10"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: state-display-seams.md — read one-liner `results.ts:240` (shows raw value today); completion record lines `delivery.ts:355`; recap card `renderers.ts:371`; fallback.ts digest is the ask-surface (does not display answers — only verify no regression). Replay/reconstruction stays value-first: NO special casing.\n2. INPUT: `answer.custom` + `answer.value` from P1.M1.T1.S1; ✎ formatting precedent from P1.M1.T2.S1.\n3. LOGIC: FR-D3 — `{}` read one-liners and status output show `✎ {value}` (truncated) for custom answers; completion record (`INTERROGATION COMPLETE` format, h2.49) + recap card render write-ins as `✎ {text}` grouped with their questions. Fallback digest: schema only (answers aren't displayed there — assert unchanged). Mock nothing.\n4. OUTPUT: display updates consumed by AC-2a scripted tests (accept Other → card/delta render ✎ {text}).\n5. DOCS: [Mode A] JSDoc on the read one-liner formatter and completion record builder noting write-in rendering."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "The write-in row and three editor duties (FR-D1/D2)",
+          "status": "Planned",
+          "description": "Synthetic Other row in short/deep/overview views; write-in duty (accept Other → editor labeled OTHER, enter commits applyAnswer({value, custom:true}) + advance); elaboration duty via ctrl+t (enter saves+blurs, never answers); duty follows entry path and cursor position; two-stage machinery removed; draft role binds at commit/submit.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Synthetic Other row in short view + cursor/digit semantics",
+              "status": "Planned",
+              "description": "FR-D1: every choice question's option list ends in a synthetic '✎ Other — write your own' row — cursor index options.length, fixed, not digit-selectable.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "Replace EXPLAIN_AFFORDANCE with the Other row; explicit digit-exclusion test",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.32", "h2.8/h3.1", "h2.29", "h2.36", "h2.10", "h2.58", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: panel-ui-seams.md — `EXPLAIN_AFFORDANCE = \"✎ explain…\"` (short-view.ts:64), rendered by `explainLine` (:220) as the last row; `cursorDomainSize` (actions.ts:125) already = options+1; `digit` (actions.ts:187) already excludes index `options.length` — add the explicit test the spec demands. Verbatim label from config-tests-docs.md § Final strings ledger: `✎ Other — write your own`.\n2. INPUT: none (leaf; renames/repurposes the existing affordance).\n3. LOGIC: FR-D1 — rename const to OTHER_ROW semantics (e.g. `OTHER_AFFORDANCE`), keep it the last row at cursor index `options.length`, fixed (not configurable), not digit-selectable. Update short-view render + any pinned string tests (`\"  ▸ ✎ explain…\"` in short-view.test.ts). Mock nothing.\n4. OUTPUT: the Other row + cursor semantics consumed by P1.M2.T2.S1 (accept routing), P1.M2.T3.S1 (duty-follows-cursor), P1.M2.T6.S1 (deep view).\n5. DOCS: [Mode A] JSDoc on short-view.ts: the affordance const is now the write-in row, not an explain affordance (cite WRITEIN-001)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T2",
+              "title": "Write-in duty: accept Other → commit-at-enter",
+              "status": "Planned",
+              "description": "FR-D1: accepting Other makes the embedded editor the write-in duty — region 'OTHER — this text is the answer', seeded from draft; enter COMMITS applyAnswer({value: text, custom: true}) → answered → dependsOn recompute → advance (Q14 parity). Empty buffer + enter = save draft + blur, NO commit. Ripple confirm routes write-in commits on answered questions through the same keep/cancel modal.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S1",
+                  "title": "Write-in duty: accept Other opens editor in write-in mode; enter commits custom answer + advances",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M2.T1.S1", "P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.32", "h2.8/h3.1", "h2.29", "h2.36", "h2.35", "h2.42", "h2.10", "h2.58"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: panel-ui-seams.md — `accept` (actions.ts:208) routes index `options.length` to `panel.focusTextField()` (panel.ts ~:1035, the existing draft-seeding path); option commits go through `acceptOptionIndex` (actions.ts:232): ripple seam on answered/submitted → `applyAnswer(q.id, {value, at})` → `evaluateDependsOn` (depends-on.ts:168) → `advanceAfterAccept` (`nextUnanswered` :105, open/reasked only). Editor region label verbatim: `OTHER — this text is the answer`.\n2. INPUT: Other row (P1.M2.T1.S1); `custom` field on QuestionAnswer (P1.M1.T1.S1).\n3. LOGIC: FR-D1 — accepting Other focuses the editor in WRITE-IN duty (labeled region), seeds from the question's draft (existing seeding path). `enter` COMMITS: `applyAnswer(q.id, { value: <buffer text>, custom: true, at })` → status answered → `evaluateDependsOn` → advance (mirror acceptOptionIndex's post-commit sequence exactly — Q14 parity). Empty buffer + `enter` = save draft + blur back to options, NO commit. Multi-line insert unchanged (`shift+enter`/`ctrl+j`). Mock nothing — use the panel test harness (`new InterrogationPanel` + `{requestRender: vi.fn()}` TUI stub + `stubTheme`).\n4. OUTPUT: the write-in commit path consumed by P1.M2.T4.S1 (two-stage removal), P1.M2.T5.S1 (role binding), P2.M1.T1.S1 (auto-submit fires after it).\n5. DOCS: [Mode A] JSDoc on panel.ts/actions.ts: three duties, write-in commit-at-enter, custom answer shape."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S2",
+                  "title": "Ripple confirm routes write-in commits on answered questions through the existing keep/cancel modal",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T2.S1"],
+                  "prd_selectors": ["h2.35", "h2.32", "h2.8/h3.2", "h2.10", "h2.58"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: panel-ui-seams.md §3 — ripple-confirm (src/panel/ripple-confirm.ts) triggers today on option accepts over answered/submitted questions; the two-stage removal (P1.M2.T4.S1) obsoletes the old `arm`-flag carry-through in `beginTextConfirm` — FR-18 applies to write-in re-commits with plain commit semantics.\n2. INPUT: write-in commit action from P1.M2.T2.S1.\n3. LOGIC: FR-D1 ripple sentence — a write-in commit on an ANSWERED question whose dependsOn ripple (transitive closure) hits answered/submitted questions routes through the SAME keep/cancel modal (`⚠ Invalidates {n} answered questions ({ids}) — enter=keep, esc=cancel`, verbatim, unchanged). Enter applies the commit (which later runs the D2 auto-submit check once P2 lands); esc reverts. Mock nothing; reuse ripple-confirm tests' fixture patterns.\n4. OUTPUT: write-in edits behave identically to option edits for FR-18; consumed by P2.M1.T1.S1 (post-commit auto-submit check runs on the applied path).\n5. DOCS: none — no user-facing/config/API surface change beyond behavior already documented in ui-spec §Ripple."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T3",
+              "title": "Elaboration duty + duty-follows-cursor (ctrl+t)",
+              "status": "Planned",
+              "description": "FR-D1: ctrl+t (keys.focusText, existing toggle) enters elaboration duty — region 'EXPLAIN — attaches to your selection'; enter saves + blurs, never advances, never answers. While the cursor sits on the Other row (or question is type:\"text\"), ctrl+t enters write-in duty instead — the duty follows entry path and cursor position. Note duty unchanged.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T3.S1",
+                  "title": "Elaboration duty via ctrl+t with EXPLAIN region label; duty follows cursor-on-Other / type:text",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M2.T1.S1", "P1.M2.T2.S1"],
+                  "prd_selectors": ["h2.32", "h2.8/h3.1", "h2.36", "h2.34", "h2.48", "h2.10", "h2.58", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: panel-ui-seams.md §6 — text-field.ts already has focusText (ctrl+t, config `keys.focusText`) as a toggle, note mode via ctrl+shift+m, buffer scoping (EXPLAIN-002), exit gestures (enter per-duty, ctrl+t re-press, double-esc, ctrl+c). Region labels verbatim: `EXPLAIN — attaches to your selection`, `NOTE — ships with next submission` (note unchanged).\n2. INPUT: Other row + cursor index (P1.M2.T1.S1); write-in duty (P1.M2.T2.S1).\n3. LOGIC: FR-D1 — ctrl+t enters ELABORATION duty (label EXPLAIN; editor seeds from draft); `enter` saves draft + blurs to options — NO advance, NO commit (an elaboration alone never answers). While cursor sits on the Other row OR question is `type:\"text\"`, ctrl+t enters WRITE-IN duty instead (duty follows entry path and cursor position). ctrl+t re-press exits (save + blur, no commit). Elaboration on an ANSWERED question whose ripple would invalidate others: same keep/cancel modal as any edit (FR-18, simplified from arm-flag carry-through). All exits remain draft write-throughs (R4). Mock nothing.\n4. OUTPUT: the duty model (write-in | elaboration | note) consumed by P1.M2.T4.S1 (two-stage removal makes enter the only commit gesture), P1.M2.T5.S1 (role binding).\n5. DOCS: [Mode A] JSDoc on text-field.ts/panel.ts: three duties, duty-follows-cursor rule, elaboration-never-answers."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T4",
+              "title": "Remove two-stage machinery; rewrite two-stage.test.ts",
+              "status": "Planned",
+              "description": "FR-D2: REMOVE advanceArmed arming (panel.ts:866) and stage blocks (:735-760) — enter commits in write-in/text duty, saves+blurs in elaboration/note duty. Multi-line typing unchanged.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T4.S1",
+                  "title": "Delete advanceArmed machinery per removal-safety map; rewrite two-stage.test.ts for commit-at-enter",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M2.T2.S1", "P1.M2.T3.S1"],
+                  "prd_selectors": ["h2.32", "h2.51", "h2.53", "h2.58", "h2.10", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: panel-ui-seams.md §'Removal-safety map for advanceArmed' — every touchpoint: panel.ts:412 (field), :742 (disarm — keep the `const enter` definition for stage (c)), :744–755 (stage-2 block), :866 (`opts?.arm` in commitTextDraft — the `{arm}` param collapses out of saveTextDraft/stageText/exitTextField/beginTextConfirm AND ripple-confirm.ts's stashed payload), :877–886 advanceToNextUnanswered dead-code check, JSDoc rewrites (~:683–710, ~:1131, ~:390). two-stage.test.ts: DROP describes at :175 & :265; KEEP :294 (newline), :362 (note), :442 (refocus), :491 (history).\n2. INPUT: write-in duty commit (P1.M2.T2.S1) and elaboration/note save+blur (P1.M2.T3.S1) already define the new enter semantics.\n3. LOGIC: FR-D2 — remove the machinery; enter commits where text completes an answer (write-in duty, type:\"text\" questions), saves+blurs otherwise (elaboration, note). `shift+enter`/`ctrl+j` newline unchanged. Rewrite two-stage.test.ts for commit-at-enter semantics (per the keep/drop classification). Run full panel suite + typecheck — advanceArmed is public and referenced by tests.\n4. OUTPUT: single-enter commit semantics consumed by P2.M1.T1.S1 (auto-submit hooks every commit path).\n5. DOCS: [Mode A] JSDoc on panel.ts handleInput + commitTextDraft: enter commits per duty, no arming stages (cite WRITEIN-001 removal)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T5",
+              "title": "Draft role binding (WRITEIN-002) + zero-pending flash wording",
+              "status": "Planned",
+              "description": "FR-D2: one draft slot per question; role binds at commit/submit from the selection — real option → draft ships as answer.text; Other/text → draft IS the answer (answer.value, custom:true). Superseding a write-in with an option accept KEEPS the slot (R4) and re-binds it as elaboration. Held elaboration with no answer ships nothing; zero-pending ctrl+s flash: 'nothing to submit — {n} question(s) have drafts awaiting an option or Other'.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T5.S1",
+                  "title": "reconcileDraftsForSubmit role binding + held-elaboration zero-pending flash",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M2.T2.S1", "P1.M2.T3.S1", "P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.32", "h2.48", "h2.42", "h2.8/h3.1", "h2.39", "h2.10", "h2.58", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: panel-ui-seams.md — `reconcileDraftsForSubmit` (actions.ts:318) flushes drafts at submit today: text questions → `{value: draft}`; choice → `{...answer, text}`. Zero-pending flash string today at actions.ts:398–404. R4: drafts never destroyed except submission/explicit clear.\n2. INPUT: write-in commit (P1.M2.T2.S1), elaboration duty (P1.M2.T3.S1), `custom` marker (P1.M1.T1.S1).\n3. LOGIC: FR-D2 — binding evaluated at commit/submit from the CURRENT selection: real option → draft is elaboration shipping as `answer.text`; Other (or type:\"text\") → the draft IS the answer (`answer.value`, `custom: true`). Accepting a real option after a committed write-in KEEPS the slot text (R4) and re-binds it as elaboration for the new selection. A draft with NO answer stays held — ships nothing; zero-pending `ctrl+s` flash becomes verbatim `nothing to submit — {n} question(s) have drafts awaiting an option or Other` (count = questions with drafts but no answer); plain `nothing to submit` otherwise. Mock nothing.\n4. OUTPUT: role-bound flush consumed verbatim by P2.M1.T1.S1 (maybeAutoSubmit reuses submit()); asserted by AC-2b scripted tests.\n5. DOCS: [Mode A] JSDoc on reconcileDraftsForSubmit: role-binding rules (cite WRITEIN-002); state.ts draft-slots note."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T6",
+              "title": "Deep view Other section + overview ✎ marker",
+              "status": "Planned",
+              "description": "FR-D1: deep view gains the Other section after the last option with the extension-supplied ramification verbatim; selectable from deep view like any option. Overview ✎ marker = write-in (answer.custom) or text answer.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T6.S1",
+                  "title": "Deep view: Other section with verbatim ramification, selectable → write-in duty",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T1.S1", "P1.M2.T2.S1"],
+                  "prd_selectors": ["h2.29", "h2.8/h3.1", "h2.32", "h2.10", "h2.51", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: panel-ui-seams.md §4 — deep view currently has NO ✎ row (`deepSeedCursorIndex` clamps to options−1); sticky option headers; select-from-deep returns to short form and advances. Verbatim ramification string (config-tests-docs.md § Final strings ledger): `None of the listed options fit — write your own answer; it ships as the official answer for this question, not as an attachment to one of them.` Section title: `✎ Other — write your own`.\n2. INPUT: Other row semantics (P1.M2.T1.S1); write-in duty (P1.M2.T2.S1).\n3. LOGIC: FR-D1 — deep view renders the Other section AFTER the last option (same sticky-header pattern), with the extension-supplied ramification VERBATIM. Rows remain selectable: highlight + `enter` on Other enters the write-in duty (returns to short form, editor focused); selecting a real option behaves as today (returns + advances). Extend `deepSeedCursorIndex` to include index options.length. Mock nothing.\n4. OUTPUT: AC-5 coverage ('scroll all ramifications incl. the Other section'); deep-view cursor parity for P1.M2.T3.S1's duty-follows-cursor.\n5. DOCS: [Mode A] JSDoc on deep-view.ts: synthetic Other section, extension-supplied ramification, selectable."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T6.S2",
+                  "title": "Overview: ✎ marker = write-in (answer.custom) or text answer",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.8/h3.1", "h2.32", "h2.11", "h2.42", "h2.10", "h2.51"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: panel-ui-seams.md §5 — overview markers table (overview.ts:121); the ✎ suffix today means 'non-empty answer.text' (elaboration). The delta REDEFINES it: `✎` = write-in (`answer.custom`) or text answer.\n2. INPUT: `answer.custom` from P1.M1.T1.S1.\n3. LOGIC: FR-D1 — overview marker for answered rows: `✎` when `answer.custom === true` OR question `type:\"text\"`; plain elaboration (answer.text on an option answer) no longer earns ✎ (choose a dimmed suffix consistent with existing elaboration display if one exists — do not lose the elaboration cue entirely if the current UI shows it via ✎; relocate it per spec h2.8/FR-11 marker list). Mock nothing.\n4. OUTPUT: overview parity for write-ins; consumed by AC-2a scripted assertions if they render overview.\n5. DOCS: [Mode A] JSDoc on overview.ts marker semantics (✎ = write-in/text answer)."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Phase",
+      "id": "P2",
+      "title": "Delta D2 — Completeness auto-submit (AUTOSUBMIT-001/002)",
+      "status": "Planned",
+      "description": "FR-D4/D5: after EVERY answer commit, maybeAutoSubmit fires the exact ctrl+s pipeline when zero open/reasked questions remain and ≥1 is pending; gate hold with non-expiring ⚠ line + ctrl+s override; bridge tail parity; 'submit pending answers first' edge deleted.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P2.M1",
+          "title": "Auto-submit hook, gate hold, bridge parity, edge deletion",
+          "status": "Planned",
+          "description": "maybeAutoSubmit(panel, deps) after every commit (option accepts incl. edits, Other write-ins, text enters, edit re-commits) reusing submit() verbatim; gate-hold warning line; recordRemoteSubmission tail; epoch bumps per firing.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P2.M1.T1",
+              "title": "maybeAutoSubmit hook after every commit",
+              "status": "Planned",
+              "description": "FR-D4: if zero questions with status open/reasked remain AND ≥1 is pending (answered), fire the EXACT ctrl+s pipeline (reconcileDraftsForSubmit → baseline/diff → BUG-008 filter → gate check → markSubmitted → buildSubmission → deliverSubmission → noteSubmissionDelivered — i.e. the existing submit() in actions.ts:358), flash footer 'submitted — {n} answer(s)'; one submission per commit; epoch bumps per firing.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P2.M1.T1.S1",
+                  "title": "Implement maybeAutoSubmit(panel, deps) and wire it after every panel commit path",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M2.T2.S1", "P1.M2.T4.S1", "P1.M2.T5.S1"],
+                  "prd_selectors": ["h2.33", "h2.8/h3.0", "h2.14/h3.7", "h2.41", "h2.47", "h2.10", "h2.58", "h2.51", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: state-display-seams.md — `submit()` (actions.ts:358) → reconcileDraftsForSubmit → computeDiff → BUG-008 filter (:372–383) → markSubmitted → buildSubmission (delivery.ts:140; takeSnapshot+bumpEpoch :185–186) → deliverSubmission (:497) → noteSubmissionDelivered. Footer flash API: `panel.flash(text)` (panel.ts:910, 2.5 s). Completeness predicate = zero open/reasked — same statuses `nextUnanswered` (actions.ts:105) skips; moot/withdrawn/closed never count as unanswered.\n2. INPUT: single-enter commit paths from P1.M2.T2.S1 (write-in) + P1.M2.T4.S1 (option accepts/text enters/edits, two-stage gone); role-bound reconcile from P1.M2.T5.S1.\n3. LOGIC: FR-D4 — add `maybeAutoSubmit(panel, deps)` in actions.ts: after EVERY commit (option accept incl. edits of answered questions, Other write-in commit, text enter, edit re-commit) — if zero open/reasked AND ≥1 pending (answered), call the existing `submit()` pipeline EXACTLY (no parallel implementation) and flash verbatim `submitted — {n} answer(s)`; held batch note rides (submit() already carries it). No-ops on zero-pending. One submission per commit (deliberate). Gate check inside submit() withholds per FR-D5 (next subtask). Epoch bumps per firing (FR — unchanged semantics, more firings). Mock delivery deps as existing submit() tests do.\n4. OUTPUT: the one shared hook consumed by P2.M1.T2.S1 (gate hold wraps it), P2.M1.T3.S1 (bridge tail), P3.M2.T2.S1 (AC-9 pending-ship).\n5. DOCS: [Mode A] JSDoc on maybeAutoSubmit (the one shared hook; no-ops on zero-pending) + state.ts epoch note (auto-submits bump epoch)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P2.M1.T2",
+              "title": "Gate hold warning line (AUTOSUBMIT-002)",
+              "status": "Planned",
+              "description": "FR-D5: while any gate-group question is open/reasked, auto-submit withholds; commits show the non-expiring footer warning '⚠ {n} foundational unanswered — answer them or {submit} to submit now' (any key dismisses, never blocks; {submit} from resolved config). ctrl+s remains the deliberate override. Ordinary non-gate skips get no warning.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P2.M1.T2.S1",
+                  "title": "Commit-time gate-hold line with config-resolved {submit} label; withhold auto-submit",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P2.M1.T1.S1"],
+                  "prd_selectors": ["h2.33", "h2.29", "h2.36", "h2.10", "h2.8/h3.0", "h2.58", "h2.51"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: config-tests-docs.md — the no-hardcoded-keys guard regex-matches `ctrl+[a-z0-9]` ANYWHERE in non-test src (comments stripped); key labels MUST come from `resolveKeyLabels(config)` (config.ts:449). Existing submit-time gate warning `gate.ts:105` (`…later answers may shift`) is the ctrl+s-partial path — keep it; the NEW commit-time hold line is a different string by design. Verbatim: `⚠ {n} foundational unanswered — answer them or {submit} to submit now`.\n2. INPUT: `maybeAutoSubmit` from P2.M1.T1.S1.\n3. LOGIC: FR-D5 — while any gate-group question is open/reasked: maybeAutoSubmit withholds, and the commit instead shows the non-expiring footer line (any key dismisses — reuse the gate.ts any-key-dismiss pattern at stage 0; never blocks). `{submit}` interpolates the resolved label. ctrl+s submits anyway (override — existing submit path). Ordinary non-gate skips: NO warning (footer counts already show the remainder). The completeness rule already covers the common case (a gate question is itself unanswered) — the observable is the explanation. Mock nothing.\n4. OUTPUT: AC-2d scripted coverage (commits show ⚠ and do NOT auto-submit; answering the gate releases the next commit; ctrl+s submits anyway).\n5. DOCS: [Mode A] JSDoc on gate.ts/maybeAutoSubmit distinguishing the commit-time hold line from the legacy submit-time warning."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P2.M1.T3",
+              "title": "Bridge tail: maybeAutoSubmit + customText parity",
+              "status": "Planned",
+              "description": "FR-D4: recordRemoteSubmission runs maybeAutoSubmit at its tail — a bridge partial submit completing the set ships once through the same pipeline. customText-only bridge answers set custom: true (WRITEIN-001 parity); bridge answer validation accepts custom values as-is (not checked against option lists).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P2.M1.T3.S1",
+                  "title": "recordRemoteSubmission tail hook + customText-only → custom:true + validation acceptance",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P2.M1.T1.S1", "P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.30", "h3.14", "h2.8/h3.5", "h2.33", "h2.60", "h2.42", "h2.10", "h2.51"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: surfacing-remote-seams.md — `recordRemoteSubmission` (remote-submit.ts:90): 9-step pipeline; `customText` maps via `mapWireAnswers` (remote-bridge.ts:371–395) to `answer.text` or freeform `value` today, NO custom flag; maybeAutoSubmit slots after step-9 `noteSubmissionDelivered` (:131) AND after the `nothing_shippable` return (:121). CRITICAL: the function has NO panel access — inject the hook via `RemoteSubmitDeps`/`RemoteBridgeOptions` (wire from index.ts where the panel/state singletons live).\n2. INPUT: `maybeAutoSubmit` signature from P2.M1.T1.S1; `custom` marker from P1.M1.T1.S1.\n3. LOGIC: FR-D4 bridge tail — run maybeAutoSubmit at the tail (a bridge partial submit completing the set alongside panel-pending answers ships ONCE through the same pipeline). WRITEIN-001 parity: `customText`-only bridge submissions (values empty) map to `answer.value` with `custom: true`; text questions take `customText ?? values[0]` as today; `note`/`optionNotes` stay dropped. Validation: `values[0]` still validated against CURRENT option values, but custom values are accepted AS-IS (never checked against option lists). Bridge submissions must still trigger a model reply, bump epoch once, fire noteSubmissionDelivered (existing contract). Use remote-submit.test.ts / remote-bridge.test.ts harness.\n4. OUTPUT: bridge/panel answer parity (phone and desktop produce identical custom answers); consumed by AC-2a/2c bridge-side assertions if present.\n5. DOCS: [Mode A] JSDoc on remote-submit.ts: maybeAutoSubmit tail + parity note (customText-only = write-in path)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P2.M1.T4",
+              "title": "Delete 'submit pending answers first' edge + epoch-per-firing semantics",
+              "status": "Planned",
+              "description": "FR-D4: the old footer edge is deleted (completeness ships itself). A user suspended between last commit and delivery resumes to a pending panel — one ctrl+s or any new commit flushes. Epoch bumps per auto-submit firing (tests).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P2.M1.T4.S1",
+                  "title": "Remove the submit-pending edge; assert epoch bumps per auto-submit firing",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P2.M1.T1.S1"],
+                  "prd_selectors": ["h2.33", "h2.39", "h2.41", "h2.8/h3.0", "h2.10", "h2.51", "h2.53"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: system_context.md — spec h2.39 Empty/edge states: 'the submit pending answers first edge is gone. A user who suspended between the last commit and delivery resumes to a pending-submit panel; one ctrl+s (or any new commit) flushes it.' Locate the edge in actions.ts/panel.ts (grep 'pending' in footer/flash paths; PRD cites the zero-pending flash area actions.ts:398–404 as adjacent).\n2. INPUT: maybeAutoSubmit (P2.M1.T1.S1) in place.\n3. LOGIC: FR-D4 — delete the edge and its tests; ensure the suspended-mid-delivery resume state renders a pending panel flushable by one ctrl+s or any new commit (the new commit's maybeAutoSubmit fires). Epoch: every auto-submit firing bumps epoch once (buildSubmission does it) — add scripted assertions for consecutive edit commits while complete (each = one submission, one bump — 'one model turn per edit' trade-off is deliberate). Mock delivery as existing submit tests do.\n4. OUTPUT: cleaned edge semantics consumed by P3.M2.T2.S1 (AC-9: pending answers ship on next commit/submit after restart).\n5. DOCS: [Mode A] state.ts epoch JSDoc already updated in P2.M1.T1.S1 — extend if this subtask surfaces new wording; otherwise none beyond behavior text."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Phase",
+      "id": "P3",
+      "title": "Delta D3 — Surfacing gates (SURFACE-001/002)",
+      "status": "Planned",
+      "description": "FR-D6/D7: panel opens ONLY via /interrogate, an upsert leaving unanswered questions, or {reopen:true}; reads NEVER surface; session_start reconstruction NEVER opens the panel (suspend widget line instead, FR-34 onRestored kept).",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P3.M1",
+          "title": "SURFACE-001 — reads never surface",
+          "status": "Planned",
+          "description": "maybeAutoOpen gains three gates (upsert-call via pendingUpsertArgs, unanswered-exist, not-completed); handleUpserted suspended-reopen carries the same gate; tree-nav BUG characterizations flip.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P3.M1.T1",
+              "title": "maybeAutoOpen allow-list gates",
+              "status": "Planned",
+              "description": "FR-D6: maybeAutoOpen opens ONLY when (1) the call was an upsert (questions[] non-empty — read the pendingUpsertArgs stash), (2) unanswered (open/reasked) questions exist post-upsert, (3) interrogation not completed. Reads ({}) NEVER surface, whatever the state.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M1.T1.S1",
+                  "title": "Add upsert-call + unanswered-exist + not-completed gates to maybeAutoOpen",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.37", "h2.8/h3.4", "h2.16", "h2.10", "h2.58", "h2.46/h3.15", "h2.39", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: surfacing-remote-seams.md — `maybeAutoOpen` (panel.ts:1759, wired at index.ts:152) currently opens on ANY successful interrogate end (toolName + !isError + host-closed + state exists) — the SURFACE-001 bug. End events carry NO args; the `pendingUpsertArgs` Map (index.ts:215) is populated at tool_execution_start (:219) and consumed+DELETED by the bridge emission handler (:224–225) registered LAST. CRITICAL ORDERING: the lifecycle handler runs FIRST — read the stash non-consumingly (peek without delete) or extract a shared helper; do NOT break the deferred bridge emission (D-R6) or introduce a second stash.\n2. INPUT: none (leaf; modifies existing wiring).\n3. LOGIC: FR-D6 — maybeAutoOpen requires: (1) call was an upsert (`questions[]` non-empty from the stash), (2) unanswered (open/reasked) questions exist post-upsert — reuse the status predicate family from hasResumableQuestions/nextUnanswered, (3) not completed. Reads `{}` never open, including all-answered, completed, and post-/tree states. {reopen:true} and /interrogate paths untouched. Mock pi events per existing panel.test.ts/index-level test patterns.\n4. OUTPUT: gated open consumed by P3.M1.T3.S1 (test flips) and referenced by P3.M1.T2.S1 (same predicate).\n5. DOCS: [Mode A] JSDoc on maybeAutoOpen: the three-gate allow-list + rationale (reads are pull, never surfaces; cite SURFACE-001)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P3.M1.T2",
+              "title": "handleUpserted suspended-reopen gate",
+              "status": "Planned",
+              "description": "FR-D6: the suspended-reopen path (handleUpserted, panel.ts:1429) carries the same unanswered gate — a description-only edit over an answered set surfaces nothing.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M1.T2.S1",
+                  "title": "Apply the unanswered gate to the questions-upserted suspended-reopen path",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": ["P3.M1.T1.S1"],
+                  "prd_selectors": ["h2.37", "h2.8/h3.4", "h2.39", "h2.10", "h2.58", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: surfacing-remote-seams.md — `handleUpserted` (panel.ts:1429) reopens a suspended panel on `questions-upserted` events today with no unanswered filter; subscription lifecycle at :1467/:1506–1508.\n2. INPUT: the unanswered predicate from P3.M1.T1.S1 (share one helper — do not duplicate).\n3. LOGIC: FR-D6 — the suspended-reopen on upsert fires ONLY when the upsert leaves unanswered (open/reasked) questions; a description-only edit over an answered set surfaces nothing (panel stays suspended; widget unchanged). Explicit test: answered set + description-only upsert while suspended → no open.\n4. OUTPUT: consistent gating consumed by P3.M1.T3.S1 assertions.\n5. DOCS: [Mode A] JSDoc on handleUpserted: same allow-list rationale as maybeAutoOpen."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P3.M1.T3",
+              "title": "Flip tree-nav BUG characterizations + AC-15 scripted test",
+              "status": "Planned",
+              "description": "FLIP the two BUG characterizations in tree-nav-repro.test.ts (post-nav read pops panel; read after completion pops panel) to assert no-open; suspended-at-nav and open-at-nav stay green. New AC-15 test citing FR-28/SURFACE-001.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M1.T3.S1",
+                  "title": "Flip tree-nav-repro :143/:183 to no-open; add AC-15 (reads never surface) scripted test",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P3.M1.T1.S1", "P3.M1.T2.S1"],
+                  "prd_selectors": ["h2.10", "h2.46/h3.15", "h2.37", "h2.8/h3.4", "h2.53", "h2.51", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: surfacing-remote-seams.md §'Test-flip ledger' — tree-nav-repro.test.ts: BUG characterizations at :143 (post-nav read pops panel) and :183 (read after completion pops panel) flip `1→0 customCalls`; suspended-at-nav (:86) and open-at-nav (:119) MUST stay green. ac-scripted.test.ts shows the AC naming/FR-citation pattern.\n2. INPUT: gated maybeAutoOpen + handleUpserted from P3.M1.T1.S1 / P3.M1.T2.S1.\n3. LOGIC: Verification section — flip the two characterizations to assert no-open (characterizations become regression pins for SURFACE-001); add AC-15 scripted test: with a live interrogation (panel suspended, questions open), a model `interrogate({})` read completes → panel stays closed, editor untouched; same for all-answered and completed states. Cite FR-28/SURFACE-001 in the test name/docblock per the AC citation convention.\n4. OUTPUT: AC-15 green; consumed by P4.M1.T1.S1 (full-suite sweep).\n5. DOCS: none — test-only (behavior docs ride with P3.M1.T1.S1 Mode A)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P3.M2",
+          "title": "SURFACE-002 — session-start never auto-opens",
+          "status": "Planned",
+          "description": "Reconstruction NEVER opens the panel: replace openPanel at reconstruct.ts:478 with the suspend-widget line via the existing suspend.ts helper; keep the FR-34 onRestored bridge emission; non-TUI fallback flag unchanged; session_tree stays silent.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P3.M2.T1",
+              "title": "Reconstruction: widget line instead of openPanel",
+              "status": "Planned",
+              "description": "FR-D7: replace the openPanel(...) call at reconstruct.ts:478 with setWidget via hasResumableQuestions(state) → the existing suspend.ts helper; the widget is the only cue. Keep onRestored (remote clients still re-render).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M2.T1.S1",
+                  "title": "Swap reconstruct.ts openPanel for updateSuspendWidget; retain onRestored emission",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.44", "h2.14/h3.12", "h2.16", "h2.8/h3.4", "h2.8/h3.5", "h2.37", "h2.10", "h2.58", "h2.51"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: surfacing-remote-seams.md — reconstruct.ts:478 `openPanel(ctx,…)` fires on session-start TUI with non-empty state (no unanswered filter); `onRestored` (FR-34 bridge `ask:resume`) at :472 BEFORE openPanel — KEEP it (remote clients still re-render; the panel is the only suppressed surface); non-TUI flag at :455 unchanged; session_tree silent path already exists (:459–466, retarget+suspend). suspend.ts: `updateSuspendWidget` (:135), `hasResumableQuestions` (:66), widget line :117 (`{n} open · {m} answered — /interrogate to resume`), `WIDGET_KEY=\"interrogator\"`.\n2. INPUT: none (leaf; uses shipped helpers).\n3. LOGIC: FR-D7 — session_start reconstruction NEVER opens the panel. Replace the openPanel call with the widget set via the existing suspend.ts helper (hasResumableQuestions(state) → setWidget) — reconstruction's ONLY UI act is the widget line. Keep onRestored emission order. Non-TUI fallback flag unchanged (shapes tool results, not surfaces). session_tree stays silent as shipped. /interrogate reopens via the existing closed-host-with-live-state path.\n4. OUTPUT: widget-only restart behavior consumed by P3.M2.T2.S1 (test flips + rewritten AC-9).\n5. DOCS: [Mode A] reconstruct.ts module header JSDoc: SURFACE-002 — reconstruction's only UI act is the widget line."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P3.M2.T2",
+              "title": "Flip reconstruction/ac-panel tests + rewrite AC-9",
+              "status": "Planned",
+              "description": "FLIP the opened:true session-start rows in reconstruct.test.ts (~204/260/370) and the ac-panel restart rows to widget-set/no-panel; rewrite AC-9: restart → NO panel, widget shows live counts, /interrogate reopens restored, drafts gone (documented), pending answers ship on next commit/submit.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M2.T2.S1",
+                  "title": "Flip opened:true rows (reconstruct.test.ts :204/:260/:370; ac-panel AC-9a/b/c + AC-10) and rewrite AC-9",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P3.M2.T1.S1", "P2.M1.T1.S1"],
+                  "prd_selectors": ["h2.10", "h2.44", "h2.53", "h2.51", "h2.37", "h2.14/h3.12", "h2.33"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: surfacing-remote-seams.md §'Test-flip ledger' — reconstruct.test.ts :204/:260/:370 assert `opened: true` on session-start rows; ac-panel.test.ts AC-9a/b/c (:846/:881/:899) + AC-10 (:1062) flip `opened:true → false`. Assert widget-set instead (setWidget called with the suspend line; no openPanel/custom surface).\n2. INPUT: widget-only reconstruction (P3.M2.T1.S1); auto-submit semantics (P2.M1.T1.S1) for the pending-ship clause.\n3. LOGIC: Verification section — flip the rows to widget-set/no-panel; rewrite AC-9 as a scripted test: restart pi mid-interrogation → NO panel appears (SURFACE-002); widget shows live counts; `/interrogate` reopens with questions/answers restored (any status mix); drafts gone (documented limitation — assert empty drafts); pending answers ship on the next commit or submit (cite FR-28/SURFACE-002 + AUTOSUBMIT-001).\n4. OUTPUT: AC-9 (rewritten) green; consumed by P4.M1.T1.S1 sweep.\n5. DOCS: none — test-only (behavior docs ride with P3.M2.T1.S1 Mode A)."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Phase",
+      "id": "P4",
+      "title": "Delta closure — verification sweep and changeset-level documentation",
+      "status": "Planned",
+      "description": "Mode B catch-all: full suite + typecheck + keymap guard green; README.md synced to the whole changeset (write-ins, auto-submit, surfacing, hotkey table, AC list 2a–2d + 15, two-stage references removed).",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P4.M1",
+          "title": "Sync changeset-level documentation",
+          "status": "Planned",
+          "description": "Final task per SOW §5 Mode B — runs after every implementing subtask.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P4.M1.T1",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "README.md changeset sync + full-suite verification sweep. Enumerates the changeset-level doc files and depends on every implementing subtask so it runs last.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P4.M1.T1.S1",
+                  "title": "Full verification sweep: vitest suite, typecheck, keymap guard",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T2.S1", "P1.M1.T2.S2", "P1.M2.T1.S1", "P1.M2.T2.S1", "P1.M2.T2.S2", "P1.M2.T3.S1", "P1.M2.T4.S1", "P1.M2.T5.S1", "P1.M2.T6.S1", "P1.M2.T6.S2", "P2.M1.T1.S1", "P2.M1.T2.S1", "P2.M1.T3.S1", "P2.M1.T4.S1", "P3.M1.T1.S1", "P3.M1.T2.S1", "P3.M1.T3.S1", "P3.M2.T1.S1", "P3.M2.T2.S1"],
+                  "prd_selectors": ["h2.53", "h2.51", "h2.10", "h2.36"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: config-tests-docs.md — `npm test` (vitest run, 48 test files), `npm run typecheck` (tsc --noEmit), `npx vitest run <file>` for a single file; the no-hardcoded-keys guard runs as part of the suite (regex `ctrl+[a-z0-9]` anywhere in non-test src; only DEFAULT_CONFIG allowlisted) and keymap-guard.test.ts pins defaults + ALL_ACTIONS. AUTOMATION-POLICY (plan/001_0d6760db6bc5/AUTOMATION-POLICY.md) is binding: no live TUI, no real tool calls, no waiting on user answers — interactive checks defer to the human runbook outside the repo.\n2. INPUT: all implementing subtasks complete (dependencies list = every one).\n3. LOGIC: Verification section — run the full suite + typecheck; confirm the keymap guard stays green (the new ⚠ gate-hold line interpolates `labels.submit`; no literal chords added outside DEFAULT_CONFIG); triage and fix any cross-subtask integration fallout (registration order in index.ts, advanceArmed dead references, duplicate-summary drift between snapshots.ts:124 and delivery.ts:269).\n4. OUTPUT: green `npm test` + `npm run typecheck` as the delta's gate; unblocks P4.M1.T1.S2.\n5. DOCS: none — this is the gate for the docs subtask."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P4.M1.T1.S2",
+                  "title": "README.md changeset sync (Mode B)",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T2.S1", "P1.M1.T2.S2", "P1.M2.T1.S1", "P1.M2.T2.S1", "P1.M2.T2.S2", "P1.M2.T3.S1", "P1.M2.T4.S1", "P1.M2.T5.S1", "P1.M2.T6.S1", "P1.M2.T6.S2", "P2.M1.T1.S1", "P2.M1.T2.S1", "P2.M1.T3.S1", "P2.M1.T4.S1", "P3.M1.T1.S1", "P3.M1.T2.S1", "P3.M1.T3.S1", "P3.M2.T1.S1", "P3.M2.T2.S1", "P4.M1.T1.S1"],
+                  "prd_selectors": ["h2.51", "h2.53", "h2.55", "h2.36", "h2.10", "h2.32", "h2.33", "h2.37", "h2.39", "h2.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: config-tests-docs.md — README.md touchpoints: hotkey table lines 151–162, config reference 98–150, Limitations 214–234; delta grep hits at 34/36/42 (Usage), 107–114, 159–162, 274–275, 181–184 (explain-era text). No hits exist for two-stage/advanceArmed (verify stays true).\n2. INPUT: all implementing subtasks (dependencies list) + green sweep (P4.M1.T1.S1).\n3. LOGIC: PRD 'Sync changeset-level documentation' — README.md: (1) write-in answers (✎ Other row, custom answers, elaboration vs write-in distinction); (2) completeness auto-submit incl. the deliberate one-model-turn-per-edit trade-off while complete, and gate hold; (3) surfacing policy — restart no longer auto-opens the panel (run /interrogate), reads never pop the panel; (4) hotkey table rows updated (focusText = elaborate toggle / write-in-on-Other, enter context incl. Other row, digits note 'real options only'); (5) remove any two-stage references; (6) AC list extended to 2a–2d and 15. No new config keys ship in this delta — verify the config reference needs no change beyond behavior text.\n4. OUTPUT: README consistent with the shipped delta; the changeset closes.\n5. DOCS: [Mode B] this subtask IS the changeset-level docs sync — README.md only (per-feature docs already rode with implementing subtasks per Mode A)."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

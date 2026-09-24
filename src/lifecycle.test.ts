@@ -8,6 +8,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 import { applyUpsert, markAnswered, markSubmitted } from "./merge.js";
+import { digestSince, takeSnapshot } from "./snapshots.js";
 import { createLifecycle, type ClosePassResult } from "./lifecycle.js";
 import { attemptCompletion } from "./completion.js";
 import { DEFAULT_CONFIG } from "./config.js";
@@ -249,6 +250,72 @@ test("aborted run — agent_settled with no tool events — still closes submitt
 
   expect(statusOf(st, "q1")).toBe("closed");
   lifecycle.dispose();
+});
+
+// S2-GATED (BUG-003, audited in P1.M1.T3.S1): these tests encode the
+// close-pass snapshot contract that P1.M1.T3.S2 implements — takeSnapshot
+// in runClosePass, AFTER closeSubmitted, gated on toClose.length > 0, with
+// NO epoch bump. They are deliberately PLAIN (not .todo/.skip): until S2
+// lands they are RED BY DESIGN — the failure IS S2's TDD signal.
+describe("close pass snapshot (BUG-003, lands in P1.M1.T3.S2)", () => {
+  test("a close pass that closes ids appends ONE same-epoch 'closed' snapshot (no epoch bump)", () => {
+    const st = newState();
+    seedSubmitted(st, ["q1"]);
+    const mock = makeMockPi();
+    const lifecycle = createLifecycle(mock.pi, { getState: () => st });
+    const baselineCount = st.snapshots.length; // seedSubmitted pushes no snapshot
+    const submitEpoch = st.epoch;
+
+    mock.emit("agent_settled");
+
+    expect(statusOf(st, "q1")).toBe("closed");
+    expect(st.snapshots.length).toBe(baselineCount + 1); // exactly one close-pass entry
+    const snap = st.snapshots[st.snapshots.length - 1]!;
+    expect(snap.epoch).toBe(submitEpoch); // same epoch as the submission it archives
+    expect(st.epoch).toBe(submitEpoch); // close pass NEVER bumps
+    expect(Object.values(snap.state.questions).every((q) => q.status === "closed")).toBe(true);
+    lifecycle.dispose();
+  });
+
+  test("a settle with nothing to close adds NO snapshot (toClose.length > 0 gate)", () => {
+    const st = newState();
+    seedSubmitted(st, ["q1"]);
+    const mock = makeMockPi();
+    const lifecycle = createLifecycle(mock.pi, { getState: () => st });
+
+    mock.emit("agent_settled"); // closes q1 (S2-gated snapshot lands here)
+    const afterClose = st.snapshots.length;
+    mock.emit("agent_settled"); // nothing submitted → toClose empty → no snapshot
+
+    expect(statusOf(st, "q1")).toBe("closed");
+    expect(st.snapshots.length).toBe(afterClose);
+    lifecycle.dispose();
+  });
+
+  test("digestSince(state, submitEpoch) output is unchanged by the close-pass entry", () => {
+    const st = newState();
+    seedSubmitted(st, ["q1", "q2"]);
+    takeSnapshot(st); // first submission's ring entry (submit-time: 'submitted')
+    st.bumpEpoch(); // epoch 2
+    // q1 re-answered + re-submitted → a REAL pending delta vs the epoch-1 snapshot.
+    markAnswered(st, "q1", { value: "b", at: AT });
+    markSubmitted(st, ["q1"]);
+    const submitEpoch = st.epoch;
+    const before = digestSince(st, 1);
+    expect(before).not.toBe(""); // guard: the delta is real, not a vacuous comparison
+
+    const mock = makeMockPi();
+    const lifecycle = createLifecycle(mock.pi, { getState: () => st });
+    mock.emit("agent_settled"); // closes q1+q2 → S2 appends one same-epoch snapshot
+
+    expect(statusOf(st, "q1")).toBe("closed");
+    expect(st.epoch).toBe(submitEpoch);
+    expect(st.snapshots.length).toBe(2); // submit snapshot + close-pass snapshot
+    expect(st.snapshots[1]!.epoch).toBe(submitEpoch);
+    // Same-epoch link with identical answer signatures ⇒ zero extra segments.
+    expect(digestSince(st, 1)).toBe(before);
+    lifecycle.dispose();
+  });
 });
 
 test("double agent_settled with no intervening submission: second pass is a no-op", () => {

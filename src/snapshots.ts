@@ -39,6 +39,13 @@ export const SNAPSHOT_RING_SIZE = 10;
  * answer in `next` has signature `undefined` on BOTH sides — so only
  * genuinely ANSWERED questions surface as pending. buildSubmission takes a
  * NEW snapshot + bumps epoch, making this baseline fresh for the next submit.
+ *
+ * RING SHAPE (BUG-003 audit): the baseline is the MOST RECENT entry — after
+ * the agent-settled close pass that IS the "closed" close-pass snapshot
+ * (same epoch as the submit snapshot it archives), which is exactly the
+ * `before.status === "closed"` that `editedArchived` needs (BUG-003/AC-13);
+ * before settle it is the submit-time "submitted" snapshot. Duplicate
+ * epochs cannot matter here: only the last entry is ever read.
  */
 export function submissionBaselineOf(state: InterrogationState): SerializedState {
   const snaps = state.snapshots;
@@ -170,6 +177,21 @@ function answerSummary(q: Question | undefined): string {
  * mislabeled with the post-bump epoch. Wiring lives in the submit flow
  * (P1.M2.T1.S1); this module only exports the explicit function.
  *
+ * RING SHAPE INVARIANTS (BUG-003 audit, P1.M1.T3.S1): the ring may hold
+ * MULTIPLE snapshots per epoch, and entries may hold any archived status.
+ * Exactly two entry kinds exist:
+ * - submit-time snapshots (delivery.ts `buildSubmission`, fallback.ts
+ *   `recordAnswers`): hold statuses "submitted", taken BEFORE `bumpEpoch()`
+ *   — the CALLER CONTRACT above applies to THESE SITES ONLY.
+ * - close-pass snapshots (lifecycle.ts `runClosePass`, gated on
+ *   `toClose.length > 0`, landed in P1.M1.T3.S2 — BUG-003 option (a)):
+ *   hold statuses "closed" at the UN-bumped submit epoch; the close pass
+ *   never bumps the epoch.
+ * Every ring consumer tolerates both kinds: `submissionBaselineOf` reads
+ * only the LAST entry; `digestSince`'s consecutive-pair diff fires only on
+ * answer-signature changes, so status-only flips contribute zero entries.
+ * See the per-function notes below.
+ *
  * Emits NO events — snapshotting is bookkeeping, not a state mutation.
  */
 export function takeSnapshot(state: InterrogationState): Snapshot {
@@ -287,6 +309,14 @@ export function computeDiff(
  * surviving snapshot, the walk simply starts at the oldest surviving
  * snapshot ≥ epochFrom (all snapshots qualify when they are all newer).
  * Never throws on sparse shapes; never mutates `state`.
+ *
+ * SAME-EPOCH / STATUS-ONLY LINKS (BUG-003 audit): consecutive same-epoch
+ * pairs (a submit snapshot + the close-pass "closed" snapshot share the
+ * epoch) and status-only transitions contribute ZERO entries —
+ * `computeEntries` fires only when `answerSignature` (value + text)
+ * differs, so a submitted→closed flip is digest-invisible; the
+ * `epoch >= epochFrom` filter tolerates duplicate epochs without assuming
+ * uniqueness. A close-pass snapshot therefore never changes this digest.
  *
  * @param state live interrogation state (its ring + current serialize())
  * @param epochFrom the epoch the stale caller last saw

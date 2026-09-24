@@ -1,0 +1,1 @@
+{ "hasIssues": true, "issueCount": 3, "summary": "Delta code (write-ins, auto-submit, surfacing gates) is implemented and E2E-verified, but 2 stale reload-invoke tests leave the suite red, README.md contradicts shipped behavior (P4 closure tasks unfinished), and tasks.json statuses lag reality." }

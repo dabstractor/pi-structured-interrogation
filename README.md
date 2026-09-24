@@ -33,14 +33,26 @@ materialize; runtime loads via jiti against pi's tree.
    plan"*). The model upserts questions through the `interrogate` tool and the
    panel **auto-opens** on the first upsert.
 2. Answer in the panel: move between questions with `tab` / `shift+tab`, pick
-   an option with digits `1`–`9` or arrows + `enter`, press `ctrl+t` to focus
+   an option with digits `1`–`9` (real options only — the `✎ Other` row is
+   never digit-selectable) or arrows + `enter`, press `ctrl+t` to focus
    the free-text editor (short view), `ctrl+d` for the deep-dive view, `ctrl+l` for the
    overview, `ctrl+shift+m` to attach a batch note, `ctrl+g` to finish the
-   draft in an external editor. Explain then press `enter`, `enter` — the
-   highlighted option is accepted with your explanation attached and the
-   question becomes submittable.
-3. Press `ctrl+s` to submit. Partial submissions are fine — unanswered
-   questions stay open. Each submit streams a compact delta message to the
+   draft in an external editor. The editor's duty follows context: focused
+   from a selected option it is the **elaboration** duty — `enter` saves the
+   text and returns to the options, and the option you then accept ships
+   with your explanation attached; on the `✎ Other — write your own` row
+   (and on `type:"text"` questions) it is the **write-in** duty — the text
+   IS the answer and `enter` commits it immediately.
+3. Submitting is mostly automatic: answering the last open question — by
+   option accept, `✎ Other` write-in, or text `enter` — ships the submission
+   for you (footer flashes `submitted — {n} answer(s)`), and an edit made
+   while the set is already complete ships immediately too (one submission
+   per commit — the deliberate one-model-turn-per-edit trade-off while
+   complete). `ctrl+s` still submits partial sets — unanswered questions
+   stay open. While a foundational gate question is unanswered, auto-submit
+   holds: commits show `⚠ {n} foundational unanswered — answer them or
+   {submit} to submit now` (any key dismisses it), and `ctrl+s` is the
+   deliberate override. Each submit streams a compact delta message to the
    model (rendered as a diff card in your transcript), ending with
    `(state epoch {n})` — the epoch the model must echo when upserting
    existing questions afterwards.
@@ -57,9 +69,14 @@ materialize; runtime loads via jiti against pi's tree.
    the agent re-asked survive. Navigating the conversation tree (`/tree`)
    never opens or reopens the panel: the interrogation state silently
    follows the branch you land on (and clears away on branches without
-   one), so resurfacing stays deliberate — `/interrogate`, or a model
-   upsert when it has follow-ups. Auto-(re)open happens only on the first
-   model upsert and after a session restart/resume.
+   one), so resurfacing stays deliberate — the panel opens ONLY via
+   `/interrogate`, a model upsert that leaves unanswered (open/reasked)
+   questions, or the model's `{reopen:true}`. Reads (`{}`) never surface
+   the panel, whatever the state (all-answered, completed, after `/tree`)
+   — a description-only edit over an answered set surfaces nothing. A
+   session restart/resume never opens it either: after a restart the
+   suspend widget line (live counts, `/interrogate`) is the only cue — run
+   `/interrogate` and the restored questions and answers come right back.
 5. When every question is closed, the panel dismisses and the model receives
    **one full completion record** (a recap card lands in the transcript).
 
@@ -127,7 +144,7 @@ All settings live under a top-level `"interrogator"` key in either
       "goal": 400,            // max characters for the goal statement (enforced on stored state; updates past 400 are truncated with a warning)
       "contextBudgetPct": 4   // max % of the context window budgeted for interrogator content
     },
-    "gateWarnings": true,           // FR-9: warn on panel submit when foundational gate questions are unanswered
+    "gateWarnings": true,           // FR-9: gate warnings — the submit-time "later answers may shift" line AND the auto-submit hold line (display-only, never blocks)
     "roundDetection": true,         // detect interrogation rounds from plain chat text (TUI)
     "digitQuickSelect": true,       // allow 1–9 to quick-select an option
     "compactionPreservation": true, // prepend preservation instructions to mid-interrogation compaction summaries
@@ -156,9 +173,9 @@ Remappable actions (`interrogator.keys.*`):
 | -------------------- | --------------------- | --------------- | --------------------------------------------- |
 | Deep-dive view       | `keys.deep`           | `ctrl+d`        | Open/close the ramification view              |
 | Overview list        | `keys.overview`       | `ctrl+l`        | Open the question overview list               |
-| Focus text editor    | `keys.focusText`      | `ctrl+t`        | Toggle the free-text editor: focus it, or (already focused) close it — draft saved, back to options |
+| Focus text editor    | `keys.focusText`      | `ctrl+t`        | Toggle the free-text editor: focus it (duty follows context — elaboration on a selected option, write-in on the `✎ Other` row or a text question), or (already focused) close it — draft saved, back to options |
 | Batch note           | `keys.batchNote`      | `ctrl+shift+m`  | Attach a batch note shipped with the next submit |
-| Submit               | `keys.submit`         | `ctrl+s`        | Submit answers (partial ok) / close the panel |
+| Submit               | `keys.submit`         | `ctrl+s`        | Submit answers now (partial ok — also the deliberate override while the gate hold blocks auto-submit) |
 | Discuss in chat      | `keys.discuss`        | `ctrl+shift+e`  | Discuss the current question in chat          |
 | External editor      | `keys.externalEditor` | `ctrl+g`        | Open the draft in an external editor          |
 | Previous question    | `keys.prevQuestion`   | `tab`           | Move to the previous question                 |
@@ -168,23 +185,32 @@ Fixed keys (not configurable):
 
 | Key      | Effect                                              |
 | -------- | --------------------------------------------------- |
-| `enter`  | Accept + advance; confirm dialogs; in the editor: save + return to options |
+| `enter`  | Accept + advance; confirm dialogs; in the editor, per duty: COMMIT the answer (write-in on `✎ Other` / text questions — commit-at-enter), save + return to options (elaboration/note) |
 | `esc`    | Back / suspend — descends, never destroys. While the text/note editor is focused, a single `esc` goes to the editor (vim modes); `esc` twice in a row (within `escExitWindowMs`, default 500 ms, `0` disables) closes the editor only |
 | `ctrl+c` | Closes the prompt (suspend) and stays unconsumed — pi's own ctrl+c flow (clear editor; double-press shuts down) resumes on the restored editor |
 | `↑` `↓`  | Move among options; scroll. In the editor: caret movement |
 | `←` `→`  | Previous / next question — the FULL list (every status navigable, clamped at the ends), view-aware (overview: cursor row); not intercepted in text/note focus (the editor caret owns them there) |
-| `1`–`9`  | Quick-select an option (when `digitQuickSelect` is on) |
+| `1`–`9`  | Quick-select an option (when `digitQuickSelect` is on) — real options only: the `✎ Other` row is never digit-selectable |
 
 Non-key option: `"escExitWindowMs": 500` under `"interrogator"` in settings —
 the double-esc window for closing the embedded editor without suspending.
 
-The free-text "explain" field is an **elaboration, not an answer of its own**
-(on choice questions): it attaches to whichever option you select and ships
-as the answer's text. Selecting options stays available before/after
-explaining; on `type:"text"` questions the editor IS the answer. The
-editor's contents are **per-question** — opening it on another question
-starts blank (or that question's own saved draft); switching questions while
-typing saves the text to its question automatically.
+Every choice question's option list ends in a synthetic `✎ Other — write
+your own` row (fixed last row — arrows reach it, digits never do). Accepting
+it puts the editor in the **write-in** duty (region labeled `OTHER — this
+text is the answer`): what you type IS the answer — `enter` commits it as
+`answer.value` with `custom: true`, and every surface that shows the answer
+(submission diff cards, `{}` reads, the completion record and recap card,
+the overview) renders it as `✎ {text}`. Focused on a real option, the
+editor is the **elaboration** duty: the text attaches to whichever option
+you select and ships as the answer's text — an elaboration, not an answer
+of its own. Accepting an option after a committed write-in supersedes the
+answer and re-binds the kept slot text as elaboration. On `type:"text"`
+questions the editor is likewise the answer. Selecting options stays
+available before/after elaborating. The editor's contents are
+**per-question** — opening it on another question starts blank (or that
+question's own saved draft); switching questions while typing saves the
+text to its question automatically.
 
 Navigation defaults: questions move with `←` / `→` (fixed keys, above) or
 `tab` / `shift+tab` (`keys.prevQuestion` / `keys.nextQuestion`, remappable
@@ -199,7 +225,8 @@ users keep their keys.
 ### Subcommands (one command, no autocomplete noise)
 
 `/interrogate` is the only command this extension registers — bare use
-toggles the panel. It also carries the dev surface:
+invokes the panel (opens or resumes it immediately; never a toggle, never
+a key combo). It also carries the dev surface:
 
 ```
 /interrogate ping                      # smoke test: extension loaded
@@ -210,6 +237,33 @@ toggles the panel. It also carries the dev surface:
 
 Argument completion lists them (`/interrogate ` → `ping`, `debug`; …).
 Unknown subcommands print a usage line — nothing ever throws.
+
+## Acceptance criteria (spec)
+
+The acceptance list lives in
+[`spec/product-requirements.md`](spec/product-requirements.md); this delta
+extends it to 2a–2d and 15. Summary (scripted where possible — see the spec
+for the full text and the scripted tests proving each):
+
+1. Model upserts questions across groups with one gate group → panel opens; gate focused; other groups dimmed but answerable.
+2. Partial `ctrl+s` → compact delta + reminder; epoch bumps; remainder stays open.
+2a. **Write-in (WRITEIN-001)**: accept `✎ Other`, type, `enter` → `answer.value = <text>`, `custom: true`, no option selected; card/delta render `✎ {text}`.
+2b. **Elaboration (WRITEIN-001/002)**: `ctrl+t`, type, `enter` → draft saved, still unanswered; option accept attaches it as `answer.text`; a real option after a committed write-in re-binds the slot as elaboration.
+2c. **Auto-submit (AUTOSUBMIT-001)**: answering the LAST question ships with no keypress beyond the answer (`submitted — {n} answer(s)`); editing while complete ships the edit immediately.
+2d. **Gate hold (AUTOSUBMIT-002)**: with a gate question unanswered, commits show `⚠ … foundational unanswered` and do NOT auto-submit; answering it releases the next commit; `ctrl+s` submits anyway.
+3. Agent reply closes answered questions / re-asks preserve drafts.
+4. Break out → widget with counts → side chat → agent `{reopen:true}` → panel returns, drafts intact.
+5. Deep view: scroll ramifications (incl. the Other section), select from deep view → returns to short form.
+6. Contradicting a `dependsOn` → dependent greys as moot instantly; overview shows ⊘.
+7. Edit invalidating dependents → confirm dialog; esc cancels cleanly.
+8. Stale upsert (wrong `rev`/`epoch`) → rejected with current text/rev; re-apply heals.
+9. Restart pi mid-interrogation → NO panel appears (SURFACE-002); the widget line shows live counts; `/interrogate` reopens restored state; drafts gone (documented); pending answers ship on the next commit or submit (AUTOSUBMIT-001).
+10. `/compact` mid-interrogation → preservation flow; state reconstructs from the append-only mirror.
+11. `pi -p` print mode → numbered markdown digest; `answers[]` records chat answers; completion record on settle.
+12. Every default hotkey remappable; footer/widget strings reflect the remap.
+13. Editing an archived answer re-marks it pending; next diff card highlights the change.
+14. All questions closed → completion record injected once; recap card in transcript.
+15. **Reads never surface (SURFACE-001)**: a model `interrogate({})` read completes → panel stays closed, editor untouched — for live, all-answered, and completed states alike.
 
 ## Limitations
 
@@ -244,10 +298,10 @@ Debug commands (drive the same code paths the tool executor uses):
 
 | Command                               | Effect                                                            |
 | ------------------------------------- | ----------------------------------------------------------------- |
-| `/interrogate-ping`                   | Smoke test — proves the extension loaded                          |
-| `/interrogate-debug-upsert <json>`    | Run the full upsert path from the keyboard (caps, merge, stale handling) |
-| `/interrogate-debug-submit id=value,…`| Flush answers and run the real submission path; `note=<text>` adds a batch note |
-| `/interrogate-debug-state`            | Print the status line and one line per question                   |
+| `/interrogate ping`                   | Smoke test — proves the extension loaded                          |
+| `/interrogate debug upsert <json>`    | Run the full upsert path from the keyboard (caps, merge, stale handling) |
+| `/interrogate debug submit id=value,…`| Flush answers and run the real submission path; `note=<text>` adds a batch note |
+| `/interrogate debug state`            | Print the status line and one line per question                   |
 
 Human acceptance runbook:
 [`plan/001_0d6760db6bc5/MANUAL-TUI-AC-RUNBOOK.md`](plan/001_0d6760db6bc5/MANUAL-TUI-AC-RUNBOOK.md)
@@ -344,12 +398,15 @@ src/
 ├── detect.ts          # plain-text round detection
 ├── compaction.ts      # compaction preservation guard
 ├── persistence.ts     # interrogation-state mirror (append-only audit trail)
-├── reconstruct.ts     # state reconstruction: session start (auto-open,
-│                     # FR-28) + /tree navigation (silent branch follow —
+├── reconstruct.ts     # state reconstruction: session start (silent install +
+│                     # suspend-widget cue, SURFACE-002 — NEVER opens the panel)
+│                     # + /tree navigation (silent branch follow —
 │                     # NEVER opens/reopens the panel)
 ├── renderers.ts       # transcript cards (submission diff, completion recap, mirror markers)
 ├── command.ts         # /interrogate invoke command (open/resume — never toggles)
-├── debug-commands.ts  # keyboard-driven debug commands
+├── debug-commands.ts  # keyboard-driven debug commands (`/interrogate debug …`)
+├── remote-bridge.ts   # pi-ask bridge surface: `itg:` flow emission + wire mapping (FR-31..34)
+├── remote-submit.ts   # bridge-submission pipeline (same machinery as ctrl+s; customText → custom parity)
 ├── draft-store.ts     # in-session draft survival across panel open/close
 ├── external-editor.ts # external editor handoff
 ├── depends-on.ts      # question dependency / moot-ness data layer

@@ -48,7 +48,10 @@ export const SUBMISSION_REMINDER = "Consider how these affect your other questio
  * more than 2 display lines, keeping total content within the ≤3-line
  * budget of h2.0 §2 / h3.6). Tunable const; when the joined entry list
  * exceeds it, entries are dropped from the END and a `+{m} more` suffix
- * summarizes them; the epoch suffix is NEVER dropped.
+ * summarizes them; if the line still overflows with only the first entry
+ * kept, that LAST KEPT entry is ellipsis-truncated (`…`) to the remaining
+ * budget (BUG-006 cap half) so line 1 never exceeds this cap for arbitrary
+ * text; the epoch suffix and the rollup are NEVER dropped or truncated.
  */
 export const SUBMISSION_LIST_MAX_CHARS = 240;
 
@@ -104,12 +107,17 @@ export interface SubmissionMessage {
  *   {@link SUBMISSION_LIST_MAX_CHARS} budget is THIS module's job). Entries
  *   with `editedArchived` get a ` (changed)` suffix (AC-13) and are joined
  *   with `"; "`. When the joined list overflows the budget, entries are
- *   dropped from the end (never below 1) and `+{m} more` summarizes them;
- *   `{k}` still reports the true change count. Zero changes →
+ *   dropped from the end and `+{m} more` summarizes them; if the line STILL
+ *   overflows with only the first entry kept, that last kept entry is
+ *   ellipsis-truncated (`…`) to the remaining budget (BUG-006 cap half —
+ *   the old "always ≥1 entry whole" rule let a huge write-in through
+ *   unbounded), so line 1 never exceeds the cap for arbitrary text. The id
+ *   prefix, the ` (changed)` suffix, the rollup, and the epoch suffix are
+ *   never truncated; `{k}` still reports the true change count; and
+ *   `details.changed`/`details.card` keep the UNTRUNCATED `to` (h2.36
+ *   Q2=A: the user-only card renders from details). Zero changes →
  *   `Submitted 0: (no changes)`. The budget measures the SUFFIXED line and
- *   the suffix is never dropped (even in the single-huge-entry case where
- *   the loop cannot drop below 1 entry). The reminder line is never
- *   truncated.
+ *   the suffix is never dropped. The reminder line is never truncated.
  * - The optional third `NOTE:` line appears ONLY when `note` is a non-empty
  *   string (hard requirement R3, h2.32: the note reaches the model in the
  *   delta). Newlines inside the note collapse to `" / "` and the line is
@@ -155,9 +163,11 @@ export function buildSubmission(
   const epochSuffix = ` (state epoch ${postEpoch})`;
 
   // Budget loop: shrink the entry list from the end until the header+list
-  // line WITH the epoch suffix folded in fits SUBMISSION_LIST_MAX_CHARS
-  // (always ≥1 entry survives), then append the "+m more" rollup for
-  // whatever was dropped — the rollup precedes the (never-dropped) suffix.
+  // line WITH the epoch suffix folded in fits SUBMISSION_LIST_MAX_CHARS,
+  // then append the "+m more" rollup for whatever was dropped — the rollup
+  // precedes the (never-dropped) suffix. When even the last kept entry
+  // overflows, the per-entry cap below truncates it (the old "always ≥1
+  // entry whole" rule was BUG-006's unbounded half).
   let list = entries.join("; ");
   let dropped = 0;
   while (
@@ -168,6 +178,41 @@ export function buildSubmission(
     list = entries.slice(0, entries.length - dropped).join("; ");
   }
   if (dropped > 0) list += `; +${dropped} more`;
+
+  // Per-entry cap (BUG-006 cap half): when the line still overflows with
+  // only the first entry kept (plus any rollup), rebuild that entry with a
+  // `…`-terminated `to` sized so the FULL line fits the budget. The id
+  // prefix, ` (changed)` suffix, rollup, and epoch suffix are reserved
+  // never-truncated; the allowance even reserves the `…` code unit (U+2026,
+  // one UTF-16 unit — plain .length math is safe: builder output post-flatten
+  // has no ANSI/wide chars, so panel truncate helpers stay unimported,
+  // h2.13 UI-free builder). details.changed/card keep the UNTRUNCATED `to`
+  // (h2.36 Q2=A) — only this content line is capped.
+  const header = `Submitted ${k}: `;
+  const overflows = (candidate: string): boolean =>
+    `${header}${candidate}${epochSuffix}`.length > SUBMISSION_LIST_MAX_CHARS;
+  const first = diff.changed[0];
+  if (first !== undefined && overflows(list)) {
+    const changedSuffix = first.editedArchived ? " (changed)" : "";
+    const rollup = dropped > 0 ? `; +${dropped} more` : "";
+    const allowance = Math.max(
+      0,
+      SUBMISSION_LIST_MAX_CHARS -
+        header.length -
+        epochSuffix.length -
+        rollup.length -
+        `${first.id}: `.length -
+        changedSuffix.length -
+        1, // room for the "…"
+    );
+    const slice = first.to.slice(0, allowance);
+    // Only rewrite when truncation actually shortens the entry: on a
+    // degenerate budget (huge id/rollup alone overflow) leaving the list
+    // untouched keeps the never-grow invariant (never longer than before).
+    if (slice.length < first.to.length) {
+      list = `${first.id}: ${slice}…${changedSuffix}${rollup}`;
+    }
+  }
 
   // Optional third content line (h2.32/R3): the note is MODEL-VISIBLE, not
   // just details. Newlines collapse to " / "; never truncated (same rule

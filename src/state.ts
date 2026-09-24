@@ -46,6 +46,10 @@ export interface QuestionAnswer {
   text?: string;
   /** WRITEIN-001: value holds free text, not an option value; renders as ✎ {text}. Not checked against option lists anywhere downstream. */
   custom?: boolean;
+  // WRITEIN-002: draft slots are role-less {value, text} — a slot's ROLE is
+  // never stored; it is derived at commit/submit time from the CURRENT
+  // selection in reconcileDraftsForSubmit (option → elaboration text; Other /
+  // type:"text" → the answer value itself, custom: true).
   /** ISO 8601 timestamp of when the answer was recorded. */
   at: string;
 }

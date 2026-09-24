@@ -669,10 +669,11 @@ describe("submit — flush pending answers", () => {
     expect(submit(panel, deps)).toBe(true);
 
     expect(panel.footerFlash?.text).toBe(
-      // EXPLAIN-003: the preserved ✎ draft on the re-asked choice question
-      // surfaces in the flash — it cannot ship until an option is (re)chosen
-      // (the elaboration attaches to a selection, never replaces it).
-      "nothing to submit — 1 explained question still needs an option choice",
+      // WRITEIN-002: the preserved ✎ draft on the re-asked choice question
+      // is HELD — its role binds to the current selection, which is none —
+      // and the flash names it with the verbatim h2.39 template ("(s)" is
+      // literal; no pluralization logic).
+      "nothing to submit — 1 question(s) have drafts awaiting an option or Other",
     );
     expect(sendMessage).toHaveBeenCalledTimes(1); // only the first submit
     expect(state.snapshots).toHaveLength(snapsBefore); // NO snapshot
@@ -1269,7 +1270,8 @@ describe("submit — draft reconciliation at submit (NEW-002/NEW-003, h2.45)", (
     expect(state.getQuestion("t1")?.status).toBe("submitted"); // flushed with the shipment
     expect(store.getDraft("t1")).toBeUndefined(); // shipped → destroyed (R4)
     const msg = sendMessage.mock.calls[0][0] as { content: string };
-    expect(msg.content).toContain("t1: my detailed answer");
+    // h2.42 grammar: the reconciled draft carries custom → renders ✎.
+    expect(msg.content).toContain("t1: ✎ my detailed answer");
   });
 
   test("NEW-002: empty drafts never ship — an empty text slot is an absent draft", () => {
@@ -1313,7 +1315,8 @@ describe("submit — draft reconciliation at submit (NEW-002/NEW-003, h2.45)", (
     expect(state.getQuestion("t1")?.answer?.value).toBe("second attempt");
     expect(state.getQuestion("t1")?.status).toBe("submitted");
     const msg = sendMessage.mock.calls.at(-1)![0] as { content: string };
-    expect(msg.content).toContain("t1: second attempt");
+    // h2.42 grammar: the reconciled draft carries custom → renders ✎.
+    expect(msg.content).toContain("t1: ✎ second attempt");
   });
 
   test("NEW-003: an answered choice question's draft attaches as answer.text and rides the delta", () => {
@@ -1454,5 +1457,159 @@ describe("submit — soft-gate warning (display-only, P1.M5.T3.S1)", () => {
     expect(submit(panel, deps)).toBe(true);
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(panel.gateWarning).toEqual({ count: 1 });
+  });
+});
+
+// ----------- WRITEIN-002 submit-time draft role binding (P1.M2.T5.S1)
+
+describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
+  /**
+   * Real write-in commit through the TUI gestures: focus the ✎ Other row
+   * (cursorIndex 2 of the 2-option fixtures), type, enter — writeInEnter
+   * commits applyAnswer({ value, custom: true }) at enter and advances.
+   */
+  function commitWriteIn(panel: InterrogationPanel, text: string): void {
+    panel.currentId = "q1";
+    panel.cursorIndex = 2; // ✎ Other row (ungated duty entry)
+    accept(panel); // → write-in duty, editor focused
+    panel.textField.setText(text);
+    expect(panel.handleInput("\r")).toBe(true); // write-in enter COMMITS
+  }
+
+  test("test_submit_elaboration_attaches_to_real_option_answer", () => {
+    // Real-option answer + typed draft → the slot binds as elaboration
+    // (answer.text); value untouched and NO custom marker on the result.
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 }); // real option, no custom
+    const store = new DraftStore();
+    store.setDraft("q1", "because of the latency profile");
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    const a = state.getQuestion("q1")?.answer;
+    expect(a?.value).toBe("a");
+    expect(a?.text).toBe("because of the latency profile");
+    expect(a?.custom).toBeUndefined(); // real-option answers stay non-custom
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toContain("q1: Alpha — because of the latency profile");
+  });
+
+  test("test_submit_writein_ships_value_custom_no_text_duplication", () => {
+    // WRITEIN-002 core guard: a committed write-in's slot must NOT be
+    // re-attached as answer.text at submit — the text already IS the value.
+    const state = seed(BASIC);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    commitWriteIn(panel, "a hybrid of A and B");
+    expect(state.getQuestion("q1")?.answer?.custom).toBe(true);
+    // The user saved the same buffer as a slot (the elaboration save tail) —
+    // the exact duplication hazard the `custom !== true` guard exists for.
+    panel.commitTextDraft("q1", "a hybrid of A and B");
+
+    expect(submit(panel, deps)).toBe(true);
+
+    const a = state.getQuestion("q1")?.answer;
+    expect(a?.value).toBe("a hybrid of A and B");
+    expect(a?.custom).toBe(true); // h2.42 marker intact
+    expect(a?.text).toBeUndefined(); // NOT duplicated into the elaboration field
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).not.toContain("a hybrid of A and B — a hybrid of A and B");
+  });
+
+  test("test_submit_superseded_writein_rebinds_as_elaboration", () => {
+    // AC-2b tail: write-in committed, then a REAL option accepted — the slot
+    // survives the accept (R4: accept never touches the draft store) and
+    // re-binds as elaboration at submit (value = option, custom cleared).
+    const state = seed(BASIC);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    commitWriteIn(panel, "my custom take");
+    panel.commitTextDraft("q1", "my custom take"); // kept slot text (R4)
+
+    // Supersede: back to q1 — the currentId setter re-seeds the cursor to
+    // the ★ "a" preselect — and accept the real option.
+    panel.currentId = "q1";
+    expect(accept(panel)).toBe(true);
+    const superseded = state.getQuestion("q1")?.answer;
+    expect(superseded?.value).toBe("a");
+    expect(superseded?.custom).toBeUndefined(); // accept replaced the write-in
+    expect(panel.draftTextFor("q1")).toBe("my custom take"); // slot KEPT (R4)
+
+    expect(submit(panel, deps)).toBe(true);
+
+    const a = state.getQuestion("q1")?.answer;
+    expect(a?.value).toBe("a"); // the option won the value
+    expect(a?.text).toBe("my custom take"); // kept write-in re-bound as elaboration
+    expect(a?.custom).toBeUndefined();
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toContain("q1: Alpha — my custom take");
+  });
+
+  test("test_submit_text_draft_ships_with_custom_marker", () => {
+    // NEW: the reconciled text answer carries custom: true (h2.42) — the
+    // draft is user-typed text, never an option value.
+    const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    store.setDraft("t1", "my detailed answer");
+    expect(submit(panel, deps)).toBe(true);
+
+    const a = state.getQuestion("t1")?.answer;
+    expect(a?.value).toBe("my detailed answer");
+    expect(a?.custom).toBe(true); // WRITEIN-002 marker
+    expect(typeof a?.at).toBe("string"); // ISO timestamp still applied
+    expect(state.getQuestion("t1")?.status).toBe("submitted"); // flushed
+    expect(store.getDraft("t1")).toBeUndefined(); // shipped → destroyed (R4)
+  });
+
+  test("test_zero_pending_flash_names_held_drafts_verbatim", () => {
+    // h2.39 verbatim template — "(s)" is literal, no pluralization logic.
+    // Drafts ride the DraftStore fallback seam (same precedence as seeding).
+    const state = seed(BASIC); // both open, nothing answered
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    store.setDraft("q1", "held on q1");
+    expect(submit(panel, deps)).toBe(true);
+    expect(panel.footerFlash?.text).toBe(
+      "nothing to submit — 1 question(s) have drafts awaiting an option or Other",
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    // n=2 — the count is the literal number; the template is unchanged.
+    store.setDraft("q2", "held on q2");
+    expect(submit(panel, deps)).toBe(true);
+    expect(panel.footerFlash?.text).toBe(
+      "nothing to submit — 2 question(s) have drafts awaiting an option or Other",
+    );
+    expect(sendMessage).not.toHaveBeenCalled(); // still nothing user-shipped
+
+    // The count EXCLUDES text questions: an ANSWERED text question's held
+    // store draft is skipped by reconcile (its answer committed at enter)
+    // and is never "awaiting an option or Other".
+    const state2 = seed([
+      { id: "t1", overrides: { type: "text", options: undefined } },
+      { id: "q1" },
+    ]);
+    state2.applyAnswer("t1", { value: "first", at: T0 });
+    const store2 = new DraftStore();
+    const { panel: p2 } = makePanel(state2, { drafts: store2 });
+    const deps2 = makeDeps(true);
+    expect(submit(p2, deps2.deps)).toBe(true); // baseline holds t1 answered
+    store2.setDraft("t1", "held edit"); // answered text → skipped, not counted
+    store2.setDraft("q1", "held choice");
+    expect(submit(p2, deps2.deps)).toBe(true);
+    expect(p2.footerFlash?.text).toBe(
+      "nothing to submit — 1 question(s) have drafts awaiting an option or Other",
+    );
   });
 });

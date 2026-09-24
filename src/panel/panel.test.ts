@@ -1298,7 +1298,7 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
   });
 
   test("test_submit_flash_names_explained_but_unselected_questions", () => {
-    // EXPLAIN-003 discoverability: draft-only choice question → the flash
+    // WRITEIN-002 discoverability: draft-only choice question → the flash
     // says WHY nothing shipped instead of a bare "nothing to submit".
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
@@ -1310,7 +1310,10 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
 
     expect(panelActions.submit(panel, { sendMessage: vi.fn(), isIdle: () => true })).toBe(true);
     expect(panel.footerFlash?.text).toContain("nothing to submit");
-    expect(panel.footerFlash?.text).toContain("1 explained question still needs an option choice");
+    // Verbatim h2.39 template — "(s)" is literal, no pluralization logic.
+    expect(panel.footerFlash?.text).toBe(
+      "nothing to submit — 1 question(s) have drafts awaiting an option or Other",
+    );
   });
 
   test("test_ctrl_t_repress_closes_field_saving_draft_without_arming", () => {

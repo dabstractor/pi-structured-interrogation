@@ -354,24 +354,41 @@ function stepQuestion(panel: InterrogationPanel, delta: number): boolean {
 
 /**
  * Submit-time draft reconciliation (NEW-002 / NEW-003 — h2.45 "destroyed
- * only by submission — text answers ship", R4): fold the user's typed
+ * only by submission — text answers ship", R4; role binding per WRITEIN-002,
+ * h2.32/h2.48 "draft role follows the selection"): fold the user's typed
  * drafts into state BEFORE the pending set and diff are computed, so a
- * ctrl+s delivers everything the user actually typed.
+ * ctrl+s delivers everything the user actually typed. Draft slots are
+ * ROLE-LESS `{value, text}` — each slot's role is bound HERE, from the
+ * CURRENT selection, at flush time:
  *
- * - `type:"text"` questions: the draft IS the answer — there is no other
- *   apply affordance in the TUI (stage-1 enter only saves the draft;
- *   answers[] is ignored in TUI mode). An active (open or reasked) text
- *   question with a draft gets `applyAnswer({ value: draftText })`, which
- *   moves it to the pending "answered" state and into the submission.
- *   Re-asks included deliberately: the user's re-typed text (stage-1 enter
- *   on the editor) is the text-question counterpart of a choice re-accept —
- *   without it a re-asked text question could NEVER be re-answered and
- *   would block completion forever.
- * - Choice questions: the draft is an elaboration of the chosen option —
- *   attach it as `answer.text` on the pending (answered) set only, where
- *   the answer's value is unchanged. Preserved drafts on re-asked questions
- *   are NEVER shipped (BUG-008: an agent rule-2 reset must not be overridden
- *   without explicit user re-affirmation, which for choice is re-accept).
+ * - `type:"text"` questions (open or reasked): the draft IS the answer —
+ *   `applyAnswer({ value, custom: true })` (h2.42: the value is user-typed
+ *   free text, not an option value). There is no other apply affordance in
+ *   the TUI (stage-1 enter only saves the draft; answers[] is ignored in
+ *   TUI mode). Re-asks included deliberately: the user's re-typed text
+ *   (stage-1 enter on the editor) is the text-question counterpart of a
+ *   choice re-accept — without it a re-asked text question could NEVER be
+ *   re-answered and would block completion forever. An ANSWERED/SUBMITTED
+ *   text question is SKIPPED: its answer already committed at enter
+ *   (writeInEnter), and a later-held draft edit routes through the FR-18
+ *   confirm modal and also commits at enter — there is no held case to
+ *   flush, so nothing is attached here.
+ * - Choice questions, answered from a REAL option (`answer.custom !==
+ *   true`): the draft is an elaboration of the chosen option — attach it
+ *   as `answer.text` on the pending (answered) set only, value unchanged.
+ *   Spreading the CURRENT answer re-binds superseded write-ins for free: a
+ *   write-in later superseded by an option accept replaced the answer with
+ *   the option's value and cleared `custom`, while the slot text was KEPT
+ *   (R4 — accept never touches the draft store), so this branch attaches
+ *   the kept text as elaboration at the next ctrl+s.
+ * - Choice questions, answered from a committed write-in
+ *   (`answer.custom === true`): SKIPPED — the write-in already shipped its
+ *   value at commit (writeInEnter); attaching the slot text as
+ *   `answer.text` would duplicate the write-in into the elaboration field.
+ * - Choice questions, open or reasked: held elaboration — ships nothing.
+ *   Preserved drafts on re-asked questions are NEVER shipped (BUG-008: an
+ *   agent rule-2 reset must not be overridden without explicit user
+ *   re-affirmation, which for choice is re-accept).
  *
  * Empty/whitespace-only drafts are skipped (an empty slot is an absent
  * draft — the same rule as DraftStore.hasDraft). applyAnswer is the
@@ -384,11 +401,21 @@ function reconcileDraftsForSubmit(panel: InterrogationPanel): void {
     if (text === undefined || text.trim() === "") continue;
     if (q.type === "text") {
       if (q.status === "open" || q.status === "reasked") {
-        panel.state.applyAnswer(q.id, { value: text, at: new Date().toISOString() });
+        // WRITEIN-002: the draft IS the answer, now carrying the custom
+        // marker (h2.42) — it is user-typed text, not an option value.
+        panel.state.applyAnswer(q.id, {
+          value: text,
+          custom: true,
+          at: new Date().toISOString(),
+        });
       }
       continue;
     }
-    if (q.status === "answered" && q.answer !== undefined) {
+    if (
+      q.status === "answered" &&
+      q.answer !== undefined &&
+      q.answer.custom !== true // a write-in's draft already IS answer.value — never also attach as text
+    ) {
       panel.state.applyAnswer(q.id, { ...q.answer, text });
     }
   }
@@ -445,12 +472,14 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
     (e) => pendingIds.includes(e.id) || !(e.to === "(unanswered)"),
   );
   if (diff.changed.length === 0 || userChanged.length === 0) {
-    // EXPLAIN-003 discoverability: a draft-only choice question is the
-    // classic "why won't my partial submission ship" trap — the
-    // elaboration attaches to a SELECTED option, so when explanations are
-    // sitting on unanswered questions, say exactly that instead of a bare
-    // "nothing to submit".
-    const explainedUnanswered = panel.state
+    // WRITEIN-002 held-elaboration discoverability: a draft-only choice
+    // question is the classic "why won't my partial submission ship" trap —
+    // the slot's role binds to the CURRENT selection (WRITEIN-002), and an
+    // unanswered choice has none, so the draft stays HELD and ships nothing
+    // (h2.39). Count AFTER reconcileDraftsForSubmit (it ran first, above):
+    // text drafts have already become answers, so only open/reasked CHOICE
+    // questions with a non-empty slot can be "awaiting an option or Other".
+    const heldDrafts = panel.state
       .orderedQuestions()
       .filter(
         (q) =>
@@ -458,11 +487,10 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
           (q.status === "open" || q.status === "reasked") &&
           (panel.draftTextFor(q.id)?.trim() ?? "") !== "",
       ).length;
+    // Verbatim h2.39 template — "question(s)" is literal, no pluralization.
     panel.flash(
-      explainedUnanswered > 0
-        ? `nothing to submit — ${explainedUnanswered} explained ` +
-          `question${explainedUnanswered === 1 ? "" : "s"} still ` +
-          `need${explainedUnanswered === 1 ? "s" : ""} an option choice`
+      heldDrafts > 0
+        ? `nothing to submit — ${heldDrafts} question(s) have drafts awaiting an option or Other`
         : "nothing to submit",
     );
     return true; // held note stays held — nothing user-shipped (R3)

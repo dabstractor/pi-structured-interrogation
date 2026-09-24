@@ -315,6 +315,12 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
   // FR-17: same once-per-commit placement as acceptOptionIndex — AFTER the
   // apply, BEFORE the advance (fresh moots must not be advance targets).
   evaluateDependsOn(panel.state);
+  // VAL-002: the buffer text just BECAME the answer — consume it so the
+  // advance's draft write-through can never copy committed text into q's
+  // draft slot (a later option accept would ship it as a bogus elaboration
+  // of the new choice). Must precede advanceAfterAccept: the currentId
+  // setter's syncBufferToQuestion write-through fires inside it.
+  panel.consumeCommittedBuffer(q.id);
   advanceAfterAccept(panel); // Q14 parity: currentId → next unanswered, cursor → ★ preselect
   panel.blurTextField(); // resets textDuty to "elaboration"
   maybeAutoSubmit(panel); // P2.M1.T1.S1 — AUTOSUBMIT-001, direct-commit exit ONLY (never the empty-buffer or deferred exits)

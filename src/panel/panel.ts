@@ -932,6 +932,33 @@ export class InterrogationPanel implements Component {
   }
 
   /**
+   * VAL-002 commit-consume: the editor buffer was JUST committed as the
+   * answer by the write-in commit tail (actions.ts's writeInEnter, or the
+   * deferred ripple apply — ripple-confirm.ts's applyWriteInConfirm). The
+   * text is no longer a draft — it IS the answer — so it must never
+   * re-enter the draft pipeline: the advance's draft write-through
+   * ({@link syncBufferToQuestion} via the currentId setter) would otherwise
+   * copy the just-committed buffer into the question's draft slot + the
+   * DraftStore seam, where a later option accept would re-bind it as a
+   * bogus `answer.text` elaboration ("q1: Alpha — my custom answer" — the
+   * abandoned write-in shipped as the rationale for the new choice).
+   * Clears the buffer (seed ""), drops the question's panel-local slot and
+   * DraftStore entry, and disowns the buffer so no later navigation can
+   * copy the committed text anywhere. Consuming any staged draft is safe:
+   * this editor session seeded from (or over) it and the user's enter
+   * gesture turned that content into the answer. Must be called BEFORE the
+   * advance; no-op unless the buffer is still owned by `questionId`
+   * (defensive — write-in duty always owns its question).
+   */
+  consumeCommittedBuffer(questionId: string): void {
+    if (this.bufferOwner !== questionId) return;
+    this.textField.seed("");
+    this.draftSlots.delete(questionId);
+    this.drafts?.clearDraft?.(questionId, { explicit: true });
+    this.bufferOwner = undefined;
+  }
+
+  /**
    * Suspend contract (h2.35): resolve custom() with null. The editor region
    * is restored by pi; the host's floating .then marks the host suspended.
    * Idempotent — a second call after resolution is a no-op.

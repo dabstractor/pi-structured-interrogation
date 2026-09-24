@@ -295,6 +295,9 @@ export function applyWriteInConfirm(panel: InterrogationPanel): void {
     at: new Date().toISOString(),
   });
   evaluateDependsOn(panel.state);
+  // VAL-002: consume the committed buffer BEFORE the advance — same reason
+  // as writeInEnter (the text is the answer now, never a draft).
+  panel.consumeCommittedBuffer(cm.questionId);
   const ordered = panel.state.orderedQuestions();
   const from = ordered.findIndex((entry) => entry.id === panel.currentId);
   const nextId = nextUnanswered(ordered, from);

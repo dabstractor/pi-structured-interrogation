@@ -172,7 +172,7 @@ describe("/tree navigation simulation (pi 0.85.1 mechanics)", () => {
     expect(surface.editorText).toBe("old prompt");
   });
 
-  test("post-nav agent READ (interrogate {}): maybeAutoOpen POPS the panel (BUG — characterization)", async () => {
+  test("post-nav agent READ (interrogate {}): panel stays closed (SURFACE-001 — reads never surface)", async () => {
     resetState();
     const state = allAnswered();
     setState(state);
@@ -198,12 +198,17 @@ describe("/tree navigation simulation (pi 0.85.1 mechanics)", () => {
     readEnd({ toolName: "interrogate", isError: false }, surface);
     await new Promise<void>((r) => setImmediate(r));
 
-    // Panel opened mid-flow, REPLACING the editor — with ALL questions
-    // answered. This is the unwanted surface.
-    expect(surface.customCalls.length).toBe(1);
+    // SURFACE-001 regression pin (FR-28, h2.37 allow-list): reads are PULL,
+    // never a surface event — maybeAutoOpen gate (1) classifies every
+    // non-upsert call as a read (default peekArgs sees no stash entry), so
+    // the panel must NOT pop over the user's prompt box mid-turn: pi's
+    // custom() editor snapshot/restore turned every unplanned pop into the
+    // empty-box-after-esc data-loss trap. Gate (2) — no unanswered question
+    // in this all-answered state — blocks independently.
+    expect(surface.customCalls.length).toBe(0); // reads NEVER surface (FR-28)
   });
 
-  test("post-nav agent READ after completion: state still installed → panel POPS (BUG)", async () => {
+  test("post-nav agent READ after completion: ghost singleton surfaces nothing (SURFACE-001)", async () => {
     resetState();
     const state = allAnswered();
     // completion clears questions but the singleton REMAINS INSTALLED
@@ -223,9 +228,10 @@ describe("/tree navigation simulation (pi 0.85.1 mechanics)", () => {
     maybeAutoOpen(pi as never, DEFAULT_CONFIG, host, new DraftStore());
     pi.h!({ toolName: "interrogate", isError: false }, surface);
     await new Promise<void>((r) => setImmediate(r));
-    // CHARACTERIZATION (BUG): maybeAutoOpen checks only `state !== undefined`
-    // — not completed, not question count, not unanswered, not upsert-vs-read.
-    // A pure read pops a panel over a COMPLETED interrogation.
-    expect(surface.customCalls.length).toBe(1);
+    // SURFACE-001 regression pin: the clearForCompletion() ghost singleton
+    // (installed, completed=true, zero questions) surfaces NOTHING. Gate (1)
+    // classifies the pure read as a read; gate (3) blocks completed state —
+    // each gate blocks this independently, both are enforced.
+    expect(surface.customCalls.length).toBe(0); // reads NEVER surface (FR-28)
   });
 });

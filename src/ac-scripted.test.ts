@@ -22,6 +22,7 @@
  * | AC-11| PASS   | FR-25     | AC-11_print_mode_digest_answers_and_consistent_read         |
  * | AC-13| PASS   | FR-2/Q24=B| AC-13_editing_archived_answer_re_pends_and_flags_changed    |
  * | AC-14| PASS*  | FR-5      | AC-14_completion_record_fires_exactly_once                  |
+ * | AC-15| PASS   | FR-28/SURFACE-001 | AC-15_read_with_live_open_questions_panel_stays_closed_editor_untouched (+ all-answered / completed variants) |
  *
  * * PASS only after the P1.M7.T6.S1 defect fix: the ctrl+s submit flush
  *   (panel `submit()` + `/interrogate-debug-submit`) never performed the
@@ -50,6 +51,12 @@ import { RELAY_INSTRUCTION } from "./fallback.js";
 import { StaleError } from "./guards.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
 import { markSubmitted } from "./merge.js";
+import {
+  createPanelHost,
+  maybeAutoOpen,
+  openPanel,
+  type PiUISurface,
+} from "./panel/panel.js";
 import { buildSubmissionCard } from "./renderers.js";
 import { buildStatusLine } from "./results.js";
 import { computeDiff } from "./snapshots.js";
@@ -57,6 +64,8 @@ import {
   createInterrogationState,
   getState,
   resetState,
+  setState,
+  type InterrogationState,
   type SerializedState,
 } from "./state.js";
 import { executeInterrogate, type ExecutorContext } from "./tool.js";
@@ -717,5 +726,148 @@ describe("AC-14 (state side) — completion record built once, exactly once (FR-
     // interrogation instance, not process-global (completion.ts contract).
     const fresh = createInterrogationState("again");
     expect(fresh.completed).toBe(false);
+  });
+});
+
+// ---------------------------------------------- AC-15 (FR-28 / SURFACE-001)
+
+/**
+ * Local minimal TUI surface for the AC-15 panel-open proof (same shape as
+ * tree-nav-repro.test.ts's file-local FakeTuiSurface — custom() captures the
+ * editor text at OPEN time and restores it on done(); customCalls records
+ * every panel mount; editorText is the prompt-box sentinel the read must
+ * leave untouched).
+ */
+class Ac15Surface implements PiUISurface {
+  mode = "tui";
+  editorText = "";
+  customCalls: Array<{ factoryDone: (r: null) => void }> = [];
+  widget: string[] | undefined;
+  private savedText: string | undefined;
+
+  ui = {
+    custom: async <T,>(_factory: unknown): Promise<T | undefined> => {
+      this.savedText = this.editorText;
+      return new Promise<T | undefined>((resolve) => {
+        this.customCalls.push({
+          factoryDone: (r: null) => {
+            this.editorText = this.savedText ?? "";
+            resolve(r as T | undefined);
+          },
+        });
+      });
+    },
+    setWidget: (_key: string, content: string[] | undefined) => {
+      this.widget = content;
+    },
+    setEditorText: (t: string) => {
+      this.editorText = t;
+    },
+    getEditorText: () => this.editorText,
+  };
+
+  sendMessage = vi.fn();
+  isIdle = () => true;
+}
+
+/** Two OPEN questions — a live interrogation mid-turn (tree-nav seeded()). */
+function ac15OpenState(): InterrogationState {
+  const state = createInterrogationState("ac15");
+  state.upsertQuestion({
+    id: "q1",
+    prompt: "p1",
+    type: "choice",
+    rev: 1,
+    status: "open",
+    options: [
+      { value: "a", label: "A" },
+      { value: "b", label: "B" },
+    ],
+  });
+  state.upsertQuestion({ id: "q2", prompt: "p2", type: "text", rev: 1, status: "open" });
+  return state;
+}
+
+function ac15AllAnswered(): InterrogationState {
+  const state = ac15OpenState();
+  state.applyAnswer("q1", { value: "a", at: ts() });
+  state.applyAnswer("q2", { value: "free text", at: ts() });
+  return state;
+}
+
+/**
+ * Handler-map FakePi (tree-nav-repro convention): maybeAutoOpen registers
+ * tool_execution_end via pi.on; tests fire the captured handler directly.
+ * maybeAutoOpen's default peekArgs classifies EVERY call as a read — no
+ * pendingUpsertArgs wiring is needed (or wanted) to prove read-no-open.
+ */
+function ac15Pi(): {
+  on: (event: string, handler: (ev: unknown, ctx: unknown) => void) => () => void;
+  handlers: Map<string, (ev: unknown, ctx: unknown) => void>;
+} {
+  const handlers = new Map<string, (ev: unknown, ctx: unknown) => void>();
+  return {
+    on: (event, handler) => {
+      handlers.set(event, handler);
+      return () => {};
+    },
+    handlers,
+  };
+}
+
+describe("AC-15 — reads never surface (FR-28, SURFACE-001 / R6)", () => {
+  /** Open once, esc-suspend, then fire a pure `interrogate {}` read end. */
+  async function suspendThenRead(): Promise<{ surface: Ac15Surface; host: ReturnType<typeof createPanelHost> }> {
+    const surface = new Ac15Surface();
+    const host = createPanelHost(
+      { onPanelDismiss: (_cb: () => void) => {}, dismissPanel: () => {} },
+      surface,
+    );
+    openPanel(surface, { config: DEFAULT_CONFIG, state: getState()!, drafts: new DraftStore() });
+    surface.customCalls[0]!.factoryDone(null); // esc → suspend
+    await new Promise<void>((r) => setImmediate(r));
+
+    // The user navigated /tree and their prompt-box text is restored; the
+    // model re-orients with a PURE READ (no upsert, no stash entry).
+    surface.editorText = "old prompt";
+    const pi = ac15Pi();
+    maybeAutoOpen(pi as unknown as Pick<ExtensionAPI, "on">, DEFAULT_CONFIG, host, new DraftStore());
+    pi.handlers.get("tool_execution_end")!({ toolName: "interrogate", isError: false }, surface);
+    await new Promise<void>((r) => setImmediate(r)); // panel-open path is async
+    return { surface, host };
+  }
+
+  test("AC-15_read_with_live_open_questions_panel_stays_closed_editor_untouched", async () => {
+    setState(ac15OpenState()); // q1/q2 open — a LIVE interrogation
+    const { surface, host } = await suspendThenRead();
+
+    // SURFACE-001 / FR-28: the ONLY custom call is the setup open (the
+    // suspended interrogation's mount) — the read added NO panel mount.
+    expect(surface.customCalls.length).toBe(1);
+    expect(surface.editorText).toBe("old prompt"); // editor untouched
+    expect(host.isSuspended()).toBe(true); // suspension undisturbed by the read
+  });
+
+  test("AC-15_read_all_answered_no_surface", async () => {
+    setState(ac15AllAnswered()); // every question answered/submitted
+    const { surface } = await suspendThenRead();
+
+    // SURFACE-001 / FR-28: only the setup open — the read surfaced nothing.
+    expect(surface.customCalls.length).toBe(1);
+    expect(surface.editorText).toBe("old prompt"); // editor untouched
+  });
+
+  test("AC-15_read_completed_state_no_surface", async () => {
+    const state = ac15AllAnswered();
+    // Ghost singleton: clearForCompletion keeps it INSTALLED with
+    // completed=true and zero questions — exactly the trap gate (3) blocks.
+    state.clearForCompletion();
+    setState(state);
+    const { surface } = await suspendThenRead();
+
+    // SURFACE-001 / FR-28: only the setup open — the completed ghost
+    // surfaces nothing (gates (1)+(3) each block independently).
+    expect(surface.customCalls.length).toBe(1);
+    expect(surface.editorText).toBe("old prompt"); // editor untouched
   });
 });

@@ -16,13 +16,19 @@
  * driving the real keys.ts dispatch from every view.
  */
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import type { Component, EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG } from "../config.js";
 import { createInterrogationState, type InterrogationState, type Question } from "../state.js";
 import { buildDiscussTemplate, discussInChat } from "./discuss.js";
-import type { InterrogationPanel } from "./panel.js";
-import { createPanelHost, openPanel, type PiUISurface } from "./panel.js";
+import {
+  createPanelHost,
+  InterrogationPanel,
+  openPanel,
+  type DraftStore,
+  type InterrogationPanelArgs,
+  type PiUISurface,
+} from "./panel.js";
 import { resumePanel } from "./suspend.js";
 
 /** kitty CSI-u ctrl+shift+e (e = 101) — same bytes keys.test.ts routes with. */
@@ -358,5 +364,211 @@ describe("discuss handoff wiring — keys.ts router → discussInChat", () => {
       await flush();
       expect(mock.editorCalls).toEqual([[SQLITE_TEMPLATE]]);
     }
+  });
+});
+
+// ------------- BUG-002 gesture 2: discuss preserves the in-flight draft (real panel)
+
+/**
+ * Real-panel discuss journey (BUG-002 gesture 2, R4/ESC-002): the fakePanel
+ * coordinator tests above MOCK suspend(), so they cannot exercise the
+ * write-through — these drive a REAL InterrogationPanel whose suspend()
+ * stages the in-flight editor buffer via S1's writeThroughCurrentDraft()
+ * before done(null). `discussInChat` suspends by no other means (single
+ * suspend() call site in discuss.ts), so the gesture inherits the guarantee
+ * with zero discuss.ts code — these tests pin that contract.
+ *
+ * TDD note: S1 (writeThroughCurrentDraft inside suspend()) landed BEFORE
+ * this suite, so these run green as the regression pin. Pre-S1 the journey
+ * test was observably red: suspend() resolved done(null) without staging,
+ * leaving drafts.getDraft('q1') === undefined and no q1 slot — the typed
+ * write-in was destroyed by the gesture.
+ */
+
+/** Editor factory stub — the panel.test.ts fakePanelEditor shape (deterministic buffer). */
+function fakeDiscussEditor(): EditorComponent & { setText: Mock } {
+  let text = "";
+  return {
+    getText: vi.fn(() => text),
+    setText: vi.fn((t: string) => {
+      text = t;
+    }),
+    handleInput: vi.fn(),
+    render: vi.fn(() => ["e1", "e2", "e3"]),
+    focused: false,
+  } as unknown as EditorComponent & { setText: Mock };
+}
+
+/**
+ * DraftStore with REAL in-memory semantics behind spy seams — getDraft
+ * reads back what setDraft stored (the bare panel.test.ts stub only records
+ * calls), so tests can assert the STORE population, not just the call.
+ */
+function makeDraftsStore() {
+  const store = new Map<string, string>();
+  return {
+    getDraft: vi.fn((id: string) => store.get(id)),
+    setDraft: vi.fn((id: string, text: string) => void store.set(id, text)),
+    getNote: vi.fn(() => ""),
+    setNote: vi.fn(),
+  };
+}
+
+/** Real InterrogationPanel (panel.test.ts makeSuspendPanel shape) + drafts seam. */
+function makeRealPanel(
+  state: InterrogationState,
+  opts: { drafts?: DraftStore; focusQuestionId?: string; pi?: PiUISurface } = {},
+): { panel: InterrogationPanel; done: ReturnType<typeof vi.fn>; drafts?: DraftStore } {
+  const done = vi.fn();
+  const args: InterrogationPanelArgs = {
+    tui: { requestRender: vi.fn() } as unknown as TUI,
+    theme: stubTheme,
+    done,
+    state,
+    config: DEFAULT_CONFIG,
+    editorFactory: () => fakeDiscussEditor(),
+    ...opts,
+  };
+  const panel = new InterrogationPanel(args);
+  return { panel, done, drafts: opts.drafts };
+}
+
+/** Slot-map peek (private by design — the public read is draftTextFor). */
+function slotFor(
+  panel: InterrogationPanel,
+  id: string,
+): { value: string; text: string } | undefined {
+  return (panel as unknown as { draftSlots: Map<string, { value: string; text: string }> })
+    .draftSlots.get(id);
+}
+
+function slotCount(panel: InterrogationPanel): number {
+  return (panel as unknown as { draftSlots: Map<string, unknown> }).draftSlots.size;
+}
+
+describe("discuss gesture — R4/BUG-002 draft write-through (real panel)", () => {
+  test("test_discuss_preserves_inflight_write_in_draft", async () => {
+    const state = makeState();
+    const drafts = makeDraftsStore();
+    const { panel, done } = makeRealPanel(state, { drafts, focusQuestionId: "q1" });
+
+    // Write-in duty seam (text-field.test.ts pattern): focus "text" with
+    // bufferOwner "q1" — where the ✎ Other-row accept lands.
+    panel.focusTextField("writein");
+    expect(panel.focus).toBe("text");
+    panel.textField.setText("precious unsaved typing");
+
+    const setEditorText = vi.fn();
+    expect(discussInChat(fakePi(setEditorText), panel)).toBe(true);
+
+    // Suspended through the REAL done(null) path…
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledWith(null);
+    expect(panel.isResolved()).toBe(true);
+
+    // …and the in-flight buffer was staged BEFORE the resolve (the R4
+    // money shot — pre-S1 this draft was destroyed by the suspend).
+    expect(panel.draftTextFor("q1")).toBe("precious unsaved typing"); // panel slot
+    expect(drafts.getDraft("q1")).toBe("precious unsaved typing"); // DraftStore seam
+    expect(slotFor(panel, "q1")).toEqual({ value: "q1", text: "precious unsaved typing" });
+
+    // Handoff intact: exactly ONE deferred template write to the MAIN
+    // editor (the draft slot is a different target — untouched by it).
+    await Promise.resolve();
+    expect(setEditorText).toHaveBeenCalledTimes(1);
+    expect(setEditorText).toHaveBeenCalledWith(expect.stringContaining("discussing q1"));
+  });
+
+  test("test_discuss_empty_buffer_creates_no_slot", async () => {
+    const state = makeState();
+    const drafts = makeDraftsStore();
+    const { panel, done } = makeRealPanel(state, { drafts, focusQuestionId: "q1" });
+    panel.focusTextField("writein"); // seeded "" — nothing typed
+
+    const setEditorText = vi.fn();
+    expect(discussInChat(fakePi(setEditorText), panel)).toBe(true);
+    expect(done).toHaveBeenCalledWith(null);
+
+    // Empty buffer: no slot resurrected with "", no seam write.
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+    expect(drafts.setDraft).not.toHaveBeenCalled();
+    expect(slotFor(panel, "q1")).toBeUndefined();
+
+    await Promise.resolve();
+    expect(setEditorText).toHaveBeenCalledTimes(1); // handoff still ran
+  });
+
+  test("test_discuss_no_current_question_leaves_panel_and_drafts_untouched", async () => {
+    const state = makeState();
+    const drafts = makeDraftsStore();
+    const { panel, done } = makeRealPanel(state, { drafts, focusQuestionId: "q1" });
+    panel.focusTextField("writein");
+    // Clear currentId BEFORE typing: the currentId setter is itself a draft-
+    // staging navigation (R4 — navigating away never destroys drafts), so an
+    // empty buffer stages nothing; any setDraft below could then only come
+    // from the discuss path, which must be silent on a refusal.
+    panel.currentId = undefined; // public setter (panel.ts currentId)
+    panel.textField.setText("typed but nobody is home");
+
+    const setEditorText = vi.fn();
+    expect(discussInChat(fakePi(setEditorText), panel)).toBe(false);
+    expect(done).not.toHaveBeenCalled();
+    expect(panel.isResolved()).toBe(false); // panel untouched — no suspend
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // no draft writes
+    expect(slotFor(panel, "q1")).toBeUndefined();
+    await Promise.resolve();
+    expect(setEditorText).not.toHaveBeenCalled(); // no editor write either
+  });
+
+  test("test_discuss_no_double_staging_after_simulated_resume", async () => {
+    const state = makeState();
+    const drafts = makeDraftsStore();
+
+    // First leg: type, discuss — draft staged exactly once.
+    const first = makeRealPanel(state, { drafts, focusQuestionId: "q1" });
+    first.panel.focusTextField("writein");
+    first.panel.textField.setText("precious unsaved typing");
+    expect(discussInChat(fakePi(vi.fn()), first.panel)).toBe(true);
+    expect(first.done).toHaveBeenCalledWith(null);
+
+    // Simulated resume: the real resume flow opens a FRESH panel instance —
+    // its editor re-seeds from the surviving draft (no duplication)…
+    const second = makeRealPanel(state, { drafts, focusQuestionId: "q1" });
+    second.panel.focusTextField("writein");
+    expect(second.panel.textField.getText()).toBe("precious unsaved typing");
+    // …the user retypes over it and discusses again…
+    second.panel.textField.setText("second pass");
+    expect(discussInChat(fakePi(vi.fn()), second.panel)).toBe(true);
+    expect(second.done).toHaveBeenCalledWith(null);
+
+    // …and the store holds the LATEST text with exactly ONE q1 slot entry.
+    expect(drafts.getDraft("q1")).toBe("second pass");
+    expect(second.panel.draftTextFor("q1")).toBe("second pass");
+    expect(slotCount(second.panel)).toBe(1);
+    expect(slotFor(second.panel, "q1")).toEqual({ value: "q1", text: "second pass" });
+  });
+
+  test("test_discuss_key_dispatches_with_editor_focus_mid_write", async () => {
+    // keys.ts's step-4 intercept for ctrl+shift+e is deliberately UNGATED by
+    // editor focus — mid-write-in discuss is the intended UX. This documents
+    // WHY the write-through must exist: the gesture fires mid-editing and
+    // must carry the buffer along (no behavior change asserted here).
+    const state = makeState();
+    const drafts = makeDraftsStore();
+    const setEditorText = vi.fn();
+    const { panel, done } = makeRealPanel(state, {
+      drafts,
+      focusQuestionId: "q1",
+      pi: fakePi(setEditorText), // the constructor-refined discuss seam needs the carrier
+    });
+    panel.focusTextField("writein");
+    panel.textField.setText("mid-edit discuss");
+
+    expect(panel.handleInput(DISCUSS)).toBe(true); // router dispatches mid-edit
+    expect(done).toHaveBeenCalledWith(null);
+    expect(drafts.getDraft("q1")).toBe("mid-edit discuss"); // write-through fired
+    expect(panel.draftTextFor("q1")).toBe("mid-edit discuss");
+    await Promise.resolve();
+    expect(setEditorText).toHaveBeenCalledTimes(1);
   });
 });

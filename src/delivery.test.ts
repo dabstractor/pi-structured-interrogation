@@ -130,7 +130,7 @@ describe("buildSubmission — content", () => {
     expect(lines[1]).toBe(SUBMISSION_REMINDER);
   });
 
-  test("single_huge_entry_still_fits_budget_rule_at_least_one_survives", () => {
+  test("single_huge_entry_is_ellipsis_truncated_to_budget", () => {
     state.upsertQuestion(q({ id: "q1" }));
     const prev = state.serialize();
     state.applyAnswer("q1", ans("x".repeat(SUBMISSION_LIST_MAX_CHARS * 2)));
@@ -140,10 +140,14 @@ describe("buildSubmission — content", () => {
     const lines = msg.content.split("\n");
 
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe(
-      `Submitted 1: q1: ${"x".repeat(SUBMISSION_LIST_MAX_CHARS * 2)} (state epoch 2)`,
-    );
-    expect(lines[0]).not.toContain("+1 more"); // single entry is never dropped
+    // BUG-006 cap half: the single kept entry is ellipsis-truncated so line 1
+    // fits the budget (the old "keep ≥1 entry whole" rule let it through).
+    expect(lines[0]!.length).toBeLessThanOrEqual(SUBMISSION_LIST_MAX_CHARS);
+    expect(lines[0]!.startsWith("Submitted 1: q1: x")).toBe(true);
+    expect(lines[0]).toContain("…"); // ellipsis terminator on the capped entry
+    expect(lines[0]).toMatch(/\(state epoch 2\)$/); // epoch suffix never dropped
+    expect(lines[0]).not.toContain("+1 more"); // single entry is never dropped — it is capped
+    expect(lines[1]).toBe(SUBMISSION_REMINDER);
   });
 
   test("zero_changes_no_changes_line_still_one_snapshot_one_bump", () => {
@@ -871,5 +875,66 @@ describe("BUG-006 flatten half — multi-line write-ins (P1.M2.T3.S1)", () => {
     expect(lines[0]).toBe("Submitted 1: q1: ✎ one / two (state epoch 2)");
     expect(lines[1]).toBe("Consider how these affect your other questions.");
     expect(lines[2]).toBe("NOTE: multi / line note"); // NOTE's own flatten (unchanged)
+  });
+});
+
+// ---------------------------------------------------- BUG-006 cap half
+
+describe("BUG-006 cap half — per-entry truncation (P1.M2.T3.S2)", () => {
+  test("bug006_single_3000_char_write_in_entry_is_capped", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: "X".repeat(3000), custom: true, at: T0 });
+    const diff = diffFrom(prev);
+
+    const msg = buildSubmission(state, diff);
+    const lines = msg.content.split("\n");
+
+    expect(lines).toHaveLength(2); // ≤3-line budget restored (FR-3/AC-2)
+    expect(lines[0]!.length).toBeLessThanOrEqual(SUBMISSION_LIST_MAX_CHARS);
+    expect(lines[0]!.startsWith("Submitted 1: q1: ✎ X")).toBe(true);
+    expect(lines[0]).toContain("…"); // ellipsis terminator
+    expect(lines[0]).toMatch(/\(state epoch 2\)$/); // suffix never dropped
+    expect(lines[0]).not.toContain("+1 more"); // single entry: capped, not dropped
+    expect(lines[1]).toBe(SUBMISSION_REMINDER);
+    // details/card keep the UNTRUNCATED `to` (h2.36 Q2=A) — only content is capped.
+    expect(msg.details.changed[0]?.to).toBe(`✎ ${"X".repeat(3000)}`);
+  });
+
+  test("bug006_huge_plus_normal_entries_truncate_then_rollup", () => {
+    for (let i = 1; i <= 4; i++) state.upsertQuestion(q({ id: `q${i}` }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: "X".repeat(3000), custom: true, at: T0 });
+    state.applyAnswer("q2", ans("A"));
+    state.applyAnswer("q3", ans("B"));
+    state.applyAnswer("q4", ans("C"));
+    const diff = diffFrom(prev);
+
+    const msg = buildSubmission(state, diff);
+    const lines = msg.content.split("\n");
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.length).toBeLessThanOrEqual(SUBMISSION_LIST_MAX_CHARS);
+    expect(lines[0]!.startsWith("Submitted 4: q1: ✎ X")).toBe(true); // first entry KEPT (truncated); k true
+    expect(lines[0]).toContain("…");
+    expect(lines[0]).toMatch(/\+3 more \(state epoch 2\)$/); // rollup BEFORE the never-dropped suffix
+    expect(lines[1]).toBe(SUBMISSION_REMINDER);
+  });
+
+  test("bug006_short_entries_byte_identical_to_golden", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    state.upsertQuestion(q({ id: "q2" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("SQLite"));
+    state.applyAnswer("q2", ans("Postgres"));
+    const diff = diffFrom(prev);
+
+    const msg = buildSubmission(state, diff);
+
+    // Guard: the cap must be a strict no-op for lines that already fit.
+    expect(msg.content).toBe(
+      "Submitted 2: q1: SQLite; q2: Postgres (state epoch 2)\n" +
+        "Consider how these affect your other questions.",
+    );
   });
 });

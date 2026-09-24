@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Major correctness fixes (BUG-001, BUG-002, BUG-003)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Restore the three broken hard promises: FR-3/AC-2d gate-hold feedback, R4/ESC-002 draft sacredness on every editor exit, and AC-13/FR-2 '(changed)' marker through the real submit pipeline.",
           "tasks": [
             {
@@ -117,7 +117,7 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Make AC-13 '(changed)' marker reachable through the real submit pipeline (BUG-003)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "editedArchived requires a 'closed' baseline status, but snapshots are only taken post-markSubmitted and the agent-settled close pass never snapshots — so '(changed)' can never fire in production. Take a snapshot at the close pass after auditing ring consumers.",
               "subtasks": [
                 {
@@ -156,7 +156,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S3",
                   "title": "End-to-end AC-13 acceptance test through the real submit pipeline",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S2"

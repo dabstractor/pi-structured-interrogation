@@ -464,3 +464,69 @@ describe("module hygiene", () => {
     expect(importLines[0]).toMatch(/^import type \{.*\} from "\.\/state\.js";$/s);
   });
 });
+
+// ------------------------------------------------------- BUG-006 flatten half
+
+describe("answerSummary flattening (BUG-006 flatten half, h3.5)", () => {
+  test("write_in_multi_line_value_flattens_to_a_single_line_summary", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: "line one\nline two 🚀", custom: true, at: T0 });
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed[0]?.to).toBe("✎ line one / line two 🚀");
+    expect(diff.changed[0]?.to.includes("\n")).toBe(false);
+  });
+
+  test("tab_runs_flatten_to_the_same_separator", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: "a\t\tb", custom: true, at: T0 });
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed[0]?.to).toBe("✎ a / b");
+  });
+
+  test("mixed_newline_tab_runs_collapse_to_one_separator", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: "x\n\ty", custom: true, at: T0 });
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed[0]?.to).toBe("✎ x / y");
+  });
+
+  test("elaboration_suffix_flattens_value_side_stays_label_preferred", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("a", "first\nsecond"));
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed[0]?.to).toBe("a — first / second");
+  });
+
+  test("newline_free_write_in_is_byte_identical_no_op_pin", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: "plain", custom: true, at: T0 });
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed[0]?.to).toBe("✎ plain");
+  });
+
+  test("raw_state_and_change_detection_keep_the_unflattened_value", () => {
+    // The flatten is summary-only: state keeps raw \n, and the change
+    // signature compares RAW value+text — so re-answering with the same raw
+    // multi-line value is NO change, while a genuinely different raw value
+    // (even one that only differs by a newline) still diffs.
+    state.upsertQuestion(q({ id: "q1" }));
+    state.applyAnswer("q1", { value: "line one\nline two", custom: true, at: T0 });
+    expect(state.getQuestion("q1")?.answer?.value).toBe("line one\nline two");
+
+    const before = state.serialize();
+    state.applyAnswer("q1", { value: "line one\nline two", custom: true, at: T0 });
+    expect(computeDiff(before, state.serialize()).changed).toEqual([]); // same raw → no entry
+
+    const changed = state.serialize();
+    state.applyAnswer("q1", { value: "line one / line two", custom: true, at: T0 });
+    const diff = computeDiff(changed, state.serialize());
+    expect(diff.changed).toHaveLength(1); // raw values differ → still fires
+    expect(diff.changed[0]?.from).toBe("✎ line one / line two");
+    expect(diff.changed[0]?.to).toBe("✎ line one / line two");
+  });
+});

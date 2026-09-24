@@ -162,7 +162,13 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // Restart loses drafts BY DESIGN (Q6=B): nothing here touches disk, and
   // persistence.ts (P1.M7.T1) must not serialize it.
   const drafts = new DraftStore();
-  maybeAutoOpen(pi, config, panelHost, drafts);
+  // SURFACE-001 gate (1): start-phase args stash for interrogate calls.
+  // Declared BEFORE maybeAutoOpen so its auto-open handler can PEEK entries
+  // by toolCallId (read-only); consumption (get+delete) belongs EXCLUSIVELY
+  // to the D-R6 bridge-emission end handler registered further down — a
+  // delete on the peek path would starve that emission.
+  const pendingUpsertArgs = new Map<string, unknown>();
+  maybeAutoOpen(pi, config, panelHost, drafts, (id) => pendingUpsertArgs.get(id));
 
   // P1.M7.T1.S2 — reconstruction (h2.41/h2.43/h3.11, FR-28): on session_start
   // (all reasons) AND session_tree (mid-session /tree branch navigation — ctx
@@ -224,8 +230,9 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // the flip has landed and emitFlow's live predicate sees the post-flip
   // set (live RPC itest deadlock #2: a rule-1 re-upsert touching submitted
   // questions found nothing live in-executor and left the re-asked set
-  // surfaceless). Args ride a start-phase stash (end events may lack them).
-  const pendingUpsertArgs = new Map<string, unknown>();
+  // surfaceless). Args ride the start-phase stash declared above (end
+  // events may lack them); THIS end handler is the stash's only consumer —
+  // maybeAutoOpen's SURFACE-001 gate peeks without deleting.
   pi.on("tool_execution_start", (event, ctx) => {
     if (event.toolName === "interrogate") {
       resumeSurface = ctx;

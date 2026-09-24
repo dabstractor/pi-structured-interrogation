@@ -48,6 +48,10 @@ import {
   resolveExternalEditorCommand,
 } from "../external-editor.js";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
+// SURFACE-001 gate (1): the single upsert-args predicate (lifecycle.ts is its
+// only other consumer — no duplicate definition; no import cycle: lifecycle
+// imports merge.js + state.js only, never panel.js).
+import { isUpsertArgs } from "../lifecycle.js";
 import { getState, type InterrogationState, type SerializedState } from "../state.js";
 import { nextUnanswered, writeInEnter, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
 import {
@@ -1778,7 +1782,38 @@ export function resumeOpenPanel(pi: PiUISurface): boolean {
 }
 
 /**
- * Auto-open on interrogate tool completion (first open + h2.37 reopen).
+ * Auto-open on interrogate tool completion — SURFACE-001 three-gate
+ * allow-list (PRD h2.37, h2.16 event table, h2.10 AC-15). The panel may be
+ * surfaced by the user (`/interrogate`), an agent upsert, or agent
+ * `{reopen:true}` — never by a read. Mode A rationale: reads are PULL; a
+ * read popping the panel over the user's prompt box mid-turn is the
+ * empty-box-after-esc data-loss trap (pi's custom() editor snapshot/restore
+ * turned every `esc` into lost input), so all three gates must pass:
+ *
+ * 1. UPSERT-CALL — the ended call carried a non-empty `questions[]`
+ *    (`isUpsertArgs` over the peeked start-phase args; `questions: []` and
+ *    absent questions route to read, as does a missing stash entry).
+ * 2. UNANSWERED-EXIST — an open/reasked question remains post-upsert
+ *    (`nextUnanswered(ordered, -1)` = UNANSWERED_STATUSES only — NOT
+ *    hasResumableQuestions, which counts answered/submitted). A
+ *    description-only edit over a fully answered set surfaces nothing.
+ * 3. NOT-COMPLETED — `state.completed === false`. `clearForCompletion()`
+ *    leaves the singleton installed with `completed` true and zero
+ *    questions; that ghost must never pop (gates 2 and 3 each block it
+ *    independently — both are enforced).
+ *
+ * GATE (1) args access — PEEK, NEVER CONSUME: end events carry no args, so
+ * the call is classified via `peekArgs(toolCallId)` over index.ts's
+ * `pendingUpsertArgs` start-phase stash. The LAST-registered
+ * tool_execution_end handler (the FR-31/D-R6 deferred bridge emission)
+ * consumes + deletes the entry; this handler registers and fires FIRST, so
+ * it must peek only — a delete here would starve the bridge emission. The
+ * default peek (`() => undefined`) classifies every call as a read ⇒ no
+ * auto-open — the read-conservative default that lets unwired test surfaces
+ * and the P3.M1.T3.S1 tree-nav characterization flips stay safe.
+ *
+ * `{reopen:true}` (index.ts onReopen → resumePanel) and the /interrogate
+ * command are the deliberate paths and are untouched here.
  *
  * index.ts calls this once at factory time; the tool_execution_end
  * subscription mirrors lifecycle.ts's narrowing (interrogate + !isError).
@@ -1791,6 +1826,10 @@ export function resumeOpenPanel(pi: PiUISurface): boolean {
  * path inside openPanel handles upserts that bypass tool events, e.g. the
  * debug command).
  *
+ * @param peekArgs start-phase args stash lookup, wired by index.ts as
+ *                 `(id) => pendingUpsertArgs.get(id)`; defaults to
+ *                 "unknown call" so an unwired surface never auto-opens.
+ *
  * pi.on returns void in the installed runtime — no unsubscriber is assumed
  * (tolerant track() pattern from lifecycle.ts).
  */
@@ -1799,12 +1838,24 @@ export function maybeAutoOpen(
   config: InterrogatorConfig,
   host: PanelHost,
   drafts?: DraftStore,
+  peekArgs: (toolCallId: string) => unknown = () => undefined,
 ): void {
   void pi.on("tool_execution_end", (event, ctx) => {
     if (event.toolName !== "interrogate" || event.isError) return;
+    // SURFACE-001 gate (1) — upsert-call: PEEK the start-phase args stash
+    // (never delete — the LAST-registered end handler consumes it for the
+    // D-R6 bridge emission). Missing entry / `questions: []` = read.
+    if (!isUpsertArgs(peekArgs(event.toolCallId))) return;
     if (host.isOpen()) return;
     const state = getState();
     if (state === undefined) return;
+    // SURFACE-001 gate (3) — not-completed: clearForCompletion() leaves the
+    // singleton installed; a completed interrogation never resurfaces.
+    if (state.completed) return;
+    // SURFACE-001 gate (2) — unanswered-exist: open/reasked ONLY
+    // (UNANSWERED_STATUSES via nextUnanswered; NOT hasResumableQuestions,
+    // which counts answered/submitted). fromIndex -1 wraps to a full scan.
+    if (nextUnanswered(state.orderedQuestions(), -1) === undefined) return;
     // The SAME store instance rides every (re)open — lastOpts spread in
     // handleUpserted reuses it on the suspended-reopen path, so drafts
     // survive suspend/resume (R4, h2.0 commitment 6).

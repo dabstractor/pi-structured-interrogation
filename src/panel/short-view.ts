@@ -176,6 +176,11 @@ export function renderShortViewOptions(input: ShortViewInput): string[] {
       lines.push(optionLine(q, options[i], i, cursorIndex, theme, budget, dimAll));
     }
     lines.push(otherLine(options.length, cursorIndex, theme, dimAll));
+    // BUG-005 part 2: choice write-ins preview here too — only custom
+    // write-ins produce a line (plain option answers return undefined; the
+    // option rows already carry the recorded selection).
+    const preview = answerPreviewLine(q, theme, budget, dimAll);
+    if (preview !== undefined) lines.push(preview);
   }
   // Soft-gate dimming seam (P1.M5.T3.S1): one wrap pass over the FINISHED
   // lines — content composed exactly as before, only the color class added.
@@ -251,13 +256,21 @@ function textAffordanceLine(cursorIndex: number, theme: Theme, budget: number, d
 }
 
 /**
- * Dimmed current-value preview under a text question's affordance: the
- * first line of `q.answer?.text`, indented to align with the placeholder
- * text. Returns undefined when there is no text answer — the line is never
- * rendered empty.
+ * Dimmed current-value preview under the affordance/Other rows: the first
+ * line of the recorded answer — `answer.value` for write-ins (custom) and
+ * text questions, `answer.text` for elaborations (BUG-005 part 2). Indented
+ * to align with the placeholder text. Returns undefined when there is no
+ * previewable answer — the line is never rendered empty, and plain option
+ * values are never previewed (option rows carry the selection).
  */
 function answerPreviewLine(q: Question, theme: Theme, budget: number, dimAll: boolean): string | undefined {
-  const text = q.answer?.text;
+  // BUG-005 part 2: write-in (custom: true) and text answers commit to
+  // answer.value; elaborations ride answer.text. Read whichever field the
+  // recorded answer actually used — same vocabulary as overview markerParts
+  // (custom === true || type text → value) and cancelTextConfirm's seed read.
+  const a = q.answer;
+  const text =
+    a !== undefined && (a.custom === true || q.type === "text") ? a.value : a?.text;
   if (text === undefined || text === "") return undefined;
   const firstLine = text.split("\n", 1)[0] ?? "";
   const preview = truncateVisible(firstLine, Math.max(1, budget - INSET.length - BLANK.length));

@@ -210,7 +210,7 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Surface recorded write-in answers in the panel (BUG-005)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Choice write-in answers get no ✎ on the question line (hasTextAnswer misses answer.custom) while the overview shows ✎, and the revisit answer preview never renders because it reads answer.text which write-ins never set. Fix both display seams.",
               "subtasks": [
                 {
@@ -232,7 +232,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "Revisit preview: render the recorded write-in/text value as the dimmed answer preview",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-005-display-markers.md — answerPreviewLine at src/panel/short-view.ts:259-269 reads only q.answer?.text; write-in and text answers commit to answer.value, so the dimmed current-value preview is dead code; test short-view.test.ts:197 only passes because it hand-sets answer.text. Helpers: truncateVisible (layout.ts:95) and an inline split('\\n',1)[0] first-line precedent. Cursor intentionally never pins to recorded answers (panel.ts:368 — by design; do NOT add cursor sync).\n2. INPUT: ✎ parity from P1.M2.T2.S1 is independent; answerPreviewLine's current shape and the recorded answer objects.\n3. LOGIC: Implement PRD h3.4 part (2): answerPreviewLine renders the dimmed FIRST LINE of (answer.custom === true || q.type === 'text') ? answer.value : answer.text, truncated via truncateVisible to the region budget. Empty/undefined answers render nothing (unchanged). TDD: revisit scenario — state q1 with {value:'my write-in', custom:true} and q2 text {value:'text answer'}; render(100) with currentId on each → preview line shows each recorded value; multi-line values show only line one; existing short-view.test.ts:197 (hand-set answer.text) stays green. No mocks.\n4. OUTPUT: Recorded write-in answers finally visible in the short view; the panel no longer requires the transcript card or a model read for review.\n5. DOCS: none — final sweep covers README write-in visibility passages.",
@@ -249,14 +249,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Bound and flatten the model-visible submission delta (BUG-006)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The delivery budget loop keeps at least one entry whole, so a single long write-in produces an unbounded content line, and raw newlines turn the ≤3-line delta into 4+ lines. Flatten summaries to single lines and cap each entry.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Flatten newlines/tabs in answerSummary so every delta entry is single-line",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S2"
@@ -273,7 +273,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T3.S2",
                   "title": "Per-entry char cap in the delivery budget loop",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T3.S1"

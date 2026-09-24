@@ -216,6 +216,101 @@ describe("text questions", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).not.toContain(DIM);
   });
+
+  test("(w2) answered preview reads answer.value (BUG-005 part 2) — text answers commit to value", () => {
+    const q = textQ({
+      status: "answered",
+      answer: { value: "text answer", at: "2026-01-01T00:00:00Z" },
+    });
+    const lines = render(q, 0, dimTheme);
+    expect(lines).toHaveLength(2); // affordance + preview (was dead before the fix)
+    expect(lines[1]).toContain(DIM); // dimmed
+    expect(lines[1]).toContain("text answer");
+  });
+});
+
+// ------------------------------------------------------- write-in preview
+
+describe("write-in preview (BUG-005 part 2)", () => {
+  const AT = "2026-01-01T00:00:00Z";
+
+  test("(w1) choice custom write-in renders dimmed value preview below the Other row", () => {
+    const q = choiceQ({
+      status: "answered",
+      answer: { value: "my write-in", custom: true, at: AT },
+    });
+    const lines = render(q, 0, dimTheme);
+    expect(lines).toHaveLength(4); // 2 options + Other row + preview
+    const preview = lines[3];
+    expect(preview).toContain(DIM); // dimmed
+    expect(preview).toContain("my write-in");
+    // Rows above the preview are untouched by the fix.
+    expect(render(q, 0, dimTheme).slice(0, 3)).toEqual(
+      render(choiceQ({ status: "answered" }), 0, dimTheme),
+    );
+  });
+
+  test("(w3) multi-line write-in previews first line only", () => {
+    const q = choiceQ({
+      status: "answered",
+      answer: { value: "line one\nline two", custom: true, at: AT },
+    });
+    const lines = render(q, 0, dimTheme);
+    expect(lines).toHaveLength(4);
+    expect(lines[3]).toContain("line one");
+    expect(lines.join("\n")).not.toContain("line two"); // first line only
+  });
+
+  test("(w4) long write-in truncates at narrow width — every line stays single", () => {
+    const q = choiceQ({
+      status: "answered",
+      answer: {
+        value: "a very long write-in answer that can never possibly fit inside narrow terminal widths",
+        custom: true,
+        at: AT,
+      },
+    });
+    const lines = render(q, 0, dimTheme, 40);
+    expect(lines).toHaveLength(4); // truncated, never wrapped
+    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+    expect(lines[3]).toContain("…"); // truncateVisible ellipsis
+  });
+
+  test("(w5) elaboration-only choice answer previews answer.text (behavior unchanged)", () => {
+    const q = choiceQ({
+      status: "answered",
+      answer: { value: "postgres", text: "ops note", at: AT }, // no custom
+    });
+    const lines = render(q, 0, dimTheme);
+    expect(lines).toHaveLength(4);
+    expect(lines[3]).toContain("ops note");
+  });
+
+  test("(w6) plain option answer adds no preview line (rows carry the selection)", () => {
+    const plain = choiceQ({
+      status: "answered",
+      answer: { value: "sqlite", at: AT }, // an option value — NOT previewed
+    });
+    expect(render(plain, 0)).toHaveLength(3); // 2 options + Other, no preview
+    expect(render(plain, 0)).toEqual(render(choiceQ({ status: "answered" }), 0));
+  });
+
+  test("(w7) empty or valueless custom answers render no line (never 'undefined')", () => {
+    const emptyValue = choiceQ({
+      status: "answered",
+      answer: { value: "", custom: true, at: AT },
+    });
+    expect(render(emptyValue, 0)).toHaveLength(3);
+    // Defensive: a custom answer missing its value field entirely.
+    const noValue = choiceQ({
+      status: "answered",
+      answer: { custom: true, at: AT } as unknown as Question["answer"],
+    });
+    expect(render(noValue, 0)).toHaveLength(3);
+    expect(render(noValue, 0).join("\n")).not.toContain("undefined");
+    // No answer at all → unchanged.
+    expect(render(choiceQ({ status: "answered" }), 0)).toHaveLength(3);
+  });
 });
 
 // ------------------------------------------------- moot / withdrawn variants

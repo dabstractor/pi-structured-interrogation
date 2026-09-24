@@ -1148,8 +1148,25 @@ export class InterrogationPanel implements Component {
    * zero-pending submit ships nothing and therefore holds the note. enter
    * saves + exits; esc / re-press exit via {@link exitNoteMode}, whose
    * write-through keeps the draft (FR-16).
+   *
+   * [Mode A] Swap write-through guarantee (R4/ESC-002, BUG-002 gesture 3):
+   * entering note mode FIRST stages the in-flight question buffer —
+   * {@link writeThroughCurrentDraft} runs as the very first statement, while
+   * `focus` is still "text" (or "options") and `bufferOwner` is still the
+   * question id, writing the typed text to its draftSlots entry + the
+   * DraftStore seam — and ONLY THEN is the note text seeded over the editor
+   * (`drafts?.getNote() || batchNote || ""` precedence unchanged). A
+   * ctrl+shift+m mid-answer therefore destroys nothing: the question draft
+   * survives in slot + seam and re-seeds on exit, and any saved note
+   * replaces it in the editor. Combined with {@link exitNoteMode}'s existing
+   * write-through (note buffer persisted before the question re-seed), BOTH
+   * directions of the swap are non-destructive (R4). The call is a no-op on
+   * the guard paths — options focus with a blurred/empty buffer writes
+   * nothing (blurred buffers were already synced; an empty buffer must never
+   * overwrite a stored draft with "").
    */
   enterNoteMode(): void {
+    this.writeThroughCurrentDraft(); // R4/ESC-002: stage the question buffer BEFORE the note seed overwrites it
     this.focus = "note";
     this.textField.seed(this.drafts?.getNote() || this.batchNote || "");
     this.bufferOwner = "note"; // EXPLAIN-002: note duty suspends question scoping
@@ -1163,7 +1180,9 @@ export class InterrogationPanel implements Component {
    * ladder), and the ctrl+shift+m re-press (keys.ts onBatchNote toggle).
    * FR-16: exit never destroys state — the field text is WRITTEN THROUGH
    * to the DraftStore seam + panel field BEFORE blurring, so the draft
-   * survives the exit and re-seeds on re-entry. Deliberately does NOT
+   * survives the exit and re-seeds on re-entry. Together with
+   * {@link enterNoteMode}'s first-statement write-through of the question
+   * buffer, BOTH directions of the note swap are non-destructive (R4). Deliberately does NOT
    * commit an answer — a note is not a question answer.
    */
   exitNoteMode(): void {

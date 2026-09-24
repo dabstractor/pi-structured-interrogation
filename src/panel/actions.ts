@@ -27,6 +27,7 @@ import { computeDiff, submissionBaselineOf } from "../snapshots.js";
 import type { Question, SerializedState } from "../state.js";
 import { countUnansweredGate, gateGroupNames } from "./gate.js";
 import type { InterrogationPanel } from "./panel.js";
+import { beginWriteInConfirm, rippleVictims } from "./ripple-confirm.js";
 import { initialCursorIndex } from "./short-view.js";
 
 // ------------------------------------------------------------------- types
@@ -259,10 +260,14 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
  * no option is selected). EMPTY buffer: save the draft + blur back to
  * options, NO commit (nothing answered — h2.32) via the shared
  * commitTextDraft tail (draft slot + DraftStore seam + EXPLAIN-003 ★
- * re-seed) with arming explicitly off. Ripple routing for write-in commits
- * on answered/submitted questions lands in P1.M2.T2.S2 (deliberately
- * absent here — do not add confirmRippleEdit to this path before then).
- * Binding decisions: emptiness is a TRIM gate but the commit is the RAW
+ * re-seed) with arming explicitly off. FR-18 ripple routing (h2.35,
+ * P1.M2.T2.S2): a commit on an ANSWERED/SUBMITTED question whose ripple has
+ * victims defers into the keep/cancel modal via beginWriteInConfirm — NOT
+ * confirmRippleEdit (that is the choice seam: it stashes kind "choice" and
+ * drops the custom marker); zero victims commit directly. The deferred
+ * commit is owned by applyWriteInConfirm (modal enter); esc reverts via
+ * cancelWriteInConfirm. Binding decisions: emptiness is a TRIM gate but the
+ * commit is the RAW
  * buffer (whitespace the user typed is theirs; multi-line values keep
  * their newlines); blur happens AFTER the advance so advanceAfterAccept's
  * currentId setter (cursor ★ reset) wins on the repainted view, and
@@ -285,6 +290,16 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
     // cursor re-seed to ★), explicitly NOT arming any advance.
     panel.commitTextDraft(q.id, text, { arm: false });
     return true;
+  }
+  // FR-18 / h2.35: a write-in commit on an answered/submitted question with
+  // ripple victims routes through the SAME keep/cancel modal as option edits
+  // (P1.M2.T2.S2) — the commit is DEFERRED to applyWriteInConfirm; enter
+  // applies, esc reverts. Zero victims → direct commit (createRippleConfirm
+  // semantics; the modal only exists when something would be invalidated).
+  const status = q.status;
+  if ((status === "answered" || status === "submitted") && rippleVictims(panel, q.id).length > 0) {
+    beginWriteInConfirm(panel, text);
+    return true; // consumed — nothing applied yet
   }
   panel.state.applyAnswer(q.id, { value: text, custom: true, at: new Date().toISOString() });
   // FR-17: same once-per-commit placement as acceptOptionIndex — AFTER the

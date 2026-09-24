@@ -743,6 +743,69 @@ describe("write-in duty (WRITEIN-001, FR-D1)", () => {
     expect(renderDutyLabel("writein", stubTheme, 80)).toBe("OTHER — this text is the answer");
   });
 
+  test("test_wi_enter_empty_buffer_on_answered_with_victims_never_gates", () => {
+    // h2.35 gates COMMITS only — an empty buffer is not a commit (S1's
+    // empty branch returns before the gate): draft save + blur, no modal.
+    const state = seed([
+      { id: "q1", overrides: { status: "answered" } },
+      { id: "q2", overrides: { status: "answered", dependsOn: [{ id: "q1", equals: "a" }] } },
+    ]);
+    const { panel } = makePanel(state, { drafts: new DraftStore() });
+    panel.currentId = "q1";
+    panel.cursorIndex = 2;
+    accept(panel); // Other row → writein duty (duty entry is ungated)
+    expect(panel.textDuty).toBe("writein");
+
+    expect(panel.handleInput("\r")).toBe(true); // empty buffer + enter
+
+    expect(panel.confirmMode).toBeNull(); // no modal — no commit, no confirm
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // untouched
+    expect(panel.draftTextFor("q1")).toBe(""); // draft slot written (S1 tail)
+    expect(panel.focus).toBe("options");
+  });
+
+  test("test_wi_enter_on_answered_with_victims_defers_into_modal_fr18", () => {
+    // FR-18 × WRITEIN-001 (h2.35, P1.M2.T2.S2): committing a write-in on an
+    // answered question with ripple victims defers into the SAME keep/cancel
+    // modal as option edits — NOT confirmRippleEdit (the choice seam drops
+    // the custom marker).
+    const state = seed([
+      { id: "q1", overrides: { status: "answered" } },
+      { id: "q2", overrides: { status: "answered", dependsOn: [{ id: "q1", equals: "a" }] } },
+    ]);
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.cursorIndex = 2;
+    accept(panel); // Other row → writein duty (duty entry is ungated)
+    expect(panel.textDuty).toBe("writein");
+
+    panel.textField.setText("cockroachdb");
+    expect(panel.handleInput("\r")).toBe(true); // write-in enter → GATE
+
+    expect(panel.confirmMode?.kind).toBe("writein");
+    expect(panel.confirmMode?.questionId).toBe("q1");
+    expect(panel.confirmMode?.text).toBe("cockroachdb");
+    expect(panel.confirmMode?.victims).toEqual(["q2"]);
+    // NOTHING applied — the commit is owned by applyWriteInConfirm now.
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a");
+    expect(state.getQuestion("q1")?.answer?.custom).toBeUndefined();
+    expect(panel.currentId).toBe("q1");
+    expect(panel.focus).toBe("text"); // editor stays focused behind the modal
+    expect(panel.textDuty).toBe("writein"); // no blur on stash
+    // (Byte-exact footer assertion lives in ripple-confirm.test.ts — this
+    // file's minimal editor stub has no render surface.)
+
+    // Modal enter applies the deferred commit (applyWriteInConfirm tail).
+    expect(panel.handleInput("\r")).toBe(true);
+    expect(panel.confirmMode).toBeNull();
+    const q1 = state.getQuestion("q1")!;
+    expect(q1.answer?.value).toBe("cockroachdb");
+    expect(q1.answer?.custom).toBe(true); // h2.42 marker survives the modal
+    expect(state.getQuestion("q2")?.status).toBe("moot"); // FR-17 re-derived
+    expect(panel.focus).toBe("options");
+    expect(panel.textDuty).toBe("elaboration");
+  });
+
   test("test_wi_enter_commits_custom_answer_and_advances", () => {
     const state = seed(BASIC);
     const { panel } = makePanel(state);

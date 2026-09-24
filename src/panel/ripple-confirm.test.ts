@@ -542,3 +542,177 @@ describe("ripple confirm — footer + seams", () => {
     expect(state.getQuestion("q1")?.answer?.value).toBe("b");
   });
 });
+
+// --------------------------------------------------------- write-in gate
+
+/**
+ * Drive the panel into write-in duty on the CURRENT question (Other row =
+ * cursor index options.length; the Other-row accept bypasses the choice
+ * ripple seam — entering duty commits nothing) and stage `text` in the
+ * editor. The next enter reaches writeInEnter, i.e. the write-in commit
+ * gate under test.
+ */
+function enterWriteInDuty(handle: Handle, text: string): void {
+  const { panel, editor } = handle;
+  panel.currentId = "q1";
+  panel.cursorIndex = 2; // past the 2 options = the ✎ Other row
+  panel.handleInput("\r"); // → writein duty, text focus
+  editor.setText(text);
+}
+
+describe("ripple confirm — write-in commit gate (h2.35, P1.M2.T2.S2)", () => {
+  test("test_wi_commit_on_answered_with_victims_defers_into_modal", () => {
+    const state = seedRippleChain();
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "cockroachdb");
+
+    expect(handle.panel.handleInput("\r")).toBe(true); // write-in enter → GATE
+
+    // Modal stashed with the buffer + FULL victim closure (BFS order).
+    expect(handle.panel.confirmMode?.kind).toBe("writein");
+    expect(handle.panel.confirmMode?.questionId).toBe("q1");
+    expect(handle.panel.confirmMode?.text).toBe("cockroachdb");
+    expect(handle.panel.confirmMode?.victims).toEqual(["q2", "q3"]);
+    expect(handle.panel.confirmMode?.priorCursorIndex).toBe(2);
+    expect(handle.panel.confirmMode?.arm).toBeUndefined(); // plain commit — no arm
+
+    // NOTHING applied, NOTHING blurred: answer untouched (still the option
+    // value, no custom marker), statuses/currentId/duty/focus unchanged.
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a");
+    expect(state.getQuestion("q1")?.answer?.custom).toBeUndefined();
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q2")?.status).toBe("answered");
+    expect(state.getQuestion("q3")?.status).toBe("submitted");
+    expect(handle.panel.currentId).toBe("q1");
+    expect(handle.panel.focus).toBe("text"); // editor stays focused behind the modal
+    expect(handle.panel.textDuty).toBe("writein");
+    expect(handle.drafts.setDraft).not.toHaveBeenCalled(); // no draft write either
+
+    // Footer REPLACED with the verbatim modal line (byte-exact: em-dash
+    // U+2014, comma+space id list — victims-only renderer, kind-agnostic).
+    const lines = handle.panel.render(120);
+    const confirm = lines.filter((l) => l.includes("⚠ Invalidates"));
+    expect(confirm).toHaveLength(1);
+    expect(confirm[0]?.trim()).toBe(
+      "⚠ Invalidates 2 answered questions (q2, q3) — enter=keep, esc=cancel",
+    );
+  });
+
+  test("test_wi_confirm_enter_applies_custom_moots_victims_advances_blurs", () => {
+    const state = seedRippleChain();
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "cockroachdb");
+    handle.panel.handleInput("\r"); // → modal
+
+    expect(handle.panel.handleInput("\r")).toBe(true); // modal enter = keep
+
+    expect(handle.panel.confirmMode).toBeNull();
+    const q1 = state.getQuestion("q1");
+    expect(q1?.answer).toEqual({ value: "cockroachdb", custom: true, at: expect.any(String) });
+    expect(new Date(q1?.answer?.at ?? "").toISOString()).toBe(q1?.answer?.at); // ISO
+    expect(q1?.status).toBe("answered");
+    // FR-17/AC-6: victims moot instantly.
+    expect(state.getQuestion("q2")?.status).toBe("moot");
+    expect(state.getQuestion("q3")?.status).toBe("moot");
+    // Accept-advance past the fresh moots to the open target, THEN blur.
+    expect(handle.panel.currentId).toBe("q4");
+    expect(handle.panel.focus).toBe("options");
+    expect(handle.panel.textDuty).toBe("elaboration"); // blurTextField reset the duty
+  });
+
+  test("test_wi_confirm_esc_reverts_zero_state_change_prior_option_answer", () => {
+    const state = seedRippleChain();
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "cockroachdb");
+    handle.panel.handleInput("\r"); // → modal
+
+    // Capture EVERYTHING the AC-7 zero-state-change contract protects.
+    const serialized = JSON.stringify(state.serialize());
+    const answerRefs = ["q1", "q2", "q3", "q4"].map((id) => state.getQuestion(id)?.answer);
+    const snapshots = state.snapshots.length;
+    const epoch = state.epoch;
+
+    expect(handle.panel.handleInput("\u001b")).toBe(true); // modal esc = cancel
+
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(JSON.stringify(state.serialize())).toBe(serialized); // byte-identical
+    expect(state.getQuestion("q1")?.answer).toBe(answerRefs[0]); // same object refs
+    expect(state.getQuestion("q2")?.answer).toBe(answerRefs[1]);
+    expect(state.getQuestion("q3")?.answer).toBe(answerRefs[2]);
+    expect(state.snapshots.length).toBe(snapshots);
+    expect(state.epoch).toBe(epoch);
+    expect(handle.drafts.setDraft).not.toHaveBeenCalled(); // no draft write
+    // Prior OPTION answer (no custom, no elaboration text) → seed "" — and
+    // the user STAYS in the write-in editor they were typing in.
+    expect(handle.panel.textField.getText()).toBe("");
+    expect(handle.panel.focus).toBe("text");
+    expect(handle.panel.textDuty).toBe("writein");
+    expect(handle.panel.currentId).toBe("q1"); // still on the question (AC-7)
+  });
+
+  test("test_wi_confirm_esc_reseeds_prior_custom_writein_from_answer_value", () => {
+    const state = seedRippleChain();
+    state.applyAnswer("q1", { value: "prior writein", custom: true, at: T0 });
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "cockroachdb");
+    handle.panel.handleInput("\r"); // → modal
+
+    handle.panel.handleInput("\u001b"); // esc
+
+    // Prior CUSTOM write-in → re-seed from answer.value (not answer.text).
+    expect(handle.panel.textField.getText()).toBe("prior writein");
+    expect(state.getQuestion("q1")?.answer?.value).toBe("prior writein"); // untouched
+    expect(handle.panel.focus).toBe("text");
+    expect(handle.panel.textDuty).toBe("writein");
+  });
+
+  test("test_wi_commit_zero_victims_applies_directly_no_modal", () => {
+    // q1 answered, its only dependent still open → ripple has no victims.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2", { dependsOn: [{ id: "q1", equals: "a" }] }));
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "cockroachdb");
+
+    expect(handle.panel.handleInput("\r")).toBe(true);
+
+    // Direct commit — S1 behavior byte-identical, no modal, no deferral.
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(state.getQuestion("q1")?.answer?.value).toBe("cockroachdb");
+    expect(state.getQuestion("q1")?.answer?.custom).toBe(true);
+    expect(handle.panel.focus).toBe("options");
+    expect(handle.panel.textDuty).toBe("elaboration");
+  });
+
+  test("test_wi_commit_open_question_applies_directly_even_with_victims", () => {
+    // q1 OPEN with an ANSWERED dependent (a real victim set) — the gate is
+    // status-gated on the EDITED question: no edit of an existing answer,
+    // nothing to confirm.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2", { dependsOn: [{ id: "q1", equals: "a" }] }));
+    state.applyAnswer("q2", { value: "a", at: T0 });
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "cockroachdb");
+
+    expect(handle.panel.handleInput("\r")).toBe(true);
+
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(state.getQuestion("q1")?.answer?.value).toBe("cockroachdb");
+    expect(state.getQuestion("q1")?.answer?.custom).toBe(true);
+  });
+
+  test("test_wi_commit_submitted_question_gates_same_as_answered", () => {
+    const state = seedRippleChain();
+    state.setStatus("q1", "submitted"); // h2.35: answered OR submitted
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "cockroachdb");
+
+    expect(handle.panel.handleInput("\r")).toBe(true);
+
+    expect(handle.panel.confirmMode?.kind).toBe("writein");
+    expect(handle.panel.confirmMode?.victims).toEqual(["q2", "q3"]);
+    expect(state.getQuestion("q1")?.answer?.custom).toBeUndefined(); // deferred
+  });
+});

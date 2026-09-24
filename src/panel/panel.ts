@@ -53,9 +53,11 @@ import { nextUnanswered, writeInEnter, type RippleConfirmFn, type SubmitDeps } f
 import {
   applyConfirmedEdit,
   applyTextConfirm,
+  applyWriteInConfirm,
   beginTextConfirm,
   cancelConfirm,
   cancelTextConfirm,
+  cancelWriteInConfirm,
   createRippleConfirm,
   rippleVictims,
   type RippleConfirmState,
@@ -466,8 +468,10 @@ export class InterrogationPanel implements Component {
   /**
    * Modal ripple-confirm state (FR-18 / Q39=B, P1.M5.T4.S1) — set by the
    * default rippleConfirm seam (createRippleConfirm) when a pending answer
-   * edit would invalidate ≥ 1 answered/submitted questions, or by the text
-   * stage-1 gate in {@link saveTextDraft}. While non-null the mode is
+   * edit would invalidate ≥ 1 answered/submitted questions, by the text
+   * stage-1 gate in {@link saveTextDraft}, or by the write-in commit gate
+   * (kind "writein", P1.M2.T2.S2) in {@link writeInEnter}. While non-null
+   * the mode is
    * MODAL: handleInput consumes every key (only enter=keep / esc=cancel
    * act), the footer is REPLACED by renderConfirmFooter in every view, and
    * the transient notice slot (flash + gate warning) is suppressed. Null
@@ -729,9 +733,11 @@ export class InterrogationPanel implements Component {
       this.lastEscAt = undefined;
       if (parseKey(data) === "enter" && data !== "\n") {
         if (this.confirmMode.kind === "text") applyTextConfirm(this);
+        else if (this.confirmMode.kind === "writein") applyWriteInConfirm(this);
         else applyConfirmedEdit(this);
       } else if (matchesKey(data, Key.escape)) {
         if (this.confirmMode.kind === "text") cancelTextConfirm(this);
+        else if (this.confirmMode.kind === "writein") cancelWriteInConfirm(this);
         else cancelConfirm(this);
       }
       return true; // modal: enter/esc acted; everything else is a consumed no-op

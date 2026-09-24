@@ -44,6 +44,16 @@
  * — backing out of the editor saves the draft but never arms the one-shot
  * advance (a back-out is not an answer gesture).
  *
+ * The write-in commit gate (h2.35, P1.M2.T2.S2) shares the same modal: in
+ * write-in duty ({@link writeInEnter}), committing the buffer on an
+ * answered/submitted question with ripple victims defers the commit
+ * ({@link beginWriteInConfirm} — kind "writein"); enter applies it
+ * ({@link applyWriteInConfirm} — the {value, custom: true, at} answer, then
+ * evaluateDependsOn → advance → blur); esc re-seeds the editor from the
+ * recorded answer with ZERO state change ({@link cancelWriteInConfirm}).
+ * Write-in commits are plain commits — no `arm` (the two-stage machinery is
+ * scheduled for removal, P1.M2.T4.S1).
+ *
  * enter/esc are FIXED keys (keys.ts Mode A) — the footer copy hardcodes
  * them; there is deliberately no config surface (AC-12 unaffected).
  */
@@ -61,9 +71,18 @@ export interface RippleConfirmState {
   questionId: string;
   /** Choice: a deferred applyAnswer payload. */
   proposed?: { value: string; at: string };
-  /** Which gated flow stashed the mode: an option accept or a text stage-1 save. */
-  kind: "choice" | "text";
-  /** Text: the staged stage-1 payload (deferred draft save). */
+  /**
+   * Which gated flow stashed the mode: an option accept ("choice"), a text
+   * stage-1 save ("text"), or a deferred write-in commit on an
+   * answered/submitted question ("writein", P1.M2.T2.S2).
+   */
+  kind: "choice" | "text" | "writein";
+  /** Text: the staged stage-1 payload (deferred draft save). Write-in: the
+   *  staged commit payload (deferred write-in commit on an
+   *  answered/submitted question — h2.35). `text` carries the buffer; the
+   *  applied payload is { value: text, custom: true, at: now } (h2.42). No
+   *  `arm` — write-in commits are plain commits (the two-stage machinery is
+   *  being removed, P1.M2.T4.S1); no `proposed` — reuse `text`. */
   text?: string;
   /**
    * Text: whether the deferred commit arms the one-shot advance flag
@@ -231,5 +250,89 @@ export function cancelTextConfirm(panel: InterrogationPanel): void {
           : (q.answer.text ?? "");
     panel.textField.seed(recorded);
   }
+  panel.invalidate();
+}
+
+/**
+ * [Mode A] Write-in commit gate entry (FR-18 × WRITEIN-001, h2.35,
+ * P1.M2.T2.S2): called by writeInEnter when the current question is
+ * answered/submitted AND rippleVictims is non-empty. h2.35 ripple sentence
+ * (verbatim): "On committing an answer change to an *answered* question in
+ * the panel (the moment `enter` finalizes — option accept, write-in commit,
+ * or a text/write-in re-commit on an answered question), if `dependsOn`
+ * ripple (transitive closure) hits answered/submitted questions: footer
+ * becomes `⚠ Invalidates {n} answered questions ({ids}) — enter=keep,
+ * esc=cancel`; `esc` reverts the edit; `enter` applies — and the applied
+ * commit then runs the auto-submit check like any other. No drill-down in
+ * v1." Stashes the buffer as a writein-pending confirm; the editor STAYS
+ * FOCUSED in write-in duty behind the modal (modal keys are consumed by
+ * handleInput's confirmMode branch — the editor never sees them). Nothing
+ * is applied until {@link applyWriteInConfirm}; the victims are computed
+ * HERE, once, before any apply (statuses shift after applies).
+ */
+export function beginWriteInConfirm(panel: InterrogationPanel, text: string): void {
+  const id = panel.currentId;
+  if (id === undefined) return;
+  panel.confirmMode = {
+    questionId: id,
+    kind: "writein",
+    text,
+    victims: rippleVictims(panel, id),
+    priorCursorIndex: panel.cursorIndex,
+  };
+  panel.invalidate();
+}
+
+/**
+ * Confirm-enter for a write-in commit (the deferred apply). Clears the mode
+ * FIRST, then mirrors writeInEnter's commit tail EXACTLY ONCE — never
+ * re-invoking the gate: applyAnswer({ value: text, custom: true, at })
+ * (h2.42: a hand-written answer ships BY ITSELF with the custom marker),
+ * evaluateDependsOn (FR-17/AC-6: victims flip to moot instantly),
+ * accept-advance via nextUnanswered (Q14 parity; stays put when nothing
+ * unanswered remains), then blurTextField (resets textDuty to
+ * "elaboration"). P2.M1.T1.S1 hooks maybeAutoSubmit after this tail — the
+ * APPLIED path is the auto-submit trigger (h2.35: "the applied commit then
+ * runs the auto-submit check like any other"); do not implement it here.
+ */
+export function applyWriteInConfirm(panel: InterrogationPanel): void {
+  const cm = panel.confirmMode;
+  panel.confirmMode = null;
+  if (cm === null || cm.kind !== "writein" || cm.text === undefined) return;
+  panel.state.applyAnswer(cm.questionId, {
+    value: cm.text,
+    custom: true,
+    at: new Date().toISOString(),
+  });
+  evaluateDependsOn(panel.state);
+  const ordered = panel.state.orderedQuestions();
+  const from = ordered.findIndex((entry) => entry.id === panel.currentId);
+  const nextId = nextUnanswered(ordered, from);
+  if (nextId !== undefined) panel.currentId = nextId; // setter re-seeds cursor (R2)
+  panel.blurTextField(); // AFTER advance (S1's ordering: advance's cursor reset wins), resets duty
+  panel.invalidate();
+}
+
+/**
+ * Confirm-esc for a write-in commit — the guaranteed zero-state-change
+ * path (AC-7). NO state mutation (no applyAnswer, no draft write, no
+ * snapshot). Reverts the EDIT: re-seed the editor from the recorded answer
+ * (cancelTextConfirm's read pattern — answer.value for text questions and
+ * custom write-ins, answer.text for choice elaborations) and KEEP write-in
+ * focus (the user stays in the editor they were typing in; textDuty is
+ * untouched — still "writein").
+ */
+export function cancelWriteInConfirm(panel: InterrogationPanel): void {
+  const cm = panel.confirmMode;
+  panel.confirmMode = null;
+  if (cm === null || cm.kind !== "writein") return;
+  const q = panel.state.getQuestion(cm.questionId);
+  const recorded =
+    q === undefined || q.answer === undefined
+      ? ""
+      : q.type === "text" || q.answer.custom === true
+        ? q.answer.value
+        : (q.answer.text ?? "");
+  panel.textField.seed(recorded);
   panel.invalidate();
 }

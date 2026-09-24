@@ -59,14 +59,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Draft write-through on every editor exit (BUG-002 / R4)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Three gestures (ctrl+c, ctrl+shift+e discuss, ctrl+shift+m note mode) exit or swap the shared editor without staging the buffer, destroying typed-but-unsubmitted text — now including complete write-in answers. Add one ungated write-through helper and call it at every exit/swap point.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Ungated write-through helper + suspend() integration (ctrl+c path)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-002-draft-r4.md. suspend() = src/panel/panel.ts:903-907 (resolved guard + done(null) only); ctrl+c branch panel.ts:748-751 fires from ANY focus. Existing write-through tail: commitTextDraft(questionId, text) panel.ts:881-901 (draft slot + DraftStore seam + EXPLAIN-003 reseed + blur); stageText (panel.ts:866-879) wraps it with FR-18 ripple deferral — DO NOT use stageText here (modal would orphan pre-suspend). draftSlots = panel-local Map (panel.ts:402); DraftStore seam panel.ts:126-135, impl src/draft-store.ts (extension memory, no disk).\n2. INPUT: Unmodified suspend() and the existing commitTextDraft body to mirror.\n3. LOGIC: Implement R4/ESC-002 (PRD h3.1): add a private Panel helper writeThroughCurrentDraft(): when focus === 'text' and the buffer is non-empty, stage the buffer text directly to its owner question's draftSlots entry + DraftStore seam — mirroring commitTextDraft's slot/seam writes but SKIPPING blur/invalidate side effects (the panel may be disposing during suspend) and skipping the FR-18 modal. Call it at the top of suspend(), before done(null). If the editor is in note mode (note buffer owner), route to the note draft slot (note-mode exits are completed by P1.M1.T2.S3). TDD: extend the ctrl+c test src/panel/panel.test.ts:1339 (currently pins suspend-only) to also assert drafts.getDraft('q1') and the draft slot survive handleInput('\\x03') from editor focus with typed text; suspend.test.ts:585 (R4 store-survival money test) must stay green. Panel harness makePanel/seed/makeDeps — no external mocks.\n4. OUTPUT: Helper writeThroughCurrentDraft() + suspend() integration; contract consumed by P1.M1.T2.S2 and P1.M1.T2.S3.\n5. DOCS: Mode A — update the JSDoc on suspend() (panel.ts) to state the R4 write-through guarantee ('every editor exit is a draft write-through'). README/spec wording handled by P1.M3.T2.",
@@ -81,7 +81,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Discuss gesture (ctrl+shift+e) preserves the in-flight draft",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1"
@@ -98,7 +98,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S3",
                   "title": "Note-mode swap (ctrl+shift+m) writes through both buffers symmetrically",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"

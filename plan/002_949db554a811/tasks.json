@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Delta D1 — Write-ins, editor duties, answer shape (WRITEIN-001/002)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "FR-D1/D2/D3: synthetic '✎ Other — write your own' row on every choice question; one editor, three duties (write-in | elaboration | note) with commit-at-enter; two-stage arming removed; draft role binds to selection at commit/submit; answer.custom marker + ✎ {text} display plumbing.",
       "milestones": [
         {
@@ -94,7 +94,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "The write-in row and three editor duties (FR-D1/D2)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Synthetic Other row in short/deep/overview views; write-in duty (accept Other → editor labeled OTHER, enter commits applyAnswer({value, custom:true}) + advance); elaboration duty via ctrl+t (enter saves+blurs, never answers); duty follows entry path and cursor position; two-stage machinery removed; draft role binds at commit/submit.",
           "tasks": [
             {
@@ -269,7 +269,7 @@
               "type": "Task",
               "id": "P1.M2.T6",
               "title": "Deep view Other section + overview ✎ marker",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-D1: deep view gains the Other section after the last option with the extension-supplied ramification verbatim; selectable from deep view like any option. Overview ✎ marker = write-in (answer.custom) or text answer.",
               "subtasks": [
                 {
@@ -296,7 +296,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T6.S2",
                   "title": "Overview: ✎ marker = write-in (answer.custom) or text answer",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 0.5,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -335,14 +335,14 @@
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "maybeAutoSubmit hook after every commit",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D4: if zero questions with status open/reasked remain AND ≥1 is pending (answered), fire the EXACT ctrl+s pipeline (reconcileDraftsForSubmit → baseline/diff → BUG-008 filter → gate check → markSubmitted → buildSubmission → deliverSubmission → noteSubmissionDelivered — i.e. the existing submit() in actions.ts:358), flash footer 'submitted — {n} answer(s)'; one submission per commit; epoch bumps per firing.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T1.S1",
                   "title": "Implement maybeAutoSubmit(panel, deps) and wire it after every panel commit path",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T2.S1",
@@ -368,14 +368,14 @@
               "type": "Task",
               "id": "P2.M1.T2",
               "title": "Gate hold warning line (AUTOSUBMIT-002)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D5: while any gate-group question is open/reasked, auto-submit withholds; commits show the non-expiring footer warning '⚠ {n} foundational unanswered — answer them or {submit} to submit now' (any key dismisses, never blocks; {submit} from resolved config). ctrl+s remains the deliberate override. Ordinary non-gate skips get no warning.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T2.S1",
                   "title": "Commit-time gate-hold line with config-resolved {submit} label; withhold auto-submit",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S1"

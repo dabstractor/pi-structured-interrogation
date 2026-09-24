@@ -23,12 +23,18 @@
  * - `⟳`  re-asked (overrides ★ — the re-ask is the freshest fact)
  * - `⊘`  moot (row dimmed; the h2.29-format reason rides the row text)
  * - `⊗`  withdrawn (row dimmed)
- * - `✎`  has-text answer — APPENDED (space-joined) to the marker whenever
- *        `q.answer?.text` is non-empty; composes with ⟳ and ★ only.
+ * - `✎`  write-in or text answer — appended (space-joined) whenever
+ *        `q.answer?.custom === true` or the question is `type:"text"` with
+ *        an answer; composes with ⟳ and ★ only.
+ * - `≡`  elaboration (dimmed suffix) — appended when an option answer
+ *        carries non-empty `q.answer?.text` and is not a write-in/text
+ *        answer (P1.M2.T6.S2: the ✎ elaboration cue relocated; FR-11 has
+ *        no elaboration glyph, this is the panel-wide choice).
  *
  * Marker PRECEDENCE (highest wins): withdrawn ⊗ > moot ⊘ > re-asked ⟳ >
- * answered ★ > open ·. Moot/withdrawn suppress the ✎ suffix (their row
- * already carries the reason; a withdrawn row is the audit trail itself).
+ * answered ★ > open ·. Moot/withdrawn suppress BOTH suffixes — ✎ and ≡ —
+ * (their row already carries the reason; a withdrawn row is the audit
+ * trail itself).
  *
  * MODE A CONTRACT — ALIGNMENT (mirrors short-view.ts):
  *
@@ -96,9 +102,10 @@ const FALLBACK_WIDTH = 80;
 // ------------------------------------------------------------------ helpers
 
 /**
- * [Mode A — contract 5] Status marker for one overview row, documenting the
- * glyph semantics in force panel-wide (see the module JSDoc for the full
- * vocabulary):
+ * [Mode A — contract 5] Marker decomposition for one overview row: the base
+ * status glyph plus the optional space-joined suffix. Shared by
+ * {@link overviewMarker} (plain string, exported) and questionRow (which
+ * styles the elaboration suffix dimmed). Semantics:
  *
  * - `·` open (no answer)
  * - `★` answered — any status carrying `q.answer` EXCEPT moot/withdrawn
@@ -106,20 +113,44 @@ const FALLBACK_WIDTH = 80;
  * - `⟳` re-asked — overrides ★ (the re-ask is the freshest fact)
  * - `⊘` moot — overrides everything below it
  * - `⊗` withdrawn — highest precedence
- * - `✎` appended (space-joined) whenever `q.answer?.text` is non-empty;
- *   composes with ⟳/★ (and ·), suppressed on ⊘/⊗ rows whose text already
- *   carries the audit-trail reason.
+ * - suffix `" ✎"` (kind "writein"): `q.answer?.custom === true` (STRICT —
+ *   never truthiness; the commit path normalizes to strict true) or the
+ *   question is `type:"text"` with an answer — the FR-11 write-in/text
+ *   glyph; composes with ⟳/★. A write-in that ALSO carries elaboration
+ *   text shows only ✎ (one suffix; write-in wins).
+ * - suffix `" ≡"` (kind "elaboration"): an option answer with non-empty
+ *   `q.answer?.text` that is neither write-in nor text answer — the ✎
+ *   elaboration cue relocated (P1.M2.T6.S2; rendered dimmed in rows).
+ *
+ * Moot/withdrawn suppress BOTH suffixes (their text already carries the
+ * audit-trail reason).
+ *
+ * Pure: reads the question only.
+ */
+function markerParts(q: Question): { base: string; suffix: "" | " ✎" | " ≡"; kind: "none" | "writein" | "elaboration" } {
+  let base = "·";
+  if (q.answer !== undefined && q.status !== "moot" && q.status !== "withdrawn") base = "★";
+  if (q.status === "reasked") base = "⟳";
+  if (q.status === "moot") base = "⊘";
+  if (q.status === "withdrawn") base = "⊗";
+  if (base === "⊗" || base === "⊘") return { base, suffix: "", kind: "none" };
+  const isWriteIn = q.answer?.custom === true; // STRICT — corrupt truthy values must not leak
+  const isTextAnswer = q.type === "text" && q.answer !== undefined;
+  if (isWriteIn || isTextAnswer) return { base, suffix: " ✎", kind: "writein" };
+  if ((q.answer?.text ?? "") !== "") return { base, suffix: " ≡", kind: "elaboration" };
+  return { base, suffix: "", kind: "none" };
+}
+
+/**
+ * [Mode A — contract 5] Status marker for one overview row —
+ * {@link markerParts} composed to its plain string (base + optional
+ * space-joined suffix); see the module JSDoc for the full vocabulary.
  *
  * Pure: reads the question only.
  */
 export function overviewMarker(q: Question): string {
-  let m = "·";
-  if (q.answer !== undefined && q.status !== "moot" && q.status !== "withdrawn") m = "★";
-  if (q.status === "reasked") m = "⟳";
-  if (q.status === "moot") m = "⊘";
-  if (q.status === "withdrawn") m = "⊗";
-  if ((q.answer?.text ?? "") !== "" && m !== "⊗" && m !== "⊘") m += " ✎";
-  return m;
+  const { base, suffix } = markerParts(q);
+  return base + suffix;
 }
 
 /**
@@ -240,7 +271,8 @@ function questionRow(
   budget: number,
 ): string {
   const prefix = index === cursorIndex ? CURSOR : BLANK;
-  const marker = overviewMarker(q);
+  const { base, suffix, kind } = markerParts(q);
+  const marker = base + suffix; // FULL string feeds headW (never hand-count)
   const headW = visibleWidth(prefix) + visibleWidth(marker) + 1; // +1 space
   const dim = q.status === "moot" || q.status === "withdrawn";
 
@@ -262,7 +294,13 @@ function questionRow(
   }
 
   const title = truncateVisible(q.title ?? q.prompt, Math.max(1, budget - headW));
-  const body = `${prefix}${marker} ${title}`;
+  // P1.M2.T6.S2: the ≡ elaboration suffix renders DIMMED — a secondary cue,
+  // subordinate to the full-intensity ✎. headW counts the FULL suffix width
+  // so the truncation math matches the rendered string. Only this plain
+  // branch styles it: moot/withdrawn rows suppress the suffix entirely and
+  // are already dimmed wholesale.
+  const head = kind === "elaboration" ? `${prefix}${base}${theme.fg("dim", suffix)}` : `${prefix}${marker}`;
+  const body = `${head} ${title}`;
   return `${INSET}${dim ? theme.fg("dim", body) : body}`;
 }
 

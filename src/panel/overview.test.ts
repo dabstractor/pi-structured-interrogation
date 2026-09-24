@@ -9,7 +9,7 @@
  * editor). AUTOMATION-POLICY: all behavior asserted in vitest, no live pi
  * session.
  *
- * Coverage: overviewMarker (every status, ✎ composition, precedence),
+ * Coverage: overviewMarker (every status, ✎/≡ suffix composition, precedence),
  * overviewMootReason (text preferred, value fallback, generic default),
  * buildOverviewContent (group headers at boundaries, ungrouped "(none)",
  * ▲ gate-group mark, ▸ cursor alignment, moot/withdrawn dimmed + reason,
@@ -73,8 +73,13 @@ function choiceQ(id: string, overrides: Partial<Question> = {}): Question {
   };
 }
 
-function answer(value: string, text?: string): Question["answer"] {
-  return { value, ...(text !== undefined ? { text } : {}), at: "t" };
+function answer(value: string, text?: string, custom?: boolean): Question["answer"] {
+  return {
+    value,
+    ...(text !== undefined ? { text } : {}),
+    ...(custom !== undefined ? { custom } : {}),
+    at: "t",
+  };
 }
 
 /** `count` questions in ONE group — lines = 1 header + count rows. */
@@ -145,18 +150,51 @@ describe("overviewMarker — glyph semantics + precedence", () => {
     expect(overviewMarker(choiceQ("q", { status: "withdrawn", answer: answer("sqlite") }))).toBe("⊗");
   });
 
-  test("test_marker_text_answer_appends_pencil", () => {
-    expect(overviewMarker(choiceQ("q", { status: "answered", answer: answer("sqlite", "why") }))).toBe("★ ✎");
-    expect(overviewMarker(choiceQ("q", { status: "reasked", answer: answer("sqlite", "why") }))).toBe("⟳ ✎");
-    // Per the marker blueprint ANY answer object (even an empty value) reads
-    // as answered — ★ is the base the ✎ composes onto.
-    expect(overviewMarker(choiceQ("q", { answer: answer("", "why") }))).toBe("★ ✎");
+  test("test_marker_write_in_appends_pencil", () => {
+    // FR-11 / h2.42: `custom === true` is the write-in flag — ✎ fires with
+    // or without elaboration text (STRICT === true).
+    expect(overviewMarker(choiceQ("q", { status: "answered", answer: answer("hand-written", undefined, true) }))).toBe("★ ✎");
+    // A write-in ALSO carrying answer.text shows ONLY ✎ (one suffix; the
+    // write-in wins over the ≡ elaboration cue).
+    expect(overviewMarker(choiceQ("q", { status: "answered", answer: answer("custom", "why", true) }))).toBe("★ ✎");
+    // Re-asked write-in composes ⟳ ✎.
+    expect(overviewMarker(choiceQ("q", { status: "reasked", answer: answer("custom", undefined, true) }))).toBe("⟳ ✎");
+    // Explicit `custom: false` does NOT earn ✎ (strict === true, never
+    // truthiness — and with no text there is no ≡ either).
+    expect(overviewMarker(choiceQ("q", { status: "answered", answer: answer("sqlite", undefined, false) }))).toBe("★");
   });
 
-  test("test_marker_pencil_suppressed_on_moot_and_withdrawn", () => {
+  test("test_marker_text_question_answer_appends_pencil", () => {
+    // type:"text": ANY answer (answered/submitted/reasked) is a text answer
+    // → ✎ per FR-11 (the ✎ glyph is write-in/text, not elaboration).
+    const textQ = (over: Partial<Question> = {}): Question => ({ ...choiceQ("q"), type: "text", ...over });
+    expect(overviewMarker(textQ({ status: "answered", answer: answer("user prose") }))).toBe("★ ✎");
+    expect(overviewMarker(textQ({ status: "submitted", answer: answer("user prose") }))).toBe("★ ✎");
+    expect(overviewMarker(textQ({ status: "reasked", answer: answer("user prose") }))).toBe("⟳ ✎");
+    // …but an UNANSWERED text question stays `·`.
+    expect(overviewMarker(textQ())).toBe("·");
+  });
+
+  test("test_marker_elaboration_appends_note_suffix", () => {
+    // Plain elaboration (answer.text on an OPTION answer, custom not true)
+    // no longer earns ✎ — the cue relocates to ` ≡` (dimmed when rendered).
+    expect(overviewMarker(choiceQ("q", { status: "answered", answer: answer("sqlite", "why") }))).toBe("★ ≡");
+    expect(overviewMarker(choiceQ("q", { status: "reasked", answer: answer("sqlite", "why") }))).toBe("⟳ ≡");
+    // Per the marker blueprint ANY answer object (even an empty value) reads
+    // as answered — ★ is the base the ≡ composes onto.
+    expect(overviewMarker(choiceQ("q", { answer: answer("", "why") }))).toBe("★ ≡");
+  });
+
+  test("test_marker_suffixes_suppressed_on_moot_and_withdrawn", () => {
     // Their rows already carry the audit-trail text (reason / withdrawn).
     expect(overviewMarker(choiceQ("q", { status: "moot", answer: answer("v", "moot: x=y") }))).toBe("⊘");
     expect(overviewMarker(choiceQ("q", { status: "withdrawn", answer: answer("v", "why") }))).toBe("⊗");
+    // Suppression covers BOTH suffixes — write-ins and text answers on
+    // moot/withdrawn rows never show ✎, elaborations never show ≡.
+    expect(overviewMarker(choiceQ("q", { status: "moot", answer: answer("v", undefined, true) }))).toBe("⊘");
+    expect(overviewMarker(choiceQ("q", { status: "withdrawn", answer: answer("v", undefined, true) }))).toBe("⊗");
+    expect(overviewMarker(choiceQ("q", { status: "moot", type: "text", answer: answer("prose") }))).toBe("⊘");
+    expect(overviewMarker(choiceQ("q", { status: "withdrawn", type: "text", answer: answer("prose") }))).toBe("⊗");
   });
 });
 
@@ -279,12 +317,33 @@ describe("buildOverviewContent — rows, headers, gate mark", () => {
 
   test("test_build_markers_render_inside_rows", () => {
     const ordered = [
-      choiceQ("a", { status: "answered", answer: answer("sqlite", "why") }),
-      choiceQ("b", { status: "reasked", answer: answer("sqlite") }),
+      choiceQ("a", { status: "answered", answer: answer("sqlite", "why") }), // elaboration → ≡
+      choiceQ("b", { status: "reasked", answer: answer("sqlite") }), // plain ⟳, no suffix
     ];
     const content = buildOverviewContent({ ordered, cursorIndex: 0, theme, width: 80 });
-    expect(content.lines[1]).toContain("★ ✎ Title a");
+    // overviewMarker composes `★ ≡` plain; the identity theme renders it as-is.
+    expect(content.lines[1]).toContain("★ ≡ Title a");
     expect(content.lines[2]).toContain("⟳ Title b");
+    // With a real dim theme the ≡ segment renders DIMMED (P1.M2.T6.S2) — a
+    // secondary cue; the base ★ and title stay full-intensity.
+    const dimmed = buildOverviewContent({ ordered, cursorIndex: 0, theme: dimTheme, width: 80 });
+    expect(dimmed.lines[1]).toContain(`★${DIM} ≡${RESET} Title a`);
+    expect(dimmed.lines[2]).toContain("⟳ Title b"); // no suffix → no dim wrap
+  });
+
+  test("test_build_write_in_row_renders_star_pencil_full_intensity", () => {
+    // AC-2a parity at overview level: a committed write-in (custom: true)
+    // renders ★ ✎ in the actual line — full intensity (never dim-wrapped).
+    const ordered = [choiceQ("w", { status: "answered", answer: answer("hand-written", undefined, true) })];
+    const content = buildOverviewContent({ ordered, cursorIndex: 0, theme: dimTheme, width: 80 });
+    expect(content.lines[1]).toContain("★ ✎ Title w");
+    expect(content.lines[1]).not.toContain(DIM);
+  });
+
+  test("test_build_text_answer_row_renders_star_pencil", () => {
+    const ordered = [choiceQ("t", { type: "text", status: "answered", answer: answer("user prose") })];
+    const content = buildOverviewContent({ ordered, cursorIndex: 0, theme, width: 80 });
+    expect(content.lines[1]).toContain("★ ✎ Title t");
   });
 });
 

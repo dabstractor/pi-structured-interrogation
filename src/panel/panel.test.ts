@@ -579,7 +579,9 @@ describe("view switching (built-in S1 bindings)", () => {
     // All five statuses render their markers — and NOTHING is filtered
     // (R1/Q34=A: moot/withdrawn stay listed, the moot reason rides the row).
     expect(rendered).toContain("· prompt:open");
-    expect(rendered).toContain("★ ✎ Answered Q");
+    // P1.M2.T6.S2: answer.text on an OPTION answer is elaboration → the
+    // dimmed ≡ suffix, NOT ✎ (✎ is write-in/text answer per FR-11).
+    expect(rendered).toContain("★ ≡ Answered Q");
     expect(rendered).toContain("⟳ Reasked Q");
     expect(rendered).toContain("⊘ Moot Q — moot: storage=sqlite");
     expect(rendered).toContain("⊗ Withdrawn Q");

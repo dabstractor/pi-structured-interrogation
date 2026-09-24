@@ -177,10 +177,21 @@ function statusCounts(state: SerializedState): { answered: number; reasked: numb
   return { answered, reasked, total: state.order.length };
 }
 
-/** True when the question's answer carries (or is) free text. */
+/**
+ * True when the question's answer carries (or is) free text: text
+ * questions, elaborations (answer.text), and write-ins (answer.custom —
+ * BUG-005 part 1: a hand-written answer IS text for marker purposes,
+ * matching overview.ts's markerParts vocabulary).
+ */
 function hasTextAnswer(q: Question): boolean {
   if (q.status !== "answered" && q.status !== "submitted") return false;
   if (q.answer === undefined) return false;
+  // BUG-005 part 1 (WRITEIN-001 parity): a write-in answer (custom: true,
+  // value holds the user's own text — committed with NO text field) is a
+  // text answer for marker purposes, matching overview markerParts
+  // (custom === true || type text → ✎). STRICT true — corrupt truthy
+  // values must not leak (same discipline as overview.ts).
+  if (q.answer.custom === true) return true;
   return q.type === "text" || (q.answer.text !== undefined && q.answer.text !== "");
 }
 
@@ -287,7 +298,8 @@ export function renderDutyLabel(
 /**
  * Status marker fragment for the question line's right side, e.g.
  * `" ⟳ re-asked"` (leading space separator; "" when no marker applies).
- * Markers: `⟳ re-asked`, `✎ text answer`, `⊘ moot` (+ reason from the
+ * Markers: `⟳ re-asked`, `✎ text answer` (text questions, elaborations,
+ * and write-ins — custom answers), `⊘ moot` (+ reason from the
  * answer text, dimmed), `⊗ withdrawn` — only the applicable ones, joined
  * with " · ". The whole fragment is dim-wrapped so visibleWidth accounting
  * stays ANSI-safe (marker glyphs may be double-width — always measure,

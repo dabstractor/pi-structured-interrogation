@@ -217,7 +217,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "✎ marker parity: hasTextAnswer honors answer.custom",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-005-display-markers.md — hasTextAnswer at src/panel/layout.ts:181-186 checks (q.type === 'text' || answer.text), missing answer.custom; overview markerParts (src/panel/overview.ts:130-141) already uses (custom === true || type text) and additionally distinguishes elaboration '≡'; write-in commits store {value, custom: true} with NO text field (src/panel/actions.ts:304).\n2. INPUT: Unmodified hasTextAnswer and its call sites (short-view question-line ✎ marker); write-in answer shape from the M8 delta.\n3. LOGIC: Implement PRD h3.4 part (1): hasTextAnswer returns true when answer.custom === true (in addition to current conditions), so a CHOICE write-in renders ✎ on the question line, matching the overview's vocabulary. Keep elaboration (answer.text) semantics unchanged. TDD: layout.test.ts + a short-view render test — question with answer {value:'my write-in', custom:true} shows the ✎ question-line marker; plain option answers and elaborations unchanged. Harness: stubTheme + render(width) sweeps; no mocks.\n4. OUTPUT: Consistent ✎ semantics between question line and overview for the same answer; consumed implicitly by P1.M2.T2.S2's revisit rendering.\n5. DOCS: none — README write-in passages (36/43-47/198-204) swept in P1.M3.T2.",

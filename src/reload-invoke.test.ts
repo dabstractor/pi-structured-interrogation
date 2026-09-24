@@ -14,11 +14,14 @@
  * 1. NO global shortcut is registered (ctrl+shift+q closes windows on many
  *    desktop environments — the WM claims the chord before the terminal
  *    sees the bytes).
- * 2. After the reload the panel auto-opens (reconstruction) and the stale
- *    pre-reload suspend widget line is cleared.
- * 3. /interrogate while the panel is OPEN keeps it open — silent no-op,
+ * 2. After the reload reconstruction installs state SILENTLY (SURFACE-002):
+ *    NO panel — the stale pre-reload suspend widget line is overwritten with
+ *    the fresh cue (live counts, /interrogate only).
+ * 3. /interrogate with the panel OPEN keeps it open — silent no-op,
  *    NEVER a suspend that would strand the user behind a keypress gate.
- * 4. /interrogate with the panel SUSPENDED resumes it immediately.
+ * 4. /interrogate with the panel SUSPENDED resumes it immediately —
+ *    including right after a reload, which is exactly what the widget
+ *    cue promises.
  * 5. /interrogate on a CLOSED host with live state opens the panel fresh
  *    (the reload-row safety net).
  * 6. The suspend widget line names /interrogate only — no key chord ever.
@@ -161,13 +164,25 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
 
     pi2.emit("session_start", { reason: "reload" }, pi2.ctx("tui", branch));
 
-    // Pin 2: reconstruction auto-opened the panel and cleared the widget.
-    expect(pi2.customCalls.length).toBe(1);
-    expect(pi2.widget).toBeUndefined();
+    // Pin 2 (SURFACE-002, P3.M2.T1.S1): reconstruction NEVER opens the
+    // panel — silent install only; the stale pre-reload widget is
+    // overwritten with the fresh suspend cue (live counts, /interrogate
+    // as the only resume path, no key chord ever).
+    expect(pi2.customCalls.length).toBe(0);
+    expect(pi2.widget).toEqual(["1 open · 0 answered — /interrogate to resume"]);
+    expect(pi2.widget![0]).not.toMatch(/ctrl|alt\+|super\+|shift\+/i);
 
-    // Pin 3: /interrogate with the panel OPEN keeps it open — silent
-    // no-op success (the old toggle SUSPENDED here and left the widget
-    // demanding Ctrl+Shift+Q — the reported complaint).
+    // Pin 3: /interrogate invokes the (reconstruction-suspended) panel
+    // immediately — the widget cue's promise kept: silent success, no key
+    // gate, no notify.
+    await pi2.invokeInterrogate(pi2.ctx("tui", branch));
+    expect(pi2.customCalls.length).toBe(1); // a fresh panel mounted
+    expect(pi2.notifies).toEqual([]);
+    expect(pi2.widget).toBeUndefined(); // cleared on open
+
+    // /interrogate with the panel OPEN keeps it open — silent no-op
+    // (the old toggle SUSPENDED here and left the widget demanding
+    // Ctrl+Shift+Q — the reported complaint).
     await pi2.invokeInterrogate(pi2.ctx("tui", branch));
     expect(pi2.customCalls.length).toBe(1); // no dismiss, no reopen — steady
     expect(pi2.notifies).toEqual([]);
@@ -196,15 +211,25 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
     const pi2 = new FakePi();
     await mod2.default(pi2.api() as never);
     // The reload lands with the panel SUSPENDED (pre-reload state), the
-    // stale widget visible, and reconstruction auto-reopens — then the user
-    // SUSPENDS again (esc) before typing /interrogate.
+    // stale widget visible. SURFACE-002 (P3.M2.T1.S1): reconstruction
+    // installs silently — no auto-reopen; the suspend cue is (re)set
+    // instead.
     pi2.emit("session_start", { reason: "reload" }, pi2.ctx("tui", branch));
-    expect(pi2.customCalls.length).toBe(1);
+    expect(pi2.customCalls.length).toBe(0);
+    expect(pi2.widget).toEqual(["1 open · 0 answered — /interrogate to resume"]);
+
+    // Pin 4: /interrogate resumes the suspended panel immediately.
+    await pi2.invokeInterrogate(pi2.ctx("tui", branch));
+    expect(pi2.customCalls.length).toBe(1); // a fresh panel mounted
+    expect(pi2.notifies).toEqual([]);
+    expect(pi2.widget).toBeUndefined(); // cleared on open
+
+    // The user suspends again (esc) — the widget cue returns…
     pi2.customCalls[0]!.done(null); // esc-equivalent suspend
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(pi2.widget).toEqual(["1 open · 0 answered — /interrogate to resume"]);
 
-    // Pin 4: /interrogate resumes the suspended panel immediately.
+    // …and /interrogate resumes once more (steady-state suspend ⇄ resume).
     await pi2.invokeInterrogate(pi2.ctx("tui", branch));
     expect(pi2.customCalls.length).toBe(2); // a fresh panel mounted
     expect(pi2.notifies).toEqual([]);

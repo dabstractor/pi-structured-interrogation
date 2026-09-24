@@ -39,6 +39,7 @@ import { drainBatchNotes } from "./delivery.js";
 import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
+import { maybeAutoSubmit } from "./panel/actions.js";
 import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
 import { hasResumableQuestions, resumePanel } from "./panel/suspend.js";
 import { createStateMirror } from "./persistence.js";
@@ -95,7 +96,19 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // nothing listens; submits are filtered by the `itg:` flow registry.
   // Created BEFORE the tool/reconstruction wiring below so every consumer
   // captures the same handle; disposed on session_shutdown (below).
-  const remoteBridge = createRemoteBridge(pi, { config, lifecycle });
+  const remoteBridge = createRemoteBridge(pi, {
+    config,
+    lifecycle,
+    // AUTOSUBMIT-001 (h2.33): the shared hook runs at the bridge submission
+    // tail too — a bridge partial submit that completes the set ships
+    // panel-pending answers ONCE, through the same pipeline. Late-binding
+    // closure: panelHost is created below (the same pattern as onCompleted
+    // above); closed/suspended panel → getPanel() undefined → no-op.
+    maybeAutoSubmit: () => {
+      const panel = panelHost.getPanel();
+      if (panel !== undefined) maybeAutoSubmit(panel);
+    },
+  });
 
   // P1.M7.T4.S1 — plain-text round detection (FR-26, h2.27): TUI-only,
   // config-gated (roundDetection), throttled once per 3 turns; never

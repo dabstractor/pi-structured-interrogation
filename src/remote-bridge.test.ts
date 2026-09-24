@@ -487,6 +487,161 @@ describe("submit handling", () => {
   });
 });
 
+// ----------------------------------- P2.M1.T3.S1 — WRITEIN-001 parity
+
+describe("mapWireAnswers — WRITEIN-001 parity", () => {
+  test("customText-only on a choice question = the write-in path: { value, custom: true, at } byte-identical to the panel Other row", () => {
+    const { bridge, bus, sent } = makeBridge();
+    const state = fixtureState();
+    setState(state);
+    const flowId = bridge.emitFlow(state, "tool")!;
+
+    submit(bus, flowId, { kind: "answer", mode: "submit", answers: { q1: { customText: "cockroachdb, tuned" } } });
+
+    const a = state.getQuestion("q1")!.answer!;
+    // Byte-identical to actions.ts writeInEnter's commit { value, custom: true, at }.
+    expect(a).toEqual({ value: "cockroachdb, tuned", custom: true, at: a.at });
+    expect(Object.keys(a).sort()).toEqual(["at", "custom", "value"]);
+    expect(state.getQuestion("q1")!.status).toBe("submitted");
+    expect(sent).toHaveLength(1); // it shipped like any other answer
+  });
+
+  test("custom value NOT in the option list is accepted as-is (never validated against options — h2.42)", () => {
+    const { bridge, bus, sent } = makeBridge();
+    const state = fixtureState();
+    setState(state);
+    const flowId = bridge.emitFlow(state, "tool")!;
+
+    // "sqlite"/"postgres" are the only options — the custom value is not one.
+    submit(bus, flowId, { kind: "answer", mode: "submit", answers: { q1: { customText: "DynamoDB (really)" } } });
+
+    const results = bus.of(PI_ASK_SUBMIT_RESULT) as Array<Record<string, unknown>>;
+    expect(results[0]!.ok).toBe(true); // accepted, NOT invalid_answer
+    expect(state.getQuestion("q1")!.answer).toMatchObject({ value: "DynamoDB (really)", custom: true });
+    expect(sent).toHaveLength(1);
+  });
+
+  test("invalid values[0] WITHOUT customText still drops (D-R4 unchanged)", () => {
+    const { bridge, bus, sent } = makeBridge();
+    const state = fixtureState();
+    setState(state);
+    const flowId = bridge.emitFlow(state, "tool")!;
+
+    submit(bus, flowId, { kind: "answer", mode: "submit", answers: { q1: { values: ["not-a-current-option"] } } });
+
+    expect(sent).toHaveLength(0);
+    expect(state.getQuestion("q1")!.status).toBe("open");
+    const results = bus.of(PI_ASK_SUBMIT_RESULT) as Array<Record<string, unknown>>;
+    expect(results[0]!.ok).toBe(false);
+    expect(results[0]!.error).toBe("invalid_answer");
+  });
+
+  test("valid values[0] + customText → text elaboration, custom flag ABSENT", () => {
+    const { bridge, bus } = makeBridge();
+    const state = fixtureState();
+    setState(state);
+    const flowId = bridge.emitFlow(state, "tool")!;
+
+    submit(bus, flowId, {
+      kind: "answer",
+      mode: "submit",
+      answers: { q1: { values: ["postgres"], customText: "if ops agrees to host it" } },
+    });
+
+    const a = state.getQuestion("q1")!.answer!;
+    expect(a.value).toBe("postgres");
+    expect(a.text).toBe("if ops agrees to host it");
+    expect(a.custom).toBeUndefined(); // elaboration is NOT a write-in
+    expect(Object.keys(a).sort()).toEqual(["at", "text", "value"]);
+  });
+
+  test("text question carries custom: true via values[0] AND via customText (panel parity)", () => {
+    // Path 1: customText.
+    const first = makeBridge();
+    const s1 = fixtureState();
+    setState(s1);
+    const flow1 = first.bridge.emitFlow(s1, "tool")!;
+    submit(first.bus, flow1, { kind: "answer", mode: "submit", answers: { q2: { customText: "under one hour" } } });
+    expect(s1.getQuestion("q2")!.answer).toEqual({ value: "under one hour", custom: true, at: s1.getQuestion("q2")!.answer!.at });
+
+    // Path 2: values[0] — same custom marker, same shape.
+    const second = makeBridge();
+    const s2 = fixtureState();
+    setState(s2);
+    const flow2 = second.bridge.emitFlow(s2, "tool")!;
+    submit(second.bus, flow2, { kind: "answer", mode: "submit", answers: { q2: { values: ["two hours"] } } });
+    expect(s2.getQuestion("q2")!.answer).toEqual({ value: "two hours", custom: true, at: s2.getQuestion("q2")!.answer!.at });
+  });
+
+  test("empty customText-only still drops (empty write-in is absent customText)", () => {
+    const { bridge, bus, sent } = makeBridge();
+    const state = fixtureState();
+    setState(state);
+    const flowId = bridge.emitFlow(state, "tool")!;
+
+    submit(bus, flowId, { kind: "answer", mode: "submit", answers: { q1: { customText: "" } } });
+
+    expect(sent).toHaveLength(0);
+    expect(state.getQuestion("q1")!.status).toBe("open");
+    const results = bus.of(PI_ASK_SUBMIT_RESULT) as Array<Record<string, unknown>>;
+    expect(results[0]!.ok).toBe(false);
+  });
+
+  test("note and optionNotes stay dropped (ignored on the wire)", () => {
+    const { bridge, bus } = makeBridge();
+    const state = fixtureState();
+    setState(state);
+    const flowId = bridge.emitFlow(state, "tool")!;
+
+    submit(bus, flowId, {
+      kind: "answer",
+      mode: "submit",
+      answers: {
+        q1: { values: ["postgres"], note: "wire note", optionNotes: { postgres: "why" } },
+        q2: { customText: "constraint", note: "another" },
+      },
+    });
+
+    const a1 = state.getQuestion("q1")!.answer!;
+    expect(a1.value).toBe("postgres");
+    expect(a1.text).toBeUndefined();
+    expect(a1).toEqual({ value: "postgres", at: a1.at }); // note never landed
+    const a2 = state.getQuestion("q2")!.answer!;
+    expect(a2).toEqual({ value: "constraint", custom: true, at: a2.at });
+  });
+
+  test("bridge tail hook: injected maybeAutoSubmit fires once after the lifecycle call; the flushed pending set keeps it a no-op", () => {
+    const bus = new FakeBus();
+    const { pi, sent } = makePi(bus);
+    const ledger = { calls: 0 };
+    let state: InterrogationState | undefined;
+    let hookWouldShip = false;
+    // Faithful index.ts wiring: actions.ts maybeAutoSubmit ships only when
+    // the set is complete AND answered-pending exist. markSubmitted's flush
+    // (pipeline step 5) runs BEFORE the tail, so there are none.
+    const maybeAutoSubmit = () => {
+      const pending = state?.orderedQuestions().filter((q) => q.status === "answered") ?? [];
+      if (pending.length > 0) hookWouldShip = true;
+    };
+    const bridge = createRemoteBridge(pi, {
+      config: DEFAULT_CONFIG,
+      lifecycle: { noteSubmissionDelivered: () => void ledger.calls++ },
+      maybeAutoSubmit,
+    });
+    state = fixtureState(); // q3 is answered-pending: ships WITH the bridge submission (panel parity)
+    setState(state);
+    const flowId = bridge.emitFlow(state, "tool")!;
+    const epochBefore = state.epoch;
+
+    submit(bus, flowId, { kind: "answer", mode: "submit", answers: { q1: { customText: "cockroachdb" } } });
+
+    expect(sent).toHaveLength(1); // ONE submission total — no double-ship from the hook
+    expect(hookWouldShip).toBe(false);
+    expect(ledger.calls).toBe(1); // h2.44 contract fired before the hook ran
+    expect(state.epoch).toBe(epochBefore + 1); // epoch bumped once, inside buildSubmission only
+  });
+});
+
 // ------------------------------------------------------------ teardown
 
 describe("dispose / completeAll", () => {

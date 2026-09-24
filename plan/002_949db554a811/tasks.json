@@ -397,14 +397,14 @@
               "type": "Task",
               "id": "P2.M1.T3",
               "title": "Bridge tail: maybeAutoSubmit + customText parity",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-D4: recordRemoteSubmission runs maybeAutoSubmit at its tail — a bridge partial submit completing the set ships once through the same pipeline. customText-only bridge answers set custom: true (WRITEIN-001 parity); bridge answer validation accepts custom values as-is (not checked against option lists).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T3.S1",
                   "title": "recordRemoteSubmission tail hook + customText-only → custom:true + validation acceptance",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S1",

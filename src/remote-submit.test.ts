@@ -5,6 +5,12 @@
  * re-ask resets never shipped), one deliverSubmission call, the h2.44
  * noteSubmissionDelivered caller contract AFTER delivery, and the
  * idle-vs-busy delivery branch.
+ *
+ * P2.M1.T3.S1 adds the AUTOSUBMIT-001 tail-hook contract (hook fires once
+ * on BOTH exit paths, always after noteSubmissionDelivered; the flushed
+ * pending set makes it a no-op — ships once, never twice) and the
+ * WRITEIN-001 custom passthrough (custom:true rides to the state answer
+ * byte-identical to the panel's Other-row write-in).
  */
 import { describe, expect, test, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -206,5 +212,117 @@ describe("recordRemoteSubmission — status flush on identical re-selection", ()
     expect(out2).toEqual({ ok: false, reason: "nothing_shippable" });
     expect(noted.calls).toBe(1); // cleared even with nothing to ship
     expect(cleared).toEqual(["ship"]); // only the FIRST (real) change ships
+  });
+});
+
+// ------------------------------------ P2.M1.T3.S1 — tail hook + WRITEIN-001
+
+describe("recordRemoteSubmission — tail hook + custom parity", () => {
+  test("hook fires exactly once on the success path, AFTER noteSubmissionDelivered", () => {
+    const state = fixture();
+    const { pi } = makePi();
+    const noted = vi.fn();
+    const hook = vi.fn();
+
+    const out = recordRemoteSubmission(pi, state, answers([{ id: "q1", value: "sqlite" }]), {
+      lifecycle: { noteSubmissionDelivered: noted },
+      maybeAutoSubmit: hook,
+    });
+
+    expect(out.ok).toBe(true);
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(noted).toHaveBeenCalledTimes(1);
+    // h2.44 line-1 ordering is load-bearing: the lifecycle call ALWAYS
+    // precedes the tail hook on both exit paths.
+    expect(noted.mock.invocationCallOrder[0]).toBeLessThan(hook.mock.invocationCallOrder[0]!);
+  });
+
+  test("hook fires on the nothing_shippable path too, AFTER noteSubmissionDelivered", () => {
+    const state = fixture();
+    const { pi } = makePi();
+    recordRemoteSubmission(pi, state, answers([{ id: "q1", value: "postgres" }]));
+    // Identical re-selection scenario: close → rule-1 re-ask → same answer.
+    closeSubmitted(state, ["q1"]);
+    state.upsertQuestion({
+      id: "q1",
+      prompt: "Engine?",
+      type: "choice",
+      options: [
+        { value: "sqlite", label: "SQLite" },
+        { value: "postgres", label: "PostgreSQL" },
+      ],
+      rev: 2,
+      status: "reasked",
+    });
+
+    const noted = vi.fn();
+    const hook = vi.fn();
+    const out = recordRemoteSubmission(pi, state, answers([{ id: "q1", value: "postgres" }]), {
+      lifecycle: { noteSubmissionDelivered: noted },
+      maybeAutoSubmit: hook,
+    });
+
+    expect(out).toEqual({ ok: false, reason: "nothing_shippable" });
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(noted).toHaveBeenCalledTimes(1); // the flush ran (pending > 0) → contract fired
+    expect(noted.mock.invocationCallOrder[0]).toBeLessThan(hook.mock.invocationCallOrder[0]!);
+  });
+
+  test("no double-ship: markSubmitted's flush zeroes the pending set at the tail — a faithfully-wired hook no-ops", () => {
+    const state = fixture();
+    const { pi, sent } = makePi();
+    // Seed a panel-side pending answer BEFORE the bridge submission (the
+    // set completes alongside it — the AUTOSUBMIT-001 motivating case).
+    state.applyAnswer("q2", { value: "panel-side pending", at: "2026-01-01T00:00:00.000Z" });
+    const epochBefore = state.epoch;
+
+    let hookWouldShip = false;
+    const maybeAutoSubmit = () => {
+      // Faithful index.ts wiring: actions.ts maybeAutoSubmit submits only
+      // when zero unanswered AND answered-pending exist. After step 5's
+      // flush there are none — the no-op IS the ships-once guarantee.
+      const pending = state.orderedQuestions().filter((q) => q.status === "answered");
+      if (pending.length > 0) hookWouldShip = true;
+    };
+
+    const out = recordRemoteSubmission(
+      pi,
+      state,
+      answers([
+        { id: "q1", value: "postgres" },
+        { id: "q2", value: "panel-side pending" },
+      ]),
+      { maybeAutoSubmit },
+    );
+
+    expect(out.ok).toBe(true);
+    expect(sent).toHaveLength(1); // ONE submission — the hook did NOT re-ship
+    expect(state.epoch).toBe(epochBefore + 1); // epoch bumped once, inside buildSubmission only
+    expect(hookWouldShip).toBe(false);
+    expect(state.orderedQuestions().every((q) => q.status !== "answered")).toBe(true);
+  });
+
+  test("WRITEIN-001 passthrough: custom:true input lands byte-identical to the panel Other-row write-in", () => {
+    const state = fixture();
+    const { pi, sent } = makePi();
+
+    const out = recordRemoteSubmission(pi, state, answers([{ id: "q1", value: "my own text", custom: true }]));
+
+    expect(out.ok).toBe(true);
+    const a = state.getQuestion("q1")!.answer!;
+    // Byte-identical shape to actions.ts writeInEnter's commit:
+    // { value: text, custom: true, at } — no text, no other keys.
+    expect(a).toEqual({ value: "my own text", custom: true, at: a.at });
+    expect(Object.keys(a).sort()).toEqual(["at", "custom", "value"]);
+    expect(sent).toHaveLength(1);
+  });
+
+  test("absent custom flag records a plain option answer (no custom leakage)", () => {
+    const state = fixture();
+    const { pi } = makePi();
+    recordRemoteSubmission(pi, state, answers([{ id: "q1", value: "sqlite" }]));
+    const a = state.getQuestion("q1")!.answer!;
+    expect(a.custom).toBeUndefined(); // strict === true guard in applyAnswer's deserialization + no spread here
+    expect(a).toEqual({ value: "sqlite", at: a.at });
   });
 });

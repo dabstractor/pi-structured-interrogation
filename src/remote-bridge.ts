@@ -201,6 +201,11 @@ export interface RemoteBridgeOptions {
   config: InterrogatorConfig;
   /** Lifecycle for the h2.44 caller contract (noteSubmissionDelivered after delivery). */
   lifecycle?: Pick<Lifecycle, "noteSubmissionDelivered">;
+  /** AUTOSUBMIT-001 bridge tail (P2.M1.T3.S1, h2.33): the shared hook, run by
+   * recordRemoteSubmission at BOTH exit tails (always after the lifecycle
+   * call). Injected from index.ts (panel singletons live there); absent →
+   * no-op. */
+  maybeAutoSubmit?: () => void;
   /** State source; defaults to the state.ts singleton (injectable for tests). */
   getState?: () => InterrogationState | undefined;
 }
@@ -342,6 +347,7 @@ export function createRemoteBridge(pi: BridgePi, opts: RemoteBridgeOptions): Rem
 
     recordRemoteSubmission(pi, state, answers.applied, {
       lifecycle: opts.lifecycle,
+      maybeAutoSubmit: opts.maybeAutoSubmit,
     });
     // nothing_shippable = every applied answer already matched the pending
     // set (identical re-selection): ACCEPTED with no model delta — same
@@ -354,13 +360,22 @@ export function createRemoteBridge(pi: BridgePi, opts: RemoteBridgeOptions): Rem
   }
 
   /**
-   * D-R4 wire → RemoteAnswerInput against CURRENT state:
-   * - choice: `values[0]` validated against current option values (the client
-   *   derived them from OUR emission — possibly stale after a re-ask);
-   *   `customText` rides as `text` (and as `value` when values is empty —
-   *   freeform answers record AS GIVEN, the chat-fallback precedent);
-   * - text: `customText ?? values[0]` → value;
-   * - terminal statuses (moot/withdrawn/closed) and unknown ids drop.
+   * D-R4 wire → RemoteAnswerInput against CURRENT state, with the
+   * WRITEIN-001 custom-marker matrix (h2.30/h2.42 — bridge answers match
+   * the panel's commit shapes byte-for-byte):
+   *
+   * | wire input                        | question | mapped answer |
+   * |---|---|---|
+   * | `values[0]` valid option          | choice   | `{ value }` — validated against CURRENT options (D-R4; the client derived them from OUR emission — possibly stale after a re-ask) |
+   * | `values[0]` valid + `customText`  | choice   | `{ value, text: customText }` — elaboration, NO custom flag |
+   * | `customText` only (values absent) | choice   | `{ value: customText, custom: true }` — THE write-in path, identical to the panel's Other row; never checked against option lists |
+   * | any                               | text     | `{ value: customText ?? values[0], custom: true }` — panel parity (writeInEnter / reconcileDraftsForSubmit commit text answers with `custom: true`) |
+   *
+   * `""` customText is absent customText — an empty write-in still drops.
+   * Custom values are NEVER validated against option lists (h2.42: the
+   * bridge's answer validation accepts custom values as-is); `note` and
+   * `optionNotes` stay dropped; terminal statuses (moot/withdrawn/closed)
+   * and unknown ids drop.
    */
   function mapWireAnswers(
     state: InterrogationState,
@@ -392,8 +407,20 @@ export function createRemoteBridge(pi: BridgePi, opts: RemoteBridgeOptions): Rem
         continue;
       }
       const answer: RemoteAnswerInput = { id, value };
-      if (custom !== undefined && q.type === "choice" && value === wire.values?.[0]) {
-        answer.text = custom; // elaboration alongside a valid picked value
+      if (q.type === "text") {
+        // WRITEIN-001 panel parity: the panel's text commits (writeInEnter /
+        // reconcileDraftsForSubmit) always carry custom: true — the bridge
+        // maps identically (h2.42).
+        answer.custom = true;
+      } else if (value === wire.values?.[0]) {
+        if (custom !== undefined) {
+          answer.text = custom; // elaboration alongside a valid picked value
+        }
+      } else {
+        // customText-only on a choice question IS the write-in path — the
+        // exact answer object the panel's Other row commits. Recorded AS
+        // GIVEN: never validated against option lists (h2.42/D-R4).
+        answer.custom = true;
       }
       applied.push(answer);
     }

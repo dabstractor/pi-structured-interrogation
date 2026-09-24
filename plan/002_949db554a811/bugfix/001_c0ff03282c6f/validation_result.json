@@ -1,0 +1,5 @@
+{
+  "hasIssues": true,
+  "issueCount": 2,
+  "summary": "All 8 PRD bugs verified fixed end-to-end; 2 new minor issues found (surrogate-pair split in delta cap, stale write-in shipped as elaboration after option supersede)."
+}

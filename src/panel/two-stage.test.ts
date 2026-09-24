@@ -203,10 +203,13 @@ describe("commit-at-enter — one enter does the whole job (WRITEIN-001, h2.32)"
     expect(panel.focus).toBe("options"); // blurred after the commit
     expect(panel.currentId).toBe("q2"); // advanced to the next unanswered
     expect(panel.textDuty).toBe("elaboration"); // blurTextField reset the duty
-    // Landed write-through: the advance to q2 syncs the buffer owner, so
-    // the typed text is ALSO persisted as q1's draft (R4 lossless nav —
-    // the commit itself ships the value; the draft copy is harmless).
-    expect(drafts.setDraft).toHaveBeenCalledWith("q1", "my write-in answer");
+    // VAL-002 commit-consume: the buffer text just BECAME the answer — the
+    // commit tail consumes it (buffer cleared, no draft-slot/DraftStore
+    // copy), so the advance can never stage the committed text as q1's
+    // draft. The old landed write-through here was Issue B's poison: a
+    // later option accept re-bound the stale copy as a bogus `answer.text`
+    // elaboration of the new choice ("Alpha — my write-in answer").
+    expect(drafts.setDraft).not.toHaveBeenCalled();
   });
 
   test("test_elaboration_enter_on_choice_saves_blurs_no_commit_no_advance", () => {
@@ -494,5 +497,32 @@ describe("two-stage enter — history isolation (h2.31)", () => {
     // onSubmit is deliberately never assigned (panel-level interception is
     // the single enter trigger — see the [Mode A] JSDoc in panel.ts).
     expect(panel.textField.editor.onSubmit).toBeUndefined();
+  });
+});
+
+describe("VAL-002 — committed write-in is consumed, never re-bound as elaboration", () => {
+  test("superseding a committed write-in with an option ships no stale text", () => {
+    const state = seedOpen(["q1", "q2"]);
+    const { panel, drafts } = makePanel(state);
+    // Commit a write-in on q1's ✎ Other row: cursor to the affordance,
+    // enter opens write-in duty, type, enter commits + advances.
+    panel.cursorIndex = state.getQuestion("q1")!.options!.length;
+    panel.handleInput("\r");
+    expect(panel.textDuty).toBe("writein");
+    panel.handleInput("my custom answer");
+    panel.handleInput("\r"); // ONE enter: commit + advance
+    expect(state.getQuestion("q1")?.answer).toMatchObject({ value: "my custom answer", custom: true });
+    expect(panel.currentId).toBe("q2");
+    // Commit-consume: the answer's own text must NOT also land in the
+    // draft pipeline (that stale copy was Issue B's poison).
+    expect(drafts.setDraft).not.toHaveBeenCalled();
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+    // Change of mind: supersede the write-in with the ★ option.
+    panel.currentId = "q1";
+    panel.handleInput("\r"); // accept "a" (cursor re-seeded to ★)
+    const answer = state.getQuestion("q1")!.answer!;
+    expect(answer.value).toBe("a");
+    expect(answer.custom).toBeUndefined();
+    expect(answer.text).toBeUndefined(); // abandoned write-in never rides along
   });
 });

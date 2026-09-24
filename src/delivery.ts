@@ -205,7 +205,24 @@ export function buildSubmission(
         changedSuffix.length -
         1, // room for the "…"
     );
-    const slice = first.to.slice(0, allowance);
+    let slice = first.to.slice(0, allowance);
+    // VAL-001 (code-point-safe cap): an arbitrary UTF-16 boundary can split
+    // an astral character's surrogate pair (e.g. emoji-heavy write-ins),
+    // emitting a lone high surrogate into the model-visible line — invalid
+    // UTF-16 that renders as U+FFFD and reaches the model as an escape
+    // artifact. When the cut lands between the halves (the slice's last
+    // unit is a high surrogate, so its low half is the first dropped unit
+    // on well-formed input), back the boundary off one unit; this only ever
+    // shortens the slice, so the never-grow invariant below still holds.
+    // A lone LOW surrogate at the boundary cannot arise from well-formed
+    // input and is left untouched (garbage-in preserved as-is).
+    if (
+      slice.length > 0 &&
+      slice.charCodeAt(slice.length - 1) >= 0xd800 &&
+      slice.charCodeAt(slice.length - 1) <= 0xdbff
+    ) {
+      slice = slice.slice(0, -1);
+    }
     // Only rewrite when truncation actually shortens the entry: on a
     // degenerate budget (huge id/rollup alone overflow) leaving the list
     // untouched keeps the never-grow invariant (never longer than before).

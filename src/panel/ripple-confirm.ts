@@ -57,7 +57,7 @@
  * them; there is deliberately no config surface (AC-12 unaffected).
  */
 import { computeRipple, evaluateDependsOn } from "../depends-on.js";
-import { nextUnanswered, type RippleConfirmFn } from "./actions.js";
+import { maybeAutoSubmit, nextUnanswered, type RippleConfirmFn } from "./actions.js";
 import type { InterrogationPanel } from "./panel.js";
 
 /**
@@ -138,9 +138,13 @@ export function createRippleConfirm(): RippleConfirmFn {
  * (FR-17: victims flip to moot with h2.29 reasons instantly — one `changed`
  * per flip through the panel's existing subscription), then the standard
  * accept-advance via the exported nextUnanswered primitive (stays put when
- * nothing unanswered remains). When the edit was triggered from the deep
- * view the apply happens IN PLACE — the view stays deep (documented v1;
- * deep-view's veto branch already keeps the user there).
+ * nothing unanswered remains). The applied commit then runs the
+ * AUTOSUBMIT-001 completeness check (h2.35: "the applied commit then runs
+ * the auto-submit check like any other") — maybeAutoSubmit as the last
+ * statement of this APPLIED path; the esc path never reaches it. When the
+ * edit was triggered from the deep view the apply happens IN PLACE — the
+ * view stays deep (documented v1; deep-view's veto branch already keeps
+ * the user there).
  */
 export function applyConfirmedEdit(panel: InterrogationPanel): void {
   const cm = panel.confirmMode;
@@ -153,6 +157,7 @@ export function applyConfirmedEdit(panel: InterrogationPanel): void {
   const nextId = nextUnanswered(ordered, from);
   if (nextId !== undefined) panel.currentId = nextId; // setter re-seeds cursor (R2)
   panel.invalidate();
+  maybeAutoSubmit(panel); // P2.M1.T1.S1 — the APPLIED commit runs the auto-submit check (h2.35)
 }
 
 /**
@@ -275,9 +280,10 @@ export function beginWriteInConfirm(panel: InterrogationPanel, text: string): vo
  * evaluateDependsOn (FR-17/AC-6: victims flip to moot instantly),
  * accept-advance via nextUnanswered (Q14 parity; stays put when nothing
  * unanswered remains), then blurTextField (resets textDuty to
- * "elaboration"). P2.M1.T1.S1 hooks maybeAutoSubmit after this tail — the
- * APPLIED path is the auto-submit trigger (h2.35: "the applied commit then
- * runs the auto-submit check like any other"); do not implement it here.
+ * "elaboration"). The APPLIED path ends with maybeAutoSubmit (P2.M1.T1.S1)
+ * — the auto-submit trigger reserved by the docblock below is now wired
+ * here (h2.35: "the applied commit then runs the auto-submit check like
+ * any other"); the esc path (cancelWriteInConfirm) never fires it.
  */
 export function applyWriteInConfirm(panel: InterrogationPanel): void {
   const cm = panel.confirmMode;
@@ -295,6 +301,7 @@ export function applyWriteInConfirm(panel: InterrogationPanel): void {
   if (nextId !== undefined) panel.currentId = nextId; // setter re-seeds cursor (R2)
   panel.blurTextField(); // AFTER advance (S1's ordering: advance's cursor reset wins), resets duty
   panel.invalidate();
+  maybeAutoSubmit(panel); // P2.M1.T1.S1 — the APPLIED commit runs the auto-submit check (h2.35)
 }
 
 /**

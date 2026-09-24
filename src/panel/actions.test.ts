@@ -26,6 +26,7 @@ import {
   accept,
   cursorDomainSize,
   digit,
+  maybeAutoSubmit,
   nextUnanswered,
   nextQuestion,
   optionDown,
@@ -1611,5 +1612,199 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
     expect(p2.footerFlash?.text).toBe(
       "nothing to submit — 1 question(s) have drafts awaiting an option or Other",
     );
+  });
+});
+
+// ----------- AUTOSUBMIT-001 completeness hook (PRD h2.33, P2.M1.T1.S1)
+
+describe("maybeAutoSubmit — completeness hook", () => {
+  test("test_auto_last_open_accept_fires_submit_once_flash_epoch", () => {
+    // The LAST open question is answered → the submission ships with no
+    // further keypress: one sendMessage, verbatim flash, epoch 1→2.
+    const state = seed([{ id: "q1", overrides: { recommendation: "a" } }]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch; // 1
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+
+    expect(accept(panel)).toBe(true);
+
+    // EXACT submit pipeline, exactly once: one delivery, one epoch bump,
+    // markSubmitted flushed the pending answer.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.epoch).toBe(epochBefore + 1);
+    expect(state.getQuestion("q1")?.status).toBe("submitted");
+    // Verbatim h2.33 flash — literal "answer(s)", n captured before submit.
+    expect(panel.footerFlash?.text).toBe("submitted — 1 answer(s)");
+  });
+
+  test("test_auto_multi_pending_ships_all_pending_in_one_firing", () => {
+    // q1 answered earlier, q2 answered now → ONE firing ships BOTH pending
+    // answers; the flash counts the whole pending set, not the last commit.
+    const state = seed([
+      { id: "q1", overrides: { status: "answered" } },
+      { id: "q2" },
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    panel.currentId = "q2";
+    panel.cursorIndex = 0;
+
+    expect(accept(panel)).toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(panel.footerFlash?.text).toBe("submitted — 2 answer(s)");
+    expect(state.epoch).toBe(2);
+  });
+
+  test("test_auto_edit_of_answered_on_complete_set_fires_again", () => {
+    // One submission per commit: the FIRST complete-set commit fires; a
+    // later edit of an already-submitted answer on the (still) complete set
+    // fires AGAIN — each firing is a full submission (h2.41).
+    const state = seed(BASIC);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+
+    accept(panel); // q1 answered, q2 still open → NO firing
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    accept(panel); // last open answered → fires with BOTH pending
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.epoch).toBe(2);
+    expect(panel.footerFlash?.text).toBe("submitted — 2 answer(s)");
+
+    // Edit q1 (submitted → ripple seam passes on the default no-op seam):
+    // re-answer, set stays complete (q2 submitted, q1 answered) → 2nd firing.
+    panel.currentId = "q1"; // setter re-seeds the cursor to the ★ "a" preselect
+    panel.cursorIndex = 1; // propose "b"
+    accept(panel);
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(state.epoch).toBe(3); // +1 per firing
+    expect(panel.footerFlash?.text).toBe("submitted — 1 answer(s)"); // only q1 pending now
+  });
+
+  test("test_auto_incomplete_set_never_fires", () => {
+    // A commit while any open question remains: no submit, no flash.
+    const state = seed(BASIC);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+
+    accept(panel); // q2 still open
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(panel.footerFlash).toBeUndefined();
+    expect(state.epoch).toBe(1); // no bump
+    expect(state.snapshots).toHaveLength(0); // no snapshot
+  });
+
+  test("test_auto_reasked_question_blocks_the_firing", () => {
+    // nextUnanswered parity: `reasked` counts as unanswered, exactly like
+    // `open` — a re-asked question keeps the set incomplete.
+    const state = seed([{ id: "q1" }, { id: "q2", overrides: { status: "reasked" } }]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+
+    accept(panel);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(panel.footerFlash).toBeUndefined();
+    expect(state.epoch).toBe(1);
+  });
+
+  test("test_auto_zero_pending_complete_set_noops_silently", () => {
+    // All submitted, nothing answered: complete AND zero pending — the
+    // zero-pending guard no-ops BEFORE submit: no flash, no pipeline.
+    const state = seed([
+      { id: "q1", overrides: { status: "submitted" } },
+      { id: "q2", overrides: { status: "submitted" } },
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch;
+
+    expect(() => maybeAutoSubmit(panel, deps)).not.toThrow();
+    expect(panel.footerFlash).toBeUndefined(); // silent — no "nothing to submit" either
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(state.epoch).toBe(epochBefore);
+    expect(state.snapshots).toHaveLength(0);
+  });
+
+  test("test_auto_no_delivery_surface_noops_without_throwing", () => {
+    // Headless/test panels have no panel.delivery and the commit tails pass
+    // no deps arg — the hook must no-op, not throw (the commit itself lands).
+    const state = seed([{ id: "q1" }]);
+    const { panel } = makePanel(state); // NO delivery arg
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+
+    expect(() => accept(panel)).not.toThrow();
+
+    expect(panel.footerFlash).toBeUndefined();
+    expect(state.epoch).toBe(1); // submit skipped
+    expect(state.getQuestion("q1")?.status).toBe("answered"); // commit still applied
+  });
+
+  test("test_auto_text_enter_via_writein_duty_fires", () => {
+    // A TEXT question is answered through write-in duty (desiredTextDuty:
+    // text questions enter "writein") — enter commits and auto-submits.
+    const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    panel.currentId = "t1";
+    panel.focusTextField("writein");
+    panel.textField.setText("my textual answer");
+
+    expect(panel.handleInput("\r")).toBe(true); // write-in enter → direct commit branch
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(panel.footerFlash?.text).toBe("submitted — 1 answer(s)");
+    expect(state.getQuestion("t1")?.answer?.value).toBe("my textual answer");
+    expect(state.getQuestion("t1")?.status).toBe("submitted");
+    expect(state.epoch).toBe(2);
+  });
+
+  test("test_auto_empty_buffer_writein_exit_never_fires", () => {
+    // The empty-buffer exit is a DRAFT save (h2.32: nothing answered) — the
+    // hook must not live on that branch: no submit, no flash.
+    const state = seed([{ id: "q1" }]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps, drafts: new DraftStore() });
+    panel.currentId = "q1";
+    panel.cursorIndex = 2; // ✎ Other row
+    accept(panel); // → write-in duty
+    panel.textField.setText("");
+
+    expect(panel.handleInput("\r")).toBe(true);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(panel.footerFlash).toBeUndefined();
+    expect(state.getQuestion("q1")?.status).toBe("open"); // nothing committed
+  });
+
+  test("test_auto_held_batch_note_rides_the_auto_submission", () => {
+    // R3: the held batch note rides ANY submission, auto-fired included —
+    // it ships as the NOTE line and is cleared after delivery.
+    const state = seed([{ id: "q1" }]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    panel.batchNote = "typed before the last answer";
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+
+    expect(accept(panel)).toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const msg = sendMessage.mock.calls[0][0] as { content: string; details: { note?: string } };
+    expect(msg.content).toContain("NOTE: typed before the last answer");
+    expect(msg.details.note).toBe("typed before the last answer");
+    expect(panel.batchNote).toBe(""); // cleared after shipping (h2.32)
   });
 });

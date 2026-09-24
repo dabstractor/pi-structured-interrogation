@@ -709,3 +709,91 @@ describe("ripple confirm — write-in commit gate (h2.35, P1.M2.T2.S2)", () => {
     expect(state.getQuestion("q1")?.answer?.custom).toBeUndefined(); // deferred
   });
 });
+
+// -------- AUTOSUBMIT-001 deferred-commit triggers (P2.M1.T1.S1, h2.35)
+
+describe("ripple confirm — deferred commits auto-submit (AUTOSUBMIT-001)", () => {
+  /** Mock delivery deps injected through the panel args (actions.test.ts makeDeps pattern). */
+  function autoDeps() {
+    const sendMessage = vi.fn();
+    return { delivery: { sendMessage, isIdle: () => true }, sendMessage };
+  }
+
+  test("test_auto_choice_modal_enter_fires_on_complete_set", () => {
+    // Complete set (q4 answered): the modal's APPLIED choice commit runs the
+    // auto-submit check like any other commit — one firing, epoch +1.
+    const state = seedRippleChain();
+    state.applyAnswer("q4", { value: "a", at: T0 });
+    const { delivery, sendMessage } = autoDeps();
+    const handle = makePanel(state, { delivery });
+
+    triggerChoiceConfirm(handle.panel);
+    expect(handle.panel.confirmMode?.kind).toBe("choice");
+    handle.panel.handleInput("\r"); // modal enter = keep → applyConfirmedEdit
+
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(state.getQuestion("q1")?.answer?.value).toBe("b"); // edit applied
+    expect(sendMessage).toHaveBeenCalledTimes(1); // exactly one firing
+    // Pending set AFTER the moot ripple: q1 (answered) + q4 (answered).
+    expect(handle.panel.footerFlash?.text).toBe("submitted — 2 answer(s)");
+    expect(state.epoch).toBe(2);
+  });
+
+  test("test_auto_choice_modal_esc_never_fires", () => {
+    // The guaranteed zero-state-change path never auto-submits.
+    const state = seedRippleChain();
+    state.applyAnswer("q4", { value: "a", at: T0 });
+    const { delivery, sendMessage } = autoDeps();
+    const handle = makePanel(state, { delivery });
+    const epochBefore = state.epoch;
+
+    triggerChoiceConfirm(handle.panel);
+    handle.panel.handleInput("\u001b"); // modal esc = cancel
+
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(handle.panel.footerFlash).toBeUndefined();
+    expect(state.epoch).toBe(epochBefore);
+  });
+
+  test("test_auto_writein_modal_enter_fires_on_complete_set", () => {
+    // The deferred write-in commit (h2.35 gate) applies, then auto-submits.
+    const state = seedRippleChain();
+    state.applyAnswer("q4", { value: "a", at: T0 });
+    const { delivery, sendMessage } = autoDeps();
+    const handle = makePanel(state, { delivery });
+    enterWriteInDuty(handle, "cockroachdb");
+
+    handle.panel.handleInput("\r"); // → modal (victims q2, q3)
+    expect(handle.panel.confirmMode?.kind).toBe("writein");
+    handle.panel.handleInput("\r"); // modal enter = keep → applyWriteInConfirm
+
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(state.getQuestion("q1")?.answer).toEqual({
+      value: "cockroachdb",
+      custom: true,
+      at: expect.any(String),
+    });
+    expect(sendMessage).toHaveBeenCalledTimes(1); // exactly one firing
+    expect(handle.panel.footerFlash?.text).toBe("submitted — 2 answer(s)"); // q1 + q4
+    expect(state.epoch).toBe(2);
+  });
+
+  test("test_auto_writein_modal_esc_never_fires", () => {
+    // AC-7 zero-state-change cancel path: no commit, no auto-submit.
+    const state = seedRippleChain();
+    state.applyAnswer("q4", { value: "a", at: T0 });
+    const { delivery, sendMessage } = autoDeps();
+    const handle = makePanel(state, { delivery });
+    enterWriteInDuty(handle, "cockroachdb");
+
+    handle.panel.handleInput("\r"); // → modal
+    handle.panel.handleInput("\u001b"); // modal esc = cancel
+
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // commit never applied
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(handle.panel.footerFlash).toBeUndefined();
+    expect(state.epoch).toBe(1);
+  });
+});

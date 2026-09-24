@@ -204,6 +204,9 @@ export interface InterrogationState {
  *   it is legal. `applyAnswer()` never touches rev.
  * - `epoch` is session-wide, starts at 1, and bumps on every submission via
  *   `bumpEpoch()`. Guards compare caller epochs against `state.epoch`.
+ *   Auto-submits bump epoch too (AUTOSUBMIT-001, P2.M1.T1.S1): every
+ *   maybeAutoSubmit firing runs the full submit pipeline, so each firing
+ *   is a full submission with its own epoch bump (h2.39/h2.41).
  *
  * Singleton lifecycle (h2.43):
  * - The module-level singleton (`getState()`/`setState()`/`resetState()`) is

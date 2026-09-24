@@ -335,14 +335,14 @@
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "maybeAutoSubmit hook after every commit",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-D4: if zero questions with status open/reasked remain AND ≥1 is pending (answered), fire the EXACT ctrl+s pipeline (reconcileDraftsForSubmit → baseline/diff → BUG-008 filter → gate check → markSubmitted → buildSubmission → deliverSubmission → noteSubmissionDelivered — i.e. the existing submit() in actions.ts:358), flash footer 'submitted — {n} answer(s)'; one submission per commit; epoch bumps per firing.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T1.S1",
                   "title": "Implement maybeAutoSubmit(panel, deps) and wire it after every panel commit path",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T2.S1",

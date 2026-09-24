@@ -248,6 +248,7 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   // mootered questions must not be advance targets).
   evaluateDependsOn(panel.state);
   advanceAfterAccept(panel);
+  maybeAutoSubmit(panel); // P2.M1.T1.S1 — AUTOSUBMIT-001 completeness check
   return true;
 }
 
@@ -307,6 +308,7 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
   evaluateDependsOn(panel.state);
   advanceAfterAccept(panel); // Q14 parity: currentId → next unanswered, cursor → ★ preselect
   panel.blurTextField(); // resets textDuty to "elaboration"
+  maybeAutoSubmit(panel); // P2.M1.T1.S1 — AUTOSUBMIT-001, direct-commit exit ONLY (never the empty-buffer or deferred exits)
   return true;
 }
 
@@ -554,6 +556,55 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
     panel.batchNote = "";
   }
   return true;
+}
+
+/**
+ * [Mode A] AUTOSUBMIT-001 completeness hook (PRD h2.33, FR-3/h2.8, AC-2c,
+ * M8 h2.51) — THE one shared auto-submit seam, called at the tail of every
+ * panel answer-commit path (never from cancel/draft paths):
+ *
+ * - Completeness predicate (nextUnanswered parity, actions.ts): count the
+ *   statuses accept-advance treats as unanswered — `open`/`reasked` only;
+ *   moot/withdrawn/closed NEVER block a firing. Zero unanswered AND at
+ *   least one pending (`answered`, h2.38) → fire; otherwise silent no-op
+ *   (incomplete set: no submit, no flash; zero pending: no submit, NO
+ *   flash — the "nothing to submit" flash belongs to explicit submits).
+ * - One firing = ONE call into the EXISTING {@link submit} pipeline —
+ *   reconcile → baseline/diff → BUG-008 filter → gate check →
+ *   markSubmitted → buildSubmission (takeSnapshot + bumpEpoch, h2.41: the
+ *   epoch bumps on every auto-submitted firing because each firing IS a
+ *   full submission) → deliverSubmission → noteSubmissionDelivered. No
+ *   pipeline step is reimplemented here; the held batch note rides (R3).
+ * - The pending count `n` is captured BEFORE submit runs — submit's
+ *   markSubmitted flush flips `answered` → `submitted`, so reading after
+ *   would report 0. The flash fires only after submit returns true, so a
+ *   zero-shipped early-return inside submit can never flash a lie.
+ * - Footer flash verbatim `submitted — {n} answer(s)` (literal "answer(s)",
+ *   h2.33; matches the "question(s)" precedent). panel.flash never stacks
+ *   (h2.37) — the auto-submit flash replaces any live flash, intended.
+ * - Deps: explicit `deps` wins; otherwise falls back to `panel.delivery`.
+ *   Neither present (headless/test panels) → no-op, never throws.
+ *
+ * Consumed by: gate-hold withholding (P2.M1.T2.S1 wraps this call site),
+ * the remote-submit bridge tail (P2.M1.T3.S1), and AC-9 pending-ship
+ * (P3.M2.T2.S1) — the optional `deps` param is their seam. Gate-hold
+ * logic itself deliberately lives NOT here.
+ */
+export function maybeAutoSubmit(panel: InterrogationPanel, deps?: SubmitDeps): void {
+  const d = deps ?? panel.delivery;
+  if (d === undefined) return; // no delivery surface (e.g. headless tests) — no-op
+  const ordered = panel.state.orderedQuestions();
+  const unanswered = ordered.filter(
+    (q) => q.status === "open" || q.status === "reasked",
+  ).length; // same statuses nextUnanswered skips; moot/withdrawn/closed never count
+  if (unanswered > 0) return;
+  const pending = ordered.filter((q) => q.status === "answered").length;
+  if (pending === 0) return; // no-op on zero pending — NO flash, NO submit call
+  // One firing = one full submission (h2.41: epoch bumps per firing).
+  const shipped = submit(panel, d);
+  if (shipped) {
+    panel.flash(`submitted — ${pending} answer(s)`); // verbatim, literal "answer(s)"
+  }
 }
 
 /** The named-action registry — keys.ts (P1.M3.T3.S1) binds keys to these. */

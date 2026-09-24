@@ -929,13 +929,19 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
   test("NEW-001 wiring: ctrl+s on a production-opened panel delivers the submission", () => {
     arm();
     state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2")); // stays open — see the heartbeat note below
     mock.emit("tool_execution_end", endEvent());
     const panel = mock.calls[0]!.component;
     // The production open path (maybeAutoOpen → openPanel → InterrogationPanel)
     // must carry a SubmitDeps — no injected mocks.
     expect(panel.delivery).toBeDefined();
     panel.currentId = "q1";
-    panel.handleInput("\r"); // accept option 'a' → answered (works pre-fix too)
+    // AUTOSUBMIT-001 (P2.M1.T1.S1): a commit completing the set would
+    // auto-submit through this very delivery surface. This test is the
+    // ctrl+s HEARTBEAT (FR-3/AC-2), so q2 deliberately stays open — the
+    // set stays incomplete, the accept below stays "answered", and the
+    // submission asserted underneath can only come from the explicit ctrl+s.
+    panel.handleInput("\r"); // accept option 'a' → answered
     expect(state.getQuestion("q1")?.status).toBe("answered");
     panel.handleInput("\x13"); // ctrl+s — the heartbeat (FR-3/AC-2)
     // The submission fires: delta reaches pi.sendMessage, epoch bumps exactly

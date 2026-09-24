@@ -123,7 +123,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
  * (empty array / absent routes to read and must never count — an empty upsert
  * batch re-asks nothing). Tolerate-and-ignore anything else (never `as any`).
  */
-function isUpsertArgs(args: unknown): args is { questions: unknown[] } {
+export function isUpsertArgs(args: unknown): args is { questions: unknown[] } {
   return isRecord(args) && Array.isArray(args.questions) && args.questions.length > 0;
 }
 

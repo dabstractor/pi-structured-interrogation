@@ -242,16 +242,24 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
     pi2.emit("session_start", { reason: "reload" }, pi2.ctx("print", branch));
     expect(pi2.customCalls.length).toBe(0);
 
-    // The tool re-orients with a TUI upsert: the panel mounts via the
+    // The tool re-orients with a TUI UPSERT: the panel mounts via the
     // auto-open path. Then the user suspends, and a SECOND reload-style
     // reset… — simpler and just as load-bearing: suspend, then dispose the
     // host residue via a fresh session_start on a dead branch is NOT the
     // scenario; instead pin the pure closed-host row directly:
     // suspend (esc) then invoke — resumes.
-    // A read (re-orient) call — same rev, no upsert semantics; the panel
-    // mounts via maybeAutoOpen on tool_execution_end.
-    pi2.emit("tool_execution_start", { toolCallId: "c2", toolName: "interrogate", args: {} }, pi2.ctx("tui", branch));
-    await pi2.tools.get("interrogate")!.execute("c2", {}, undefined, undefined, pi2.ctx("tui", branch));
+    // SURFACE-001: only an upsert leaving unanswered questions surfaces —
+    // a re-orientation READ ({} same-rev peek) must never open the panel,
+    // so this row upserts the live question at its CURRENT rev + session
+    // epoch (existing ids require both; applyUpsert overrides rev/status).
+    const reorient = {
+      epoch: 1,
+      questions: [
+        { id: "q1", prompt: "p", type: "choice", rev: 1, options: [{ value: "a", label: "A" }] },
+      ],
+    };
+    pi2.emit("tool_execution_start", { toolCallId: "c2", toolName: "interrogate", args: reorient }, pi2.ctx("tui", branch));
+    await pi2.tools.get("interrogate")!.execute("c2", reorient, undefined, undefined, pi2.ctx("tui", branch));
     pi2.emit("tool_execution_end", { toolCallId: "c2", toolName: "interrogate", isError: false }, pi2.ctx("tui", branch));
     expect(pi2.customCalls.length).toBe(1);
     pi2.customCalls[0]!.done(null); // suspend

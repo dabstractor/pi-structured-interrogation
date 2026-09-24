@@ -18,9 +18,9 @@ import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vi
 import { DEFAULT_CONFIG, resolveKeyLabels, type InterrogatorConfig } from "../config.js";
 import {
   createInterrogationState,
+  InterrogationState,
   resetState,
   setState,
-  type InterrogationState,
   type Question,
 } from "../state.js";
 import {
@@ -905,6 +905,10 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
   let mock: MockPi;
   let state: InterrogationState;
   let lifecycle: ReturnType<typeof makeMockLifecycle>;
+  // SURFACE-001 gate (1): local stand-in for index.ts's pendingUpsertArgs
+  // start-phase stash; maybeAutoOpen receives a PEEK closure over it — the
+  // production wiring shape is `(id) => pendingUpsertArgs.get(id)`.
+  let stash: Map<string, unknown>;
 
   const endEvent = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     toolCallId: "call-1",
@@ -913,13 +917,24 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     ...overrides,
   });
 
+  /** Seed the stash exactly like index.ts's tool_execution_start handler. */
+  function stashArgs(toolCallId: string, args: unknown): void {
+    stash.set(toolCallId, args);
+  }
+
+  /** Canonical UPSERT args — non-empty questions[] (isUpsertArgs shape). */
+  const upsertArgs = (...ids: string[]): unknown => ({
+    questions: ids.map((id) => ({ id })),
+  });
+
   function arm(): void {
     lifecycle = makeMockLifecycle();
     host = createPanelHost(lifecycle.lifecycle);
     mock = makeMockPi();
     state = createInterrogationState("goal");
     setState(state);
-    maybeAutoOpen(mock.pi, DEFAULT_CONFIG, host);
+    stash = new Map();
+    maybeAutoOpen(mock.pi, DEFAULT_CONFIG, host, undefined, (id) => stash.get(id));
   }
 
   afterEach(() => {
@@ -930,6 +945,7 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     arm();
     state.upsertQuestion(choiceQ("q1"));
     state.upsertQuestion(choiceQ("q2")); // stays open — see the heartbeat note below
+    stashArgs("call-1", upsertArgs("q1", "q2")); // upsert call → surface allowed
     mock.emit("tool_execution_end", endEvent());
     const panel = mock.calls[0]!.component;
     // The production open path (maybeAutoOpen → openPanel → InterrogationPanel)
@@ -965,14 +981,17 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     mock = makeMockPi();
     state = createInterrogationState("goal");
     setState(state);
-    maybeAutoOpen(mock.pi, DEFAULT_CONFIG, host);
+    stash = new Map();
+    maybeAutoOpen(mock.pi, DEFAULT_CONFIG, host, undefined, (id) => stash.get(id));
+    state.upsertQuestion(choiceQ("q1")); // SURFACE-001: live open work + upsert args
+    stashArgs("call-1", upsertArgs("q1"));
     mock.emit("tool_execution_end", endEvent());
     expect(host.isOpen()).toBe(true); // record now claims open
 
     const staleHost = { isOpen: () => false, isSuspended: () => false } as unknown as PanelHost;
     const second = makeMockPi();
-    state.upsertQuestion(choiceQ("q1"));
-    maybeAutoOpen(second.pi, DEFAULT_CONFIG, staleHost);
+    maybeAutoOpen(second.pi, DEFAULT_CONFIG, staleHost, undefined, (id) => stash.get(id));
+    stashArgs("call-9", upsertArgs("q1"));
     second.emit("tool_execution_end", endEvent({ toolCallId: "call-9" }));
     expect(second.custom).toHaveBeenCalledTimes(1);
     expect(second.calls[0]!.component).toBeDefined();
@@ -980,24 +999,28 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
 
   test("test_maybe_auto_open_opens_on_first_interrogate_end", () => {
     arm();
+    state.upsertQuestion(choiceQ("q1")); // SURFACE-001: live open work
+    stashArgs("call-1", upsertArgs("q1")); // upsert call → surface allowed
     mock.emit("tool_execution_end", endEvent());
     expect(mock.custom).toHaveBeenCalledTimes(1);
     expect(host.isOpen()).toBe(true);
-    expect(mock.calls[0].component.currentId).toBeUndefined(); // empty state yet
+    expect(mock.calls[0].component.currentId).toBe("q1"); // first open question
 
     // A second end while open: no-op (single instance).
-    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    stashArgs("call-2", upsertArgs("q2"));
     mock.emit("tool_execution_end", endEvent({ toolCallId: "call-2" }));
     expect(mock.custom).toHaveBeenCalledTimes(1);
   });
 
   test("test_maybe_auto_open_ignores_other_tools_errors_and_missing_state", () => {
     arm();
-    mock.emit("tool_execution_end", endEvent({ toolName: "bash" }));
-    mock.emit("tool_execution_end", endEvent({ isError: true }));
+    stashArgs("call-1", upsertArgs("q1")); // gate (1) passes for these rows…
+    mock.emit("tool_execution_end", endEvent({ toolName: "bash" })); // …wrong tool
+    mock.emit("tool_execution_end", endEvent({ isError: true })); // …error end
     expect(mock.custom).not.toHaveBeenCalled();
 
-    resetState(); // no state singleton yet
+    resetState(); // no state singleton yet — guard order reaches the state check
     mock.emit("tool_execution_end", endEvent());
     expect(mock.custom).not.toHaveBeenCalled();
   });
@@ -1005,6 +1028,7 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
   test("test_maybe_auto_open_reopens_while_suspended", async () => {
     arm();
     state.upsertQuestion(choiceQ("q1"));
+    stashArgs("call-1", upsertArgs("q1"));
     mock.emit("tool_execution_end", endEvent());
     expect(mock.calls.length).toBe(1);
 
@@ -1012,12 +1036,101 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     await flush();
     expect(host.isSuspended()).toBe(true);
 
-    // A later interrogate run ends → h2.37 reopen.
+    // A later interrogate run ends → h2.37 reopen (upsert path only).
     state.upsertQuestion(choiceQ("q2"));
+    stashArgs("call-3", upsertArgs("q2"));
     mock.emit("tool_execution_end", endEvent({ toolCallId: "call-3" }));
     expect(mock.calls.length).toBe(2);
     expect(host.isOpen()).toBe(true);
     expect(mock.calls[1].component.currentId).toBe("q2"); // first open question
+  });
+
+  // ------------------------------------------------------------ SURFACE-001
+  // Three-gate allow-list (PRD h2.37): panel opens ONLY for (1) an upsert
+  // call, (2) leaving unanswered (open/reasked) questions, (3) a not-
+  // completed interrogation. Pure reads never surface, regardless of state.
+
+  test("test_read_no_stash_never_opens", () => {
+    arm();
+    state.upsertQuestion(choiceQ("q1")); // open-question state
+    mock.emit("tool_execution_end", endEvent()); // pure read: NO stash entry
+    expect(mock.custom).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false);
+  });
+
+  test("test_read_empty_questions_array_never_opens", () => {
+    arm();
+    state.upsertQuestion(choiceQ("q1"));
+    stashArgs("call-1", { questions: [] }); // `questions: []` routes to READ
+    mock.emit("tool_execution_end", endEvent());
+    expect(mock.custom).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false);
+  });
+
+  test("test_upsert_leaving_unanswered_opens", () => {
+    arm();
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    stashArgs("call-1", upsertArgs("q1", "q2"));
+    mock.emit("tool_execution_end", endEvent());
+    expect(mock.custom).toHaveBeenCalledTimes(1); // gate (2): open work exists
+    expect(host.isOpen()).toBe(true);
+  });
+
+  test("test_upsert_all_answered_no_open", () => {
+    arm();
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    state.applyAnswer("q1", { value: "a", at: "t" }); // answered = pending, NOT unanswered
+    state.setStatus("q2", "submitted"); // flushed, NOT unanswered
+    stashArgs("call-1", upsertArgs("q1", "q2")); // e.g. description-only edit
+    mock.emit("tool_execution_end", endEvent());
+    expect(mock.custom).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false);
+  });
+
+  test("test_completed_state_never_opens", () => {
+    arm();
+    // Row 1 — the production ghost: clearForCompletion() leaves the singleton
+    // INSTALLED with completed=true and zero questions (gates (2)+(3) both
+    // block the post-completion read/upsert pop — tree-nav BUG #2).
+    state.upsertQuestion(choiceQ("q1"));
+    state.clearForCompletion();
+    stashArgs("call-1", upsertArgs("q1"));
+    mock.emit("tool_execution_end", endEvent());
+    expect(mock.custom).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false);
+
+    // Row 2 — gate (3) must block INDEPENDENTLY of gate (2): persistence can
+    // revive a completed state that still carries open questions (deserialize
+    // restores the one-time guard), and it still must never surface.
+    const completedWithOpen = InterrogationState.deserialize({
+      goal: "g",
+      epoch: 1,
+      order: ["q1"],
+      questions: {
+        q1: { prompt: "p", type: "choice", rev: 1, status: "open", options: OPTS_AB },
+      },
+      completed: true,
+    });
+    setState(completedWithOpen);
+    state = completedWithOpen;
+    stashArgs("call-2", upsertArgs("q1"));
+    mock.emit("tool_execution_end", endEvent({ toolCallId: "call-2" }));
+    expect(mock.custom).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false);
+  });
+
+  test("test_peek_does_not_consume", () => {
+    arm();
+    state.upsertQuestion(choiceQ("q1"));
+    stashArgs("call-1", upsertArgs("q1"));
+    mock.emit("tool_execution_end", endEvent());
+    expect(mock.custom).toHaveBeenCalledTimes(1); // the peek SAW the upsert args
+    // PEEK-without-delete contract: consumption belongs exclusively to the
+    // LAST-registered end handler (D-R6 bridge emission) — maybeAutoOpen
+    // must leave the stash entry in place.
+    expect(stash.has("call-1")).toBe(true);
   });
 });
 

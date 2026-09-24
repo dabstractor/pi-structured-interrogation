@@ -79,6 +79,7 @@ import {
 import {
   effectiveGroup,
   gateGroupNames,
+  gateHoldLine,
   gateWarningLine,
   pickGateInitialQuestionId,
 } from "./gate.js";
@@ -444,17 +445,34 @@ export class InterrogationPanel implements Component {
   footerFlash: { text: string; timer?: ReturnType<typeof setTimeout> } | undefined;
 
   /**
-   * Active soft-gate submit warning (P1.M5.T3.S1, Q32=B / h2.56): set by the
-   * submit action AFTER a real delivery is committed (never on the
-   * zero-pending path) when `config.gateWarnings` is on and gate-group
-   * questions remain unanswered. Display-only — it NEVER blocks, delays, or
-   * vetoes a submission. Non-expiring (unlike {@link footerFlash}); any key
-   * dismisses it: handleInput stage 0 clears the field and CONTINUES normal
-   * key processing, so the dismissing key still performs its own action
-   * (dismiss + act). Rendered in the shared line above the footer, where it
-   * wins over a still-live flash while active (h2.37: flashes never stack).
+   * Active soft-gate notice (P1.M5.T3.S1 warning + P2.M1.T2.S1 hold) — ONE
+   * shared non-expiring slot, discriminated by `kind` (no second field):
+   *
+   * - `kind: "submit"` — the legacy submit-time warning: set by the submit
+   *   action AFTER a real delivery is committed (never on the zero-pending
+   *   path) when `config.gateWarnings` is on and gate-group questions remain
+   *   unanswered. Rendered via gateWarningLine(count) — "…later answers may
+   *   shift". Display-only; it NEVER blocks, delays, or vetoes anything.
+   * - `kind: "hold"` — the AUTOSUBMIT-002 commit-time hold (P2.M1.T2.S1):
+   *   set by maybeAutoSubmit when it WITHHOLDS the auto-submit because
+   *   gate-group questions remain unanswered on an otherwise-complete set.
+   *   Rendered via gateHoldLine(count, submitLabel) — the FR-D5 line naming
+   *   the config-resolved submit key as the deliberate override (never a
+   *   hardcoded chord). Withholding-only: ctrl+s still delivers via the
+   *   unchanged submit path, which overwrites this with the `kind: "submit"`
+   *   legacy warning after delivery.
+   *
+   * Both kinds: non-expiring (unlike {@link footerFlash}); any key dismisses
+   * — handleInput stage 0 clears the field and CONTINUES normal key
+   * processing, so the dismissing key still performs its own action (dismiss
+   * + act). Rendered in the shared line above the footer, where the notice
+   * wins over a still-live flash while active (h2.37: flashes never stack);
+   * confirmMode suppression covers both kinds.
    */
-  gateWarning: { count: number } | null = null;
+  gateWarning:
+    | { count: number; kind: "submit" }
+    | { count: number; kind: "hold"; submitLabel: string }
+    | null = null;
 
   /**
    * Modal ripple-confirm state (FR-18 / Q39=B, P1.M5.T4.S1) — set by the
@@ -520,8 +538,12 @@ export class InterrogationPanel implements Component {
    * rendering). Config is a read-only input; a config reload constructs a
    * fresh panel (reopen rehydrates from options), so per-session memoization
    * never serves stale labels across reloads.
+   *
+   * Public (readonly) since P2.M1.T2.S1: actions.ts maybeAutoSubmit reads
+   * `labels.submit` to arm the commit-time hold line with the config-resolved
+   * submit label — display strings must flow from here, never a literal chord.
    */
-  private readonly labels: Record<KeyAction, string>;
+  readonly labels: Record<KeyAction, string>;
   private cached: string[] | undefined;
   /** Liveness signal: true once pi actually rendered this panel (cold-resume fix). */
   renderedOnce = false;
@@ -1178,7 +1200,14 @@ export class InterrogationPanel implements Component {
     // flash nor a gate warning may compete with the keep/cancel decision.
     if (this.confirmMode !== null) return undefined;
     if (this.gateWarning !== null) {
-      return renderGateWarningLine(gateWarningLine(this.gateWarning.count), this.theme, width);
+      // P2.M1.T2.S1: the string is picked by the payload's kind — hold names
+      // the config-resolved submit label (stored on the payload; this render
+      // path has no config access), submit keeps the legacy partial-warning.
+      const text =
+        this.gateWarning.kind === "hold"
+          ? gateHoldLine(this.gateWarning.count, this.gateWarning.submitLabel)
+          : gateWarningLine(this.gateWarning.count);
+      return renderGateWarningLine(text, this.theme, width);
     }
     return this.flashLine(width);
   }

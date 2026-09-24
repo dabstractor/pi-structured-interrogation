@@ -1,7 +1,8 @@
 /**
- * src/panel/gate.ts — soft-gate helpers (P1.M5.T3.S1): gate-group detection,
- * unanswered-gate counting, the submit-warning text, and the gate-aware
- * initial-focus picker.
+ * src/panel/gate.ts — soft-gate helpers (P1.M5.T3.S1 + P2.M1.T2.S1):
+ * gate-group detection, unanswered-gate counting, the TWO gate footer strings
+ * (submit-time warning + commit-time hold), and the gate-aware initial-focus
+ * picker.
  *
  * [Mode A] CONTRACT — SOFT GATE vs COMMIT GATING (Q32=B, h2.56, FR-9/R1):
  *
@@ -14,6 +15,18 @@
  *   navigable/answerable (R1 — display gating, NEVER a lock), and a
  *   `ctrl+s` submit with unanswered gate questions still delivers while a
  *   dismissible footer warning surfaces.
+ * - COMMIT-time gate HOLD (P2.M1.T2.S1, AUTOSUBMIT-002, h2.33/FR-D5/AC-2d):
+ *   the auto-submit hook (maybeAutoSubmit, actions.ts) WITHHOLDS its firing
+ *   while gate-group questions remain unanswered and instead arms the
+ *   non-expiring {@link gateHoldLine} — a DIFFERENT string from the
+ *   submit-time warning BY DESIGN (h2.33): it names the config-resolved
+ *   submit key as the deliberate override (never a hardcoded chord, h2.52).
+ *   The override itself is the unchanged ctrl+s path: submit() delivers
+ *   anyway and overwrites the hold line with {@link gateWarningLine}.
+ *   Two strings, two moments: {@link gateHoldLine} = commit-time (explains a
+ *   WITHHELD auto-submit, fires BEFORE anything ships);
+ *   {@link gateWarningLine} = submit-time (rides a delivered partial:
+ *   "later answers may shift"). Keep them distinct — do not unify.
  * - COMMIT gating — blocking, delaying, or vetoing a submission until the
  *   foundations are answered — is explicitly REJECTED by h2.56: the first
  *   upsert always carries ALL questions (the anti-loss anchor), so blocking
@@ -25,9 +38,12 @@
  * Consumption map (who calls what):
  * - panel.ts: {@link pickGateInitialQuestionId} (constructor initial focus),
  *   {@link gateGroupNames} + {@link effectiveGroup} (buildLines dimming),
- *   {@link gateWarningLine} (rendering via layout.renderGateWarningLine).
+ *   {@link gateWarningLine} + {@link gateHoldLine} (footerNoticeLine picks
+ *   the string by the gateWarning payload's `kind` via
+ *   layout.renderGateWarningLine — one shared notice slot).
  * - actions.ts: {@link countUnansweredGate} + {@link gateGroupNames}
- *   (submit() warning, display-only).
+ *   (submit() submit-time warning count, display-only; maybeAutoSubmit
+ *   commit-time hold count + withholding, P2.M1.T2.S1).
  * - overview.ts (P1.M5.T2.S1): {@link gateGroupNames} is the shared home of
  *   the gate-group detection its `▲` header mark uses — one rule, one home.
  * - deep-view.ts (P1.M5.T1.S1): integration seam — the short view's dim
@@ -86,12 +102,40 @@ export function countUnansweredGate(ordered: Question[], gate: GateGroups): numb
 }
 
 /**
- * The warning text, WITHOUT inset or theme wrapping (layout.ts
+ * The SUBMIT-TIME warning text, WITHOUT inset or theme wrapping (layout.ts
  * renderGateWarningLine owns presentation): `⚠ {n} foundational unanswered
- * — later answers may shift`.
+ * — later answers may shift`. Armed by submit() (actions.ts) AFTER a real
+ * delivery when `config.gateWarnings` is on — it rides a delivered partial
+ * and only cautions about later shifts; it NEVER withholds anything. This
+ * is the legacy P1.M5.T3.S1 string: byte-identical since introduction.
+ *
+ * Two moments by design (h2.33): this line speaks AFTER shipping a partial;
+ * the commit-time counterpart {@link gateHoldLine} explains a WITHHELD
+ * auto-submit and names the override key instead. Do not unify them.
  */
 export function gateWarningLine(count: number): string {
   return `⚠ ${count} foundational unanswered — later answers may shift`;
+}
+
+/**
+ * The COMMIT-TIME hold text (P2.M1.T2.S1, AUTOSUBMIT-002 / FR-D5 verbatim),
+ * WITHOUT inset or theme wrapping: `⚠ {n} foundational unanswered — answer
+ * them or {submitLabel} to submit now`. Armed by maybeAutoSubmit (actions.ts)
+ * when it WITHHOLDS the auto-submit because gate-group questions remain
+ * unanswered — the visible reason for the withholding (FR-D5) and the map
+ * out of it: keep answering, or press the named key to ship now (the
+ * unchanged submit path delivers; soft gate, h2.56 — the hold never blocks
+ * the manual override).
+ *
+ * `submitLabel` is the config-resolved display label (resolveKeyLabels via
+ * panel.labels.submit) — NEVER a hardcoded chord (h2.52 keymap guard).
+ * Deliberately a DIFFERENT string from the submit-time
+ * {@link gateWarningLine} ("later answers may shift"): two strings, two
+ * moments (h2.33) — this one fires BEFORE anything ships, that one AFTER a
+ * delivered partial.
+ */
+export function gateHoldLine(count: number, submitLabel: string): string {
+  return `⚠ ${count} foundational unanswered — answer them or ${submitLabel} to submit now`;
 }
 
 /**

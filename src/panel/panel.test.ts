@@ -15,7 +15,7 @@
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
-import { DEFAULT_CONFIG, resolveKeyLabels } from "../config.js";
+import { DEFAULT_CONFIG, resolveKeyLabels, type InterrogatorConfig } from "../config.js";
 import {
   createInterrogationState,
   resetState,
@@ -1959,7 +1959,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
   test("test_gate_warning_renders_above_footer_and_wins_over_flash", () => {
     const state = gateState();
     const panel = new InterrogationPanel(panelArgsFor(state));
-    panel.gateWarning = { count: 2 };
+    panel.gateWarning = { count: 2, kind: "submit" };
     const lines = panel.render(80);
     expect(lines[lines.length - 2]).toBe(
       "  ⚠ 2 foundational unanswered — later answers may shift",
@@ -1980,7 +1980,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
   test("test_gate_any_key_dismisses_the_warning_and_still_acts", () => {
     const state = gateState();
     const panel = new InterrogationPanel(panelArgsFor(state));
-    panel.gateWarning = { count: 1 };
+    panel.gateWarning = { count: 1, kind: "submit" };
 
     // Dismiss + act: ↓ clears the warning AND moves the option cursor.
     const cursorBefore = panel.cursorIndex;
@@ -1989,11 +1989,75 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
     expect(panel.cursorIndex).toBe(cursorBefore + 1);
 
     // Dismiss-only: a key with no binding still clears it (any key).
-    panel.gateWarning = { count: 1 };
+    panel.gateWarning = { count: 1, kind: "submit" };
     panel.handleInput("z");
     expect(panel.gateWarning).toBeNull();
 
     // Dismissed → the next render no longer carries the warning line.
+    expect(panel.render(80).join("\n")).not.toContain("foundational unanswered");
+  });
+
+  test("test_gate_hold_line_renders_exact_commit_time_string_above_footer", () => {
+    // AUTOSUBMIT-002 (P2.M1.T2.S1): the commit-time hold payload renders the
+    // FR-D5 string — a DIFFERENT string from the legacy submit-time warning
+    // (h2.33), in the SAME shared slot: above the footer, winning over a
+    // still-live flash (h2.37).
+    const state = gateState();
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.gateWarning = { count: 1, kind: "hold", submitLabel: "Ctrl+S" };
+    const lines = panel.render(80);
+    expect(lines[lines.length - 2]).toBe(
+      "  ⚠ 1 foundational unanswered — answer them or Ctrl+S to submit now",
+    );
+    expect(lines[lines.length - 1]).toContain("└"); // footer still last
+
+    // Shared slot rule: the hold line wins over a still-live flash (h2.37).
+    panel.flash("nothing to submit");
+    try {
+      const linesWithFlash = panel.render(80);
+      expect(linesWithFlash[linesWithFlash.length - 2]).toContain("foundational unanswered");
+      expect(linesWithFlash.join("\n")).not.toContain("nothing to submit");
+    } finally {
+      panel.dispose(); // clear the flash timer
+    }
+  });
+
+  test("test_gate_hold_line_interpolates_remapped_submit_label", () => {
+    // h2.52: the hold string carries the CONFIG-RESOLVED submit label stored
+    // on the payload — with keys.submit remapped, Ctrl+Enter surfaces (never
+    // a hardcoded chord).
+    const state = gateState();
+    const config = {
+      ...DEFAULT_CONFIG,
+      keys: { ...DEFAULT_CONFIG.keys, submit: "ctrl+enter" },
+    } as InterrogatorConfig;
+    const panel = new InterrogationPanel(panelArgsFor(state, { config }));
+    panel.gateWarning = { count: 2, kind: "hold", submitLabel: resolveKeyLabels(config).submit };
+    const lines = panel.render(80);
+    expect(lines[lines.length - 2]).toBe(
+      "  ⚠ 2 foundational unanswered — answer them or Ctrl+Enter to submit now",
+    );
+  });
+
+  test("test_gate_hold_any_key_dismisses_and_still_acts", () => {
+    // Stage-0 dismissal is REUSED verbatim for the hold kind (one slot, no
+    // new dismissal logic): any key clears the hold line and STILL acts.
+    const state = gateState();
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.gateWarning = { count: 1, kind: "hold", submitLabel: "Ctrl+S" };
+
+    // Dismiss + act: ↓ clears the hold line AND moves the option cursor.
+    const cursorBefore = panel.cursorIndex;
+    panel.handleInput(DOWN);
+    expect(panel.gateWarning).toBeNull();
+    expect(panel.cursorIndex).toBe(cursorBefore + 1);
+
+    // Dismiss-only: a key with no binding still clears it (any key).
+    panel.gateWarning = { count: 1, kind: "hold", submitLabel: "Ctrl+S" };
+    panel.handleInput("z");
+    expect(panel.gateWarning).toBeNull();
+
+    // Dismissed → the next render no longer carries the hold line.
     expect(panel.render(80).join("\n")).not.toContain("foundational unanswered");
   });
 });

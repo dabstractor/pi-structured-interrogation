@@ -321,14 +321,14 @@
       "type": "Phase",
       "id": "P2",
       "title": "Delta D2 — Completeness auto-submit (AUTOSUBMIT-001/002)",
-      "status": "Planned",
+      "status": "Ready",
       "description": "FR-D4/D5: after EVERY answer commit, maybeAutoSubmit fires the exact ctrl+s pipeline when zero open/reasked questions remain and ≥1 is pending; gate hold with non-expiring ⚠ line + ctrl+s override; bridge tail parity; 'submit pending answers first' edge deleted.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P2.M1",
           "title": "Auto-submit hook, gate hold, bridge parity, edge deletion",
-          "status": "Planned",
+          "status": "Ready",
           "description": "maybeAutoSubmit(panel, deps) after every commit (option accepts incl. edits, Other write-ins, text enters, edit re-commits) reusing submit() verbatim; gate-hold warning line; recordRemoteSubmission tail; epoch bumps per firing.",
           "tasks": [
             {
@@ -368,14 +368,14 @@
               "type": "Task",
               "id": "P2.M1.T2",
               "title": "Gate hold warning line (AUTOSUBMIT-002)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-D5: while any gate-group question is open/reasked, auto-submit withholds; commits show the non-expiring footer warning '⚠ {n} foundational unanswered — answer them or {submit} to submit now' (any key dismisses, never blocks; {submit} from resolved config). ctrl+s remains the deliberate override. Ordinary non-gate skips get no warning.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T2.S1",
                   "title": "Commit-time gate-hold line with config-resolved {submit} label; withhold auto-submit",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S1"
@@ -397,14 +397,14 @@
               "type": "Task",
               "id": "P2.M1.T3",
               "title": "Bridge tail: maybeAutoSubmit + customText parity",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D4: recordRemoteSubmission runs maybeAutoSubmit at its tail — a bridge partial submit completing the set ships once through the same pipeline. customText-only bridge answers set custom: true (WRITEIN-001 parity); bridge answer validation accepts custom values as-is (not checked against option lists).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T3.S1",
                   "title": "recordRemoteSubmission tail hook + customText-only → custom:true + validation acceptance",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S1",
@@ -428,14 +428,14 @@
               "type": "Task",
               "id": "P2.M1.T4",
               "title": "Delete 'submit pending answers first' edge + epoch-per-firing semantics",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D4: the old footer edge is deleted (completeness ships itself). A user suspended between last commit and delivery resumes to a pending panel — one ctrl+s or any new commit flushes. Epoch bumps per auto-submit firing (tests).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T4.S1",
                   "title": "Remove the submit-pending edge; assert epoch bumps per auto-submit firing",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S1"

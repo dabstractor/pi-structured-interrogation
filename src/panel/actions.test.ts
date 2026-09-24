@@ -1390,7 +1390,7 @@ describe("submit — soft-gate warning (display-only, P1.M5.T3.S1)", () => {
     expect(state.snapshots.length).toBe(1);
     expect(state.epoch).toBe(2);
     // AND the dismissible warning is armed with the unanswered-gate count.
-    expect(panel.gateWarning).toEqual({ count: 2 });
+    expect(panel.gateWarning).toEqual({ count: 2, kind: "submit" });
   });
 
   test("test_warning_respects_gateWarnings_false", () => {
@@ -1457,7 +1457,7 @@ describe("submit — soft-gate warning (display-only, P1.M5.T3.S1)", () => {
 
     expect(submit(panel, deps)).toBe(true);
     expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(panel.gateWarning).toEqual({ count: 1 });
+    expect(panel.gateWarning).toEqual({ count: 1, kind: "submit" });
   });
 });
 
@@ -1806,5 +1806,165 @@ describe("maybeAutoSubmit — completeness hook", () => {
     expect(msg.content).toContain("NOTE: typed before the last answer");
     expect(msg.details.note).toBe("typed before the last answer");
     expect(panel.batchNote).toBe(""); // cleared after shipping (h2.32)
+  });
+});
+
+// -------- maybeAutoSubmit gate hold (AUTOSUBMIT-002, P2.M1.T2.S1, AC-2d)
+
+describe("maybeAutoSubmit — gate hold (AUTOSUBMIT-002, AC-2d)", () => {
+  /**
+   * Hold fixture: the gate group's g1 is UNANSWERED but no longer
+   * open/reasked (agent-settled `closed`, answer reset) — the exact
+   * "gate question unanswered, otherwise-complete set" shape of AC-2d.
+   * countUnansweredGate counts answer-undefined non-terminal (not
+   * withdrawn/moot) gate questions, while the T1.S1 completeness
+   * predicate only blocks open/reasked — so the set passes completeness
+   * and reaches the P2.M1.T2.S1 hold check with n = 1.
+   */
+  const HOLD_FIXTURE: Array<{ id: string; overrides?: Partial<Question> }> = [
+    { id: "g1", overrides: { group: "foundation", gate: true, status: "closed" } },
+    { id: "g2", overrides: { group: "foundation", status: "answered" } },
+    { id: "n1", overrides: { group: "later", recommendation: "a" } },
+  ];
+
+  function commitLast(handle: PanelHandle): boolean {
+    handle.panel.currentId = "n1";
+    handle.panel.cursorIndex = 0;
+    return accept(handle.panel); // the commit tail runs maybeAutoSubmit
+  }
+
+  test("test_auto_gate_hold_withholds_commit_and_shows_exact_line", () => {
+    // AC-2d withhold: a commit on an otherwise-complete set with an
+    // unanswered gate question arms the commit-time hold line (FR-D5
+    // verbatim, config-resolved label) and ships NOTHING: no sendMessage,
+    // no auto-submit flash, no epoch bump.
+    const state = seed(HOLD_FIXTURE);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch; // 1
+
+    expect(commitLast({ panel, requestRender: vi.fn() })).toBe(true); // commit lands
+
+    expect(sendMessage).not.toHaveBeenCalled(); // withheld
+    expect(panel.footerFlash?.text).toBeUndefined(); // no flash on the hold path
+    expect(state.epoch).toBe(epochBefore);
+    expect(panel.gateWarning).toEqual({ count: 1, kind: "hold", submitLabel: "Ctrl+S" });
+    // The rendered footer-adjacent line is the EXACT hold string.
+    const lines = panel.render(80);
+    expect(lines[lines.length - 2]).toBe(
+      "  ⚠ 1 foundational unanswered — answer them or Ctrl+S to submit now",
+    );
+  });
+
+  test("test_auto_answering_gate_releases_next_commit_auto_submit", () => {
+    // AC-2d release: once the gate question is answered, the next commit's
+    // auto-submit fires — one sendMessage, verbatim flash, epoch +1.
+    const state = seed(HOLD_FIXTURE);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+
+    expect(commitLast({ panel, requestRender: vi.fn() })).toBe(true);
+    expect(panel.gateWarning?.kind).toBe("hold"); // held first
+
+    // The user answers the gate question (agent re-opened it; seeded via
+    // the raw applyAnswer primitive) → the set is truly complete.
+    state.applyAnswer("g1", { value: "a", at: T0 });
+    maybeAutoSubmit(panel, deps); // the next commit tail fires the same hook
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(panel.footerFlash?.text).toBe("submitted — 3 answer(s)");
+    expect(state.epoch).toBe(2);
+  });
+
+  test("test_auto_ctrl_s_override_delivers_and_swaps_to_legacy_warning", () => {
+    // AC-2d override: with the hold line armed, the deliberate submit-path
+    // keypress (submit(), unchanged) delivers ANYWAY (h2.56 soft gate) and
+    // overwrites the hold line with the legacy submit-time warning.
+    const state = seed(HOLD_FIXTURE);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+
+    expect(commitLast({ panel, requestRender: vi.fn() })).toBe(true);
+    expect(panel.gateWarning?.kind).toBe("hold");
+
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.epoch).toBe(2);
+    expect(panel.gateWarning).toEqual({ count: 1, kind: "submit" });
+    // The legacy string follows per existing behavior — a different string
+    // from the hold line, by design (h2.33).
+    expect(panel.render(80).join("\n")).toContain("later answers may shift");
+  });
+
+  test("test_auto_nongate_open_skip_stays_completely_silent", () => {
+    // h2.58 pin: an ordinary skip — a NON-gate question still open — gets
+    // NO warning of any kind: the completeness return fires BEFORE the
+    // gate check.
+    const state = seed([
+      { id: "g1", overrides: { group: "foundation", gate: true, status: "answered" } },
+      { id: "g2", overrides: { group: "foundation", status: "answered" } },
+      { id: "n1", overrides: { group: "later" } }, // still open
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+
+    maybeAutoSubmit(panel, deps);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(panel.gateWarning).toBeNull();
+    expect(panel.footerFlash?.text).toBeUndefined();
+  });
+
+  test("test_auto_open_gate_question_returns_at_completeness_no_hold_line", () => {
+    // The completeness return runs FIRST: with the gate question itself
+    // still open the set is not otherwise-complete — maybeAutoSubmit
+    // returns at the unanswered check, so no hold line either (the line
+    // never fires when there is nothing shippable).
+    const state = seed([
+      { id: "g1", overrides: { group: "foundation", gate: true } }, // open
+      { id: "g2", overrides: { group: "foundation", status: "answered" } },
+      { id: "n1", overrides: { group: "later", status: "answered" } },
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+
+    maybeAutoSubmit(panel, deps);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(panel.gateWarning).toBeNull();
+    expect(panel.footerFlash?.text).toBeUndefined();
+  });
+
+  test("test_auto_gate_hold_respects_gateWarnings_false_silent_withhold", () => {
+    // config.gateWarnings off ⇒ the hold withholds SILENTLY: no line, no
+    // delivery, no flash (the display toggle governs both gate strings).
+    const state = seed(HOLD_FIXTURE);
+    const config = { ...DEFAULT_CONFIG, gateWarnings: false } as InterrogatorConfig;
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps }, config);
+
+    expect(commitLast({ panel, requestRender: vi.fn() })).toBe(true);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(panel.gateWarning).toBeNull();
+    expect(panel.footerFlash?.text).toBeUndefined();
+  });
+
+  test("test_auto_gate_hold_label_follows_remapped_submit_key", () => {
+    // h2.52: the hold line names the CONFIG-RESOLVED submit label — with
+    // keys.submit remapped, Ctrl+Enter surfaces, never the default chord.
+    const state = seed(HOLD_FIXTURE);
+    const config = {
+      ...DEFAULT_CONFIG,
+      keys: { ...DEFAULT_CONFIG.keys, submit: "ctrl+enter" },
+    } as InterrogatorConfig;
+    const { deps } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps }, config);
+
+    expect(commitLast({ panel, requestRender: vi.fn() })).toBe(true);
+
+    expect(panel.gateWarning).toEqual({ count: 1, kind: "hold", submitLabel: "Ctrl+Enter" });
+    expect(panel.render(80).join("\n")).toContain("answer them or Ctrl+Enter to submit now");
   });
 });

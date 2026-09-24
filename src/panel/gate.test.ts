@@ -18,6 +18,7 @@ import {
   countUnansweredGate,
   effectiveGroup,
   gateGroupNames,
+  gateHoldLine,
   gateWarningLine,
   pickGateInitialQuestionId,
 } from "./gate.js";
@@ -134,6 +135,36 @@ describe("gateWarningLine", () => {
   test("test_warning_text_exact_string", () => {
     expect(gateWarningLine(1)).toBe("⚠ 1 foundational unanswered — later answers may shift");
     expect(gateWarningLine(2)).toBe("⚠ 2 foundational unanswered — later answers may shift");
+  });
+});
+
+// ------------------------------------------------------------ gateHoldLine
+
+describe("gateHoldLine", () => {
+  test("test_hold_text_exact_string_default_label", () => {
+    // FR-D5 verbatim template with the default resolved submit label.
+    expect(gateHoldLine(1, "Ctrl+S")).toBe(
+      "⚠ 1 foundational unanswered — answer them or Ctrl+S to submit now",
+    );
+    expect(gateHoldLine(3, "Ctrl+S")).toBe(
+      "⚠ 3 foundational unanswered — answer them or Ctrl+S to submit now",
+    );
+  });
+
+  test("test_hold_text_interpolates_remapped_label", () => {
+    // h2.52: the label is config-resolved (resolveKeyLabels) — a remapped
+    // submit key (e.g. ctrl+enter → "Ctrl+Enter") must surface verbatim.
+    expect(gateHoldLine(2, "Ctrl+Enter")).toBe(
+      "⚠ 2 foundational unanswered — answer them or Ctrl+Enter to submit now",
+    );
+  });
+
+  test("test_hold_distinct_from_legacy_submit_time_warning", () => {
+    // h2.33: two strings, two moments — the commit-time hold names the
+    // override key; the legacy submit-time warning rides a delivered
+    // partial. Deliberately NOT unified.
+    expect(gateHoldLine(1, "Ctrl+S")).not.toBe(gateWarningLine(1));
+    expect(gateWarningLine(1)).toBe("⚠ 1 foundational unanswered — later answers may shift");
   });
 });
 

@@ -509,7 +509,7 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   const ordered = panel.state.orderedQuestions();
   const unansweredGate = countUnansweredGate(ordered, gateGroupNames(ordered));
   if (unansweredGate > 0 && panel.config.gateWarnings) {
-    panel.gateWarning = { count: unansweredGate };
+    panel.gateWarning = { count: unansweredGate, kind: "submit" };
     panel.invalidate();
   }
   // R3 (h2.32): the batch note rides the NEXT submission. Store wins (the
@@ -585,10 +585,21 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
  * - Deps: explicit `deps` wins; otherwise falls back to `panel.delivery`.
  *   Neither present (headless/test panels) → no-op, never throws.
  *
- * Consumed by: gate-hold withholding (P2.M1.T2.S1 wraps this call site),
- * the remote-submit bridge tail (P2.M1.T3.S1), and AC-9 pending-ship
- * (P3.M2.T2.S1) — the optional `deps` param is their seam. Gate-hold
- * logic itself deliberately lives NOT here.
+ * AUTOSUBMIT-002 gate hold (P2.M1.T2.S1, h2.33/FR-D5/AC-2d): AFTER the
+ * completeness and zero-pending returns — so an ordinary non-gate skip
+ * (any open/reasked non-gate question) never warns (h2.58) and zero-pending
+ * stays silent — the unanswered-gate count (countUnansweredGate) decides the
+ * firing: n > 0 ⇒ WITHHOLD (no submit, no flash) and, when
+ * `config.gateWarnings` is on, arm the non-expiring `kind: "hold"` footer
+ * line (gateHoldLine) carrying the config-resolved submit label
+ * (panel.labels.submit — never a hardcoded chord). ctrl+s is the deliberate
+ * override: the unchanged {@link submit} path delivers anyway and overwrites
+ * the hold line with the legacy submit-time warning (kind: "submit",
+ * "later answers may shift"). `config.gateWarnings` off ⇒ silent withhold
+ * (the display toggle governs both gate strings).
+ *
+ * Consumed by: the remote-submit bridge tail (P2.M1.T3.S1), and AC-9
+ * pending-ship (P3.M2.T2.S1) — the optional `deps` param is their seam.
  */
 export function maybeAutoSubmit(panel: InterrogationPanel, deps?: SubmitDeps): void {
   const d = deps ?? panel.delivery;
@@ -600,6 +611,25 @@ export function maybeAutoSubmit(panel: InterrogationPanel, deps?: SubmitDeps): v
   if (unanswered > 0) return;
   const pending = ordered.filter((q) => q.status === "answered").length;
   if (pending === 0) return; // no-op on zero pending — NO flash, NO submit call
+  // AUTOSUBMIT-002 gate hold (P2.M1.T2.S1, h2.33/FR-D5): gate-group
+  // questions still unanswered ⇒ withhold the auto-submit and explain.
+  // The completeness return above ran FIRST, so an ordinary non-gate skip
+  // never reaches this check — NO warning for it (h2.58); zero-pending
+  // stays silent too (nothing to ship). config.gateWarnings off ⇒ silent
+  // withhold (the display toggle governs both gate strings). No flash on
+  // the hold path — the hold line itself is the notice. The deliberate
+  // override is the unchanged submit path: it delivers and overwrites the
+  // hold line with the legacy submit-time warning (h2.56 soft gate —
+  // never a hard block).
+  const gate = gateGroupNames(ordered);
+  const n = countUnansweredGate(ordered, gate);
+  if (n > 0) {
+    if (panel.config.gateWarnings) {
+      panel.gateWarning = { count: n, kind: "hold", submitLabel: panel.labels.submit };
+      panel.invalidate();
+    }
+    return; // no submit, no flash — the named override key ships now instead
+  }
   // One firing = one full submission (h2.41: epoch bumps per firing).
   const shipped = submit(panel, d);
   if (shipped) {

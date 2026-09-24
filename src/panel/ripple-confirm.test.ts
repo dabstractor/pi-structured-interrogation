@@ -379,7 +379,7 @@ describe("ripple confirm — choice gate (FR-18)", () => {
     const state = seedRippleChain();
     const { panel } = makePanel(state);
     panel.flash("nothing to submit"); // live flash
-    panel.gateWarning = { count: 3 }; // live soft-gate warning
+    panel.gateWarning = { count: 3, kind: "submit" }; // live soft-gate warning
     triggerChoiceConfirm(panel);
     const lines = panel.render(120);
     expect(lines.some((l) => l.includes("nothing to submit"))).toBe(false);

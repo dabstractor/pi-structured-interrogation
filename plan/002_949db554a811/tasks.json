@@ -468,7 +468,7 @@
           "type": "Milestone",
           "id": "P3.M1",
           "title": "SURFACE-001 — reads never surface",
-          "status": "Planned",
+          "status": "Ready",
           "description": "maybeAutoOpen gains three gates (upsert-call via pendingUpsertArgs, unanswered-exist, not-completed); handleUpserted suspended-reopen carries the same gate; tree-nav BUG characterizations flip.",
           "tasks": [
             {
@@ -503,14 +503,14 @@
               "type": "Task",
               "id": "P3.M1.T2",
               "title": "handleUpserted suspended-reopen gate",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-D6: the suspended-reopen path (handleUpserted, panel.ts:1429) carries the same unanswered gate — a description-only edit over an answered set surfaces nothing.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T2.S1",
                   "title": "Apply the unanswered gate to the questions-upserted suspended-reopen path",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 0.5,
                   "dependencies": [
                     "P3.M1.T1.S1"
@@ -531,14 +531,14 @@
               "type": "Task",
               "id": "P3.M1.T3",
               "title": "Flip tree-nav BUG characterizations + AC-15 scripted test",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FLIP the two BUG characterizations in tree-nav-repro.test.ts (post-nav read pops panel; read after completion pops panel) to assert no-open; suspended-at-nav and open-at-nav stay green. New AC-15 test citing FR-28/SURFACE-001.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T3.S1",
                   "title": "Flip tree-nav-repro :143/:183 to no-open; add AC-15 (reads never surface) scripted test",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T1.S1",
@@ -570,14 +570,14 @@
               "type": "Task",
               "id": "P3.M2.T1",
               "title": "Reconstruction: widget line instead of openPanel",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D7: replace the openPanel(...) call at reconstruct.ts:478 with setWidget via hasResumableQuestions(state) → the existing suspend.ts helper; the widget is the only cue. Keep onRestored (remote clients still re-render).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M2.T1.S1",
                   "title": "Swap reconstruct.ts openPanel for updateSuspendWidget; retain onRestored emission",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: surfacing-remote-seams.md — reconstruct.ts:478 `openPanel(ctx,…)` fires on session-start TUI with non-empty state (no unanswered filter); `onRestored` (FR-34 bridge `ask:resume`) at :472 BEFORE openPanel — KEEP it (remote clients still re-render; the panel is the only suppressed surface); non-TUI flag at :455 unchanged; session_tree silent path already exists (:459–466, retarget+suspend). suspend.ts: `updateSuspendWidget` (:135), `hasResumableQuestions` (:66), widget line :117 (`{n} open · {m} answered — /interrogate to resume`), `WIDGET_KEY=\"interrogator\"`.\n2. INPUT: none (leaf; uses shipped helpers).\n3. LOGIC: FR-D7 — session_start reconstruction NEVER opens the panel. Replace the openPanel call with the widget set via the existing suspend.ts helper (hasResumableQuestions(state) → setWidget) — reconstruction's ONLY UI act is the widget line. Keep onRestored emission order. Non-TUI fallback flag unchanged (shapes tool results, not surfaces). session_tree stays silent as shipped. /interrogate reopens via the existing closed-host-with-live-state path.\n4. OUTPUT: widget-only restart behavior consumed by P3.M2.T2.S1 (test flips + rewritten AC-9).\n5. DOCS: [Mode A] reconstruct.ts module header JSDoc: SURFACE-002 — reconstruction's only UI act is the widget line.",

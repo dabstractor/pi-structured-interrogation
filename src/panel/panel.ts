@@ -13,9 +13,12 @@
  *   host flips to "suspended" (not closed), and nothing user-visible is lost —
  *   state lives in the InterrogationState singleton, drafts in the DraftStore
  *   seam (P1.M4.T2.S1). The host stores no question/answer data.
- * - A questions-upserted event while suspended reopens the panel on a fresh
- *   instance rehydrated from state (deepSticky resets — it is per panel
- *   session, h2.29), focused on the first upserted currently-active question.
+ * - A questions-upserted event while suspended reopens the panel ONLY when
+ *   the upsert leaves unanswered (open/reasked) questions (SURFACE-001 /
+ *   FR-D6 — a description-only edit over a fully answered set surfaces
+ *   nothing); on reopen it is a fresh instance rehydrated from state
+ *   (deepSticky resets — it is per panel session, h2.29), focused on the
+ *   first upserted currently-active question.
  * - Rendering: the short view's header/question/hint/footer lines are real
  *   config-driven layout renderers (src/panel/layout.ts, P1.M3.T1.S2) and
  *   the options region renders via renderShortViewOptions
@@ -1467,7 +1470,27 @@ function markSuspended(): void {
   currentPanel = undefined; // fresh instance on reopen — deepSticky resets
 }
 
-/** questions-upserted while open → invalidate; while suspended → reopen. */
+/**
+ * questions-upserted while open → invalidate; while suspended → gated reopen.
+ *
+ * SURFACE-001 / FR-D6 (Mode A allow-list): the panel opens only via the
+ * /interrogate command, an agent upsert that leaves unanswered (open/reasked)
+ * questions, or a deliberate `{reopen:true}` — reads never surface, and a
+ * description-only edit over a fully answered set surfaces nothing (panel
+ * stays suspended, widget unchanged). Rationale: reads/edits are pull, never
+ * surfaces — an unplanned pop traps the prompt-box editor (the
+ * empty-box-after-esc data-loss trap: pi's custom() snapshot/restore makes
+ * every unplanned pop a potential editor-text loss). The suspended-reopen
+ * gate is the SHARED `nextUnanswered` predicate (actions.ts — the same one
+ * maybeAutoOpen's unanswered-exist gate uses), so UNANSWERED_STATUSES only;
+ * never hasResumableQuestions (counts answered/submitted too). Focus is
+ * separate from the gate: when the gate passes, `firstActiveUpsertedId`
+ * remains the focus ladder (h2.37 first upserted currently-active question).
+ *
+ * The open-phase branch (stuck-open remount + invalidate) is UNGATED by
+ * design: the panel is already open, so refreshing content in place is a
+ * refresh, not a surfacing act.
+ */
 function handleUpserted(ids: string[]): void {
   if (phase === "open") {
     // Stuck-open (cold-resume phantom): remount instead of invalidating a
@@ -1481,8 +1504,12 @@ function handleUpserted(ids: string[]): void {
     return;
   }
   if (phase === "suspended" && activePi !== undefined && lastOpts !== undefined) {
+    // SURFACE-001 / FR-D6: reopen only when the upsert leaves unanswered
+    // (open/reasked) questions — a description-only edit over an answered
+    // set surfaces nothing. Same shared predicate as maybeAutoOpen's gate.
+    if (nextUnanswered(lastOpts.state.orderedQuestions(), -1) === undefined) return;
     // h2.37: fresh instance rehydrated from state, focused on the first
-    // upserted currently-active question.
+    // upserted currently-active question (focus ladder, NOT the gate).
     openPanel(activePi, {
       ...lastOpts,
       focusQuestionId: firstActiveUpsertedId(lastOpts.state, ids),

@@ -1,7 +1,8 @@
 /**
  * src/panel/short-view.ts — short-view options region renderer
  * (P1.M3.T2.S1): option lines with cursor `▸`, the `★` recommendation mark,
- * recommendation preselect, the `✎ explain…` affordance, moot/withdrawn
+ * recommendation preselect, the `✎ Other — write your own` write-in row
+ * (WRITEIN-001), moot/withdrawn
  * variants, and the primary text-field affordance for `type: "text"`
  * questions.
  *
@@ -60,8 +61,16 @@ const CURSOR = "▸ ";
 const BLANK = "  ";
 /** Recommendation mark inserted between prefix and label. */
 const STAR = "★ ";
-/** Free-text affordance label under choice options (focus target M4.T1.S2). */
-const EXPLAIN_AFFORDANCE = "✎ explain…";
+/**
+ * The synthetic write-in row (WRITEIN-001, FR-D1): every choice question's
+ * options list ends here; accepting it (P1.M2.T2.S1) makes the embedded
+ * editor the WRITE-IN surface whose committed text IS the answer
+ * (`custom: true`). Fixed label — deliberately NOT configurable and NOT
+ * digit-selectable (h2.32/h2.36); it replaces the retired explain
+ * affordance in the same last-row cursor slot (the elaboration duty moved
+ * to `ctrl+t`, P1.M2.T3.S1).
+ */
+const OTHER_AFFORDANCE = "✎ Other — write your own";
 /** Placeholder for the primary text-field affordance (text questions). */
 const TEXT_PLACEHOLDER = "answer…";
 /** Generic moot reason when state carries no derivable cause. */
@@ -129,8 +138,8 @@ export interface ShortViewInput {
  *
  * - Choice questions: one line per option in state order (never reordered
  *   or filtered, R1), each `  ` inset + cursor prefix + optional `★ ` +
- *   label + dimmed ` — {ramification}` teaser, then the `✎ explain…`
- *   affordance line (cursor index `options.length`).
+ *   label + dimmed ` — {ramification}` teaser, then the
+ *   `✎ Other — write your own` write-in row (cursor index `options.length`).
  * - Text questions: no option lines — the primary affordance
  *   `✎ answer…` (cursor index 0, full intensity), plus a dimmed first-line
  *   preview when `q.answer?.text` exists.
@@ -164,7 +173,7 @@ export function renderShortViewOptions(input: ShortViewInput): string[] {
     for (let i = 0; i < options.length; i++) {
       lines.push(optionLine(q, options[i], i, cursorIndex, theme, budget, dimAll));
     }
-    lines.push(explainLine(options.length, cursorIndex, theme, dimAll));
+    lines.push(otherLine(options.length, cursorIndex, theme, dimAll));
   }
   // Soft-gate dimming seam (P1.M5.T3.S1): one wrap pass over the FINISHED
   // lines — content composed exactly as before, only the color class added.
@@ -211,15 +220,16 @@ function optionLine(
 }
 
 /**
- * The `✎ explain…` affordance line — present on every choice question and
- * occupying cursor index `options.length`. At that index it is the focus
- * target: `▸ ` prefix and full (non-dim) intensity; otherwise dimmed with
- * a two-space prefix. Focus BEHAVIOR (editor composition) is P1.M4.T1.S2;
- * this module only renders the line inside the cursor range.
+ * The `✎ Other — write your own` row (WRITEIN-001) — present on every
+ * choice question and occupying cursor index `optionCount` (the LAST row).
+ * At that index it is the focus target: `▸ ` prefix and full (non-dim)
+ * intensity; otherwise dimmed with a two-space prefix. Focus BEHAVIOR (the
+ * write-in duty) is P1.M2.T2.S1; this module only renders the line inside
+ * the cursor range.
  */
-function explainLine(optionCount: number, cursorIndex: number, theme: Theme, dimAll: boolean): string {
+function otherLine(optionCount: number, cursorIndex: number, theme: Theme, dimAll: boolean): string {
   const prefix = cursorIndex === optionCount ? CURSOR : BLANK;
-  const content = `${prefix}${EXPLAIN_AFFORDANCE}`;
+  const content = `${prefix}${OTHER_AFFORDANCE}`;
   const focused = cursorIndex === optionCount && !dimAll;
   return `${INSET}${focused ? content : theme.fg("dim", content)}`;
 }

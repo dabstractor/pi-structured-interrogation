@@ -367,6 +367,22 @@ describe("digit — quick-select (R5)", () => {
     expect(digit(panel, 1.5)).toBe(false);
   });
 
+  test("test_digit_never_selects_the_other_row_no_state_change_fr_d1", () => {
+    // WRITEIN-001 / FR-D1 explicit exclusion: the ✎ Other — write your own
+    // row (cursor index options.length) is NOT digit-selectable — digit n
+    // with n-1 === options.length is a no-op that mutates NOTHING.
+    const state = seed([{ id: "q1" }]); // 2 options → Other row at index 2, digit 3
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    const before = state.serialize();
+
+    expect(digit(panel, 3)).toBe(false); // one past the 2 real options = the Other row
+    expect(digit(panel, 9)).toBe(false);
+    expect(state.serialize()).toEqual(before); // NO answer applied, no status change
+    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // nothing answered via digits
+    expect(panel.currentId).toBe("q1"); // no advance either
+  });
+
   test("test_e_digit_disabled_falls_through_false", () => {
     const state = seed(BASIC);
     const config = { ...DEFAULT_CONFIG, digitQuickSelect: false };

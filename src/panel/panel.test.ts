@@ -452,7 +452,7 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(short[0]).toContain("0/1 answered · 0 re-asked");
     expect(short.some((l) => l.includes("prompt:q1"))).toBe(true); // question line
     expect(short.some((l) => l.includes("▸ "))).toBe(true); // options region cursor (P1.M3.T2.S1)
-    expect(short.some((l) => l.includes("✎ explain…"))).toBe(true); // real options region
+    expect(short.some((l) => l.includes("✎ Other — write your own"))).toBe(true); // real options region
     expect(short).not.toContain("options region (TODO M3.T2)"); // placeholder replaced
     expect(short.some((l) => l.startsWith("focus: "))).toBe(false); // placeholder gone
     expect(short[short.length - 1]).toMatch(/^└ .*⏎ ┘$/); // S2 footer

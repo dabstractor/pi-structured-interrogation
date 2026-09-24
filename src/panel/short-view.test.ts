@@ -4,7 +4,7 @@
  *
  * Covers the S1 success criteria: ★ + preselect coexistence on the
  * recommended option (R2, "▸ ★ sqlite"), cursor-prefix alignment between
- * starred/unstarred/cursor lines, the focusable ✎ explain… affordance at
+ * starred/unstarred/cursor lines, the focusable ✎ Other — write your own row at
  * the end of the cursor domain, the primary text affordance with dimmed
  * answered preview, moot dimming with derived reason, withdrawn collapse,
  * ramification teaser truncation, and the width-invariant sweep
@@ -168,24 +168,24 @@ describe("choice option lines", () => {
   test("(k) choice question with options undefined renders ✎ only", () => {
     const q = choiceQ({ options: undefined });
     expect(initialCursorIndex(q)).toBe(0);
-    expect(render(q, 0)).toEqual(["  ▸ ✎ explain…"]); // cursor 0 === options.length → focused
-    expect(render(q, 5)).toEqual(["    ✎ explain…"]); // unfocused variant, out-of-range cursor
+    expect(render(q, 0)).toEqual(["  ▸ ✎ Other — write your own"]); // cursor 0 === options.length → focused
+    expect(render(q, 5)).toEqual(["    ✎ Other — write your own"]); // unfocused variant, out-of-range cursor
   });
 });
 
 // -------------------------------------------------------- ✎ affordance line
 
-describe("✎ explain… affordance", () => {
+describe("✎ Other — write your own row (WRITEIN-001)", () => {
   test("(e) focusable at the end of the cursor domain, dimmed otherwise", () => {
     const q = choiceQ();
     const last = (q.options ?? []).length;
 
     const focused = render(q, last, dimTheme).at(-1);
-    expect(focused).toBe("  ▸ ✎ explain…"); // full intensity — no dim codes
+    expect(focused).toBe("  ▸ ✎ Other — write your own"); // full intensity — no dim codes
     expect(focused).not.toContain(DIM);
 
     const idle = render(q, 0, dimTheme).at(-1);
-    expect(idle).toContain("✎ explain…");
+    expect(idle).toContain("✎ Other — write your own");
     expect(idle).toContain(DIM); // dimmed when not the focus target
     expect(idle).not.toContain("▸");
   });

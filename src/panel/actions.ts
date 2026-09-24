@@ -118,7 +118,8 @@ export function nextUnanswered(
 
 /**
  * Cursor domain size for a question (S1 contract): choice questions own
- * 0..options.length (last index = the ✎ explain affordance); text questions
+ * 0..options.length (last index = the synthetic ✎ Other write-in row,
+ * WRITEIN-001); text questions
  * own {0} (the primary affordance). Tolerant of choice questions with
  * undefined options (renders the ✎ affordance only).
  */
@@ -180,7 +181,8 @@ export function optionDown(panel: InterrogationPanel): boolean {
  * Digit quick-select (R5): accept option `n-1` (1-based) through the SAME
  * path as accept — ripple seam on answered/submitted, moot/withdrawn no-op,
  * advance after commit. Requires config.digitQuickSelect. Out of range
- * (`n-1` past the option count — the ✎ affordance is NOT digit-selectable),
+ * (`n-1` past the option count — the ✎ Other write-in row is NOT
+ * digit-selectable, h2.36: quick-select covers REAL options only),
  * on text questions, or with quick-select disabled → no-op returning false
  * so the key can fall through to other bindings.
  */

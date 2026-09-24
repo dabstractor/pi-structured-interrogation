@@ -397,14 +397,14 @@
               "type": "Task",
               "id": "P2.M1.T3",
               "title": "Bridge tail: maybeAutoSubmit + customText parity",
-              "status": "Complete",
+              "status": "Ready",
               "description": "FR-D4: recordRemoteSubmission runs maybeAutoSubmit at its tail — a bridge partial submit completing the set ships once through the same pipeline. customText-only bridge answers set custom: true (WRITEIN-001 parity); bridge answer validation accepts custom values as-is (not checked against option lists).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T3.S1",
                   "title": "recordRemoteSubmission tail hook + customText-only → custom:true + validation acceptance",
-                  "status": "Complete",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P2.M1.T1.S1",
@@ -428,14 +428,14 @@
               "type": "Task",
               "id": "P2.M1.T4",
               "title": "Delete 'submit pending answers first' edge + epoch-per-firing semantics",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-D4: the old footer edge is deleted (completeness ships itself). A user suspended between last commit and delivery resumes to a pending panel — one ctrl+s or any new commit flushes. Epoch bumps per auto-submit firing (tests).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T4.S1",
                   "title": "Remove the submit-pending edge; assert epoch bumps per auto-submit firing",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S1"
@@ -475,14 +475,14 @@
               "type": "Task",
               "id": "P3.M1.T1",
               "title": "maybeAutoOpen allow-list gates",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D6: maybeAutoOpen opens ONLY when (1) the call was an upsert (questions[] non-empty — read the pendingUpsertArgs stash), (2) unanswered (open/reasked) questions exist post-upsert, (3) interrogation not completed. Reads ({}) NEVER surface, whatever the state.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T1.S1",
                   "title": "Add upsert-call + unanswered-exist + not-completed gates to maybeAutoOpen",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: surfacing-remote-seams.md — `maybeAutoOpen` (panel.ts:1759, wired at index.ts:152) currently opens on ANY successful interrogate end (toolName + !isError + host-closed + state exists) — the SURFACE-001 bug. End events carry NO args; the `pendingUpsertArgs` Map (index.ts:215) is populated at tool_execution_start (:219) and consumed+DELETED by the bridge emission handler (:224–225) registered LAST. CRITICAL ORDERING: the lifecycle handler runs FIRST — read the stash non-consumingly (peek without delete) or extract a shared helper; do NOT break the deferred bridge emission (D-R6) or introduce a second stash.\n2. INPUT: none (leaf; modifies existing wiring).\n3. LOGIC: FR-D6 — maybeAutoOpen requires: (1) call was an upsert (`questions[]` non-empty from the stash), (2) unanswered (open/reasked) questions exist post-upsert — reuse the status predicate family from hasResumableQuestions/nextUnanswered, (3) not completed. Reads `{}` never open, including all-answered, completed, and post-/tree states. {reopen:true} and /interrogate paths untouched. Mock pi events per existing panel.test.ts/index-level test patterns.\n4. OUTPUT: gated open consumed by P3.M1.T3.S1 (test flips) and referenced by P3.M1.T2.S1 (same predicate).\n5. DOCS: [Mode A] JSDoc on maybeAutoOpen: the three-gate allow-list + rationale (reads are pull, never surfaces; cite SURFACE-001).",
@@ -503,14 +503,14 @@
               "type": "Task",
               "id": "P3.M1.T2",
               "title": "handleUpserted suspended-reopen gate",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D6: the suspended-reopen path (handleUpserted, panel.ts:1429) carries the same unanswered gate — a description-only edit over an answered set surfaces nothing.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T2.S1",
                   "title": "Apply the unanswered gate to the questions-upserted suspended-reopen path",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 0.5,
                   "dependencies": [
                     "P3.M1.T1.S1"

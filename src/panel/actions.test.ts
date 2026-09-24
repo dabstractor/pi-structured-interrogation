@@ -1687,6 +1687,129 @@ describe("maybeAutoSubmit — completeness hook", () => {
     expect(panel.footerFlash?.text).toBe("submitted — 1 answer(s)"); // only q1 pending now
   });
 
+  test("test_auto_consecutive_edits_each_one_submission_one_epoch_bump", () => {
+    // FR-D4 epoch lock (h2.41): N consecutive edit commits on a complete
+    // set → N full submissions, EACH bumping epoch exactly once via
+    // buildSubmission's takeSnapshot + bumpEpoch — never batched, never
+    // skipped. The `epoch-bumped` event fires exactly once per firing,
+    // carrying the post-bump value (n = 2, 3, 4, 5).
+    const state = seed(BASIC);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const bumped: number[] = [];
+    const onBumped = (epoch: number): void => {
+      bumped.push(epoch);
+    };
+    state.on("epoch-bumped", onBumped);
+
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+    accept(panel); // q1 answered, q2 still open → NO firing
+    accept(panel); // set completes → firing 1 ships BOTH pending
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.epoch).toBe(2);
+    expect(state.snapshots).toHaveLength(1);
+
+    // Three consecutive edits of already-submitted answers; the set stays
+    // complete throughout, so every commit tail fires (h2.33 trade-off:
+    // each deliberate edit costs one model turn).
+    const edits: Array<{ id: string; index: number }> = [
+      { id: "q1", index: 1 }, // "a" → "b"
+      { id: "q2", index: 1 }, // "a" → "b"
+      { id: "q1", index: 0 }, // "b" → "a" (changed vs the last snapshot)
+    ];
+    for (const [i, edit] of edits.entries()) {
+      panel.currentId = edit.id; // setter re-seeds the cursor to the ★ preselect
+      panel.cursorIndex = edit.index;
+      accept(panel);
+
+      // Per iteration: exactly ONE new submission — one delivery, one
+      // epoch bump, one snapshot, one flash counting only the edited
+      // answer (it was the sole pending id at commit time).
+      expect(sendMessage).toHaveBeenCalledTimes(2 + i);
+      expect(state.epoch).toBe(3 + i);
+      expect(state.snapshots).toHaveLength(2 + i);
+      expect(panel.footerFlash?.text).toBe("submitted — 1 answer(s)");
+    }
+
+    // Totals: 1 complete-set firing + 3 edit firings = 4 submissions.
+    expect(sendMessage).toHaveBeenCalledTimes(4);
+    expect(state.epoch).toBe(5); // epoch 1 + exactly +1 per firing
+    expect(state.snapshots).toHaveLength(4);
+    // `epoch-bumped` emitted ONCE per firing with the post-bump value.
+    expect(bumped).toEqual([2, 3, 4, 5]);
+    state.off("epoch-bumped", onBumped);
+    panel.dispose(); // flash timers armed → dispose per harness convention
+  });
+
+  test("test_resume_pending_panel_one_ctrl_s_flushes_once", () => {
+    // h2.39 suspended-mid-delivery resume (modeled as STATE shape — never a
+    // live TUI, AUTOMATION-POLICY): the user suspended between the last
+    // commit and delivery; /interrogate reopens to a COMPLETE set holding
+    // pending (answered) answers, zero open/reasked — the exact
+    // post-suspend pre-delivery shape. ONE ctrl+s (submit(), the keys.ts
+    // binding with host-pre-bound deps) ships ALL pending answers in a
+    // single submission: one delivery, one epoch bump, one snapshot — no
+    // interim partial ships.
+    const state = seed([
+      { id: "q1", overrides: { status: "answered" } }, // pending across suspend
+      { id: "q2", overrides: { status: "answered" } }, // pending across suspend
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch; // 1
+    const bumps: number[] = [];
+    const onBumped = (epoch: number): void => {
+      bumps.push(epoch);
+    };
+    state.on("epoch-bumped", onBumped);
+
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(bumps).toEqual([epochBefore + 1]); // ONE bump, new value carried
+    expect(state.epoch).toBe(epochBefore + 1);
+    expect(state.getQuestion("q1")?.status).toBe("submitted");
+    expect(state.getQuestion("q2")?.status).toBe("submitted");
+    expect(state.snapshots).toHaveLength(1);
+    state.off("epoch-bumped", onBumped);
+    panel.dispose();
+  });
+
+  test("test_resume_pending_panel_new_commit_flushes_once", () => {
+    // The alternative h2.39 flush path: same post-suspend pending shape,
+    // but the user answers instead of pressing ctrl+s — the commit tail's
+    // maybeAutoSubmit fires ONCE and ships the WHOLE pending set. The flash
+    // counts every pending answer captured BEFORE submit (h2.33), not just
+    // the freshly edited question.
+    const state = seed([
+      { id: "q1", overrides: { status: "answered" } }, // pending across suspend
+      { id: "q2", overrides: { status: "answered" } }, // pending across suspend
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const bumps: number[] = [];
+    const onBumped = (epoch: number): void => {
+      bumps.push(epoch);
+    };
+    state.on("epoch-bumped", onBumped);
+
+    panel.currentId = "q1"; // setter re-seeds the cursor to the ★ "a" preselect
+    panel.cursorIndex = 1; // edit the pending answer → "b"
+
+    expect(accept(panel)).toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(bumps).toEqual([2]); // one commit-tail firing = one bump
+    expect(state.epoch).toBe(2);
+    expect(panel.footerFlash?.text).toBe("submitted — 2 answer(s)"); // q1+q2, not just the edit
+    expect(state.getQuestion("q1")?.status).toBe("submitted");
+    expect(state.getQuestion("q2")?.status).toBe("submitted");
+    expect(state.snapshots).toHaveLength(1);
+    state.off("epoch-bumped", onBumped);
+    panel.dispose();
+  });
+
   test("test_auto_incomplete_set_never_fires", () => {
     // A commit while any open question remains: no submit, no flash.
     const state = seed(BASIC);

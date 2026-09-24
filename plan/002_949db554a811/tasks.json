@@ -461,7 +461,7 @@
       "type": "Phase",
       "id": "P3",
       "title": "Delta D3 — Surfacing gates (SURFACE-001/002)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "FR-D6/D7: panel opens ONLY via /interrogate, an upsert leaving unanswered questions, or {reopen:true}; reads NEVER surface; session_start reconstruction NEVER opens the panel (suspend widget line instead, FR-34 onRestored kept).",
       "milestones": [
         {
@@ -563,7 +563,7 @@
           "type": "Milestone",
           "id": "P3.M2",
           "title": "SURFACE-002 — session-start never auto-opens",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Reconstruction NEVER opens the panel: replace openPanel at reconstruct.ts:478 with the suspend-widget line via the existing suspend.ts helper; keep the FR-34 onRestored bridge emission; non-TUI fallback flag unchanged; session_tree stays silent.",
           "tasks": [
             {
@@ -599,14 +599,14 @@
               "type": "Task",
               "id": "P3.M2.T2",
               "title": "Flip reconstruction/ac-panel tests + rewrite AC-9",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FLIP the opened:true session-start rows in reconstruct.test.ts (~204/260/370) and the ac-panel restart rows to widget-set/no-panel; rewrite AC-9: restart → NO panel, widget shows live counts, /interrogate reopens restored, drafts gone (documented), pending answers ship on next commit/submit.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M2.T2.S1",
                   "title": "Flip opened:true rows (reconstruct.test.ts :204/:260/:370; ac-panel AC-9a/b/c + AC-10) and rewrite AC-9",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M2.T1.S1",

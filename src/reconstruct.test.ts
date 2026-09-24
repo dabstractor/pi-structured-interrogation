@@ -144,15 +144,22 @@ function diff(
 
 type Handler = (event: unknown, ctx: unknown) => void;
 
-function makeCtx(entries: SessionEntry[], mode = "tui"): ReconstructionContext & { ui: { custom: Mock } } {
+function makeCtx(
+  entries: SessionEntry[],
+  mode = "tui",
+): ReconstructionContext & { ui: { custom: Mock; setWidget: Mock } } {
   // Never-resolving promise: phase flips to "open", nothing resolves later.
   const custom = vi.fn(() => new Promise<null>(() => {}));
+  // SURFACE-002: reconstruction's ONLY UI act is the keyed suspend widget —
+  // updateSuspendWidget is a NO-OP on surfaces lacking ui.setWidget, so the
+  // widget assertions below need it present (no vacuous passes).
+  const setWidget = vi.fn();
   return {
     mode,
     hasUI: mode === "tui",
     sessionManager: { getBranch: () => entries },
-    ui: { custom },
-  } as unknown as ReconstructionContext & { ui: { custom: Mock } };
+    ui: { custom, setWidget },
+  } as unknown as ReconstructionContext & { ui: { custom: Mock; setWidget: Mock } };
 }
 
 function makeHost(): PanelHost {
@@ -200,9 +207,16 @@ describe("reconstructFromBranch — base selection", () => {
     // but it started open; flip it visibly by checking it is NOT moot, and
     // with an unmet dependency below in the dedicated test.
     expect(state?.getQuestion("q2")?.status).not.toBe("moot");
-    // TUI + non-empty → existing panel path opened.
-    expect(result.opened).toBe(true);
-    expect(ctx.ui.custom).toHaveBeenCalledTimes(1);
+    // SURFACE-002 (h2.44 step 4): session_start NEVER auto-opens — the
+    // keyed suspend widget is the ONLY cue. Deterministic fixture counts:
+    // q1 answered (sqlite) + q2 open → `1 open · 1 answered — /interrogate…`.
+    expect(result.opened).toBe(false);
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
+    const widgetCall = (ctx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(widgetCall?.[0]).toBe("interrogator");
+    expect((widgetCall?.[1] as string[] | undefined)?.[0]).toBe(
+      "1 open · 1 answered — /interrogate to resume",
+    );
     expect(isFallbackActive()).toBe(false);
   });
 
@@ -257,7 +271,16 @@ describe("reconstructFromBranch — base selection", () => {
     expect(result.replayed).toBe(0);
     expect(getState()?.getQuestion("new-q")?.answer?.value).toBe("sqlite");
     expect(getState()?.getQuestion("old-q")).toBeUndefined();
-    expect(result.opened).toBe(true); // TUI + non-empty
+    // SURFACE-002: silent install — the widget advertises the resume cue
+    // (newest state: new-q answered → `0 open · 1 answered — /interrogate…`;
+    // answered-pending is LIVE per BUG-005, so the widget stays set).
+    expect(result.opened).toBe(false);
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
+    const widgetCall = (ctx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(widgetCall?.[0]).toBe("interrogator");
+    expect((widgetCall?.[1] as string[] | undefined)?.[0]).toBe(
+      "0 open · 1 answered — /interrogate to resume",
+    );
   });
 
   test("mirror submissions replay only at/above the base epoch", () => {
@@ -351,7 +374,7 @@ describe("reconstructFromBranch — surface decision", () => {
     expect((ctx.ui.custom as Mock)).not.toHaveBeenCalled();
   });
 
-  test("suspended host reopens through openPanel with the FRESH state (f — session-start origin)", () => {
+  test("suspended host STAYS suspended at session-start; widget-only cue (f — SURFACE-002)", () => {
     const oldState = createInterrogationState("old branch");
     const base = seededState((s) => {
       applyUpsert(s, [choiceQ("q1")]);
@@ -367,9 +390,20 @@ describe("reconstructFromBranch — surface decision", () => {
     const ctx = makeCtx([toolResultEntry(base)]);
     const result = reconstructFromBranch(ctx, makeOpts(host, drafts));
 
-    expect(result.opened).toBe(true);
-    expect((ctx.ui.custom as Mock)).toHaveBeenCalledTimes(1);
-    // Fresh state is live: reopening must not have resuscitated lastOpts.state.
+    // SURFACE-002: the session-start walk NEVER surfaces — no reopen, no
+    // custom() call; the suspended host stays suspended and the widget line
+    // is the only cue (fixture: q1 open → `1 open · 0 answered — …`).
+    expect(result.opened).toBe(false);
+    expect((ctx.ui.custom as Mock)).not.toHaveBeenCalled();
+    expect(host.isSuspended()).toBe(true);
+    expect(host.isOpen()).toBe(false);
+    const widgetCall = (ctx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(widgetCall?.[0]).toBe("interrogator");
+    expect((widgetCall?.[1] as string[] | undefined)?.[0]).toBe(
+      "1 open · 0 answered — /interrogate to resume",
+    );
+    // Fresh state is live: the singleton holds the reconstructed branch, and
+    // a later deliberate resume rehydrates from it (not lastOpts.state).
     expect(getState()?.goal).toBe("test goal");
     // Drafts pass through UNTOUCHED (FR-28: never read, never written here).
     expect(drafts.getDraft("q1")).toBe("wip draft");
@@ -520,7 +554,7 @@ describe("createReconstruction — wiring (h)", () => {
     return { pi: { on } as unknown as Pick<ExtensionAPI, "on">, emit, on };
   }
 
-  test("subscribes BOTH session_start and session_tree; start opens, tree is silent", () => {
+  test("subscribes BOTH session_start and session_tree; start installs + widget, tree is silent", () => {
     const mock = makeMockPi();
     const host = makeHost();
     createReconstruction(mock.pi, makeOpts(host));
@@ -530,11 +564,18 @@ describe("createReconstruction — wiring (h)", () => {
     const base = seededState((s) => {
       applyUpsert(s, [choiceQ("q1")]);
     });
-    // session_start reconstructs AND opens (FR-28)…
+    // session_start silently installs + sets the suspend widget
+    // (SURFACE-002); it NEVER opens — the /interrogate reopen is the
+    // deliberate path. Fixture: q1 open → `1 open · 0 answered — …`.
     const startCtx = makeCtx([toolResultEntry(base)]);
     mock.emit("session_start", startCtx);
     expect(getState()?.getQuestion("q1")).toBeDefined();
-    expect((startCtx.ui.custom as Mock)).toHaveBeenCalledTimes(1);
+    expect((startCtx.ui.custom as Mock)).not.toHaveBeenCalled();
+    const startWidget = (startCtx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(startWidget?.[0]).toBe("interrogator");
+    expect((startWidget?.[1] as string[] | undefined)?.[0]).toBe(
+      "1 open · 0 answered — /interrogate to resume",
+    );
 
     // …and session_tree on a branch WITHOUT traces re-runs the walk →
     // cleared, torn down, nothing surfaced.

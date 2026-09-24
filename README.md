@@ -42,7 +42,9 @@ materialize; runtime loads via jiti against pi's tree.
    text and returns to the options, and the option you then accept ships
    with your explanation attached; on the `✎ Other — write your own` row
    (and on `type:"text"` questions) it is the **write-in** duty — the text
-   IS the answer and `enter` commits it immediately.
+   IS the answer and `enter` commits it immediately. On a `type:"text"`
+   question, `enter` on the `✎ answer…` affordance itself opens the editor
+   in the write-in duty — `ctrl+t` is not the only entry.
 3. Submitting is mostly automatic: answering the last open question — by
    option accept, `✎ Other` write-in, or text `enter` — ships the submission
    for you (footer flashes `submitted — {n} answer(s)`), and an edit made
@@ -185,9 +187,9 @@ Fixed keys (not configurable):
 
 | Key      | Effect                                              |
 | -------- | --------------------------------------------------- |
-| `enter`  | Accept + advance; confirm dialogs; in the editor, per duty: COMMIT the answer (write-in on `✎ Other` / text questions — commit-at-enter), save + return to options (elaboration/note) |
+| `enter`  | Accept + advance; confirm dialogs; on a text question's `✎ answer…` affordance it opens the editor (write-in duty); in the editor, per duty: COMMIT the answer (write-in on `✎ Other` / text questions — commit-at-enter), save + return to options (elaboration/note) |
 | `esc`    | Back / suspend — descends, never destroys. While the text/note editor is focused, a single `esc` goes to the editor (vim modes); `esc` twice in a row (within `escExitWindowMs`, default 500 ms, `0` disables) closes the editor only |
-| `ctrl+c` | Closes the prompt (suspend) and stays unconsumed — pi's own ctrl+c flow (clear editor; double-press shuts down) resumes on the restored editor |
+| `ctrl+c` | Closes the prompt (suspend) — the in-flight text is written to its question's draft first (R4) — and stays unconsumed; pi's own ctrl+c flow (clear editor; double-press shuts down) resumes on the restored editor |
 | `↑` `↓`  | Move among options; scroll. In the editor: caret movement |
 | `←` `→`  | Previous / next question — the FULL list (every status navigable, clamped at the ends), view-aware (overview: cursor row); not intercepted in text/note focus (the editor caret owns them there) |
 | `1`–`9`  | Quick-select an option (when `digitQuickSelect` is on) — real options only: the `✎ Other` row is never digit-selectable |
@@ -201,7 +203,9 @@ it puts the editor in the **write-in** duty (region labeled `OTHER — this
 text is the answer`): what you type IS the answer — `enter` commits it as
 `answer.value` with `custom: true`, and every surface that shows the answer
 (submission diff cards, `{}` reads, the completion record and recap card,
-the overview) renders it as `✎ {text}`. Focused on a real option, the
+the overview, and the short view on revisit — `✎` on the question line plus
+a dimmed preview of the recorded value) renders it as `✎ {text}`. Focused
+on a real option, the
 editor is the **elaboration** duty: the text attaches to whichever option
 you select and ships as the answer's text — an elaboration, not an answer
 of its own. Accepting an option after a committed write-in supersedes the
@@ -210,7 +214,10 @@ questions the editor is likewise the answer. Selecting options stays
 available before/after elaborating. The editor's contents are
 **per-question** — opening it on another question starts blank (or that
 question's own saved draft); switching questions while typing saves the
-text to its question automatically.
+text to its question automatically. Every editor exit is a draft
+write-through (R4): question switches, `esc`, `ctrl+c`, discuss in chat,
+note mode — typed-but-unsubmitted text always lands in its question's
+draft; no exit gesture destroys it.
 
 Navigation defaults: questions move with `←` / `→` (fixed keys, above) or
 `tab` / `shift+tab` (`keys.prevQuestion` / `keys.nextQuestion`, remappable

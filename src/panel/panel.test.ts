@@ -1297,13 +1297,21 @@ describe("embedded editor — construction + wiring (P1.M4.T1.S1)", () => {
 });
 
 describe("ctrl+c — SIGINT-style escape (CTRL-C-001)", () => {
-  function makeSuspendPanel(state: InterrogationState): {
+  function makeSuspendPanel(
+    state: InterrogationState,
+    extra: Partial<InterrogationPanelArgs> = {},
+  ): {
     panel: InterrogationPanel;
     done: ReturnType<typeof vi.fn>;
   } {
     const done = vi.fn();
-    const panel = new InterrogationPanel({ ...panelArgsFor(state), done });
+    const panel = new InterrogationPanel({ ...panelArgsFor(state, extra), done });
     return { panel, done };
+  }
+
+  /** DraftStore stub with spy seams (makeEditorHarness pattern). */
+  function makeDraftsStub() {
+    return { getDraft: vi.fn(), setDraft: vi.fn(), getNote: vi.fn(() => ""), setNote: vi.fn() };
   }
 
   test("test_ctrl_c_closes_the_prompt_and_stays_unconsumed", () => {
@@ -1339,11 +1347,62 @@ describe("ctrl+c — SIGINT-style escape (CTRL-C-001)", () => {
   test("test_ctrl_c_escapes_note_mode_and_editor_focus", () => {
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
-    const { panel, done } = makeSuspendPanel(state);
+    const drafts = makeDraftsStub();
+    const { panel, done } = makeSuspendPanel(state, { drafts: drafts as unknown as DraftStore });
     panel.enterNoteMode();
     expect(panel.focus).toBe("note");
+    panel.textField.setText("note in flight"); // typed-but-unsubmitted (BUG-002)
     expect(panel.handleInput("\u0003")).toBe(false);
     expect(done).toHaveBeenCalledWith(null);
+    // R4 write-through (ESC-002): suspend stages the note buffer before
+    // resolving — the typed note is never destroyed.
+    expect(panel.batchNote).toBe("note in flight");
+    expect(drafts.setNote).toHaveBeenCalledWith("note in flight");
+  });
+
+  test("test_ctrl_c_from_text_focus_writes_through_draft", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDraftsStub();
+    const { panel, done } = makeSuspendPanel(state, {
+      drafts: drafts as unknown as DraftStore,
+      focusQuestionId: "q1",
+    });
+    panel.focusTextField(); // editor focus; bufferOwner = "q1"
+    panel.textField.setText("precious unsaved typing");
+    expect(panel.handleInput("\u0003")).toBe(false); // unconsumed (pi's flow resumes)
+    expect(done).toHaveBeenCalledWith(null); // suspend, never destroy
+    // R4/ESC-002 write-through: panel slot + DraftStore seam BOTH carry it.
+    expect(panel.draftTextFor("q1")).toBe("precious unsaved typing");
+    expect(drafts.setDraft).toHaveBeenCalledWith("q1", "precious unsaved typing");
+  });
+
+  test("test_ctrl_c_with_empty_buffer_writes_nothing", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDraftsStub();
+    const { panel, done } = makeSuspendPanel(state, {
+      drafts: drafts as unknown as DraftStore,
+      focusQuestionId: "q1",
+    });
+    panel.focusTextField();
+    expect(panel.handleInput("\u0003")).toBe(false);
+    expect(done).toHaveBeenCalledWith(null);
+    // Empty buffer: no slot resurrected with "", no seam write.
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+    expect(drafts.setDraft).not.toHaveBeenCalled();
+  });
+
+  test("test_suspend_from_options_focus_writes_nothing", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDraftsStub();
+    const { panel, done } = makeSuspendPanel(state, { drafts: drafts as unknown as DraftStore });
+    expect(panel.focus).toBe("options"); // esc-descent landing — never opened the editor
+    panel.suspend();
+    expect(done).toHaveBeenCalledWith(null);
+    expect(drafts.setDraft).not.toHaveBeenCalled();
+    expect(drafts.setNote).not.toHaveBeenCalled();
   });
 
   test("test_ctrl_c_after_suspend_is_inert", () => {

@@ -896,12 +896,54 @@ export class InterrogationPanel implements Component {
   }
 
   /**
+   * R4/ESC-002 write-through (BUG-002 gesture 1): stage the editor's
+   * in-flight buffer (question draft or note) to its panel-local slot + the
+   * DraftStore seam, with NO FR-18 modal, NO blur, NO invalidate, and NO
+   * EXPLAIN-003 cursor re-seed — the panel may be disposing mid-suspend, so
+   * render/focus side effects are unnecessary and unsafe, and a ripple
+   * modal would orphan (nothing services it after custom() resolves).
+   * Deliberately UNGATED: a pending edit is written through without
+   * confirmation at suspend time. Mirrors {@link commitTextDraft}'s
+   * slot/seam writes for question drafts and {@link exitNoteMode}'s
+   * batchNote/seam writes for the note (EXPLAIN-002's bufferOwner — never
+   * currentId — picks the slot key). Idempotent-safe: with focus outside
+   * the editor or an empty buffer it is a no-op (an empty buffer must never
+   * overwrite a stored draft with ""), and suspend()'s resolved guard makes
+   * a second call moot. Reuse contract: S2 (discuss) and S3 (note-mode
+   * swap) call this before their own exits.
+   */
+  private writeThroughCurrentDraft(): void {
+    if (this.focus !== "text" && this.focus !== "note") return;
+    const text = this.textField.getText();
+    if (text.trim() === "") return;
+    if (this.bufferOwner === "note") {
+      // Mirror exitNoteMode — never lose the note buffer on suspend.
+      this.batchNote = text;
+      this.drafts?.setNote(text);
+      return;
+    }
+    const id = this.bufferOwner; // question id (EXPLAIN-002)
+    if (typeof id === "string") {
+      this.draftSlots.set(id, { value: id, text });
+      this.drafts?.setDraft(id, text);
+    }
+    // Deliberately NOTHING else: no blur, no invalidate, no cursor re-seed,
+    // no FR-18 modal — see the JSDoc above.
+  }
+
+  /**
    * Suspend contract (h2.35): resolve custom() with null. The editor region
    * is restored by pi; the host's floating .then marks the host suspended.
    * Idempotent — a second call after resolution is a no-op.
+   * R4/ESC-002 write-through guarantee: every editor exit is a draft
+   * write-through — suspend first stages the in-flight buffer (question
+   * draft or note) to its slot + DraftStore seam via
+   * {@link writeThroughCurrentDraft} before resolving; ungated (no FR-18
+   * modal — the panel is disposing).
    */
   suspend(): void {
     if (this.resolved) return;
+    this.writeThroughCurrentDraft(); // R4/ESC-002: never lose typed-but-unsubmitted text
     this.resolved = true;
     this.done(null);
   }

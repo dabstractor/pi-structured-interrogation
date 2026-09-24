@@ -708,7 +708,16 @@ describe("AC-14 (state side) — completion record built once, exactly once (FR-
     expect(state.orderedQuestions()).toHaveLength(0);
     expect(state.goal).toBe(GOAL); // retained
     expect(state.epoch).toBe(2); // retained
-    expect(state.snapshots).toHaveLength(1); // retained
+    // Ring retained — now TWO entries (BUG-003/P1.M1.T3.S2): the submit-time
+    // snapshot (epoch 1, 'submitted') + the completion-triggering close
+    // pass's snapshot (epoch 2, 'closed', no bump). The follow-up no-op
+    // settle below must add NOTHING (toClose.length > 0 gate).
+    expect(state.snapshots).toHaveLength(2);
+    expect(state.snapshots[0]!.epoch).toBe(1);
+    expect(state.snapshots[1]!.epoch).toBe(2);
+    expect(
+      Object.values(state.snapshots[1]!.state.questions).every((q) => q.status === "closed"),
+    ).toBe(true);
 
     // Once-only: a re-trigger attempt injects NOTHING.
     h.emit("agent_settled"); // second settle → close pass no-op → trigger blocked

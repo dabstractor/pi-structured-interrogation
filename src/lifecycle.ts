@@ -69,6 +69,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { closeSubmitted } from "./merge.js";
+import { takeSnapshot } from "./snapshots.js";
 import { getState, type InterrogationState, type Question, type QuestionStatus } from "./state.js";
 
 /** Outcome of one agent_settled close pass (consumed by P1.M2.T2.S2). */
@@ -225,13 +226,20 @@ export function createLifecycle(pi: Pick<ExtensionAPI, "on">, opts?: LifecycleOp
     const submitted = state.orderedQuestions().filter((q) => q.status === "submitted");
     const toClose = submitted.filter((q) => !reaskedThisRun.has(q.id)).map((q) => q.id);
     closeSubmitted(state, toClose); // merge.js — throws-on-unknown already impossible: ids came from state
-    // P1.M1.T3.S2 (BUG-003 fix option (a)) inserts `takeSnapshot(state)` at
-    // THIS SPOT — AFTER closeSubmitted, gated on `toClose.length > 0` — so the
-    // ring gains one same-epoch "closed" snapshot per close pass that
-    // actually closes ids. Audited safe in P1.M1.T3.S1: no consumer assumes
-    // one-snapshot-per-epoch or submitted-only statuses (see the RING SHAPE
-    // INVARIANTS notes in snapshots.ts). It must NOT move before
-    // closeSubmitted — the snapshot exists to capture the "closed" statuses.
+    if (toClose.length > 0) {
+      // BUG-003 / AC-13 (fix option (a), P1.M1.T3.S2): capture the post-close
+      // state so a later edit of a closed answer diffs against baseline
+      // status 'closed' → editedArchived → the "(changed)" marker (delivery
+      // content line + submission card). Audited safe in P1.M1.T3.S1: no
+      // consumer assumes one-snapshot-per-epoch or submitted-only statuses
+      // (see the RING SHAPE INVARIANTS notes in snapshots.ts), and
+      // digestSince treats same-epoch identical-answer links as no-ops. The
+      // gate keeps no-op settles ring-neutral (idempotence); the call must
+      // NOT move before closeSubmitted — the snapshot exists to capture the
+      // "closed" statuses. Close pass NEVER bumps epoch — the "before
+      // bumpEpoch" ordering contract applies to submit-time sites only.
+      takeSnapshot(state);
+    }
 
     const result: ClosePassResult = {
       closed: toClose,

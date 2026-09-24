@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bugfix Wave 1 — Post-Validation Fixes (BUG-001..BUG-008)",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Fix the 8 verified bugs from the post-validation adversarial bug hunt against the shipped M8 delta (WRITEIN/AUTOSUBMIT/SURFACE): 3 majors (gate-hold dead code, R4 draft loss on ctrl+c/discuss/note-mode, AC-13 '(changed)' unreachable) and 5 minors (duty persistence across navigation, write-in invisibility, unbounded multi-line delta, swallowed bridge errors, enter no-op on text questions). All claims verified CONFIRMED at HEAD 613437d — see architecture/ dossiers. No new deps, config surface, or pi APIs.",
       "milestones": [
         {
@@ -342,7 +342,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Regression gate + changeset-level documentation sync",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Final gate: full-suite + typecheck sweep triaging the deliberate test flips, then the Mode B changeset-level documentation sync across README.md and the living spec/ docs.",
           "tasks": [
             {
@@ -388,14 +388,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Mode B final sweep: verify README.md and the living spec/ documents state the FIXED behaviors across all 8 bugs. Most docs already promise the fixed behavior — this task verifies and corrects drift.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "README.md sweep: verify all behavior passages match the fixed semantics",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1"
@@ -420,7 +420,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S2",
                   "title": "spec/ living-documents sweep: align FR/AC/decision records with fixed semantics",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M3.T2.S1",

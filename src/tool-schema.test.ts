@@ -344,6 +344,48 @@ describe("answer validation (record action)", () => {
       answers: [{ id: "q1", value: "a", text: "because" }],
     });
   });
+
+  it("custom:true passes through on answers (WRITEIN-001)", () => {
+    const r = parseInterrogateParams(
+      { answers: [{ id: "q1", value: "my own text", custom: true }] },
+      cfg(),
+    );
+    expect(r.ok).toBe(true);
+    expect(r.action).toEqual({
+      action: "record",
+      answers: [{ id: "q1", value: "my own text", custom: true }],
+    });
+  });
+
+  it("custom:false is preserved as false", () => {
+    const r = parseInterrogateParams(
+      { answers: [{ id: "q1", value: "a", custom: false }] },
+      cfg(),
+    );
+    expect(r.ok).toBe(true);
+    expect(r.action).toEqual({
+      action: "record",
+      answers: [{ id: "q1", value: "a", custom: false }],
+    });
+  });
+
+  it("custom absent → no custom key on the narrowed answer", () => {
+    const r = parseInterrogateParams({ answers: [{ id: "q1", value: "a" }] }, cfg());
+    expect(r.ok).toBe(true);
+    if (!(r.ok && r.action?.action === "record")) throw new Error("expected ok record action");
+    const first = r.action.answers[0] as unknown as Record<string, unknown>;
+    expect("custom" in first).toBe(false);
+  });
+
+  it("custom:'yes' → type error at answers[i].custom", () => {
+    const r = parseInterrogateParams(
+      { answers: [{ id: "q1", value: "a", custom: "yes" }] },
+      cfg(),
+    );
+    expect(r.ok).toBe(false);
+    const paths = r.errors.map((e) => e.path);
+    expect(paths).toContain("answers[0].custom");
+  });
 });
 
 describe("malformed args (never throws)", () => {

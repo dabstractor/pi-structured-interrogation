@@ -117,6 +117,7 @@ export const InterrogateParams = Type.Object({
   reopen: Type.Optional(Type.Boolean({ description: "Resurface the panel with existing state" })),
   answers: Type.Optional(Type.Array(Type.Object({
     id: Type.String(), value: Type.String(), text: Type.Optional(Type.String()),
+    custom: Type.Optional(Type.Boolean({ description: "WRITEIN-001: marks a write-in — value holds the user's free text (not an option value); renders as ✎ {text}" })),
   }), { description: "Non-TUI fallback only: record the user's chat answers" })),
 });
 
@@ -160,6 +161,8 @@ export interface AnswerInput {
   value: string;
   /** Free-text elaboration attached to the answer. */
   text?: string;
+  /** WRITEIN-001: value holds free text, not an option value; renders as ✎ {text}. */
+  custom?: boolean;
 }
 
 /**
@@ -509,6 +512,10 @@ function narrowAnswer(raw: unknown, path: string, errors: ErrorSink): AnswerInpu
   if (raw.text !== undefined) {
     if (typeof raw.text === "string") a.text = raw.text;
     else errors.push({ path: `${path}.text`, message: "text must be a string" });
+  }
+  if (raw.custom !== undefined) {
+    if (typeof raw.custom === "boolean") a.custom = raw.custom;
+    else errors.push({ path: `${path}.custom`, message: "custom must be a boolean" });
   }
   return a;
 }

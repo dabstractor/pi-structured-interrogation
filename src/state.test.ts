@@ -182,6 +182,61 @@ describe("applyAnswer", () => {
   });
 });
 
+describe("custom answers (WRITEIN-001)", () => {
+  test("applyAnswer carries custom through the spread; serialize() exposes it; 'changed' emitted", () => {
+    state.upsertQuestion(q({ id: "q1", type: "choice", options: [{ value: "a", label: "A" }] }));
+    const changed: SerializedState[] = [];
+    state.on("changed", (st) => changed.push(st));
+    state.applyAnswer("q1", { value: "my own text", custom: true, at: "t" });
+    const after = state.getQuestion("q1");
+    expect(after?.status).toBe("answered");
+    expect(after?.answer?.custom).toBe(true); // no option-list check — write-ins pass verbatim
+    expect(changed).toHaveLength(1);
+    expect(changed[0].questions.q1?.answer?.custom).toBe(true);
+    expect(state.serialize().questions.q1?.answer).toEqual({
+      value: "my own text",
+      custom: true,
+      at: "t",
+    });
+  });
+
+  test("round-trip: serialize → deserialize keeps custom: true (reviveQuestion)", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    state.applyAnswer("q1", { value: "my own text", custom: true, at: "t" });
+    const revived = InterrogationState.deserialize(state.serialize());
+    expect(revived.getQuestion("q1")?.answer?.custom).toBe(true);
+  });
+
+  test("legacy answers without custom deserialize with NO custom key (byte-identical shape)", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    state.applyAnswer("q1", { value: "postgres", at: "t" });
+    const snap = state.serialize();
+    expect("custom" in snap.questions.q1!.answer!).toBe(false);
+    const revived = InterrogationState.deserialize(snap);
+    const answer = revived.getQuestion("q1")?.answer;
+    expect(answer).toEqual({ value: "postgres", at: "t" }); // exact shape — no custom key
+    expect(answer !== undefined && "custom" in answer).toBe(false);
+  });
+
+  test("reviveQuestion ignores corrupt truthy custom (strict true only)", () => {
+    const revived = InterrogationState.deserialize({
+      goal: "g",
+      epoch: 1,
+      order: ["q1"],
+      questions: {
+        q1: {
+          ...q({ id: "q1" }),
+          status: "answered",
+          answer: { value: "x", at: "t", custom: "yes" },
+        },
+      },
+      completed: false,
+    });
+    const answer = revived.getQuestion("q1")?.answer;
+    expect(answer).toEqual({ value: "x", at: "t" }); // corrupt marker dropped
+  });
+});
+
 describe("setStatus", () => {
   test("raw transition without touching rev; unknown id throws", () => {
     state.upsertQuestion(q({ id: "q1" }));

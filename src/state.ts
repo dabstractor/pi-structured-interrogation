@@ -44,6 +44,8 @@ export interface QuestionAnswer {
   value: string;
   /** Free-text elaboration the user attached. */
   text?: string;
+  /** WRITEIN-001: value holds free text, not an option value; renders as ✎ {text}. Not checked against option lists anywhere downstream. */
+  custom?: boolean;
   /** ISO 8601 timestamp of when the answer was recorded. */
   at: string;
 }
@@ -546,6 +548,7 @@ function reviveQuestion(id: string, value: unknown): Question | undefined {
   ) {
     const answer: QuestionAnswer = { value: value.answer.value, at: value.answer.at };
     if (typeof value.answer.text === "string") answer.text = value.answer.text;
+    if (value.answer.custom === true) answer.custom = true; // strict true — corrupt truthy values must not leak into state
     q.answer = answer;
   }
   return q;

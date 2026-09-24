@@ -244,6 +244,7 @@ export function recordAnswers(
     }
     const applied: QuestionAnswer = { value: answer.value, at };
     if (answer.text !== undefined) applied.text = answer.text;
+    if (answer.custom !== undefined) applied.custom = answer.custom;
     state.applyAnswer(answer.id, applied);
     recorded.push(answer.id);
   }

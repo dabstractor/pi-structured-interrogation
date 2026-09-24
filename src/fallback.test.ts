@@ -304,6 +304,20 @@ describe("recordAnswers", () => {
     expect(state.getQuestion("q1")?.answer?.value).toBe("something not in the list");
   });
 
+  test("custom (WRITEIN-001) is carried through to the recorded answer; absent → no key", () => {
+    const result = recordAnswers(state, [
+      { id: "q1", value: "my own take", custom: true },
+      { id: "q2", value: "no marker here" },
+    ]);
+    expect(result).toEqual({ recorded: ["q1", "q2"], unknown: [], ignored: [] });
+    const q1 = state.getQuestion("q1");
+    const q2 = state.getQuestion("q2");
+    expect(q1?.answer?.custom).toBe(true);
+    expect(q1?.answer !== undefined && "custom" in q1.answer).toBe(true);
+    // Legacy shape: no marker → no custom key at all (not custom: undefined).
+    expect(q2?.answer !== undefined && "custom" in q2.answer).toBe(false);
+  });
+
   test("empty answers array: zero side effects (no submission)", () => {
     const result = recordAnswers(state, [] as AnswerInput[]);
     expect(result).toEqual({ recorded: [], unknown: [], ignored: [] });

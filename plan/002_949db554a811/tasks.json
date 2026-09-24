@@ -468,7 +468,7 @@
           "type": "Milestone",
           "id": "P3.M1",
           "title": "SURFACE-001 — reads never surface",
-          "status": "Ready",
+          "status": "Complete",
           "description": "maybeAutoOpen gains three gates (upsert-call via pendingUpsertArgs, unanswered-exist, not-completed); handleUpserted suspended-reopen carries the same gate; tree-nav BUG characterizations flip.",
           "tasks": [
             {
@@ -531,14 +531,14 @@
               "type": "Task",
               "id": "P3.M1.T3",
               "title": "Flip tree-nav BUG characterizations + AC-15 scripted test",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FLIP the two BUG characterizations in tree-nav-repro.test.ts (post-nav read pops panel; read after completion pops panel) to assert no-open; suspended-at-nav and open-at-nav stay green. New AC-15 test citing FR-28/SURFACE-001.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T3.S1",
                   "title": "Flip tree-nav-repro :143/:183 to no-open; add AC-15 (reads never surface) scripted test",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M1.T1.S1",

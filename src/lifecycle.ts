@@ -225,6 +225,13 @@ export function createLifecycle(pi: Pick<ExtensionAPI, "on">, opts?: LifecycleOp
     const submitted = state.orderedQuestions().filter((q) => q.status === "submitted");
     const toClose = submitted.filter((q) => !reaskedThisRun.has(q.id)).map((q) => q.id);
     closeSubmitted(state, toClose); // merge.js — throws-on-unknown already impossible: ids came from state
+    // P1.M1.T3.S2 (BUG-003 fix option (a)) inserts `takeSnapshot(state)` at
+    // THIS SPOT — AFTER closeSubmitted, gated on `toClose.length > 0` — so the
+    // ring gains one same-epoch "closed" snapshot per close pass that
+    // actually closes ids. Audited safe in P1.M1.T3.S1: no consumer assumes
+    // one-snapshot-per-epoch or submitted-only statuses (see the RING SHAPE
+    // INVARIANTS notes in snapshots.ts). It must NOT move before
+    // closeSubmitted — the snapshot exists to capture the "closed" statuses.
 
     const result: ClosePassResult = {
       closed: toClose,

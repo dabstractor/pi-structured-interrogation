@@ -207,7 +207,11 @@ const TERMINAL_ANSWER_STATUSES: ReadonlySet<QuestionStatus> = new Set(["moot", "
  *   load-bearing: `markSubmitted` BEFORE `takeSnapshot` so the ring
  *   snapshot captures status `submitted` (the pre-bump epoch state), and
  *   `takeSnapshot` BEFORE `bumpEpoch` (existing rule — the snapshot labels
- *   the epoch being LEFT). A fully ignored/unknown (or empty) call has
+ *   the epoch being LEFT). The "snapshot must hold `submitted`" requirement
+ *   is LOCAL to submit-time take-sites — the ring also legitimately holds
+ *   close-pass snapshots with "closed" statuses (lifecycle.ts runClosePass,
+ *   BUG-003; see the RING SHAPE INVARIANTS note on snapshots.ts
+ *   takeSnapshot). A fully ignored/unknown (or empty) call has
  *   ZERO side effects: it burns no epoch, pushes no snapshot, and marks
  *   nothing (BUG-012: a no-op record must not masquerade as a submission).
  *   `markSubmitted` validates all ids before applying — `recorded` ids are
@@ -257,7 +261,7 @@ export function recordAnswers(
     // call = one submission"). Marking recorded ids submitted lets the
     // agent_settled close pass (h2.44, lifecycle.ts) archive them and
     // attemptCompletion fire the completion injection (FR-25/AC-11).
-    markSubmitted(state, recorded); // BEFORE takeSnapshot — snapshot must hold 'submitted'
+    markSubmitted(state, recorded); // BEFORE takeSnapshot — so THIS submit-time snapshot holds 'submitted' (LOCAL ordering note, not ring-wide: close-pass snapshots hold 'closed' — see snapshots.ts takeSnapshot)
     takeSnapshot(state);
     state.bumpEpoch();
   }

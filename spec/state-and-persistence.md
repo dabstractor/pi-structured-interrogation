@@ -121,7 +121,7 @@ on agent_settled:
 Aborted runs count as settled (agent_settled fires; the model saw the answers before abort and can re-ask).
 ```
 
-Submissions now also arrive via auto-submit (AUTOSUBMIT-001) — the per-submission contracts (one epoch bump, one delta, one close-pass arming via `noteSubmissionDelivered`) are unchanged; auto-submit simply fires the same pipeline more often. A model turn triggered by an auto-submission may interleave with further user edits; each submission's snapshot ring keeps the diffs correct.
+Submissions now also arrive via auto-submit (AUTOSUBMIT-001) — the per-submission contracts (one epoch bump, one delta, one close-pass arming via `noteSubmissionDelivered`) are unchanged; auto-submit simply fires the same pipeline more often. A model turn triggered by an auto-submission may interleave with further user edits; each submission's snapshot ring keeps the diffs correct. The ring also captures the agent-settled close pass: every close pass that actually closes ids appends ONE snapshot at the submission's existing epoch — no epoch bump — whose question statuses are `closed` (a close pass with nothing to close appends nothing). These close-pass entries are what let post-archive edits diff as `(changed)` (AC-13: the archived snapshot supplies the `before.status === "closed"` side), and `digestSince` treats them as no-ops: consecutive same-epoch pairs whose answer signatures are identical contribute zero segments, so a submitted→closed status flip is digest-invisible.
 
 ## Drafts lifecycle (R4)
 

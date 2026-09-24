@@ -125,6 +125,11 @@ export function attemptCompletion(
   // Zero questions: completable only if this state ever had content (a
   // submission snapshot or an epoch bump proves it). A never-used state must
   // not complete — completion implies an interrogation happened.
+  // BUG-003 audit: close-pass snapshots cannot flip this predicate — they
+  // are gated on toClose.length > 0, which requires prior submitted
+  // questions, which require a prior submission, which already pushed a
+  // ring entry (and bumped epoch past 1). By the time any close-pass
+  // snapshot can exist, this predicate was already false.
   if (qs.length === 0 && state.snapshots.length === 0 && state.epoch <= 1) {
     return { fired: false, reason: "active-questions-remain" };
   }

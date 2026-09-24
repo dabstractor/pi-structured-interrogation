@@ -67,6 +67,7 @@ function noteDelivered(): { calls: number } {
 
 function makeBridge(
   config: InterrogatorConfig = DEFAULT_CONFIG,
+  overrides: { getState?: () => InterrogationState | undefined } = {},
 ): { bridge: RemoteBridge; bus: FakeBus; sent: unknown[]; ledger: { calls: number } } {
   const bus = new FakeBus();
   const { pi, sent } = makePi(bus);
@@ -74,6 +75,7 @@ function makeBridge(
   const bridge = createRemoteBridge(pi, {
     config,
     lifecycle: { noteSubmissionDelivered: () => void ledger.calls++ },
+    ...overrides,
   });
   return { bridge, bus, sent, ledger };
 }
@@ -488,6 +490,82 @@ describe("submit handling", () => {
     expect(sent).toHaveLength(0);
     expect(bus.of(PI_ASK_SUBMIT_RESULT)).toHaveLength(0);
     expect(state.getQuestion("q1")!.status).toBe("open");
+  });
+
+  // ------------------------------------ BUG-007 — internal_error nack (FR-32/D-R6)
+
+  /**
+   * BUG-007 throw lever: a state whose applyAnswer THROWS while everything
+   * else delegates to a real fixture (mapWireAnswers' non-throwing D-R4
+   * validation must succeed so the throw lands INSIDE
+   * recordRemoteSubmission's apply step, not in the invalid_answer path).
+   */
+  function throwingApplyState(base: InterrogationState): InterrogationState {
+    return new Proxy(base, {
+      get(target, prop) {
+        if (prop === "applyAnswer") {
+          return () => {
+            throw new Error("boom: injected internal failure");
+          };
+        }
+        const v = Reflect.get(target, prop);
+        return typeof v === "function" ? (v as (...args: unknown[]) => unknown).bind(target) : v;
+      },
+    }) as unknown as InterrogationState;
+  }
+
+  test("BUG-007: throwing state → internal_error nack + completed, no delta, no lifecycle", () => {
+    const state = fixtureState();
+    const { bridge, bus, sent, ledger } = makeBridge(DEFAULT_CONFIG, {
+      getState: () => throwingApplyState(state),
+    });
+    const flowId = bridge.emitFlow(state, "tool")!; // emission uses the REAL state
+    const requestId = "req-internal-error";
+
+    // The listener must NOT throw into the bus emit loop — submit() drives
+    // bus.emit directly, so an unguarded listener throw would fail the test
+    // right here (BUG-007: it used to be swallowed WITHOUT any ack).
+    expect(() =>
+      submit(bus, flowId, { kind: "answer", mode: "submit", answers: { q1: { values: ["postgres"] } } }, requestId),
+    ).not.toThrow();
+
+    // The client got its ack: an internal_error NACK echoing the ids.
+    const results = bus.of(PI_ASK_SUBMIT_RESULT) as Array<Record<string, unknown>>;
+    expect(results).toHaveLength(1);
+    const nack = results[0]!;
+    expect(nack.version).toBe(1);
+    expect(nack.requestId).toBe(requestId);
+    expect(nack.flowId).toBe(flowId);
+    expect(nack.ok).toBe(false);
+    expect(nack.error).toBe("internal_error");
+    expect(typeof nack.message).toBe("string");
+    expect(nack.message).toMatch(/internal/i);
+    // The flow is torn down (completed resolves the client surface).
+    const completed = bus.of(PI_ASK_COMPLETED) as Array<Record<string, unknown>>;
+    expect(completed.some((c) => c.flowId === flowId)).toBe(true);
+    // No submission delta shipped, no lifecycle note, no resurface
+    // (the surface may be inconsistent — the next upsert re-emits).
+    expect(sent).toHaveLength(0);
+    expect(ledger.calls).toBe(0);
+    expect(bus.of(PI_ASK_STARTED)).toHaveLength(1);
+  });
+
+  test("BUG-007: flow registry torn down — retry on the same flowId nacks flow_not_found", () => {
+    const state = fixtureState();
+    const { bridge, bus } = makeBridge(DEFAULT_CONFIG, {
+      getState: () => throwingApplyState(state),
+    });
+    const flowId = bridge.emitFlow(state, "tool")!;
+
+    submit(bus, flowId, { kind: "answer", mode: "submit", answers: { q1: { values: ["postgres"] } } }, "req-1");
+    submit(bus, flowId, { kind: "answer", mode: "submit", answers: { q1: { values: ["sqlite"] } } }, "req-2");
+
+    const results = bus.of(PI_ASK_SUBMIT_RESULT) as Array<Record<string, unknown>>;
+    expect(results).toHaveLength(2);
+    expect(results[0]!.error).toBe("internal_error");
+    expect(results[1]!.ok).toBe(false);
+    expect(results[1]!.error).toBe("flow_not_found"); // completeFlow ran after the nack
+    expect(results[1]!.requestId).toBe("req-2");
   });
 });
 

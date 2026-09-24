@@ -292,14 +292,14 @@
               "type": "Task",
               "id": "P1.M2.T4",
               "title": "Bridge submit internal-error nack (BUG-007)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "The pi-ask submit handler's bare catch swallows unexpected internal errors after state mutation, so remote clients hang without an ack while state sits half-mutated. Emit a submit-result nack and complete the flow instead.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T4.S1",
                   "title": "Emit submit-result nack + completeFlow on unexpected internal errors in the bridge submit handler",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-007-bridge-errors.md — outer bare `catch {}` at src/remote-bridge.ts:261-267 (bus guard; its docstring's 'state consistency is guarded upstream' claim is false today). Submit path: requestId + flowId parsed at remote-bridge.ts:303-304; recordRemoteSubmission invoked ~:348; emitSubmitResult at :287-298 with error union at :289 limited to 'flow_not_found' | 'invalid_answer'; completeFlow for flow teardown. recordRemoteSubmission (src/remote-submit.ts) mutates state first: applyAnswer :130 → markSubmitted :155 → deliverSubmission :173 → noteSubmissionDelivered :176 → maybeAutoSubmit :181 — NO rollback is possible (snapshot ring/epoch are not undoable; do NOT attempt rollback).\n2. INPUT: Unmodified bridge submit handler; the emitSubmitResult helper to reuse.\n3. LOGIC: Implement PRD h3.6 / recommendation 6: wrap the recordRemoteSubmission call (~remote-bridge.ts:348) in try/catch — on ANY unexpected internal error, emit a submit-result nack via emitSubmitResult with a widened error literal (add 'internal_error' to the union at :289) and call completeFlow(flowId) so the remote client receives its ack and never hangs; keep the outer bare catch strictly as a last-resort bus guard. TDD: use the FakeBus + makePi + makeBridge harness (src/remote-bridge.test.ts:21-75), inject a throwing state via RemoteBridgeOptions.getState (e.g. a state whose applyAnswer path throws from a listener) → assert the submit-result event is emitted on the fake bus with ok:false + error 'internal_error' AND the flow is completed; also assert valid submits and validation nacks are unchanged. Mock: FakeBus events bus + fake pi only — never a real pi or events bus.\n4. OUTPUT: Remote clients always receive a submit-result (ok or nack); state remains half-mutated only in the documented worst case (no rollback, next upsert resurfaces).\n5. DOCS: Mode A — if spec/tool-protocol.md documents the submit-result error values, add 'internal_error' there (spec/ is living documentation); README has no bridge-ack passage (verified), so no README change.",

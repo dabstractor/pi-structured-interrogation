@@ -21,7 +21,7 @@
  * | AC-5 | PASS    | FR-8          | AC-5_deep_view_full_scroll_select_returns_short         |
  * | AC-6 | PASS    | FR-17         | AC-6_contrary_gate_answer_instant_moot_and_slash_O      |
  * | AC-7 | PASS    | FR-18 / Q39=B | AC-7_ripple_confirm_esc_cancels_enter_applies           |
- * | AC-9 | PASS    | FR-28         | AC-9a/b/c_reconstruction_* (tool-result/mirror/event)   |
+ * | AC-9 | PASS    | FR-28 / SURFACE-002 | AC-9a/b/c_restart_* (no auto-open; widget-only)  |
  * | AC-10| PASS    | FR-29         | AC-10_compact_preserves_plan_statements_and_read_full   |
  * | AC-12| PASS    | R5 / h2.52    | AC-12_remap_updates_footer_and_widget_labels            |
  *
@@ -758,7 +758,13 @@ describe("AC-4 — suspend → widget → reopen: drafts survive (FR-14/R4)", ()
 
 // --------------------------------------------------------------------- AC-9
 
-describe("AC-9 — reconstruction auto-opens the panel (FR-28)", () => {
+// SURFACE-002 rewrite (FR-28 as amended by h2.44 step 4): a restart
+// (session_start) NEVER auto-opens the panel. The scripted restart proves
+// the new contract per leg: silent install + keyed suspend-widget line
+// (h2.37), drafts gone (FR-28 documented limitation), pending answers still
+// "answered" (AUTOSUBMIT-001 — they ship on the next commit), and the
+// /interrogate reopen restoring questions/answers on a fresh panel.
+describe("AC-9 — restart mid-interrogation: silent install + widget-only (FR-28, SURFACE-002)", () => {
   // Reconstruct-test entry shapes (verified against pi's session-manager).
   /** Message entry carrying an interrogate tool result with details.state. */
   function toolResultEntry(state: unknown): SessionEntry {
@@ -826,14 +832,20 @@ describe("AC-9 — reconstruction auto-opens the panel (FR-28)", () => {
   }
 
   /** Never-resolving custom(): the opened panel floats, non-blocking. */
-  function makeCtx(entries: SessionEntry[]): ReconstructionContext & { ui: { custom: Mock } } {
+  function makeCtx(
+    entries: SessionEntry[],
+  ): ReconstructionContext & { ui: { custom: Mock; setWidget: Mock } } {
     const custom = vi.fn(() => new Promise<null>(() => {}));
+    // SURFACE-002: the reconstruction's only UI act is the keyed suspend
+    // widget — updateSuspendWidget no-ops without ui.setWidget, so the AC-9
+    // flips need it present to assert the widget non-vacuously.
+    const setWidget = vi.fn();
     return {
       mode: "tui",
       hasUI: true,
       sessionManager: { getBranch: () => entries },
-      ui: { custom },
-    } as unknown as ReconstructionContext & { ui: { custom: Mock } };
+      ui: { custom, setWidget },
+    } as unknown as ReconstructionContext & { ui: { custom: Mock; setWidget: Mock } };
   }
 
   function makeHost(): PanelHost {
@@ -846,7 +858,7 @@ describe("AC-9 — reconstruction auto-opens the panel (FR-28)", () => {
     return s.serialize();
   }
 
-  test("AC-9a_tool_result_base_plus_deltas_auto_opens_non_blocking", () => {
+  test("AC-9a_restart_tool_result_base_plus_deltas_no_panel_widget_only", () => {
     const base = seededBase((s) => {
       markAnswered(s, "q01", { value: "alpha", at: "t0" });
     });
@@ -863,12 +875,21 @@ describe("AC-9 — reconstruction auto-opens the panel (FR-28)", () => {
       drafts,
     } satisfies ReconstructionOptions);
 
-    // Reconstruction verdict: tool-result base, the delta replayed on top.
+    // SURFACE-002 (FR-28 rewritten, h2.44 step 4): a restart NEVER opens
+    // the panel — the keyed suspend widget line is the ONLY cue (h2.37).
     expect(result.source).toBe("tool-result");
     expect(result.replayed).toBe(1);
-    expect(result.opened).toBe(true); // FR-28 auto-open (TUI, non-empty)
-    expect(ctx.ui.custom).toHaveBeenCalledTimes(1);
-    expect(host.isOpen()).toBe(true);
+    expect(result.opened).toBe(false);
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false);
+
+    // Widget live counts: q01+q02 answered, q10 moot (dependsOn q09==alpha
+    // unmet — reconstruction's moot-recompute) → 27 open · 2 answered.
+    const widgetCall = (ctx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(widgetCall?.[0]).toBe("interrogator");
+    expect((widgetCall?.[1] as string[] | undefined)?.[0]).toBe(
+      "27 open · 2 answered — /interrogate to resume",
+    );
 
     // Questions/answers counts restored; drafts gone (documented, FR-28).
     const state = getState()!;
@@ -879,9 +900,33 @@ describe("AC-9 — reconstruction auto-opens the panel (FR-28)", () => {
     for (const q of state.orderedQuestions()) {
       expect(drafts.getDraft(q.id)).toBeUndefined();
     }
+
+    // AUTOSUBMIT-001 (P2.M1.T1.S1): q01 stays in the "answered" PENDING
+    // state across the restart — it ships on the NEXT commit's
+    // maybeAutoSubmit tail (or any ctrl+s). The firing itself is AC-2c's
+    // proof; deliberately not duplicated here.
+    expect(state.getQuestion("q01")?.status).toBe("answered");
+
+    // REOPEN (/interrogate — the deliberate path; command.ts's
+    // closed-host-with-live-state branch reads the STATE SINGLETON, because
+    // resumeOpenPanel can't serve a restart: lastOpts is only set by
+    // openPanel and reconstruction no longer opens). makeMockPi's
+    // factory-invoking custom (AC-4 pattern) mounts the fresh panel.
+    const reopenPi = makeMockPi();
+    expect(openPanel(reopenPi.pi, { config: DEFAULT_CONFIG, state, drafts })).toBe(true);
+    expect(reopenPi.custom).toHaveBeenCalledTimes(1);
+    // Fresh panel, state visible: focus follows the GATE-AWARE ladder
+    // (gate.ts) → q09, the unanswered gate-group question (not plain order);
+    // the component's state readback proves it mounted on the RESTORED
+    // state — q01/q02 answers present, moot q10 never focusable.
+    expect(reopenPi.calls[0]?.component.currentId).toBe("q09");
+    const reopenedState = reopenPi.calls[0]!.component.state;
+    expect(reopenedState.getQuestion("q01")?.answer?.value).toBe("alpha");
+    expect(reopenedState.getQuestion("q02")?.answer?.value).toBe("beta");
+    expect(reopenedState.orderedQuestions()).toHaveLength(30);
   });
 
-  test("AC-9b_mirror_entry_fallback_auto_opens", () => {
+  test("AC-9b_restart_mirror_entry_no_panel_widget_only", () => {
     const mirrored = seededBase((s) => {
       markAnswered(s, "q05", { value: "beta", at: "t-mirror" });
     });
@@ -891,15 +936,33 @@ describe("AC-9 — reconstruction auto-opens the panel (FR-28)", () => {
     const host = makeHost();
     const result = reconstructFromBranch(ctx, { config: DEFAULT_CONFIG, host });
 
+    // SURFACE-002: the mirror-entry restart is silent too — no panel, the
+    // widget line is the cue (q05 answered + q10 moot → 28 open · 1 answered).
     expect(result.source).toBe("mirror-entry");
     expect(result.replayed).toBe(0);
-    expect(result.opened).toBe(true);
-    expect(ctx.ui.custom).toHaveBeenCalledTimes(1);
+    expect(result.opened).toBe(false);
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false);
+    const widgetCall = (ctx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(widgetCall?.[0]).toBe("interrogator");
+    expect((widgetCall?.[1] as string[] | undefined)?.[0]).toBe(
+      "28 open · 1 answered — /interrogate to resume",
+    );
     expect(getState()?.getQuestion("q05")?.answer?.value).toBe("beta");
     expect(getState()?.orderedQuestions()).toHaveLength(30);
+
+    // REOPEN (/interrogate): the panel comes back with the restored state —
+    // focus follows the GATE-AWARE ladder (gate.ts) → q09 (unanswered gate
+    // question); the component readback proves q05's answer rode along
+    // (FR-28/SURFACE-002).
+    const reopenPi = makeMockPi();
+    expect(openPanel(reopenPi.pi, { config: DEFAULT_CONFIG, state: getState()! })).toBe(true);
+    expect(reopenPi.custom).toHaveBeenCalledTimes(1);
+    expect(reopenPi.calls[0]?.component.currentId).toBe("q09");
+    expect(reopenPi.calls[0]!.component.state.getQuestion("q05")?.answer?.value).toBe("beta");
   });
 
-  test("AC-9c_session_start_event_path_invokes_the_reconstruction", () => {
+  test("AC-9c_restart_session_start_event_fires_reconstruction_silently", () => {
     const handlers = new Map<string, Handler>();
     const pi = {
       on: vi.fn((event: string, handler: Handler) => {
@@ -914,14 +977,32 @@ describe("AC-9 — reconstruction auto-opens the panel (FR-28)", () => {
     // The subscription exists on BOTH branch-truth events…
     expect(handlers.has("session_start")).toBe(true);
     expect(handlers.has("session_tree")).toBe(true);
-    // …and firing session_start runs the SAME reconstruction → auto-open.
+    // …and firing session_start runs the SAME reconstruction — silently
+    // (SURFACE-002): state installs, the widget appears, the panel NEVER
+    // pops. q10 moots (unmet dependsOn) → `29 open · 0 answered — …`.
     (handlers.get("session_start") as (event: unknown, ctx: unknown) => void)(
       { type: "session_start", reason: "resume" },
       ctx,
     );
-    expect(ctx.ui.custom).toHaveBeenCalledTimes(1);
-    expect(host.isOpen()).toBe(true);
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false);
     expect(getState()?.orderedQuestions()).toHaveLength(30);
+    const widgetCall = (ctx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(widgetCall?.[0]).toBe("interrogator");
+    expect((widgetCall?.[1] as string[] | undefined)?.[0]).toBe(
+      "29 open · 0 answered — /interrogate to resume",
+    );
+
+    // REOPEN via the /interrogate invoke path (deliberate;
+    // closed-host-with-live-state): one custom() call, panel live with the
+    // restored questions — focus follows the GATE-AWARE ladder (gate.ts) →
+    // q09 (unanswered gate question); the component readback proves the
+    // restored 30-question set.
+    const reopenPi = makeMockPi();
+    expect(openPanel(reopenPi.pi, { config: DEFAULT_CONFIG, state: getState()! })).toBe(true);
+    expect(reopenPi.custom).toHaveBeenCalledTimes(1);
+    expect(reopenPi.calls[0]?.component.currentId).toBe("q09");
+    expect(reopenPi.calls[0]!.component.state.orderedQuestions()).toHaveLength(30);
   });
 });
 
@@ -1056,13 +1137,25 @@ describe("AC-10 — compact preservation + read-after-compact (FR-29)", () => {
       mode: "tui",
       hasUI: true,
       sessionManager: { getBranch: () => branch },
-      ui: { custom: vi.fn(() => new Promise<null>(() => {})) },
+      ui: {
+        custom: vi.fn(() => new Promise<null>(() => {})),
+        setWidget: vi.fn(), // SURFACE-002 cue surface — asserted below
+      },
     } as unknown as ReconstructionContext;
     const host = createPanelHost({ onPanelDismiss: () => {}, dismissPanel: () => {} });
     const read = reconstructFromBranch(readCtx, { config: DEFAULT_CONFIG, host });
 
     expect(read.source).toBe("mirror-entry");
-    expect(read.opened).toBe(true); // FR-28 auto-open after the compact too
+    // SURFACE-002: reads/reconstruction NEVER surface — no panel after the
+    // compact either; the widget line is the only cue (q01+q02 answered,
+    // q10 moot → `27 open · 2 answered — /interrogate to resume`).
+    expect(read.opened).toBe(false);
+    expect((readCtx.ui.custom as Mock)).not.toHaveBeenCalled();
+    const readWidget = (readCtx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(readWidget?.[0]).toBe("interrogator");
+    expect((readWidget?.[1] as string[] | undefined)?.[0]).toBe(
+      "27 open · 2 answered — /interrogate to resume",
+    );
     const restored = getState()!;
     expect(restored.orderedQuestions()).toHaveLength(30);
     expect(restored.getQuestion("q01")?.answer?.value).toBe("alpha");

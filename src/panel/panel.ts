@@ -63,7 +63,7 @@ import {
   type RippleConfirmState,
 } from "./ripple-confirm.js";
 import { discussInChat } from "./discuss.js";
-import { buildKeyRouter, defaultRoutedActions } from "./keys.js";
+import { buildKeyRouter, defaultRoutedActions, desiredTextDuty } from "./keys.js";
 import { createEditorComponent, TextField, type EditorFactory } from "./text-field.js";
 import {
   renderConfirmFooter,
@@ -597,10 +597,15 @@ export class InterrogationPanel implements Component {
     // + seed the embedded editor; text focus → exitTextField (draft
     // write-through + blur, no advance arming). A deterministic single-key
     // "close the prompt box" companion to the double-esc exit.
+    // WRITEIN-001 duty-follows-cursor (P1.M2.T3.S1, h2.32): the ENTRY
+    // declares the duty via desiredTextDuty — write-in when the cursor sits
+    // on the ✎ Other row or the question is type:"text", elaboration
+    // otherwise. The re-press exit is duty-agnostic: save + blur, never a
+    // commit, from either duty (R4 write-through).
     const routed = defaultRoutedActions(args.delivery);
     routed.onFocusText = (p) => {
       if (p.focus === "text") p.exitTextField();
-      else p.focusTextField();
+      else p.focusTextField(desiredTextDuty(p));
     };
     // Host-side refinement of the discuss seam (P1.M6.T2.S2): discussInChat
     // needs the PiUISurface to preload the editor (h2.35), so the closure
@@ -778,6 +783,13 @@ export class InterrogationPanel implements Component {
     // exit = exitNoteMode: the SAME write-through as esc/re-press (h2.32).
     if (enter && (this.focus === "text" || this.focus === "note")) {
       if (this.focus === "note") this.exitNoteMode();
+      // WRITEIN-001 duty fork (P1.M2.T3.S1, h2.32): the duty decides what
+      // enter MEANS. Write-in duty: commit the buffer as the answer
+      // (writeInEnter — custom value + advance; FR-18 confirm on answered
+      // edits). Elaboration duty: stage-1 save ONLY — the FR-18 gate runs
+      // first (stageText), then save + blur; it NEVER advances, never
+      // applies an answer, and on choice questions never arms (an
+      // elaboration alone never answers — FR-12).
       else if (this.textDuty === "writein") writeInEnter(this);
       else this.saveTextDraft();
       return true;
@@ -1048,9 +1060,22 @@ export class InterrogationPanel implements Component {
    * cross-question re-focus re-seeds instead of showing the previous
    * question's leftover text. EXPLAIN-002: the buffer owner is (re)claimed
    * for the current question after seeding.
+   *
+   * [Mode A] WRITEIN-001 duty-follows-entry (P1.M2.T3.S1, h2.32): the
+   * ctrl+t entry passes the duty computed by keys.ts's
+   * {@link desiredTextDuty} — `"writein"` when the cursor rests on the
+   * ✎ Other row or the question is `type:"text"` (the buffer IS the
+   * answer), `"elaboration"` otherwise (the buffer attaches to the
+   * selection at submit; FR-12: an elaboration never answers alone). The
+   * duty is per-focus-session: {@link blurTextField} resets it to
+   * "elaboration", so every focus session re-declares it. When the
+   * parameter is OMITTED the caller has pre-set the duty itself (actions.ts's
+   * ✎ Other accept assigns `textDuty = "writein"` before calling this) —
+   * a caller's declaration is never clobbered with the default.
    */
-  focusTextField(): void {
+  focusTextField(duty?: "writein" | "elaboration"): void {
     this.focus = "text";
+    if (duty !== undefined) this.textDuty = duty; // per-focus-session — see JSDoc
     this.syncBufferToQuestion(this.currentId);
     this.textField.seed(this.freshestDraftFor(this.currentId));
     this.bufferOwner = this.currentId;
@@ -1300,11 +1325,15 @@ export class InterrogationPanel implements Component {
         // never another question's leftover text or the batch note.
         if (this.focus === "text" && !this.textField.focused) this.textField.focus();
         if (this.focus === "text" || current.type === "text") {
-          // WRITEIN-001 (h2.32): the write-in duty visibly labels the region
-          // ("OTHER — this text is the answer"). Elaboration focus renders
-          // no label yet — P1.M2.T3.S1 owns that display activation; the
+          // WRITEIN-001 (h2.32, P1.M2.T3.S1): the ACTIVE duty visibly labels
+          // the region — "OTHER — this text is the answer" in write-in duty,
+          // "EXPLAIN — attaches to your selection" in elaboration duty (the
+          // default ctrl+t entry). The label is what keeps the two meanings
+          // from ever being confused. UNFOCUSED renders (a text question's
+          // always-on editor preview) show no label — duty is a property of
+          // an ACTIVE focus session, and blurTextField resets it. The
           // note-mode push above is already labeled by renderNoteHeader.
-          if (this.focus === "text" && this.textDuty === "writein") {
+          if (this.focus === "text") {
             lines.push(renderDutyLabel(this.textDuty, this.theme, width));
           }
           lines.push(...this.textField.render(width));

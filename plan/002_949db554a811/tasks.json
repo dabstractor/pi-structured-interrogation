@@ -177,14 +177,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Elaboration duty + duty-follows-cursor (ctrl+t)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-D1: ctrl+t (keys.focusText, existing toggle) enters elaboration duty — region 'EXPLAIN — attaches to your selection'; enter saves + blurs, never advances, never answers. While the cursor sits on the Other row (or question is type:\"text\"), ctrl+t enters write-in duty instead — the duty follows entry path and cursor position. Note duty unchanged.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Elaboration duty via ctrl+t with EXPLAIN region label; duty follows cursor-on-Other / type:text",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1",
@@ -208,14 +208,14 @@
               "type": "Task",
               "id": "P1.M2.T4",
               "title": "Remove two-stage machinery; rewrite two-stage.test.ts",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D2: REMOVE advanceArmed arming (panel.ts:866) and stage blocks (:735-760) — enter commits in write-in/text duty, saves+blurs in elaboration/note duty. Multi-line typing unchanged.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T4.S1",
                   "title": "Delete advanceArmed machinery per removal-safety map; rewrite two-stage.test.ts for commit-at-enter",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T2.S1",
@@ -237,14 +237,14 @@
               "type": "Task",
               "id": "P1.M2.T5",
               "title": "Draft role binding (WRITEIN-002) + zero-pending flash wording",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D2: one draft slot per question; role binds at commit/submit from the selection — real option → draft ships as answer.text; Other/text → draft IS the answer (answer.value, custom:true). Superseding a write-in with an option accept KEEPS the slot (R4) and re-binds it as elaboration. Held elaboration with no answer ships nothing; zero-pending ctrl+s flash: 'nothing to submit — {n} question(s) have drafts awaiting an option or Other'.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T5.S1",
                   "title": "reconcileDraftsForSubmit role binding + held-elaboration zero-pending flash",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T2.S1",

@@ -36,6 +36,7 @@ import {
 } from "./panel.js";
 import { renderFooter, renderHeader, renderHintLine, renderQuestionLine } from "./layout.js";
 import { panelActions } from "./actions.js";
+import { desiredTextDuty } from "./keys.js";
 import { renderShortViewOptions } from "./short-view.js";
 import {
   editInExternalEditor,
@@ -1981,5 +1982,179 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
 
     // Dismissed → the next render no longer carries the warning line.
     expect(panel.render(80).join("\n")).not.toContain("foundational unanswered");
+  });
+});
+
+// ------------------------------------------------------------------ ctrl+t duty
+
+describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
+  const CTRL_T = "\u0014"; // DEFAULT_CONFIG.keys.focusText
+
+  /** Panel with the stateful fake composed editor (label/enter assertions). */
+  function makeDutyPanel(state: InterrogationState): InterrogationPanel {
+    return new InterrogationPanel(
+      panelArgsFor(state, { editorFactory: () => fakePanelEditor() }),
+    );
+  }
+
+  test("desiredTextDuty_prefers_the_type_check_over_the_Other_row_index", () => {
+    // On a text question `options` is undefined, so cursorIndex 0 ===
+    // length 0 would "coincidentally" fire the index test — the explicit
+    // type check must be what selects write-in (PRP gotcha).
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(textQ("t1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.currentId = "t1";
+    panel.cursorIndex = 0;
+    expect(desiredTextDuty(panel)).toBe("writein");
+
+    // Choice question, cursor on a REAL option → elaboration (default).
+    state.upsertQuestion(choiceQ("c1"));
+    panel.currentId = "c1";
+    panel.cursorIndex = 0;
+    expect(desiredTextDuty(panel)).toBe("elaboration");
+    // …and on the ✎ Other row (index === options.length) → write-in.
+    panel.cursorIndex = 2;
+    expect(desiredTextDuty(panel)).toBe("writein");
+  });
+
+  test("ctrl_t_on_option_cursor_opens_elaboration_duty_with_EXPLAIN_label", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const panel = makeDutyPanel(state);
+
+    panel.handleInput(CTRL_T); // cursorIndex 0 = a real option
+
+    expect(panel.focus).toBe("text");
+    expect(panel.textDuty).toBe("elaboration");
+    const lines = panel.render(80);
+    expect(lines.some((l) => l.includes("EXPLAIN — attaches to your selection"))).toBe(true);
+    expect(lines.some((l) => l.includes("OTHER — this text is the answer"))).toBe(false);
+  });
+
+  test("elaboration_enter_saves_draft_and_blurs_never_answers_or_advances_AC2b", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const panel = makeDutyPanel(state);
+
+    panel.handleInput(CTRL_T); // elaboration duty (cursor on a real option)
+    panel.textField.setText("because migration risk");
+    expect(panel.handleInput("\r")).toBe(true); // elaboration enter
+
+    // Saved + blurred — and NOTHING else (AC-2b: an elaboration alone
+    // never answers: no applyAnswer, no advance, no arm).
+    expect(panel.draftTextFor("q1")).toBe("because migration risk");
+    expect(panel.focus).toBe("options");
+    expect(state.getQuestion("q1")?.status).toBe("open");
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(panel.currentId).toBe("q1"); // no advance
+    expect(panel.advanceArmed).toBe(false); // choice elaboration never arms
+  });
+
+  test("ctrl_t_on_the_Other_row_opens_writein_duty_and_enter_commits_custom", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const panel = makeDutyPanel(state);
+
+    panel.cursorIndex = 2; // past the 2 options = the ✎ Other row
+    panel.handleInput(CTRL_T); // duty follows the cursor → write-in
+
+    expect(panel.focus).toBe("text");
+    expect(panel.textDuty).toBe("writein");
+    const lines = panel.render(80);
+    expect(lines.some((l) => l.includes("OTHER — this text is the answer"))).toBe(true);
+    expect(lines.some((l) => l.includes("EXPLAIN — attaches to your selection"))).toBe(false);
+
+    panel.textField.setText("my own answer");
+    expect(panel.handleInput("\r")).toBe(true); // write-in enter COMMITS
+
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q1")?.answer?.value).toBe("my own answer");
+    expect(state.getQuestion("q1")?.answer?.custom).toBe(true);
+    expect(panel.currentId).toBe("q2"); // advanced (Q14 parity)
+    expect(panel.focus).toBe("options");
+  });
+
+  test("ctrl_t_on_a_text_question_opens_writein_duty_and_enter_commits", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(textQ("t1"));
+    state.upsertQuestion(choiceQ("c1"));
+    const panel = makeDutyPanel(state);
+
+    panel.handleInput(CTRL_T); // type:text → write-in regardless of cursor
+
+    expect(panel.textDuty).toBe("writein");
+    expect(panel.render(80).some((l) => l.includes("OTHER — this text is the answer"))).toBe(true);
+
+    panel.textField.setText("the answer itself");
+    expect(panel.handleInput("\r")).toBe(true);
+
+    expect(state.getQuestion("t1")?.status).toBe("answered");
+    expect(state.getQuestion("t1")?.answer?.value).toBe("the answer itself");
+    expect(state.getQuestion("t1")?.answer?.custom).toBe(true);
+    expect(panel.currentId).toBe("c1"); // advanced
+  });
+
+  test("elaboration_save_on_answered_with_ripple_victims_routes_through_FR18_modal", () => {
+    // q1 answered ← q2 answered (dependsOn q1): editing q1's elaboration
+    // would invalidate q2 → the FR-18 keep/cancel modal must gate the save.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2", { dependsOn: [{ id: "q1", equals: "a" }] }));
+    state.applyAnswer("q1", { value: "a", at: "2025-01-01T00:00:00.000Z" });
+    state.applyAnswer("q2", { value: "a", at: "2025-01-01T00:00:00.000Z" });
+    const panel = makeDutyPanel(state);
+
+    panel.handleInput(CTRL_T); // cursor on a real option → elaboration duty
+    expect(panel.textDuty).toBe("elaboration");
+    panel.textField.setText("fresh context");
+    expect(panel.handleInput("\r")).toBe(true); // gated — deferred into the modal
+
+    expect(panel.confirmMode?.kind).toBe("text");
+    expect(panel.confirmMode?.text).toBe("fresh context");
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // nothing written yet
+
+    // esc cancels: no state change of any kind.
+    expect(panel.handleInput(ESCAPE)).toBe(true);
+    expect(panel.confirmMode).toBeNull();
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+    expect(state.getQuestion("q1")?.answer?.text).toBeUndefined();
+    expect(state.getQuestion("q2")?.status).toBe("answered"); // victim intact
+
+    // Retry → confirm-enter applies the DEFERRED draft save (stage-1
+    // semantics: the draft lands, the answer itself is never touched).
+    panel.textField.setText("fresh context");
+    expect(panel.handleInput("\r")).toBe(true); // gated again
+    expect(panel.confirmMode?.kind).toBe("text");
+    expect(panel.handleInput("\r")).toBe(true); // keep
+    expect(panel.confirmMode).toBeNull();
+    expect(panel.draftTextFor("q1")).toBe("fresh context"); // draft saved
+    expect(panel.focus).toBe("options"); // blurred
+    expect(panel.advanceArmed).toBe(false); // elaboration ≠ answer gesture
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // answer untouched
+    expect(state.getQuestion("q1")?.answer?.text).toBeUndefined();
+  });
+
+  test("ctrl_t_repress_exits_writein_duty_with_draft_write_through_never_commits", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const panel = makeDutyPanel(state);
+
+    panel.cursorIndex = 2; // ✎ Other row → write-in duty
+    panel.handleInput(CTRL_T);
+    expect(panel.textDuty).toBe("writein");
+    panel.textField.setText("half typed");
+
+    panel.handleInput(CTRL_T); // re-press = exit (duty-agnostic, R4)
+
+    expect(panel.focus).toBe("options");
+    expect(panel.draftTextFor("q1")).toBe("half typed"); // write-through
+    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // NEVER a commit
+    expect(panel.textDuty).toBe("elaboration"); // duty is per-focus-session
+    expect(panel.advanceArmed).toBe(false); // exit ≠ answer gesture
   });
 });

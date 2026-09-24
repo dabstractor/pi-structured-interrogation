@@ -264,6 +264,35 @@ function escExitEditor(panel: InterrogationPanel): void {
  * when it is absent the panel instance's own delivery seam is used, and
  * submit is inert (returns false) when neither exists.
  */
+/**
+ * [Mode A] Duty decision for the ctrl+t entry (WRITEIN-001 duty-follows-
+ * cursor, h2.32; P1.M2.T3.S1): the editor duty FOLLOWS WHERE THE USER IS.
+ *
+ * - `"writein"` when the CURRENT question is `type:"text"` (the buffer IS
+ *   the answer — checked FIRST: on a text question `options` is
+ *   undefined/empty, so the index test alone would "coincidentally" fire),
+ *   OR the cursor rests on the `✎ Other — write your own` row of a choice
+ *   question (`cursorIndex === options.length` — short-view.ts's cursor
+ *   convention; digit quick-select never selects that row).
+ * - `"elaboration"` otherwise (default): cursor on a real option — the
+ *   buffer is context that attaches to the selection at submit (FR-12:
+ *   an elaboration never answers alone).
+ *
+ * Consumed by the panel's ctrl+t entry (panel.ts's routed.onFocusText →
+ * `focusTextField(duty)`). The accept-the-Other-row path pre-sets the duty
+ * itself (actions.ts) and does not go through here. Lives in keys.ts (the
+ * ctrl+t entry layer) rather than panel.ts so the entry site and the
+ * decision stay in one module; keys.ts→panel.ts is a type-only import, so
+ * panel.ts importing this value creates no runtime cycle.
+ */
+export function desiredTextDuty(panel: InterrogationPanel): "writein" | "elaboration" {
+  const q =
+    panel.currentId !== undefined ? panel.state.getQuestion(panel.currentId) : undefined;
+  if (q?.type === "text") return "writein";
+  if (panel.cursorIndex === (q?.options?.length ?? 0)) return "writein"; // the ✎ Other row
+  return "elaboration";
+}
+
 export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
   return {
     optionUp: (p) => panelActions.optionUp(p),

@@ -690,12 +690,15 @@ describe("AC-4 — suspend → widget → reopen: drafts survive (FR-14/R4)", ()
     const panel = mock.calls[0]!.component;
     expect(panel.currentId).toBe("t1");
 
-    // Panel-side draft: focus the text field (ctrl+t), type, stage-1 save —
-    // the draft lands in the h2.45 slot AND the real DraftStore.
+    // Panel-side draft: focus the text field (ctrl+t), type, ctrl+t again —
+    // the toggle-exit write-through (R4). WRITEIN-001 duty-follows-entry
+    // (P1.M2.T3.S1): ctrl+t on a text question opens WRITE-IN duty, whose
+    // enter would COMMIT the answer (custom:true) — a DRAFT is saved by
+    // exiting (re-press), never by enter.
     panel.handleInput(CTRL_T);
     expect(panel.focus).toBe("text");
     (panel.textField.editor as unknown as { setText: Mock }).setText("draft alpha text");
-    panel.handleInput(ENTER); // stage-1 save (two-stage enter, h2.31)
+    panel.handleInput(CTRL_T); // toggle-exit: draft write-through + blur
     expect(panel.focus).toBe("options");
     expect(store.getDraft("t1")).toBe("draft alpha text");
     const storeBefore = JSON.stringify({ t1: store.getDraft("t1"), note: store.getNote() });

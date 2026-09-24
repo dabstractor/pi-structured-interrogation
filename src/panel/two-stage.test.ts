@@ -178,7 +178,11 @@ describe("two-stage enter — stage 1 save, stage 2 advance (h2.31)", () => {
     // the answer there).
     const state = seedOpenText(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
-    focusText(panel);
+    // WRITEIN-001 duty-follows-entry (P1.M2.T3.S1): ctrl+t on a text
+    // question now opens WRITE-IN duty (enter would commit). The stage-1
+    // machinery under test is reached via the ELABORATION duty — direct
+    // focus, default duty (T4 deletes this machinery wholesale).
+    panel.focusTextField();
     panel.handleInput("my explanation");
     expect(panel.advanceArmed).toBe(false);
 

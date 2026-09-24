@@ -1,6 +1,17 @@
 /**
- * src/panel/two-stage.test.ts — Mode A two-stage enter contract tests
- * (P1.M4.T1.S2, h2.31 Q17=A / FR-12).
+ * src/panel/two-stage.test.ts — commit-at-enter contract tests (WRITEIN-001,
+ * h2.32 / FR-D2, P1.M2.T4.S1).
+ *
+ * The h2.31 two-stage arming machinery (one-shot advance flag, armed
+ * stage-2 advance) was REMOVED: ONE enter now does the whole job, decided
+ * by the editor's ACTIVE DUTY — write-in duty (type:"text" questions or
+ * the ✎ Other row) COMMITS applyAnswer({value, custom: true}) + advances
+ * (Q14 parity); elaboration duty (ctrl+t on a choice question) saves +
+ * blurs, never commits, never advances; note duty exits + saves the batch
+ * note. There is no second enter: a follow-up enter after an elaboration
+ * save is just the normal options accept. Newline requests (shift+enter /
+ * ctrl+j / alt+enter) are untouched by all of this — they never save and
+ * never commit. The FILE NAME stays (h2.51 references it).
  *
  * Conventions follow panel.test.ts / actions.test.ts (AUTOMATION-POLICY: no
  * live pi session — everything is vitest-assertable): a bare stub theme +
@@ -14,12 +25,13 @@
  * Two panel flavors per the seam contract (args.keys REPLACES the router
  * wholesale): the default flavor keeps the REAL config-driven router (so
  * ctrl+t / tab navigation / enter→accept behave like production), and the
- * keys-spy flavor exists only to assert dispatch ORDERING (stage checks run
- * before the seam). The fake editor's handleInput mirrors the stock Editor's
- * behavior for the sequences under test (newline sequences insert a line
- * break; printable chars insert) so multi-line flows are exercised end to
- * end WITHOUT the stock editor's destructive submitValue() ever being a
- * factor — exactly the property panel-level stage-1 interception guarantees.
+ * keys-spy flavor exists only to assert dispatch ORDERING (the enter-per-
+ * duty fork runs before the seam). The fake editor's handleInput mirrors
+ * the stock Editor's behavior for the sequences under test (newline
+ * sequences insert a line break; printable chars insert) so multi-line
+ * flows are exercised end to end WITHOUT the stock editor's destructive
+ * submitValue() ever being a factor — exactly the property panel-level
+ * enter interception guarantees.
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, TUI } from "@earendil-works/pi-tui";
@@ -61,9 +73,9 @@ function seedOpen(ids: string[]): InterrogationState {
 }
 
 /**
- * EXPLAIN-003: text-question variant — the two-stage advance arms ONLY on
- * text questions (the draft completes the answer); choice-question arming
- * tests below seed with this.
+ * Text-question variant: on type:"text" the editor opens in WRITE-IN duty
+ * (duty-follows-cursor, P1.M2.T3.S1) — enter COMMITS the buffer as a
+ * custom answer and advances (WRITEIN-001 commit-at-enter).
  */
 function seedOpenText(ids: string[]): InterrogationState {
   const state = createInterrogationState("goal");
@@ -172,127 +184,86 @@ function focusText(panel: InterrogationPanel): void {
 
 // ------------------------------------------------------------------- tests
 
-describe("two-stage enter — stage 1 save, stage 2 advance (h2.31)", () => {
-  test("test_stage1_enter_saves_draft_blurs_and_arms", () => {
-    // EXPLAIN-003: arming is TEXT-question behavior (the draft completes
-    // the answer there).
+describe("commit-at-enter — one enter does the whole job (WRITEIN-001, h2.32)", () => {
+  test("test_text_question_enter_commits_custom_answer_and_advances", () => {
     const state = seedOpenText(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
-    // WRITEIN-001 duty-follows-entry (P1.M2.T3.S1): ctrl+t on a text
-    // question now opens WRITE-IN duty (enter would commit). The stage-1
-    // machinery under test is reached via the ELABORATION duty — direct
-    // focus, default duty (T4 deletes this machinery wholesale).
-    panel.focusTextField();
-    panel.handleInput("my explanation");
-    expect(panel.advanceArmed).toBe(false);
+    // Duty-follows-cursor (P1.M2.T3.S1): ctrl+t on a type:"text" question
+    // opens WRITE-IN duty — the buffer IS the answer.
+    focusText(panel);
+    expect(panel.textDuty).toBe("writein");
+    panel.handleInput("my write-in answer");
 
-    expect(panel.handleInput("\r")).toBe(true); // stage 1
+    expect(panel.handleInput("\r")).toBe(true); // ONE enter: commit + advance
 
-    expect(drafts.setDraft).toHaveBeenCalledTimes(1);
-    expect(drafts.setDraft).toHaveBeenCalledWith("q1", "my explanation");
-    expect(panel.focus).toBe("options");
-    expect(panel.textField.focused).toBe(false);
-    expect(panel.advanceArmed).toBe(true);
-    // Editor content preserved verbatim (no stock submitValue empty/trim).
-    expect(panel.textField.getText()).toBe("my explanation");
-    // Stage 1 does NOT advance and does NOT select an option.
-    expect(panel.currentId).toBe("q1");
-    expect(state.getQuestion("q1")?.status).toBe("open");
-    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    const q1 = state.getQuestion("q1");
+    expect(q1?.status).toBe("answered");
+    expect(q1?.answer?.value).toBe("my write-in answer"); // RAW user text
+    expect(q1?.answer?.custom).toBe(true); // h2.42 write-in marker
+    expect(panel.focus).toBe("options"); // blurred after the commit
+    expect(panel.currentId).toBe("q2"); // advanced to the next unanswered
+    expect(panel.textDuty).toBe("elaboration"); // blurTextField reset the duty
+    // Landed write-through: the advance to q2 syncs the buffer owner, so
+    // the typed text is ALSO persisted as q1's draft (R4 lossless nav —
+    // the commit itself ships the value; the draft copy is harmless).
+    expect(drafts.setDraft).toHaveBeenCalledWith("q1", "my write-in answer");
   });
 
-  test("test_stage2_enter_advances_to_next_unanswered_and_consumes_flag", () => {
-    const state = seedOpenText(["q1", "q2", "q3"]);
-    const { panel, keys } = makePanel(state, true);
-    panel.focusTextField();
-    panel.handleInput("draft q1");
-    panel.handleInput("\r"); // stage 1: arm
-
-    expect(panel.handleInput("\r")).toBe(true); // stage 2: advance
-
-    expect(panel.advanceArmed).toBe(false); // consumed exactly once
-    expect(panel.currentId).toBe("q2"); // next unanswered (h2.38 scan)
-    // No option was selected by the advance — statuses untouched.
-    expect(state.getQuestion("q1")?.status).toBe("open");
-    expect(state.getQuestion("q2")?.status).toBe("open");
-    // Stage 2 intercepted BEFORE the keys seam (the armed enter never
-    // reaches the router's enter→accept interception; typed chars above DID
-    // pass through the seam, the "\r" must not).
-    expect(keys).not.toHaveBeenCalledWith("\r", panel);
-  });
-
-  test("test_enter_after_stage2_is_normal_accept_again", () => {
-    const state = seedOpenText(["q1", "q2"]);
-    const { panel } = makePanel(state);
-    panel.focusTextField();
-    panel.handleInput("draft");
-    panel.handleInput("\r"); // stage 1
-    panel.handleInput("\r"); // stage 2 → q2
-
-    // Third consecutive enter: flag is gone → normal router accept path.
-    // On a TEXT question accept is the consumed no-op seam (the answer is
-    // the draft — nothing to select).
-    expect(panel.handleInput("\r")).toBe(true);
-    expect(panel.advanceArmed).toBe(false);
-    expect(panel.currentId).toBe("q2");
-    expect(state.getQuestion("q2")?.status).toBe("open");
-    expect(state.getQuestion("q2")?.answer).toBeUndefined();
-  });
-
-  test("test_stage1_on_choice_question_does_not_arm_next_enter_accepts", () => {
-    // EXPLAIN-003 (the reported bug): explain → enter → enter on a CHOICE
-    // question must ANSWER the highlighted option — the old armed stage-2
-    // advance skipped the question unanswered, leaving nothing submittable.
+  test("test_elaboration_enter_on_choice_saves_blurs_no_commit_no_advance", () => {
     const state = seedOpen(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
-    // WRITEIN-001: the ✎ Other row now opens the WRITE-IN editor (accept →
-    // commit duty), so the elaboration editor opens via ctrl+t's focus path.
-    panel.focusTextField(); // elaboration duty (default) — the two-stage stage-1 path
+    focusText(panel); // ctrl+t on an option cursor → elaboration duty
+    expect(panel.textDuty).toBe("elaboration");
     panel.handleInput("my elaboration");
-    expect(panel.handleInput("\r")).toBe(true); // stage 1: save + blur
 
-    expect(panel.focus).toBe("options");
-    expect(panel.advanceArmed).toBe(false); // NOT armed on choice questions
+    expect(panel.handleInput("\r")).toBe(true); // save + blur — nothing else
+
     expect(drafts.setDraft).toHaveBeenCalledWith("q1", "my elaboration");
-    // Cursor re-seeded ✎ → ★ preselect (index 0, option "a").
-    expect(panel.cursorIndex).toBe(0);
-
-    // The next enter is a NORMAL accept: ★ "a" selected, elaboration kept,
-    // accept-advance moves on — the question is now answered + submittable.
+    expect(state.getQuestion("q1")?.status).toBe("open");
+    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // NEVER a commit
+    expect(panel.focus).toBe("options");
+    expect(panel.currentId).toBe("q1"); // no advance
+    expect(panel.cursorIndex).toBe(0); // ✎→★ preselect re-seed (index 0)
+    // The follow-up enter is a NORMAL accept: ★ "a" selected, elaboration
+    // kept, accept-advance moves on — no second-enter ritual anywhere.
     expect(panel.handleInput("\r")).toBe(true);
     expect(state.getQuestion("q1")?.status).toBe("answered");
     expect(state.getQuestion("q1")?.answer?.value).toBe("a");
     expect(panel.draftTextFor("q1")).toBe("my elaboration"); // attaches at submit
-    expect(panel.currentId).toBe("q2"); // Q14 accept-advance
+    expect(panel.currentId).toBe("q2");
   });
-});
 
-describe("two-stage enter — one-shot disarm", () => {
-  test("test_non_enter_key_disarms_and_next_enter_falls_through", () => {
+  test("test_empty_writein_enter_saves_draft_blurs_no_commit", () => {
+    // Escape hatch: an empty buffer in write-in duty is NOT a commit —
+    // draft write-through + blur only (R4; landed writeInEnter behavior).
+    const state = seedOpenText(["q1", "q2"]);
+    const { panel, drafts } = makePanel(state);
+    focusText(panel);
+    expect(panel.textField.getText()).toBe(""); // empty buffer
+
+    expect(panel.handleInput("\r")).toBe(true);
+
+    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // no commit
+    expect(state.getQuestion("q1")?.status).toBe("open");
+    expect(drafts.setDraft).toHaveBeenCalledWith("q1", ""); // draft write-through
+    expect(panel.draftTextFor("q1")).toBe("");
+    expect(panel.focus).toBe("options");
+    expect(panel.currentId).toBe("q1"); // no advance
+  });
+
+  test("test_text_enter_intercepts_before_the_keys_seam", () => {
+    // Dispatch-ordering property that survives the two-stage removal: the
+    // enter-per-duty fork consumes "\r" BEFORE the router sees it (the
+    // note-mode analogue is test_note_enter_never_reaches_router_accept).
     const state = seedOpenText(["q1", "q2"]);
     const { panel, keys } = makePanel(state, true);
-    panel.focusTextField();
-    panel.handleInput("\r"); // arm (empty draft, still saves "")
-    expect(panel.advanceArmed).toBe(true);
+    panel.focusTextField("writein"); // spy flavor: focus driven directly
+    panel.handleInput("committed via interception");
 
-    panel.handleInput("\x1b[A"); // arrow up — any non-enter input disarms
-    expect(panel.advanceArmed).toBe(false);
-
-    // The following enter is NOT stage 2: it falls through to the keys seam.
     panel.handleInput("\r");
-    expect(keys).toHaveBeenCalledWith("\r", panel);
-    expect(panel.currentId).toBe("q1"); // no advance happened
-  });
 
-  test("test_armed_enter_in_options_focus_survives_disarm_check_order", () => {
-    const state = seedOpenText(["q1", "q2"]);
-    const { panel } = makePanel(state, true);
-    panel.focusTextField();
-    panel.handleInput("\r"); // stage 1 arms — must NOT be disarmed by itself
-    expect(panel.advanceArmed).toBe(true);
-    panel.handleInput("\r"); // stage 2 still fires (disarm check skips enter)
-    expect(panel.currentId).toBe("q2");
-    expect(panel.advanceArmed).toBe(false);
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(keys).not.toHaveBeenCalledWith("\r", panel);
   });
 });
 
@@ -317,7 +288,6 @@ describe("two-stage enter — newline safety (R4)", () => {
       panel.handleInput("line2"); // typing continues on the inserted line
       expect(panel.textField.getText()).toBe("line1\nline2");
       expect(panel.focus).toBe("text"); // no blur
-      expect(panel.advanceArmed).toBe(false); // no arming
       expect(drafts.setDraft).not.toHaveBeenCalled(); // no save
       expect(panel.textField.focused).toBe(true);
     });
@@ -332,35 +302,48 @@ describe("two-stage enter — newline safety (R4)", () => {
     panel.handleInput("line2");
     expect(panel.textField.getText()).toBe("line1\nline2");
 
-    panel.handleInput("\r"); // stage 1 saves the full multi-line draft
+    panel.handleInput("\r"); // elaboration enter saves the full multi-line draft
 
     expect(drafts.setDraft).toHaveBeenCalledWith("q1", "line1\nline2");
     expect(panel.focus).toBe("options");
   });
 
-  test("test_kitty_plain_enter_is_stage1_not_newline", () => {
+  test("test_kitty_plain_enter_commits_not_newline", () => {
     // parseKey resolves "\x1b[13u" (kitty CSI-u plain enter) to "enter" —
-    // it MUST stage-save, not insert a newline.
+    // on a TEXT question it MUST commit (status answered), never insert a
+    // newline and never fall through to the editor.
     const state = seedOpenText(["q1", "q2"]);
-    const { panel, drafts } = makePanel(state);
-    panel.focusTextField();
-    panel.handleInput("kitty draft");
+    const { panel, editor } = makePanel(state);
+    focusText(panel);
+    panel.handleInput("kitty answer");
 
     panel.handleInput("\x1b[13u");
 
-    expect(drafts.setDraft).toHaveBeenCalledWith("q1", "kitty draft");
-    expect(panel.advanceArmed).toBe(true);
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q1")?.answer?.value).toBe("kitty answer");
+    expect(state.getQuestion("q1")?.answer?.custom).toBe(true);
     expect(panel.focus).toBe("options");
+    expect(editor.handleInput).not.toHaveBeenCalledWith("\x1b[13u");
   });
 
-  test("test_ctrl_j_while_armed_disarms_rather_than_advancing", () => {
-    const state = seedOpen(["q1", "q2"]);
-    const { panel } = makePanel(state, true);
-    panel.focusTextField();
-    panel.handleInput("\r"); // arm
-    panel.handleInput("\n"); // ctrl+j is a newline request, not stage 2
-    expect(panel.advanceArmed).toBe(false);
-    expect(panel.currentId).toBe("q1");
+  test("test_ctrl_j_inserts_newline_never_commits", () => {
+    // "\n" is excluded from the enter fork by RAW BYTE (legacy parseKey
+    // resolves ctrl+j to plain "enter"): it always reaches the editor as a
+    // newline request — in write-in duty too, where plain enter commits.
+    const state = seedOpenText(["q1", "q2"]);
+    const { panel, editor, drafts } = makePanel(state);
+    focusText(panel); // write-in duty on the text question
+    panel.handleInput("line1");
+
+    panel.handleInput("\n"); // ctrl+j — newline request, never a commit
+    panel.handleInput("line2");
+
+    expect(editor.handleInput).toHaveBeenCalledWith("\n");
+    expect(panel.textField.getText()).toBe("line1\nline2");
+    expect(panel.focus).toBe("text"); // editor still focused
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // no draft write
+    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // no commit
+    expect(state.getQuestion("q1")?.status).toBe("open");
   });
 });
 
@@ -378,8 +361,7 @@ describe("two-stage enter — note mode (R3)", () => {
     expect(panel.batchNote).toBe("batch note text");
     expect(panel.focus).toBe("options"); // note mode exited
     expect(panel.textField.focused).toBe(false);
-    expect(panel.advanceArmed).toBe(false); // a note is NOT a question answer
-    expect(drafts.setDraft).not.toHaveBeenCalled();
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // a note is NOT a question draft
   });
 
   test("test_note_enter_never_reaches_router_accept", () => {
@@ -388,7 +370,7 @@ describe("two-stage enter — note mode (R3)", () => {
     panel.focus = "note";
     panel.handleInput("\r");
     // The router would read enter in non-text focus as options accept —
-    // stage-1 interception must run first.
+    // the enter fork must run first.
     expect(keys).not.toHaveBeenCalled();
   });
 
@@ -411,7 +393,6 @@ describe("two-stage enter — note mode (R3)", () => {
     expect(panel.focus).toBe("options");
     expect(panel.batchNote).toBe("cross-cutting context"); // write-through
     expect(drafts.setNote).toHaveBeenCalledWith("cross-cutting context");
-    expect(panel.advanceArmed).toBe(false); // esc never arms the advance
 
     // Re-open (e.g. after suspend/resume): the store copy wins the seed.
     drafts.getNote.mockReturnValue("cross-cutting context");
@@ -450,7 +431,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
     const { panel } = makePanel(state);
     focusText(panel);
     panel.handleInput("the draft");
-    panel.handleInput("\r"); // stage 1 (buffer still holds the draft)
+    panel.handleInput("\r"); // elaboration enter: save + blur (buffer keeps the draft)
     expect(panel.focus).toBe("options");
 
     const seedSpy = vi.spyOn(panel.textField, "seed");
@@ -464,13 +445,13 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
     const { panel } = makePanel(state);
     focusText(panel);
     panel.handleInput("q1 draft");
-    panel.handleInput("\r"); // stage 1 save on q1
-    panel.handleInput("\r"); // stage 2 advance → q2
+    panel.handleInput("\r"); // elaboration save on q1 (slot written, blurred)
 
-    // Navigate and return WITHOUT touching the slot map (R4: drafts survive
-    // navigation; shift+tab/tab are the default nav accelerators — tab from
-    // q2 clamps... no: tab = prevQuestion → back to q1).
-    panel.handleInput("\t"); // tab = prevQuestion → q1
+    // Navigate WITHOUT touching the slot map (R4: drafts survive
+    // navigation; shift+tab/tab are the default nav accelerators).
+    panel.handleInput("\x1b[Z"); // shift+tab = nextQuestion → q2
+    expect(panel.currentId).toBe("q2");
+    panel.handleInput("\t"); // tab = prevQuestion → back to q1
     expect(panel.currentId).toBe("q1");
 
     panel.handleInput("\u0014"); // refocus → seeded from the q1 slot
@@ -482,10 +463,10 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
     const { panel } = makePanel(state);
     focusText(panel);
     panel.handleInput("q1 draft");
-    panel.handleInput("\r"); // stage 1 save on q1 (slot written)
+    panel.handleInput("\r"); // elaboration save on q1 (slot written)
 
-    // Navigation keeps focus === "text" with a stale buffer — exactly what
-    // seed-on-refocus repairs: q2 has no draft, so the field empties.
+    // Navigation after the blur lands in options focus; refocusing on q2
+    // re-seeds the buffer: q2 has no draft, so the field empties.
     panel.handleInput("\x1b[Z"); // shift+tab = nextQuestion → q2
     expect(panel.currentId).toBe("q2");
     panel.handleInput("\u0014"); // explicit refocus on q2
@@ -495,23 +476,23 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
 
 describe("two-stage enter — history isolation (h2.31)", () => {
   test("test_addToHistory_never_called_across_the_full_flow", () => {
-    const state = seedOpen(["q1", "q2"]);
+    const state = seedOpenText(["q1", "q2"]);
     const { panel, editor } = makePanel(state);
-    // Full journey: focus, type, newline, stage-1 save, stage-2 advance,
-    // note save — none of it may push editor history.
+    // Full journey: write-in focus on a text question, type, newline,
+    // commit-enter, note save — none of it may push editor history.
     focusText(panel);
     panel.handleInput("line1");
     panel.handleInput("\x1b[13;2u");
     panel.handleInput("line2");
-    panel.handleInput("\r"); // stage 1
-    panel.handleInput("\r"); // stage 2
+    panel.handleInput("\r"); // ONE enter commits the multi-line write-in
+    expect(state.getQuestion("q1")?.status).toBe("answered");
     panel.textField.setText("note");
     panel.focus = "note";
     panel.handleInput("\r"); // note save
 
     expect(editor.addToHistory).not.toHaveBeenCalled();
     // onSubmit is deliberately never assigned (panel-level interception is
-    // the single stage-1 trigger — see the [Mode A] JSDoc in panel.ts).
+    // the single enter trigger — see the [Mode A] JSDoc in panel.ts).
     expect(panel.textField.editor.onSubmit).toBeUndefined();
   });
 });

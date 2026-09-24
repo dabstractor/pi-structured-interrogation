@@ -732,7 +732,7 @@ describe("write-in duty (WRITEIN-001, FR-D1)", () => {
   test("test_wi_accept_other_row_enters_writein_duty_and_seeds_draft", () => {
     const state = seed([{ id: "q1", overrides: { recommendation: "a" } }]);
     const { panel } = makePanel(state);
-    panel.commitTextDraft("q1", "saved draft", { arm: false }); // pre-existing draft (R4)
+    panel.commitTextDraft("q1", "saved draft"); // pre-existing draft (R4)
     panel.currentId = "q1";
     panel.cursorIndex = 2; // past the 2 options = the ✎ Other — write your own row
 
@@ -825,7 +825,6 @@ describe("write-in duty (WRITEIN-001, FR-D1)", () => {
     expect(panel.currentId).toBe("q2"); // advanced to the next unanswered (Q14 parity)
     expect(panel.focus).toBe("options"); // blurred after the advance
     expect(panel.textDuty).toBe("elaboration"); // blurTextField reset the duty
-    expect(panel.advanceArmed).toBe(false); // a write-in commit never arms the two-stage flag
   });
 
   test("test_wi_enter_empty_buffer_saves_draft_no_commit", () => {
@@ -844,7 +843,6 @@ describe("write-in duty (WRITEIN-001, FR-D1)", () => {
     expect(panel.draftTextFor("q1")).toBe(""); // draft slot + DraftStore seam written
     expect(panel.focus).toBe("options"); // blurred back to options
     expect(panel.cursorIndex).toBe(0); // EXPLAIN-003 ★ re-seed off the Other row
-    expect(panel.advanceArmed).toBe(false); // arm: false — no advance arming
     expect(panel.textDuty).toBe("elaboration");
   });
 

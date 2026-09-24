@@ -1335,7 +1335,6 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     expect(panel.textField.focused).toBe(false);
     expect(drafts.setDraft).toHaveBeenCalledWith("q1", "elaboration");
     expect(panel.draftTextFor("q1")).toBe("elaboration");
-    expect(panel.advanceArmed).toBe(false); // back-out, not an answer
 
     // The next enter accepts the highlighted option — no stage-2 advance.
     expect(panel.handleInput("\r")).toBe(true);
@@ -1502,7 +1501,6 @@ describe("openExternalEditor — ctrl+g handoff (P1.M4.T1.S3)", () => {
     expect(h.drafts.setDraft).toHaveBeenCalledWith("q1", "edited");
     // h2.31: the text replaces the field — nothing else moves.
     expect(h.panel.focus).toBe("text");
-    expect(h.panel.advanceArmed).toBe(false);
   });
 
   test("test_failed_edit_leaves_field_untouched_but_still_resumes_tui", async () => {
@@ -2050,7 +2048,6 @@ describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
     expect(state.getQuestion("q1")?.status).toBe("open");
     expect(state.getQuestion("q1")?.answer).toBeUndefined();
     expect(panel.currentId).toBe("q1"); // no advance
-    expect(panel.advanceArmed).toBe(false); // choice elaboration never arms
   });
 
   test("ctrl_t_on_the_Other_row_opens_writein_duty_and_enter_commits_custom", () => {
@@ -2133,7 +2130,6 @@ describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
     expect(panel.confirmMode).toBeNull();
     expect(panel.draftTextFor("q1")).toBe("fresh context"); // draft saved
     expect(panel.focus).toBe("options"); // blurred
-    expect(panel.advanceArmed).toBe(false); // elaboration ≠ answer gesture
     expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // answer untouched
     expect(state.getQuestion("q1")?.answer?.text).toBeUndefined();
   });
@@ -2155,6 +2151,5 @@ describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
     expect(panel.draftTextFor("q1")).toBe("half typed"); // write-through
     expect(state.getQuestion("q1")?.answer).toBeUndefined(); // NEVER a commit
     expect(panel.textDuty).toBe("elaboration"); // duty is per-focus-session
-    expect(panel.advanceArmed).toBe(false); // exit ≠ answer gesture
   });
 });

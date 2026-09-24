@@ -33,16 +33,15 @@
  * seam (the accept path gates on answered/submitted). No drill-down in
  * v1: the confirm footer is the only surface.
  *
- * The text stage-1 save (two-stage enter, h2.31) shares the same gate:
+ * The text save (WRITEIN-001 commit-at-enter) shares the same gate:
  * saving a draft on an answered/submitted question with ripple victims
- * defers the save ({@link beginTextConfirm}); enter completes it with
- * stage-1 semantics ({@link applyTextConfirm} — draft slots + DraftStore
- * seam + blur + arm, NEVER an applyAnswer: stage-1 saves do not touch
- * state), esc restores the recorded answer's text into the editor and
- * keeps text focus ({@link cancelTextConfirm}). The editor-exit gestures
- * (ctrl+t toggle / double-esc, ESC-002) run the same gate with `arm: false`
- * — backing out of the editor saves the draft but never arms the one-shot
- * advance (a back-out is not an answer gesture).
+ * defers the save ({@link beginTextConfirm}); enter completes it
+ * ({@link applyTextConfirm} — draft slots + DraftStore seam + blur, NEVER
+ * an applyAnswer: text saves do not touch state), esc restores the
+ * recorded answer's text into the editor and keeps text focus
+ * ({@link cancelTextConfirm}). The editor-exit gestures (ctrl+t toggle /
+ * double-esc, ESC-002) run the same gate — a back-out saves the draft but
+ * never commits (a back-out is not an answer gesture).
  *
  * The write-in commit gate (h2.35, P1.M2.T2.S2) shares the same modal: in
  * write-in duty ({@link writeInEnter}), committing the buffer on an
@@ -51,8 +50,8 @@
  * ({@link applyWriteInConfirm} — the {value, custom: true, at} answer, then
  * evaluateDependsOn → advance → blur); esc re-seeds the editor from the
  * recorded answer with ZERO state change ({@link cancelWriteInConfirm}).
- * Write-in commits are plain commits — no `arm` (the two-stage machinery is
- * scheduled for removal, P1.M2.T4.S1).
+ * Write-in commits are plain commits (P1.M2.T4.S1 removed the two-stage
+ * machinery — there is no arming stage anywhere).
  *
  * enter/esc are FIXED keys (keys.ts Mode A) — the footer copy hardcodes
  * them; there is deliberately no config surface (AC-12 unaffected).
@@ -80,18 +79,10 @@ export interface RippleConfirmState {
   /** Text: the staged stage-1 payload (deferred draft save). Write-in: the
    *  staged commit payload (deferred write-in commit on an
    *  answered/submitted question — h2.35). `text` carries the buffer; the
-   *  applied payload is { value: text, custom: true, at: now } (h2.42). No
-   *  `arm` — write-in commits are plain commits (the two-stage machinery is
-   *  being removed, P1.M2.T4.S1); no `proposed` — reuse `text`. */
+   *  applied payload is { value: text, custom: true, at: now } (h2.42). A
+   *  plain commit — the two-stage machinery was removed (P1.M2.T4.S1); no
+   *  `proposed` — reuse `text`. */
   text?: string;
-  /**
-   * Text: whether the deferred commit arms the one-shot advance flag
-   * (ESC-002). Stage-1 enter saves arm (h2.31 two-stage contract); the
-   * editor-exit gestures (ctrl+t toggle / double-esc) pass false — backing
-   * out of the editor is not an answer gesture. Default true (undefined
-   * reads as armed, the pre-ESC-002 behavior).
-   */
-  arm?: boolean;
   /** Answered/submitted ripple ids, in computeRipple BFS order (footer copy). */
   victims: string[];
   /** esc restore fallback when the recorded answer's option is not findable. */
@@ -190,25 +181,19 @@ export function cancelConfirm(panel: InterrogationPanel): void {
 }
 
 /**
- * Text stage-1 gate entry (called by panel.saveTextDraft when the current
+ * Text save gate entry (called by panel.stageText when the current
  * question is answered/submitted with a recorded answer AND the ripple has
  * victims): stash the staged text as a text-pending confirm. The slot
- * write, DraftStore write, blur, and (unless `arm: false`) the arming are
- * ALL deferred to {@link applyTextConfirm} — nothing is saved until the
- * user decides.
+ * write, DraftStore write, and blur are ALL deferred to {@link
+ * applyTextConfirm} — nothing is saved until the user decides.
  */
-export function beginTextConfirm(
-  panel: InterrogationPanel,
-  text: string,
-  opts?: { arm?: boolean },
-): void {
+export function beginTextConfirm(panel: InterrogationPanel, text: string): void {
   const id = panel.currentId;
   if (id === undefined) return;
   panel.confirmMode = {
     questionId: id,
     kind: "text",
     text,
-    arm: opts?.arm !== false,
     victims: rippleVictims(panel, id),
     priorCursorIndex: panel.cursorIndex,
   };
@@ -216,24 +201,23 @@ export function beginTextConfirm(
 }
 
 /**
- * Confirm-enter for a text stage-1 save: complete the DEFERRED save with
- * exact stage-1 semantics via the panel's shared commit tail — draft slot
- * + DraftStore seam write of the STASHED text, blur back to options, arm
- * the one-shot advance flag. Never applies an answer to state (stage-1
- * saves never do — h2.31), so no evaluateDependsOn here.
+ * Confirm-enter for a text save: complete the DEFERRED save via the
+ * panel's shared commit tail — draft slot + DraftStore seam write of the
+ * STASHED text, blur back to options. Never applies an answer to state
+ * (text saves never do — WRITEIN-001), so no evaluateDependsOn here.
  */
 export function applyTextConfirm(panel: InterrogationPanel): void {
   const cm = panel.confirmMode;
   panel.confirmMode = null;
   if (cm === null || cm.kind !== "text" || cm.text === undefined) return;
-  panel.commitTextDraft(cm.questionId, cm.text, { arm: cm.arm !== false });
+  panel.commitTextDraft(cm.questionId, cm.text);
 }
 
 /**
  * Confirm-esc for a text stage-1 save: restore the editor to the recorded
  * answer's text (the same read layout.ts's ✎ marker uses: `value` for text
  * questions, `answer.text` for choice elaborations) via the idempotent
- * seed, and KEEP text focus — no draft write, no blur, no arming. Nothing
+ * seed, and KEEP text focus — no draft write, no blur. Nothing
  * was written yet (the save was deferred), so there is nothing to undo.
  */
 export function cancelTextConfirm(panel: InterrogationPanel): void {

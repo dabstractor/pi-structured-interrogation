@@ -384,8 +384,8 @@ export class InterrogationPanel implements Component {
   overviewScroll = 0;
 
   /**
-   * Panel-local free-text drafts keyed by question id (h2.45): stage-1
-   * enter ({@link saveTextDraft}) writes {value, text} here synchronously,
+   * Panel-local free-text drafts keyed by question id (h2.45): an enter
+   * save ({@link saveTextDraft}) writes {value, text} here synchronously,
    * making it the freshest read for refocus seeding ({@link focusTextField}
    * falls back to the DraftStore seam). Survives question navigation (R4) —
    * it is NEVER cleared in this task; destruction/reconciliation rules
@@ -417,15 +417,6 @@ export class InterrogationPanel implements Component {
    * "elaboration" on every blur.
    */
   textDuty: "writein" | "elaboration" = "elaboration";
-
-  /**
-   * One-shot two-stage enter flag (h2.31, Mode A): armed by stage-1 (enter
-   * in text focus saved the draft), consumed by stage-2 (the NEXT enter
-   * advances to the next unanswered question). Any other input event
-   * disarms it (one-shot semantics — see handleInput). Public so tests can
-   * assert the flag directly.
-   */
-  advanceArmed = false;
 
   /**
    * Timestamp of the last esc KEY PRESS while the embedded editor held
@@ -595,7 +586,7 @@ export class InterrogationPanel implements Component {
     // Host-side refinement of the onFocusText seam (keys.ts itself is
     // untouched): ctrl+t is now a TOGGLE (ESC-002) — options focus → focus
     // + seed the embedded editor; text focus → exitTextField (draft
-    // write-through + blur, no advance arming). A deterministic single-key
+    // write-through + blur — never a commit). A deterministic single-key
     // "close the prompt box" companion to the double-esc exit.
     // WRITEIN-001 duty-follows-cursor (P1.M2.T3.S1, h2.32): the ENTRY
     // declares the duty via desiredTextDuty — write-in when the cursor sits
@@ -674,20 +665,23 @@ export class InterrogationPanel implements Component {
   }
 
   /**
-   * [Mode A] Two-stage enter (h2.31 Q17=A, FR-12) — the load-bearing order
-   * inside this method is:
+   * [Mode A] Enter commits per duty (WRITEIN-001, h2.32 / FR-D2) — the
+   * order inside this method is:
    *
-   *   resolved guard → CONFIRM-MODE CHECK (modal, FR-18) → stage-0
-   *   gate-warning dismissal → (a) one-shot disarm → (b) armed stage-2
-   *   enter → (c) text/note stage-1 enter → keys seam → textField
+   *   resolved guard → ctrl+c → CONFIRM-MODE CHECK (modal, FR-18) →
+   *   gate-warning dismissal → enter-per-duty fork → keys seam → textField
    *   forwarding.
+   *
+   * There are NO arming stages: the h2.31 two-stage machinery (the
+   * one-shot advance flag and the armed stage-2 advance) was REMOVED
+   * (P1.M2.T4.S1) — a single enter now does the whole job, so the armed
+   * second enter has no remaining purpose.
    *
    * The CONFIRM-MODE CHECK (P1.M5.T4.S1) sits BEFORE everything else
    * because the mode is MODAL: only enter (keep) / esc (cancel) act and
    * every other key is a consumed no-op — including keys that would
-   * dismiss a gate warning or disarm the advance flag. Returning from the
-   * confirm branch also guarantees a confirm-enter can never double-fire
-   * as the armed stage-2 advance below.
+   * dismiss a gate warning. The modal check also runs before the duty
+   * fork, so a confirm-enter can never double-fire as a duty commit.
    *
    * Stage 1 intercepts enter at the PANEL level (before the router and
    * before the embedded editor ever sees the byte) rather than via
@@ -729,7 +723,7 @@ export class InterrogationPanel implements Component {
     // CONFIRM MODE (FR-18 / Q39=B, P1.M5.T4.S1) — FIRST check after the
     // resolved guard, BEFORE the gate-warning dismissal: while a pending
     // answer edit awaits keep/cancel, no other key (including a gate-
-    // warning dismissal, an advance-flag disarm, or router/editor input)
+    // warning dismissal or router/editor input)
     // may act. "\n" (ctrl+j newline) is excluded from keep exactly as in
     // the stage checks below; esc matches the router's fixed Key.escape.
     if (this.confirmMode !== null) {
@@ -761,35 +755,19 @@ export class InterrogationPanel implements Component {
     // never a stage transition — legacy parseKey resolves it to "enter", so
     // the raw byte is excluded here (kitty mode already yields "shift+enter").
     const enter = key === "enter" && data !== "\n";
-    // (a) One-shot disarm: any input other than the stage-2 enter disarms
-    // before normal dispatch. A stage-1 enter IS "enter", so arming in (c)
-    // below is never undone by this check — order is load-bearing.
-    if (this.advanceArmed && !enter) this.advanceArmed = false;
-    // (b) Stage 2: the NEXT enter (options focus) advances to the next
-    // unanswered question — armed ONLY by stage-1 saves on TEXT questions
-    // (EXPLAIN-003); on choice questions the draft is an elaboration, so
-    // the enter falls through to the normal options accept (Q14). Runs
-    // BEFORE the keys seam so the armed enter cannot be shadowed by the
-    // router's enter→accept interception.
-    if (this.advanceArmed && enter && this.focus === "options") {
-      this.advanceArmed = false;
-      this.advanceToNextUnanswered();
-      this.invalidate();
-      return true;
-    }
-    // (c) Stage 1: enter in text/note focus saves and blurs — never reaches
-    // the editor (no stock submitValue, no onSubmit) and never the router
-    // (in note focus the router would read enter as options accept). Note
-    // exit = exitNoteMode: the SAME write-through as esc/re-press (h2.32).
+    // Enter per duty (WRITEIN-001 — commit-at-enter, no arming stages):
+    // enter in text/note focus NEVER reaches the editor (no stock
+    // submitValue, no onSubmit) and never the router (in note focus the
+    // router would read enter as options accept). Note exit = exitNoteMode:
+    // the SAME write-through as esc/re-press (h2.32).
     if (enter && (this.focus === "text" || this.focus === "note")) {
       if (this.focus === "note") this.exitNoteMode();
-      // WRITEIN-001 duty fork (P1.M2.T3.S1, h2.32): the duty decides what
-      // enter MEANS. Write-in duty: commit the buffer as the answer
+      // The duty decides what enter MEANS (WRITEIN-001, P1.M2.T3.S1,
+      // h2.32). Write-in duty: COMMIT the buffer as the answer
       // (writeInEnter — custom value + advance; FR-18 confirm on answered
-      // edits). Elaboration duty: stage-1 save ONLY — the FR-18 gate runs
-      // first (stageText), then save + blur; it NEVER advances, never
-      // applies an answer, and on choice questions never arms (an
-      // elaboration alone never answers — FR-12).
+      // edits). Elaboration duty: save + blur ONLY — the FR-18 gate runs
+      // first (stageText), then save + blur; it NEVER advances and never
+      // applies an answer (an elaboration alone never answers — FR-12).
       else if (this.textDuty === "writein") writeInEnter(this);
       else this.saveTextDraft();
       return true;
@@ -807,49 +785,39 @@ export class InterrogationPanel implements Component {
   }
 
   /**
-   * Stage 1 for question text (h2.31 two-stage enter): snapshot the editor
+   * Elaboration enter (WRITEIN-001 commit-at-enter): snapshot the editor
    * text into the panel-local draft slot ({value, text} per h2.45 — final
    * store reconciliation is P1.M4.T2.S1), persist via the DraftStore seam
-   * when present, blur back to options, and arm the one-shot advance flag.
-   * Never advances and never selects an option. See the [Mode A] JSDoc on
+   * when present, and blur back to options. Never commits an answer, never
+   * advances, never selects an option — an elaboration attaches to the
+   * selection at submit (FR-12). See the [Mode A] JSDoc on
    * {@link handleInput} for why the trigger is panel-level interception.
    */
   private saveTextDraft(): void {
-    // EXPLAIN-003: the two-stage advance arms ONLY on text questions (the
-    // draft completes the answer there — h2.31's original purpose). On a
-    // CHOICE question the draft is an elaboration, not the answer: the next
-    // enter must fall through to the normal options accept (Q14), so the
-    // explain → enter → enter flow ANSWERS the highlighted option instead
-    // of stage-2-advancing past an unanswered question (the reported
-    // "explained it but nothing was submittable" trap).
-    const q =
-      this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;
-    this.stageText(this.textField.getText(), q?.type === "text");
+    this.stageText(this.textField.getText());
   }
 
   /**
    * Editor-exit gesture (ESC-002): back out of the explain editor to normal
    * question selection — write the buffer through to the draft slot (R4:
    * the typed text is sacred; a bare blur would let the next refocus seed a
-   * STALE draft over it), blur to options, and deliberately do NOT arm the
-   * advance flag (going back is not an answer gesture — the next enter
-   * accepts the highlighted option, it does not advance). Fires from the
-   * ctrl+t toggle and the double-esc exit (keys.ts); never suspends the
-   * panel and never touches state (same stage-1 discipline).
+   * STALE draft over it) and blur to options (going back is not an answer
+   * gesture — the next enter accepts the highlighted option, it does not
+   * commit). Fires from the ctrl+t toggle and the double-esc exit (keys.ts);
+   * never suspends the panel and never touches state (same save discipline).
    */
   exitTextField(): void {
-    this.stageText(this.textField.getText(), false);
+    this.stageText(this.textField.getText());
   }
 
   /**
-   * Shared stage-1 core for the enter-save and the editor-exit gestures:
-   * FR-18 text gate first (re-saving a draft on an answered/submitted
-   * question whose ripple would invalidate answered/submitted questions
-   * defers the save into the modal confirm — arm flag carried through so an
-   * exit-confirm blurs without arming), then the unconditional commit tail
-   * with the caller's arming.
+   * Shared save core for the elaboration-enter and the editor-exit
+   * gestures: FR-18 text gate first (re-saving a draft on an
+   * answered/submitted question whose ripple would invalidate
+   * answered/submitted questions defers the save into the modal confirm),
+   * then the unconditional commit tail.
    */
-  private stageText(text: string, arm: boolean): void {
+  private stageText(text: string): void {
     const id = this.currentId;
     if (id !== undefined) {
       const q = this.state.getQuestion(id);
@@ -859,24 +827,24 @@ export class InterrogationPanel implements Component {
         (q.status === "answered" || q.status === "submitted") &&
         rippleVictims(this, id).length > 0
       ) {
-        beginTextConfirm(this, text, { arm });
+        beginTextConfirm(this, text);
         return; // deferred — applyTextConfirm runs on confirm-enter
       }
     }
-    this.commitTextDraft(id, text, { arm });
+    this.commitTextDraft(id, text);
   }
 
   /**
-   * The unconditional stage-1 tail shared by the direct save path and the
+   * The unconditional save tail shared by the direct save path and the
    * ripple-confirm apply path (applyTextConfirm): write the panel-local
-   * slot ({value, text} per h2.45), persist via the DraftStore seam, blur
-   * back to options, and — unless `arm: false` (the editor-exit gestures,
-   * ESC-002) — arm the one-shot advance flag. Never advances and never
-   * applies an answer (stage-1 semantics — h2.31). Takes the question id
+   * slot ({value, text} per h2.45), persist via the DraftStore seam, and
+   * blur back to options. Never advances and never applies an answer (a
+   * text save is not an answer gesture — WRITEIN-001 commit-at-enter: only
+   * write-in duty commits, via writeInEnter). Takes the question id
    * explicitly so a deferred confirm commits against the STASHED id even
    * though the modal guarantees currentId cannot drift while it is open.
    */
-  commitTextDraft(questionId: string | undefined, text: string, opts?: { arm?: boolean }): void {
+  commitTextDraft(questionId: string | undefined, text: string): void {
     if (questionId !== undefined) {
       this.draftSlots.set(questionId, { value: questionId, text });
       this.drafts?.setDraft(questionId, text);
@@ -896,23 +864,6 @@ export class InterrogationPanel implements Component {
       }
     }
     this.blurTextField(); // focus = "options" + editor blur + invalidate
-    if (opts?.arm !== false) this.advanceArmed = true;
-  }
-
-  /**
-   * Stage 2 target: the accept-advance algorithm (h2.38) via the shared
-   * nextUnanswered primitive from actions.ts — forward scan with wrap over
-   * open/reasked, staying on the current question when nothing qualifies
-   * (all answered). Mirrors actions.advanceAfterAccept without duplicating
-   * its logic (actions.ts is read-only for this task; nextUnanswered is its
-   * exported core). Assigning currentId re-seeds the cursor (R2).
-   */
-  private advanceToNextUnanswered(): void {
-    const ordered = this.state.orderedQuestions();
-    const from = ordered.findIndex((q) => q.id === this.currentId);
-    const nextId = nextUnanswered(ordered, from);
-    if (nextId !== undefined) this.currentId = nextId;
-    this.invalidate();
   }
 
   /**
@@ -1141,8 +1092,8 @@ export class InterrogationPanel implements Component {
    * ladder), and the ctrl+shift+m re-press (keys.ts onBatchNote toggle).
    * FR-16: exit never destroys state — the field text is WRITTEN THROUGH
    * to the DraftStore seam + panel field BEFORE blurring, so the draft
-   * survives the exit and re-seeds on re-entry. Deliberately does NOT arm
-   * the advance flag — a note is not a question answer.
+   * survives the exit and re-seeds on re-entry. Deliberately does NOT
+   * commit an answer — a note is not a question answer.
    */
   exitNoteMode(): void {
     const text = this.textField.getText();
@@ -1175,9 +1126,9 @@ export class InterrogationPanel implements Component {
    * in-flight flag stuck — and the internal catch keeps the router's
    * fire-and-forget (`void p.openExternalEditor()`) rejection-free.
    *
-   * Deliberately does NOT blur, change focus, or touch {@link advanceArmed}
-   * (h2.31: "the text replaces the field", full stop — enter semantics
-   * belong to the two-stage contract in {@link saveTextDraft}).
+   * Deliberately does NOT blur, change focus, or commit (WRITEIN-001:
+   * "the text replaces the field", full stop — enter semantics belong to
+   * the enter-per-duty fork in {@link handleInput}).
    */
   async openExternalEditor(): Promise<void> {
     if (this.externalEditorInFlight) return;

@@ -272,8 +272,8 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
  * their newlines); blur happens AFTER the advance so advanceAfterAccept's
  * currentId setter (cursor ★ reset) wins on the repainted view, and
  * blurTextField also resets textDuty to "elaboration". Consumed by:
- * two-stage removal (P1.M2.T4.S1 must not break it — this function never
- * reads or writes advanceArmed), draft role binding (P1.M2.T5.S1),
+ * two-stage removal (P1.M2.T4.S1 must not break it — a plain
+ * commit-at-enter with no arming stages, WRITEIN-001), draft role binding (P1.M2.T5.S1),
  * deep-view Other selection (P1.M2.T6.S1 reuses the accept() pair),
  * maybeAutoSubmit (P2.M1.T1.S1 hooks after the commit tail).
  */
@@ -286,9 +286,9 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
   const text = panel.textField.getText();
   if (text.trim().length === 0) {
     // Empty: draft write-through + blur, no commit (R4) — reuse the
-    // existing stage-1 tail (draftSlots + DraftStore seam + EXPLAIN-003
-    // cursor re-seed to ★), explicitly NOT arming any advance.
-    panel.commitTextDraft(q.id, text, { arm: false });
+    // existing save tail (draftSlots + DraftStore seam + EXPLAIN-003
+    // cursor re-seed to ★), explicitly NOT a commit.
+    panel.commitTextDraft(q.id, text);
     return true;
   }
   // FR-18 / h2.35: a write-in commit on an answered/submitted question with

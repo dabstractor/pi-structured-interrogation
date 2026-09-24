@@ -219,7 +219,6 @@ describe("ripple confirm — choice gate (FR-18)", () => {
     // NOT the proposal index — and the user stays on q1 (AC-7).
     expect(panel.cursorIndex).toBe(0);
     expect(panel.currentId).toBe("q1");
-    expect(panel.advanceArmed).toBe(false);
     expect(drafts.setDraft).not.toHaveBeenCalled();
     // Footer back to the standard render (no confirm line).
     const lines = panel.render(80);
@@ -262,7 +261,6 @@ describe("ripple confirm — choice gate (FR-18)", () => {
     });
     // Standard accept-advance: q4 is the only remaining open question.
     expect(panel.currentId).toBe("q4");
-    expect(panel.advanceArmed).toBe(false);
   });
 
   test("test_enter_applies_exactly_once_no_seam_reinvocation", () => {
@@ -405,11 +403,10 @@ describe("ripple confirm — text stage-1 gate", () => {
     expect(handle.panel.confirmMode?.kind).toBe("text");
     expect(handle.panel.confirmMode?.text).toBe("new text");
     expect(handle.panel.confirmMode?.victims).toEqual(["c2"]);
-    // NOTHING written: no slot setDraft, no blur, no arming (two-stage
-    // stage-1 semantics preserved under the gate).
+    // NOTHING written: no slot setDraft, no blur (the save is deferred
+    // until the user decides).
     expect(handle.drafts.setDraft).not.toHaveBeenCalled();
     expect(handle.panel.focus).toBe("text");
-    expect(handle.panel.advanceArmed).toBe(false);
     expect(state.getQuestion("t1")?.answer?.value).toBe("recorded text"); // untouched
   });
 
@@ -424,7 +421,6 @@ describe("ripple confirm — text stage-1 gate", () => {
     expect(handle.panel.focus).toBe("text");
     expect(handle.panel.textField.focused).toBe(true);
     expect(handle.drafts.setDraft).not.toHaveBeenCalled(); // no draft write
-    expect(handle.panel.advanceArmed).toBe(false); // no arm
     expect(state.getQuestion("t1")?.answer?.value).toBe("recorded text");
   });
 
@@ -434,23 +430,22 @@ describe("ripple confirm — text stage-1 gate", () => {
     triggerTextConfirm(handle);
     expect(handle.panel.handleInput("\r")).toBe(true); // keep
     expect(handle.panel.confirmMode).toBeNull();
-    // The deferred save ran with exact stage-1 semantics: one setDraft of
-    // the STASHED text, blur, arm — never an applyAnswer.
+    // The deferred save ran: one setDraft of the STASHED text, blur —
+    // never an applyAnswer.
     expect(handle.drafts.setDraft).toHaveBeenCalledTimes(1);
     expect(handle.drafts.setDraft).toHaveBeenCalledWith("t1", "new text");
     expect(handle.panel.focus).toBe("options");
     expect(handle.panel.textField.focused).toBe(false);
-    expect(handle.panel.advanceArmed).toBe(true);
-    expect(state.getQuestion("t1")?.answer?.value).toBe("recorded text"); // stage-1 ≠ apply
-    // The armed enter then advances via the standard stage-2 algorithm.
-    expect(handle.panel.handleInput("\r")).toBe(true);
-    expect(handle.panel.currentId).toBe("c3"); // t1 answered, c2 answered, c3 open
+    expect(state.getQuestion("t1")?.answer?.value).toBe("recorded text"); // save ≠ apply
+    // No advance side effect: a text save never moves the question
+    // (P1.M2.T4.S1 removed the armed stage-2 enter).
+    expect(handle.panel.currentId).toBe("t1");
   });
 
-  test("test_editor_exit_gate_defers_save_WITHOUT_arm", () => {
-    // ESC-002: the editor-exit gestures (ctrl+t toggle / double-esc) run the
-    // SAME FR-18 text gate, but a back-out is not an answer gesture — the
-    // deferred commit must save + blur WITHOUT arming the two-stage advance.
+  test("test_editor_exit_gate_defers_save_and_completes_on_confirm_enter", () => {
+    // ESC-002: the editor-exit gestures (ctrl+t toggle / double-esc) run
+    // the SAME FR-18 text gate — a back-out's deferred commit saves +
+    // blurs like any text save (P1.M2.T4.S1 removed the arm differentiator).
     const state = seedTextChain();
     const handle = makePanel(state);
     handle.panel.currentId = "t1";
@@ -463,15 +458,14 @@ describe("ripple confirm — text stage-1 gate", () => {
     expect(handle.panel.focus).toBe("text"); // still editing after one esc
     expect(handle.panel.handleInput("\u001b")).toBe(true);
     expect(handle.panel.confirmMode?.kind).toBe("text");
-    expect(handle.panel.confirmMode?.arm).toBe(false); // the exit differentiator
     expect(handle.drafts.setDraft).not.toHaveBeenCalled(); // nothing written yet
 
-    // Confirm-enter keeps: deferred save runs, blur — NO arm.
+    // Confirm-enter keeps: deferred save runs, blur.
     expect(handle.panel.handleInput("\r")).toBe(true);
     expect(handle.panel.confirmMode).toBeNull();
     expect(handle.drafts.setDraft).toHaveBeenCalledWith("t1", "new text");
     expect(handle.panel.focus).toBe("options");
-    expect(handle.panel.advanceArmed).toBe(false); // back-out ≠ answer gesture
+    expect(state.getQuestion("t1")?.answer?.value).toBe("recorded text"); // save ≠ apply
   });
 });
 
@@ -574,7 +568,6 @@ describe("ripple confirm — write-in commit gate (h2.35, P1.M2.T2.S2)", () => {
     expect(handle.panel.confirmMode?.text).toBe("cockroachdb");
     expect(handle.panel.confirmMode?.victims).toEqual(["q2", "q3"]);
     expect(handle.panel.confirmMode?.priorCursorIndex).toBe(2);
-    expect(handle.panel.confirmMode?.arm).toBeUndefined(); // plain commit — no arm
 
     // NOTHING applied, NOTHING blurred: answer untouched (still the option
     // value, no custom marker), statuses/currentId/duty/focus unchanged.

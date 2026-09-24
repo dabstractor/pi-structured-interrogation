@@ -156,6 +156,7 @@ bridge client submit → remote-pi (or any conformant bridge) emits @eko24ive/pi
       → buildSubmission (snapshot+bump once) → deliverSubmission (steer|followUp)
       → lifecycle.noteSubmissionDelivered()
   emit submit-result ok:true → completed (resolve the flow)
+  (internal throw in the pipeline → submit-result internal_error nack + completed; no rollback — BUG-007)
   → remaining live questions + remote.resurface? emit fresh flow (ask:replay)
 model receives interrogation-submission delta → replies (identical to panel ctrl+s)
 ```

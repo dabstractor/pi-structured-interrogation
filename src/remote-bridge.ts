@@ -29,7 +29,11 @@
  * stray submits are attributable; every emission completes the previous
  * flow first (a new flow replaces the client surface; in-modal progress is
  * expendable — draft sacredness is a panel commitment, not a bridge one).
- * A submit acks `submit-result` then completes the flow;
+ * A submit acks `submit-result` then completes the flow — including
+ * internal errors: a throw from the submission pipeline emits an
+ * `internal_error` NACK and completes the flow, so a remote client never
+ * hangs without an ack (BUG-007; state may stay half-mutated — the next
+ * upsert resurface heals the surface, D-R6);
  * `kind:"cancel"` = defer (ack + complete, zero state change, zero model
  * message — recovery is the model's next upsert/reopen, or bridge-side
  * replay on reconnect for unresolved flows). `remote.resurface` (default
@@ -241,7 +245,10 @@ export interface RemoteBridge {
  * cancel → ACK + completed, zero state mutation, zero model messages
  * (D-R6 defer semantics); answer → D-R4 mapping against CURRENT state →
  * remote-submit.ts pipeline → ACK + completed (+ resurface when configured
- * and live questions remain). Zero recordable answers → `invalid_answer`
+ * and live questions remain) — an internal throw from that pipeline emits
+ * an `internal_error` NACK + completed instead (BUG-007: the client never
+ * hangs without an ack; no rollback, no resurface — the next upsert
+ * re-emits). Zero recordable answers → `invalid_answer`
  * NACK; when the question set changed underneath, a fresh flow re-renders
  * the client with current options.
  */
@@ -263,7 +270,10 @@ export function createRemoteBridge(pi: BridgePi, opts: RemoteBridgeOptions): Rem
         handleSubmit(raw);
       } catch {
         // Never poison the shared bus — a listener throw would break pi-ask's
-        // listener too. Swallow; state consistency is guarded upstream.
+        // listener too. Last-resort bus guard only: the answer path below
+        // acks internal_error itself (BUG-007) — what can still land here is
+        // a throw from the malformed-input early paths (no parsed
+        // requestId/flowId to nack with) or from an emit itself.
       }
     });
   }
@@ -287,7 +297,7 @@ export function createRemoteBridge(pi: BridgePi, opts: RemoteBridgeOptions): Rem
   function emitSubmitResult(
     requestId: string,
     flowId: string,
-    ok: true | { error: "flow_not_found" | "invalid_answer"; message: string },
+    ok: true | { error: "flow_not_found" | "invalid_answer" | "internal_error"; message: string },
   ): void {
     const payload: Record<string, unknown> = { version: 1, requestId, flowId, ok: ok === true };
     if (ok !== true) {
@@ -345,10 +355,27 @@ export function createRemoteBridge(pi: BridgePi, opts: RemoteBridgeOptions): Rem
       return;
     }
 
-    recordRemoteSubmission(pi, state, answers.applied, {
-      lifecycle: opts.lifecycle,
-      maybeAutoSubmit: opts.maybeAutoSubmit,
-    });
+    try {
+      recordRemoteSubmission(pi, state, answers.applied, {
+        lifecycle: opts.lifecycle,
+        maybeAutoSubmit: opts.maybeAutoSubmit,
+      });
+    } catch {
+      // BUG-007 (FR-32/D-R6): an unexpected internal throw (applyAnswer
+      // listener, diff, delivery, injected hook) must never leave the
+      // client hanging without an ack. Emit an internal_error NACK and
+      // tear the flow down. NO rollback — snapshots/epoch are append-only,
+      // so state may stay half-mutated (documented worst case); the next
+      // upsert resurface heals the surface. Skip the ok-ack and the
+      // resurface — re-emission happens on the next upsert.
+      emitSubmitResult(requestId, flowId, {
+        error: "internal_error",
+        message:
+          "Internal error during submission. State may be partially applied; a later upsert resurfaces live questions.",
+      });
+      completeFlow(flowId);
+      return;
+    }
     // nothing_shippable = every applied answer already matched the pending
     // set (identical re-selection): ACCEPTED with no model delta — same
     // semantics as the panel's "nothing to submit" flash.

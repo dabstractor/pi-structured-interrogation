@@ -22,7 +22,7 @@
 import { describe, expect, test } from "vitest";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text, visibleWidth } from "@earendil-works/pi-tui";
-import type { CompletionRecapEntry } from "./delivery.js";
+import { buildCompletion, type CompletionRecapEntry } from "./delivery.js";
 import { INTERROGATION_STATE_ENTRY_TYPE } from "./persistence.js";
 import { computeDiff } from "./snapshots.js";
 import { createInterrogationState } from "./state.js";
@@ -364,6 +364,44 @@ describe("buildCompletionRecapCard", () => {
     expect(line).toBeDefined();
     expect(visibleWidth(line as string)).toBeLessThanOrEqual(COLLAPSED_LINE_BUDGET);
     expect(line).toContain("Database: postgres — fff");
+  });
+
+  test("WRITEIN-001: ✎ write-in entry in the recap card; collapsed keeps the prefix within budget; expanded shows the full text", () => {
+    const longWriteIn = "✎ " + "w".repeat(200); // what completionAnswerSummary ships
+    const d = recapDetails({
+      groups: [
+        { group: "Storage", questions: [recap({ id: "w1", title: "Wildcard", answer: longWriteIn })] },
+      ],
+    });
+    const collapsedLine = lines(buildCompletionRecapCard(d, collapsed, stubTheme, "")).find((l) =>
+      l.includes("Wildcard:"),
+    );
+    expect(collapsedLine).toBeDefined();
+    expect(collapsedLine).toContain("✎ ");
+    expect(visibleWidth(collapsedLine as string)).toBeLessThanOrEqual(COLLAPSED_LINE_BUDGET);
+
+    const expandedLine = lines(buildCompletionRecapCard(d, expanded, stubTheme, "")).find((l) =>
+      l.includes("Wildcard:"),
+    );
+    expect(expandedLine?.includes(longWriteIn)).toBe(true); // no truncation expanded
+  });
+
+  test("WRITEIN-001 end-to-end: custom answer flows completionAnswerSummary → recap entry → card line", () => {
+    const s = createInterrogationState("Plan the migration");
+    s.upsertQuestion({
+      id: "w1",
+      prompt: "Wildcard",
+      title: "Wildcard",
+      type: "choice",
+      rev: 1,
+      status: "open",
+      group: "G",
+      options: [{ value: "a", label: "Alpha" }],
+    });
+    s.applyAnswer("w1", { value: "my own text", custom: true, at: "2025-01-01T00:00:00.000Z" });
+    const msg = buildCompletion(s);
+    const out = buildCompletionRecapCard(msg.details, expanded, stubTheme, "");
+    expect(lines(out).some((l) => l.includes("[G] w1 Wildcard: ✎ my own text"))).toBe(true);
   });
 
   test("defensive: undefined details or empty groups → plain fallback content text", () => {

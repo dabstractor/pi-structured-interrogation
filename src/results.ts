@@ -113,9 +113,10 @@ export function buildStatusLine(state: SerializedState): string {
  *    without `group` bucket under `"(none)"` (the `UNGROUPED_LABEL`)
  * 4. per-question blocks in `state.order`. Each block starts with the
  *    one-liner `{id}: {title} — {status} (rev {rev})` plus ` · answered: {value}`
- *    when an answer exists (titles are short by contract and never
- *    truncated; a missing `title` falls back to `prompt` sliced to 60 chars,
- *    plain slice, no ellipsis), followed by indented detail lines, only when
+ *    when an answer exists (write-ins render as `✎ {value}` with the value
+ *    sliced to 60 chars — WRITEIN-001/h2.42; titles are short by contract
+ *    and never truncated; a missing `title` falls back to `prompt` sliced
+ *    to 60 chars, plain slice, no ellipsis), followed by indented detail lines, only when
  *    the field is present: `  prompt: {full}` (when a title hides it or the
  *    60-char slice cut it), `  description: {full}`,
  *    `  - {value} = {label}[ ★][ — {ramification}]` per option, and one
@@ -231,12 +232,28 @@ function questionBlock(q: Question): string[] {
   return lines;
 }
 
-/** One h3.7 per-question line: `{id}: {label} — {status} (rev {rev})[ · answered: {value}]`. */
+/**
+ * One h3.7 per-question line: `{id}: {label} — {status} (rev {rev})[ · answered: {value}]`.
+ *
+ * The answered segment renders write-ins as `✎ {value}` (WRITEIN-001,
+ * h2.42: `answer.custom === true` — strict check, legacy payloads lack the
+ * key) with the VALUE plain-sliced to 60 chars, no ellipsis — the same
+ * local convention as the prompt fallback; the `✎ ` prefix always stays
+ * visible. This is model-facing PLAIN text: no ANSI/theme, no
+ * truncateToWidth (renderer-side only), and never an option lookup — a
+ * write-in's value is free text, not an option value. Non-custom answers
+ * render the raw value exactly as before.
+ */
 function questionLine(q: Question): string {
   // Titles are short by contract — never truncated. Only the prompt
   // fallback gets the 60-char plain slice (no ellipsis).
   const label = q.title ?? q.prompt.slice(0, 60);
   let line = `${q.id}: ${label} — ${q.status} (rev ${q.rev})`;
-  if (q.answer !== undefined) line += ` · answered: ${q.answer.value}`;
+  if (q.answer !== undefined) {
+    // WRITEIN-001 (h2.42): value holds free text — ✎ prefix, sliced to 60 (plain, no
+    // ellipsis, same convention as the prompt fallback above), never an option lookup.
+    const shown = q.answer.custom === true ? `✎ ${q.answer.value.slice(0, 60)}` : q.answer.value;
+    line += ` · answered: ${shown}`;
+  }
   return line;
 }

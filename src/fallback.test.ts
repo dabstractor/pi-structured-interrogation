@@ -225,6 +225,34 @@ describe("buildFallbackDigest", () => {
     expect(state.snapshots).toEqual([]);
     expect(state.serialize()).toEqual(before);
   });
+
+  test("WRITEIN-001 invariant: digest is byte-identical with custom vs non-custom vs no answers", () => {
+    // The digest is the ask-surface (h2.26): questions/options only — recorded
+    // answers, custom or not, never render, so the string must not change.
+    const answered = mixedState();
+    recordAnswers(answered, [
+      { id: "q1", value: "postgres" },
+      { id: "q2", value: "two-hour window" },
+    ]);
+    const withPlain = buildFallbackDigest(answered.serialize());
+
+    const custom = mixedState();
+    recordAnswers(custom, [
+      { id: "q1", value: "postgres", custom: true },
+      { id: "q2", value: "two-hour window", text: "elaboration", custom: true },
+    ]);
+    const withCustom = buildFallbackDigest(custom.serialize());
+
+    const untouched = buildFallbackDigest(mixedState().serialize());
+
+    expect(withCustom).toBe(withPlain);
+    // Body is answer-free even versus a never-answered state (the header
+    // legitimately differs — recordAnswers bumps the epoch for the digest
+    // label; that is submission bookkeeping, not answer rendering).
+    expect(withCustom.split("\n").slice(1)).toEqual(untouched.split("\n").slice(1));
+    expect(withCustom.includes("✎")).toBe(false);
+    expect(withCustom.includes("answered:")).toBe(false);
+  });
 });
 
 describe("recordAnswers", () => {

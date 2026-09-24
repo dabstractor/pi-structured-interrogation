@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "State and display support for custom answers (FR-D3)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "No UI dependency — build first. Adds the custom marker to schema/state and threads ✎ {text} display through every surface, enabling P1.M2 and Phase P2 in parallel.",
           "tasks": [
             {
@@ -44,7 +44,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Write-in display plumbing: ✎ {text} across all surfaces",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-D3: write-ins display as ✎ {text} (truncated to fit) in submission diff cards (expanded = full text), completion record + recap, {} read one-liners + status output, non-TUI digest, snapshot diffs. Replay/reconstruction stays value-first.",
               "subtasks": [
                 {
@@ -70,7 +70,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "✎ {text} in read results, completion record lines, recap card, fallback digest",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -101,14 +101,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Synthetic Other row in short view + cursor/digit semantics",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D1: every choice question's option list ends in a synthetic '✎ Other — write your own' row — cursor index options.length, fixed, not digit-selectable.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Replace EXPLAIN_AFFORDANCE with the Other row; explicit digit-exclusion test",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: panel-ui-seams.md — `EXPLAIN_AFFORDANCE = \"✎ explain…\"` (short-view.ts:64), rendered by `explainLine` (:220) as the last row; `cursorDomainSize` (actions.ts:125) already = options+1; `digit` (actions.ts:187) already excludes index `options.length` — add the explicit test the spec demands. Verbatim label from config-tests-docs.md § Final strings ledger: `✎ Other — write your own`.\n2. INPUT: none (leaf; renames/repurposes the existing affordance).\n3. LOGIC: FR-D1 — rename const to OTHER_ROW semantics (e.g. `OTHER_AFFORDANCE`), keep it the last row at cursor index `options.length`, fixed (not configurable), not digit-selectable. Update short-view render + any pinned string tests (`\"  ▸ ✎ explain…\"` in short-view.test.ts). Mock nothing.\n4. OUTPUT: the Other row + cursor semantics consumed by P1.M2.T2.S1 (accept routing), P1.M2.T3.S1 (duty-follows-cursor), P1.M2.T6.S1 (deep view).\n5. DOCS: [Mode A] JSDoc on short-view.ts: the affordance const is now the write-in row, not an explain affordance (cite WRITEIN-001).",
@@ -135,7 +135,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "Write-in duty: accept Other opens editor in write-in mode; enter commits custom answer + advances",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1",

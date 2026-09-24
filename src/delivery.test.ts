@@ -564,6 +564,39 @@ describe("buildCompletion (P1.M2.T1.S3 — the one full injection)", () => {
     expect(msg.content).toContain("[G] l1 Labeled: Alpha");
   });
 
+  test("write-in with elaboration composes `✎ {text} — {elaboration}` (S2 docblock contract)", () => {
+    const s = createInterrogationState("Plan the migration");
+    s.upsertQuestion(
+      q({
+        id: "w1",
+        title: "Wildcard",
+        type: "choice",
+        group: "G",
+        options: [{ value: "a", label: "Alpha" }],
+      }),
+    );
+    s.applyAnswer("w1", { value: "my own text", text: "because", custom: true, at: T0 });
+    const msg = buildCompletion(s);
+    expect(msg.content).toContain("[G] w1 Wildcard: ✎ my own text — because");
+  });
+
+  test("write-in star: ★ still composes after ✎ when recommendation === the write-in value", () => {
+    const s = createInterrogationState("Plan the migration");
+    s.upsertQuestion(
+      q({
+        id: "w2",
+        title: "Wildcard",
+        type: "choice",
+        group: "G",
+        recommendation: "my own text",
+        options: [{ value: "a", label: "Alpha" }],
+      }),
+    );
+    s.applyAnswer("w2", { value: "my own text", custom: true, at: T0 });
+    const msg = buildCompletion(s);
+    expect(msg.content).toContain("[G] w2 Wildcard: ✎ my own text ★");
+  });
+
   test("golden_record_multi_group_byte_exact_content_and_envelope", () => {
     const msg = buildCompletion(goldenState(), [
       "Chose sqlite after profiling",

@@ -150,6 +150,61 @@ describe("buildReadResult", () => {
   });
 });
 
+describe("buildReadResult write-ins (WRITEIN-001, h2.42)", () => {
+  test("custom answer renders ` · answered: ✎ {value}` — never a raw option-value readout", () => {
+    const state = ser([
+      q({
+        id: "db",
+        title: "Database",
+        type: "choice",
+        status: "answered",
+        options: [{ value: "pg", label: "Postgres" }],
+        answer: { value: "my own text", custom: true, at: "2025-01-01T00:00:00Z" },
+      }),
+    ]);
+    const line = buildReadResult(state).content.split("\n").find((l) => l.startsWith("db:"));
+    expect(line).toBe("db: Database — answered (rev 1) · answered: ✎ my own text");
+  });
+
+  test("100-char write-in: `✎ ` + first 60 chars, no ellipsis; id/title/status segments intact", () => {
+    const long = "w".repeat(100);
+    const state = ser([
+      q({
+        id: "w1",
+        title: "Wildcard",
+        status: "answered",
+        answer: { value: long, custom: true, at: "2025-01-01T00:00:00Z" },
+      }),
+    ]);
+    const line = buildReadResult(state).content.split("\n").find((l) => l.startsWith("w1:"));
+    expect(line).toBe(`w1: Wildcard — answered (rev 1) · answered: ✎ ${"w".repeat(60)}`);
+    expect(line?.includes("…")).toBe(false);
+  });
+
+  test("non-custom answers render the raw value — byte-identical to the pre-write-in format", () => {
+    const state = ser([
+      q({
+        id: "db",
+        title: "Database",
+        type: "choice",
+        status: "answered",
+        options: [{ value: "pg", label: "Postgres" }],
+        answer: { value: "pg", at: "2025-01-01T00:00:00Z" },
+      }),
+    ]);
+    const line = buildReadResult(state).content.split("\n").find((l) => l.startsWith("db:"));
+    expect(line).toBe("db: Database — answered (rev 1) · answered: pg");
+  });
+
+  test("legacy payload without a custom key renders the raw value (strict === true)", () => {
+    const state = ser([
+      q({ id: "t1", status: "answered", answer: { value: "plain", at: "2025-01-01T00:00:00Z" } }),
+    ]);
+    const line = buildReadResult(state).content.split("\n").find((l) => l.startsWith("t1:"));
+    expect(line).toBe("t1: prompt for t1 — answered (rev 1) · answered: plain");
+  });
+});
+
 describe("buildUpsertResult", () => {
   test("no warnings: exactly three fixed lines, ends with the h3.5 sentence", () => {
     const result = buildUpsertResult(ser([], { epoch: 2 }), []);

@@ -387,6 +387,12 @@ export function buildCompletion(state: InterrogationState, notes?: string[]): Co
 
     // Question line — group label rides on EVERY line (h2.46); optional
     // segments are omitted entirely, never left blank.
+    //
+    // WRITEIN-001 (h2.42): write-in answers arrive PRE-PREFIXED as `✎ {text}`
+    // from completionAnswerSummary (the ✎ branch lives THERE — do not
+    // re-derive it in this line assembly); the ` — freeText` elaboration
+    // composes after it unchanged, so a custom answer with elaboration reads
+    // `✎ {text} — {elaboration}` with zero new code here.
     lines.push(
       `[${groupKey}] ${q.id} ${entry.title}: ${entry.answer}` +
         (star ? " ★" : "") +

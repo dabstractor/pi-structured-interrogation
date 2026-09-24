@@ -202,7 +202,9 @@ export function digit(panel: InterrogationPanel, n: number): boolean {
  * Context-dependent:
  * - No question context → false.
  * - moot/withdrawn → consumed no-op (R1 keeps them navigable, not editable).
- * - Text question → consumed no-op (field composition is P1.M4.T1.S2).
+ * - Text question → WRITE-IN duty: textDuty="writein" + focusTextField
+ *   (BUG-008 — the ✎ affordance + "enter accept" footer are the advertised
+ *   entry); enter in that duty commits via writeInEnter.
  * - Cursor on the ✎ Other row (index options.length) → WRITE-IN duty:
  *   textDuty="writein" + focusTextField (seeded from the freshest draft);
  *   enter in that duty COMMITS the buffer as the answer via writeInEnter
@@ -214,7 +216,14 @@ export function accept(panel: InterrogationPanel): boolean {
   const q = currentQuestion(panel);
   if (q === undefined) return false;
   if (q.status === "moot" || q.status === "withdrawn") return true;
-  if (q.type === "text") return true;
+  if (q.type === "text") {
+    // BUG-008 / FR-12: the ✎ affordance + "enter accept" footer are the
+    // advertised entry — open the WRITE-IN editor (the draft IS the answer
+    // on text questions; enter inside commits via writeInEnter).
+    panel.textDuty = "writein";
+    panel.focusTextField(); // seeds freshest draft; sync re-derives writein (BUG-004 fix)
+    return true;
+  }
   const optionCount = q.options?.length ?? 0;
   if (panel.cursorIndex >= optionCount) {
     // ✎ Other row (WRITEIN-001): the editor becomes the WRITE-IN surface —

@@ -177,7 +177,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Minor fixes (BUG-004 .. BUG-008)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Five verified minor issues: duty re-derivation on navigation, write-in visibility/marker parity, bounded single-line model delta, bridge internal-error nack, and enter-opens-editor on text questions.",
           "tasks": [
             {
@@ -316,14 +316,14 @@
               "type": "Task",
               "id": "P1.M2.T5",
               "title": "Enter opens the editor on text questions (BUG-008)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "On type:'text' questions the rendered primary affordance ('✎ answer…' at cursor 0) plus the footer's 'enter accept' hint lead users into a silent no-op. Make accept() mirror the Other-row branch: open the editor in write-in duty.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T5.S1",
                   "title": "accept() on type:'text' opens the editor in write-in duty",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-008-enter-text.md — accept() at src/panel/actions.ts:217-218 short-circuits type:'text' with a consumed no-op (`if (q.type === 'text') return true;`); the affordance is short-view.ts:245-252 ('✎ answer…', cursor 0, the only focus target); renderFooter (layout.ts:462) unconditionally prefixes 'enter accept'; the documented entry ctrl+t goes through panel.ts:628 focusTextField(desiredTextDuty(p)) where desiredTextDuty (keys.ts:288) → 'writein' for text questions. DO NOT import keys.ts into actions.ts (import cycle) — set the duty directly.\n2. INPUT: Unmodified accept(); the Other-row branch at actions.ts:~223 (sets panel.textDuty = 'writein' then panel.focusTextField()) as the pattern to mirror; ripple/modal side effects already handled downstream in writeInEnter (actions.ts:282-313).\n3. LOGIC: Implement PRD h3.7: in accept(), replace the text no-op with the Other-row mirror — set panel.textDuty = 'writein' and call panel.focusTextField() (which seeds the editor with any existing draft), then return true (consumed). The footer hint and affordance become truthful; AC-2c's text-answer enter flow works on first try. TDD: rewrite the pinned noop seam test src/panel/actions.test.ts:268 to assert the editor opens with duty 'writein' (duty label via renderDutyLabel), focus === 'text', and a subsequent type+enter answers the question ({value, custom:true} commit through writeInEnter). Panel harness; no mocks.\n4. OUTPUT: Enter on a text question's affordance opens the write-in editor; consumed by AC-2c flows.\n5. DOCS: none — spec AC-2c (product-requirements.md:79) already describes the intended behavior; final sweep P1.M3.T2 verifies wording.",
@@ -349,14 +349,14 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Full-suite regression sweep",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Run the complete verification loop over the integrated changeset and triage expected flips vs unexpected fallout, including the no-hardcoded-keys guard for any new runtime strings.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Run npm test + typecheck over the integrated changeset; triage flips and guard checks",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -395,7 +395,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "README.md sweep: verify all behavior passages match the fixed semantics",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1"

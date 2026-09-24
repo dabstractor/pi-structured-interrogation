@@ -273,11 +273,44 @@ describe("accept — commit + advance (Q14=A)", () => {
     expect(state.getQuestion("q1")?.answer).toBeUndefined();
   });
 
-  test("test_accept_on_text_question_is_noop_seam_for_m4", () => {
+  test("test_accept_on_text_question_opens_writein_editor_no_answer", () => {
+    // BUG-008 / FR-12: the ✎ affordance is the question's advertised entry —
+    // enter OPENS the write-in editor (consumed true), it does not answer.
     const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
     const { panel } = makePanel(state);
     expect(accept(panel)).toBe(true);
+    expect(panel.focus).toBe("text");
+    expect(panel.textDuty).toBe("writein");
+    expect(renderDutyLabel("writein", stubTheme, 80)).toBe("OTHER — this text is the answer");
+    expect(state.getQuestion("t1")?.status).toBe("open"); // opening ≠ answering
+    expect(state.getQuestion("t1")?.answer).toBeUndefined();
+    // Empty-buffer escape hatch (writeInEnter's empty branch, must not
+    // regress): draft write-through + blur, NO commit.
+    expect(panel.handleInput("\r")).toBe(true);
+    expect(panel.focus).toBe("options");
     expect(state.getQuestion("t1")?.status).toBe("open");
+    expect(state.getQuestion("t1")?.answer).toBeUndefined();
+  });
+
+  test("test_accept_then_type_enter_answers_text_question", () => {
+    // AC-2c text-answer enter flow: accept → type → enter commits through
+    // writeInEnter ({value, custom: true}) and advances.
+    const state = seed([
+      { id: "t1", overrides: { type: "text", options: undefined } },
+      { id: "q1" },
+    ]);
+    const { panel } = makePanel(state);
+    panel.currentId = "t1";
+    expect(accept(panel)).toBe(true); // opens the write-in editor
+    panel.textField.setText("my answer");
+    expect(panel.handleInput("\r")).toBe(true); // writeInEnter COMMITS
+
+    const a = state.getQuestion("t1")?.answer;
+    expect(state.getQuestion("t1")?.status).toBe("answered");
+    expect(a?.value).toBe("my answer");
+    expect(a?.custom).toBe(true); // h2.42 write-in marker
+    expect(panel.focus).toBe("options"); // blurred after the commit
+    expect(panel.currentId).toBe("q1"); // advanced to the next unanswered
   });
 
   test("test_h_accept_on_moot_and_withdrawn_is_noop", () => {

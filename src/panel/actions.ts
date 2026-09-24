@@ -202,8 +202,10 @@ export function digit(panel: InterrogationPanel, n: number): boolean {
  * - No question context → false.
  * - moot/withdrawn → consumed no-op (R1 keeps them navigable, not editable).
  * - Text question → consumed no-op (field composition is P1.M4.T1.S2).
- * - Cursor on the ✎ affordance (index options.length) → set focus="text"
- *   and stop — the editor is P1.M4.T1.S2; this is the seam.
+ * - Cursor on the ✎ Other row (index options.length) → WRITE-IN duty:
+ *   textDuty="writein" + focusTextField (seeded from the freshest draft);
+ *   enter in that duty COMMITS the buffer as the answer via writeInEnter
+ *   (WRITEIN-001, Q14 parity).
  * - Cursor on an option → acceptOptionIndex (ripple seam on edit, commit,
  *   advance).
  */
@@ -214,11 +216,10 @@ export function accept(panel: InterrogationPanel): boolean {
   if (q.type === "text") return true;
   const optionCount = q.options?.length ?? 0;
   if (panel.cursorIndex >= optionCount) {
-    // ✎ explain affordance — focus the editor through the panel's seeding
-    // path (M4.T1.S2): focusTextField seeds the freshest draft
-    // (panel-local slot → DraftStore seam → ""), so re-entering the ✎ on a
-    // revisited question restores its saved draft instead of whatever
-    // buffer the editor still holds from the previous question (R4).
+    // ✎ Other row (WRITEIN-001): the editor becomes the WRITE-IN surface —
+    // enter commits the buffer as the answer (writeInEnter), not a draft.
+    // focusTextField still seeds the freshest draft (R4 revisit restore).
+    panel.textDuty = "writein";
     panel.focusTextField();
     return true;
   }
@@ -246,6 +247,51 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   // mootered questions must not be advance targets).
   evaluateDependsOn(panel.state);
   advanceAfterAccept(panel);
+  return true;
+}
+
+/**
+ * [Mode A] Write-in enter (WRITEIN-001, FR-D1, Q14 parity): in write-in
+ * duty, enter COMMITS the buffer as the answer — applyAnswer({ value: text,
+ * custom: true }) → evaluateDependsOn → advanceAfterAccept — mirroring
+ * {@link acceptOptionIndex}'s post-commit sequence exactly (h2.42 answer
+ * shape: value holds the user's own text, custom: true marks the write-in;
+ * no option is selected). EMPTY buffer: save the draft + blur back to
+ * options, NO commit (nothing answered — h2.32) via the shared
+ * commitTextDraft tail (draft slot + DraftStore seam + EXPLAIN-003 ★
+ * re-seed) with arming explicitly off. Ripple routing for write-in commits
+ * on answered/submitted questions lands in P1.M2.T2.S2 (deliberately
+ * absent here — do not add confirmRippleEdit to this path before then).
+ * Binding decisions: emptiness is a TRIM gate but the commit is the RAW
+ * buffer (whitespace the user typed is theirs; multi-line values keep
+ * their newlines); blur happens AFTER the advance so advanceAfterAccept's
+ * currentId setter (cursor ★ reset) wins on the repainted view, and
+ * blurTextField also resets textDuty to "elaboration". Consumed by:
+ * two-stage removal (P1.M2.T4.S1 must not break it — this function never
+ * reads or writes advanceArmed), draft role binding (P1.M2.T5.S1),
+ * deep-view Other selection (P1.M2.T6.S1 reuses the accept() pair),
+ * maybeAutoSubmit (P2.M1.T1.S1 hooks after the commit tail).
+ */
+export function writeInEnter(panel: InterrogationPanel): boolean {
+  const q = currentQuestion(panel);
+  if (q === undefined) {
+    panel.blurTextField();
+    return true;
+  }
+  const text = panel.textField.getText();
+  if (text.trim().length === 0) {
+    // Empty: draft write-through + blur, no commit (R4) — reuse the
+    // existing stage-1 tail (draftSlots + DraftStore seam + EXPLAIN-003
+    // cursor re-seed to ★), explicitly NOT arming any advance.
+    panel.commitTextDraft(q.id, text, { arm: false });
+    return true;
+  }
+  panel.state.applyAnswer(q.id, { value: text, custom: true, at: new Date().toISOString() });
+  // FR-17: same once-per-commit placement as acceptOptionIndex — AFTER the
+  // apply, BEFORE the advance (fresh moots must not be advance targets).
+  evaluateDependsOn(panel.state);
+  advanceAfterAccept(panel); // Q14 parity: currentId → next unanswered, cursor → ★ preselect
+  panel.blurTextField(); // resets textDuty to "elaboration"
   return true;
 }
 

@@ -258,6 +258,33 @@ export function renderNoteHeader(theme: Theme, width: number): string {
 }
 
 /**
+ * [Mode A] Editor-region duty label (WRITEIN-001, h2.32): the ACTIVE duty
+ * decides what the buffer MEANS. Write-in duty's text IS the answer, so the
+ * region is labeled `OTHER — this text is the answer` (h2.32, verbatim,
+ * em-dash U+2014). The elaboration string ("EXPLAIN — attaches to your
+ * selection") is rendered for completeness so the switch is total; its
+ * DISPLAY activation (duty-follows-cursor, ctrl+t semantics) is
+ * P1.M2.T3.S1 — until then the panel pushes this line only in write-in
+ * duty. Fixed spec strings — never configurable, never key labels (h2.32
+ * pins "visibly labeled"). Styling mirrors {@link renderNoteHeader}'s
+ * dim title; narrow widths truncate char-safely (wide glyphs / ANSI-safe),
+ * never String.slice.
+ *
+ * @param duty   the active editor duty
+ * @param theme  pi theme (label dimmed)
+ * @param width  total render width budget for the line
+ */
+export function renderDutyLabel(
+  duty: "writein" | "elaboration",
+  theme: Theme,
+  width: number,
+): string {
+  const label =
+    duty === "writein" ? "OTHER — this text is the answer" : "EXPLAIN — attaches to your selection";
+  return theme.fg("dim", truncateToWidth(label, width));
+}
+
+/**
  * Status marker fragment for the question line's right side, e.g.
  * `" ⟳ re-asked"` (leading space separator; "" when no marker applies).
  * Markers: `⟳ re-asked`, `✎ text answer`, `⊘ moot` (+ reason from the

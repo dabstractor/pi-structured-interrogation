@@ -49,7 +49,7 @@ import {
 } from "../external-editor.js";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { getState, type InterrogationState, type SerializedState } from "../state.js";
-import { nextUnanswered, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
+import { nextUnanswered, writeInEnter, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
 import {
   applyConfirmedEdit,
   applyTextConfirm,
@@ -65,6 +65,7 @@ import { buildKeyRouter, defaultRoutedActions } from "./keys.js";
 import { createEditorComponent, TextField, type EditorFactory } from "./text-field.js";
 import {
   renderConfirmFooter,
+  renderDutyLabel,
   renderFlashLine,
   renderFooter,
   renderGateWarningLine,
@@ -401,6 +402,19 @@ export class InterrogationPanel implements Component {
    * previous question's leftovers).
    */
   private bufferOwner: string | "note" | undefined;
+
+  /**
+   * [Mode A] The embedded editor's answer-side duty (WRITEIN-001, h2.32).
+   * ONE editor, three duties: "writein" (the buffer IS the answer — entered
+   * by accepting the ✎ Other row; enter COMMITS `applyAnswer({value, custom:
+   * true})` + advance, Q14 parity), "elaboration" (default — the buffer
+   * attaches to the selected option at submit; entered via keys.focusText,
+   * P1.M2.T3.S1), and note duty (focus === "note", R3 — question-agnostic,
+   * unchanged). The ACTIVE duty decides what the text MEANS and what the
+   * editor region label says; it is set at focus time and reset to
+   * "elaboration" on every blur.
+   */
+  textDuty: "writein" | "elaboration" = "elaboration";
 
   /**
    * One-shot two-stage enter flag (h2.31, Mode A): armed by stage-1 (enter
@@ -758,6 +772,7 @@ export class InterrogationPanel implements Component {
     // exit = exitNoteMode: the SAME write-through as esc/re-press (h2.32).
     if (enter && (this.focus === "text" || this.focus === "note")) {
       if (this.focus === "note") this.exitNoteMode();
+      else if (this.textDuty === "writein") writeInEnter(this);
       else this.saveTextDraft();
       return true;
     }
@@ -1057,6 +1072,7 @@ export class InterrogationPanel implements Component {
   blurTextField(): void {
     this.focus = "options";
     this.lastEscAt = undefined;
+    this.textDuty = "elaboration"; // duty is per-focus-session (WRITEIN-001); next focus re-declares it
     this.textField.blur();
     this.invalidate(); // drop the editor region from the layout
   }
@@ -1278,6 +1294,13 @@ export class InterrogationPanel implements Component {
         // never another question's leftover text or the batch note.
         if (this.focus === "text" && !this.textField.focused) this.textField.focus();
         if (this.focus === "text" || current.type === "text") {
+          // WRITEIN-001 (h2.32): the write-in duty visibly labels the region
+          // ("OTHER — this text is the answer"). Elaboration focus renders
+          // no label yet — P1.M2.T3.S1 owns that display activation; the
+          // note-mode push above is already labeled by renderNoteHeader.
+          if (this.focus === "text" && this.textDuty === "writein") {
+            lines.push(renderDutyLabel(this.textDuty, this.theme, width));
+          }
           lines.push(...this.textField.render(width));
         }
       }

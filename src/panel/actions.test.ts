@@ -16,6 +16,7 @@ import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent"
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "../config.js";
+import { renderDutyLabel } from "./layout.js";
 import {
   createInterrogationState,
   type InterrogationState,
@@ -724,6 +725,109 @@ describe("submit — flush pending answers", () => {
     expect(msg.details.changed[0]?.editedArchived).toBe(true); // AC-13 marker data
     expect(msg.details.changed[0]?.to).toBe("Beta"); // a real answer, NOT "(unanswered)"
     expect(msg.content).toContain("q1: Beta (changed)"); // renderer marker source
+  });
+});
+
+describe("write-in duty (WRITEIN-001, FR-D1)", () => {
+  test("test_wi_accept_other_row_enters_writein_duty_and_seeds_draft", () => {
+    const state = seed([{ id: "q1", overrides: { recommendation: "a" } }]);
+    const { panel } = makePanel(state);
+    panel.commitTextDraft("q1", "saved draft", { arm: false }); // pre-existing draft (R4)
+    panel.currentId = "q1";
+    panel.cursorIndex = 2; // past the 2 options = the ✎ Other — write your own row
+
+    expect(accept(panel)).toBe(true);
+    expect(panel.focus).toBe("text");
+    expect(panel.textDuty).toBe("writein");
+    expect(panel.textField.getText()).toBe("saved draft"); // seeded via the shared focusTextField path
+    expect(renderDutyLabel("writein", stubTheme, 80)).toBe("OTHER — this text is the answer");
+  });
+
+  test("test_wi_enter_commits_custom_answer_and_advances", () => {
+    const state = seed(BASIC);
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.cursorIndex = 2;
+    accept(panel); // → write-in duty, editor focused
+
+    panel.textField.setText("a hybrid of A and B");
+    expect(panel.handleInput("\r")).toBe(true); // write-in enter COMMITS
+
+    const q1 = state.getQuestion("q1")!;
+    expect(q1.status).toBe("answered");
+    expect(q1.answer?.value).toBe("a hybrid of A and B"); // RAW user text, not an option value
+    expect(q1.answer?.custom).toBe(true); // h2.42 write-in marker
+    expect(typeof q1.answer?.at).toBe("string");
+    expect(new Date(q1.answer!.at).toISOString()).toBe(q1.answer!.at); // ISO 8601
+    expect(panel.currentId).toBe("q2"); // advanced to the next unanswered (Q14 parity)
+    expect(panel.focus).toBe("options"); // blurred after the advance
+    expect(panel.textDuty).toBe("elaboration"); // blurTextField reset the duty
+    expect(panel.advanceArmed).toBe(false); // a write-in commit never arms the two-stage flag
+  });
+
+  test("test_wi_enter_empty_buffer_saves_draft_no_commit", () => {
+    const state = seed([{ id: "q1", overrides: { recommendation: "a" } }]);
+    const { panel } = makePanel(state, { drafts: new DraftStore() });
+    panel.currentId = "q1";
+    panel.cursorIndex = 2;
+    accept(panel);
+    expect(panel.textField.getText()).toBe(""); // no draft seeded
+
+    expect(panel.handleInput("\r")).toBe(true); // empty buffer + enter
+
+    const q1 = state.getQuestion("q1")!;
+    expect(q1.answer).toBeUndefined(); // NO commit — nothing answered (h2.32)
+    expect(q1.status).toBe("open");
+    expect(panel.draftTextFor("q1")).toBe(""); // draft slot + DraftStore seam written
+    expect(panel.focus).toBe("options"); // blurred back to options
+    expect(panel.cursorIndex).toBe(0); // EXPLAIN-003 ★ re-seed off the Other row
+    expect(panel.advanceArmed).toBe(false); // arm: false — no advance arming
+    expect(panel.textDuty).toBe("elaboration");
+  });
+
+  test("test_wi_commit_reruns_dependsOn", () => {
+    const state = seed([
+      { id: "q1" },
+      { id: "q2", overrides: { dependsOn: [{ id: "q1", notEquals: "x" }] } },
+    ]);
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.cursorIndex = 2;
+    accept(panel);
+
+    panel.textField.setText("x"); // trips the notEquals condition
+    panel.handleInput("\r");
+
+    expect(state.getQuestion("q1")?.answer?.value).toBe("x");
+    expect(state.getQuestion("q2")?.status).toBe("moot"); // FR-17 re-derived instantly
+  });
+
+  test("test_wi_value_keeps_newlines", () => {
+    const state = seed([{ id: "q1" }]);
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.cursorIndex = 2;
+    accept(panel);
+
+    panel.handleInput("line1");
+    panel.handleInput("\n"); // byte-guard: newline request inserts, never a stage transition
+    panel.handleInput("line2");
+    panel.handleInput("\r");
+
+    expect(state.getQuestion("q1")?.answer?.value).toBe("line1\nline2");
+  });
+
+  test("test_blur_resets_duty_to_elaboration", () => {
+    const state = seed([{ id: "q1" }]);
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.cursorIndex = 2;
+    accept(panel);
+    expect(panel.textDuty).toBe("writein");
+
+    panel.blurTextField();
+
+    expect(panel.textDuty).toBe("elaboration"); // duty is per-focus-session
   });
 });
 

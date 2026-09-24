@@ -439,6 +439,31 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(reopened.deepSticky).toBe(false);
   });
 
+  test("write-in duty renders the OTHER label above the editor (WRITEIN-001)", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { editorFactory: () => fakePanelEditor() }),
+    );
+
+    // Elaboration default (ctrl+t path): editor focused, NO write-in label.
+    panel.focusTextField();
+    expect(panel.textDuty).toBe("elaboration");
+    expect(panel.render(80).some((l) => l.includes("OTHER — this text is the answer"))).toBe(false);
+
+    // Accept the ✎ Other row → write-in duty → the verbatim label line
+    // renders directly above the editor region.
+    panel.blurTextField();
+    panel.cursorIndex = 2; // past the 2 options = the ✎ Other — write your own row
+    panel.handleInput("\r"); // enter → accept
+    expect(panel.focus).toBe("text");
+    expect(panel.textDuty).toBe("writein");
+    const lines = panel.render(80);
+    const labelIdx = lines.findIndex((l) => l.includes("OTHER — this text is the answer"));
+    expect(labelIdx).toBeGreaterThanOrEqual(0);
+    expect((lines[labelIdx + 1] ?? "").length).toBeGreaterThan(0); // editor region sits below
+  });
+
   test("test_builtins_render_real_lines_per_view", () => {
     createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();
@@ -1247,8 +1272,9 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     state.upsertQuestion(choiceQ("q1"));
     const panel = new InterrogationPanel(panelArgsFor(state));
 
-    panel.cursorIndex = 2; // ✎ explain affordance (2 options → index 2)
-    panel.handleInput("\r"); // open the editor
+    // WRITEIN-001: the ✎ Other row now opens the WRITE-IN editor (accept →
+    // commit duty), so the elaboration editor opens via ctrl+t's focus path.
+    panel.focusTextField();
     panel.textField.setText("because migration risk"); // (fake editor: no-op handleInput)
     panel.handleInput("\r"); // stage-1 save + blur (choice → no arm)
     panel.handleInput("\r"); // accept ★ option "a" + advance

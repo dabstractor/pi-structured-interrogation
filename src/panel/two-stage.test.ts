@@ -241,8 +241,9 @@ describe("two-stage enter — stage 1 save, stage 2 advance (h2.31)", () => {
     // advance skipped the question unanswered, leaving nothing submittable.
     const state = seedOpen(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
-    panel.cursorIndex = 2; // ✎ explain affordance (options.length)
-    panel.handleInput("\r"); // accept ✎ → focus the editor
+    // WRITEIN-001: the ✎ Other row now opens the WRITE-IN editor (accept →
+    // commit duty), so the elaboration editor opens via ctrl+t's focus path.
+    panel.focusTextField(); // elaboration duty (default) — the two-stage stage-1 path
     panel.handleInput("my elaboration");
     expect(panel.handleInput("\r")).toBe(true); // stage 1: save + blur
 

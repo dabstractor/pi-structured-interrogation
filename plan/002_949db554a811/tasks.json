@@ -128,14 +128,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Write-in duty: accept Other → commit-at-enter",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D1: accepting Other makes the embedded editor the write-in duty — region 'OTHER — this text is the answer', seeded from draft; enter COMMITS applyAnswer({value: text, custom: true}) → answered → dependsOn recompute → advance (Q14 parity). Empty buffer + enter = save draft + blur, NO commit. Ripple confirm routes write-in commits on answered questions through the same keep/cancel modal.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "Write-in duty: accept Other opens editor in write-in mode; enter commits custom answer + advances",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1",
@@ -157,7 +157,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "Ripple confirm routes write-in commits on answered questions through the existing keep/cancel modal",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1"
@@ -177,14 +177,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Elaboration duty + duty-follows-cursor (ctrl+t)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FR-D1: ctrl+t (keys.focusText, existing toggle) enters elaboration duty — region 'EXPLAIN — attaches to your selection'; enter saves + blurs, never advances, never answers. While the cursor sits on the Other row (or question is type:\"text\"), ctrl+t enters write-in duty instead — the duty follows entry path and cursor position. Note duty unchanged.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Elaboration duty via ctrl+t with EXPLAIN region label; duty follows cursor-on-Other / type:text",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1",

@@ -2616,3 +2616,116 @@ describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
     expect(panel.textDuty).toBe("elaboration"); // duty is per-focus-session
   });
 });
+
+// ----------------- navigation duty re-derivation — BUG-004 (WRITEIN-001)
+
+describe("navigation duty re-derivation — BUG-004 (WRITEIN-001 cursor-follow)", () => {
+  /** DEFAULT_CONFIG: prevQuestion "tab" (\t), nextQuestion "shift+tab" (\x1b[Z). */
+  const NEXT_Q = "\u001b[Z"; // shift+tab → next question
+  const PREV_Q = "\t"; // tab → previous question
+
+  /** Panel with the stateful fake composed editor (label/enter assertions). */
+  function makeDutyPanel(state: InterrogationState): InterrogationPanel {
+    return new InterrogationPanel(
+      panelArgsFor(state, { editorFactory: () => fakePanelEditor() }),
+    );
+  }
+
+  test("navigation_from_other_row_writein_to_choice_q_enter_is_save_blur_not_commit", () => {
+    // BUG-004 repro (h3.3): Other-accept q1 → shift+tab to q2 (cursor
+    // reseeds to the ★ option) → type → enter. The stale write-in duty
+    // must NOT silently commit q2 — the sync-tail re-derivation flips the
+    // duty to elaboration (cursor-follow), so enter saves+blurs instead.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const panel = makeDutyPanel(state);
+
+    panel.cursorIndex = 2; // ✎ Other row on q1
+    panel.handleInput("\r"); // Other-accept → writein duty, editor focused
+    expect(panel.textDuty).toBe("writein");
+
+    panel.handleInput(NEXT_Q); // → q2; cursorIndex reseeds to ★ (index 0)
+    expect(panel.currentId).toBe("q2");
+    expect(panel.focus).toBe("text"); // navigation keeps the editor focused
+    expect(panel.textDuty).toBe("elaboration"); // RE-DERIVED from the ★ cursor
+
+    // The duty label follows for free (renderDutyLabel reads textDuty).
+    const lines = panel.render(80);
+    expect(lines.some((l) => l.includes("EXPLAIN — attaches to your selection"))).toBe(true);
+    expect(lines.some((l) => l.includes("OTHER — this text is the answer"))).toBe(false);
+
+    panel.textField.setText("context for q2");
+    expect(panel.handleInput("\r")).toBe(true); // elaboration enter = save+blur
+
+    expect(state.getQuestion("q2")?.answer).toBeUndefined(); // NOT a write-in commit
+    expect(state.getQuestion("q2")?.status).toBe("open");
+    expect(panel.draftTextFor("q2")).toBe("context for q2"); // saved as the draft
+    expect(panel.focus).toBe("options"); // blurred
+  });
+
+  test("navigation_to_text_question_while_focused_yields_writein_duty_on_enter", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("c1"));
+    state.upsertQuestion(textQ("t1"));
+    const panel = makeDutyPanel(state);
+
+    panel.handleInput("\u0014"); // ctrl+t on c1 → elaboration duty
+    expect(panel.textDuty).toBe("elaboration");
+
+    panel.handleInput(NEXT_Q); // → t1 (type:text): re-derivation flips to writein
+    expect(panel.currentId).toBe("t1");
+    expect(panel.textDuty).toBe("writein");
+
+    panel.textField.setText("the answer itself");
+    expect(panel.handleInput("\r")).toBe(true); // write-in commit
+
+    expect(state.getQuestion("t1")?.status).toBe("answered");
+    expect(state.getQuestion("t1")?.answer?.value).toBe("the answer itself");
+    expect(state.getQuestion("t1")?.answer?.custom).toBe(true);
+    expect(panel.focus).toBe("options"); // writeInEnter blurs
+  });
+
+  test("navigation_back_to_other_row_cursor_restores_writein_duty", () => {
+    // Round trip pins the stale-duty fix in BOTH directions: Other-accept
+    // q1 → q2 (duty re-derived) → back to q1. q1's cursor RESEEDS to the ★
+    // real option, so the once-stale writein is still gone — enter
+    // saves+blurs, never commits.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const panel = makeDutyPanel(state);
+
+    panel.cursorIndex = 2; // ✎ Other row on q1
+    panel.handleInput("\r"); // writein duty
+    expect(panel.textDuty).toBe("writein");
+
+    panel.handleInput(NEXT_Q); // → q2: ★ cursor → elaboration
+    expect(panel.textDuty).toBe("elaboration");
+
+    panel.handleInput(PREV_Q); // back to q1: cursor RESEEDS to ★ (index 0)
+    expect(panel.currentId).toBe("q1");
+    expect(panel.cursorIndex).toBe(0); // ★ preselect — a REAL option
+    expect(panel.textDuty).toBe("elaboration"); // stale writein gone
+
+    panel.textField.setText("note for q1");
+    expect(panel.handleInput("\r")).toBe(true); // save+blur
+
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(panel.draftTextFor("q1")).toBe("note for q1");
+    expect(panel.focus).toBe("options");
+  });
+
+  test("explicit_entry_duty_survives_focusTextField_sync", () => {
+    // Guard for the focusTextField reorder: an EXPLICIT entry duty (ctrl+t
+    // on the Other row, ✎ Other accept) must win over the sync-tail
+    // re-derivation — entry paths always re-declare last.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = makeDutyPanel(state);
+    panel.cursorIndex = 0; // a REAL option — re-derivation alone says elaboration
+
+    panel.focusTextField("writein"); // explicit entry declaration
+    expect(panel.textDuty).toBe("writein"); // …and the entry path wins
+  });
+});

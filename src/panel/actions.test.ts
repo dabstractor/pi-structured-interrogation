@@ -2074,6 +2074,29 @@ describe("maybeAutoSubmit — gate hold (AUTOSUBMIT-002, AC-2d)", () => {
     );
   });
 
+  test("test_auto_accept_commit_with_open_gate_arms_hold_no_submit", () => {
+    // P1.M1.T1.S2 — accept-path inheritance pin (BUG-001/AC-2d): the same
+    // canonical open-gate flow as the test above, but driven through the
+    // REAL commit entry point — accept()'s tail at actions.ts runs
+    // maybeAutoSubmit. Committing a later-group answer via accept() while
+    // the gate question itself is OPEN arms the hold and ships nothing.
+    const state = seed([
+      { id: "g1", overrides: { group: "foundation", gate: true } }, // open gate
+      { id: "n1", overrides: { group: "later", recommendation: "a" } }, // accepted below
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch;
+
+    panel.currentId = "n1";
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true); // the commit tail runs maybeAutoSubmit
+
+    expect(sendMessage).not.toHaveBeenCalled(); // withheld
+    expect(state.epoch).toBe(epochBefore); // no submission
+    expect(panel.gateWarning).toEqual({ count: 1, kind: "hold", submitLabel: "Ctrl+S" });
+  });
+
   test("test_auto_gate_unanswered_zero_pending_stays_silent", () => {
     // Zero-pending silence (BUG-001 reorder guard): the hold arms only when
     // something was actually committed (pending > 0). A bare maybeAutoSubmit

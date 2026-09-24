@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Restore gate-hold ⚠ line in canonical flows (BUG-001)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "maybeAutoSubmit's completeness early-return fires before gate-hold arming, so the canonical 'answering later groups while a foundational question is open' scenario renders no ⚠ line and hides the ctrl+s override. Reorder so the hold arms whenever unanswered gate questions exist at commit time.",
               "subtasks": [
                 {
@@ -40,7 +40,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Pin gate-hold inheritance across all commit entry points (accept, ripple edit, bridge submit)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

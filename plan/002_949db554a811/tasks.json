@@ -461,7 +461,7 @@
       "type": "Phase",
       "id": "P3",
       "title": "Delta D3 — Surfacing gates (SURFACE-001/002)",
-      "status": "Planned",
+      "status": "Ready",
       "description": "FR-D6/D7: panel opens ONLY via /interrogate, an upsert leaving unanswered questions, or {reopen:true}; reads NEVER surface; session_start reconstruction NEVER opens the panel (suspend widget line instead, FR-34 onRestored kept).",
       "milestones": [
         {
@@ -563,21 +563,21 @@
           "type": "Milestone",
           "id": "P3.M2",
           "title": "SURFACE-002 — session-start never auto-opens",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Reconstruction NEVER opens the panel: replace openPanel at reconstruct.ts:478 with the suspend-widget line via the existing suspend.ts helper; keep the FR-34 onRestored bridge emission; non-TUI fallback flag unchanged; session_tree stays silent.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M2.T1",
               "title": "Reconstruction: widget line instead of openPanel",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FR-D7: replace the openPanel(...) call at reconstruct.ts:478 with setWidget via hasResumableQuestions(state) → the existing suspend.ts helper; the widget is the only cue. Keep onRestored (remote clients still re-render).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M2.T1.S1",
                   "title": "Swap reconstruct.ts openPanel for updateSuspendWidget; retain onRestored emission",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: surfacing-remote-seams.md — reconstruct.ts:478 `openPanel(ctx,…)` fires on session-start TUI with non-empty state (no unanswered filter); `onRestored` (FR-34 bridge `ask:resume`) at :472 BEFORE openPanel — KEEP it (remote clients still re-render; the panel is the only suppressed surface); non-TUI flag at :455 unchanged; session_tree silent path already exists (:459–466, retarget+suspend). suspend.ts: `updateSuspendWidget` (:135), `hasResumableQuestions` (:66), widget line :117 (`{n} open · {m} answered — /interrogate to resume`), `WIDGET_KEY=\"interrogator\"`.\n2. INPUT: none (leaf; uses shipped helpers).\n3. LOGIC: FR-D7 — session_start reconstruction NEVER opens the panel. Replace the openPanel call with the widget set via the existing suspend.ts helper (hasResumableQuestions(state) → setWidget) — reconstruction's ONLY UI act is the widget line. Keep onRestored emission order. Non-TUI fallback flag unchanged (shapes tool results, not surfaces). session_tree stays silent as shipped. /interrogate reopens via the existing closed-host-with-live-state path.\n4. OUTPUT: widget-only restart behavior consumed by P3.M2.T2.S1 (test flips + rewritten AC-9).\n5. DOCS: [Mode A] reconstruct.ts module header JSDoc: SURFACE-002 — reconstruction's only UI act is the widget line.",
@@ -599,14 +599,14 @@
               "type": "Task",
               "id": "P3.M2.T2",
               "title": "Flip reconstruction/ac-panel tests + rewrite AC-9",
-              "status": "Planned",
+              "status": "Ready",
               "description": "FLIP the opened:true session-start rows in reconstruct.test.ts (~204/260/370) and the ac-panel restart rows to widget-set/no-panel; rewrite AC-9: restart → NO panel, widget shows live counts, /interrogate reopens restored, drafts gone (documented), pending answers ship on next commit/submit.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M2.T2.S1",
                   "title": "Flip opened:true rows (reconstruct.test.ts :204/:260/:370; ac-panel AC-9a/b/c + AC-10) and rewrite AC-9",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M2.T1.S1",
@@ -654,7 +654,7 @@
                   "type": "Subtask",
                   "id": "P4.M1.T1.S1",
                   "title": "Full verification sweep: vitest suite, typecheck, keymap guard",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

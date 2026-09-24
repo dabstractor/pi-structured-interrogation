@@ -5,8 +5,12 @@
  * cancel/stale/foreign/malformed filtering, invalid-answer handling, and
  * the config gates.
  */
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
+import { maybeAutoSubmit as runMaybeAutoSubmit, type SubmitDeps } from "./panel/actions.js";
+import { InterrogationPanel } from "./panel/panel.js";
 import {
   PI_ASK_COMPLETED,
   PI_ASK_STARTED,
@@ -639,6 +643,94 @@ describe("mapWireAnswers — WRITEIN-001 parity", () => {
     expect(hookWouldShip).toBe(false);
     expect(ledger.calls).toBe(1); // h2.44 contract fired before the hook ran
     expect(state.epoch).toBe(epochBefore + 1); // epoch bumped once, inside buildSubmission only
+  });
+
+  test("bridge submit with an open gate question: tail hook inherited, one submission, hold stays silent (flush precedes the hook)", () => {
+    // P1.M1.T1.S2 — bridge inheritance pin (BUG-001/AC-2d audit). The REAL
+    // actions.ts maybeAutoSubmit is wired exactly like index.ts:107–109
+    // (late-binding panel lookup; explicit SubmitDeps because a headless
+    // panel has no delivery of its own and the hook would early-return).
+    //
+    // The remote client's submit IS a deliberate commit (the ctrl+s analog):
+    // it ships itself. The inherited hook then runs — but recordRemote-
+    // Submission's step-5 markSubmitted flush (AUTOSUBMIT-001's load-bearing
+    // "one bridge submission, never two" ordering) has ALREADY flipped every
+    // answered → submitted, so the hook sees pending === 0 and S1's
+    // `n > 0 && pending > 0` hold guard cannot arm — the zero-pending
+    // silence applies. This pins the true inherited semantics: hook LIVE
+    // and invoked exactly once, exactly ONE submission (the bridge's own),
+    // no hook-driven second submission, gateWarning untouched.
+    const bus = new FakeBus();
+    const { pi, sent } = makePi(bus);
+    const ledger = { calls: 0 };
+    const stubTheme = {
+      fg: (_name: string, s: string) => s,
+      bold: (s: string) => s,
+    } as unknown as Theme;
+
+    // Shared singleton: gate question g1 OPEN in its own gate group + a
+    // later-group question the bridge will answer.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion({
+      id: "g1",
+      prompt: "Foundational: scope?",
+      type: "choice",
+      options: [{ value: "a", label: "A" }],
+      group: "foundation",
+      gate: true,
+      rev: 1,
+      status: "open",
+    });
+    state.upsertQuestion({
+      id: "n1",
+      prompt: "Downtime constraints?",
+      type: "text",
+      group: "later",
+      rev: 1,
+      status: "open",
+    });
+    setState(state);
+
+    // Real panel over the SAME state instance, with explicit SubmitDeps
+    // (index.ts wires maybeAutoSubmit(panel) with no deps → panel.delivery;
+    // the headless panel gets delivery through its args instead).
+    const panelSendMessage = vi.fn();
+    const deps: SubmitDeps = { sendMessage: panelSendMessage, isIdle: () => true };
+    const panel = new InterrogationPanel({
+      tui: { requestRender: vi.fn() } as unknown as TUI,
+      theme: stubTheme,
+      done: () => {},
+      state,
+      config: DEFAULT_CONFIG,
+      delivery: deps,
+    });
+
+    let hookCalls = 0;
+    const bridge = createRemoteBridge(pi, {
+      config: DEFAULT_CONFIG,
+      lifecycle: { noteSubmissionDelivered: () => void ledger.calls++ },
+      maybeAutoSubmit: () => {
+        hookCalls++;
+        runMaybeAutoSubmit(panel, deps);
+      },
+    });
+    const flowId = bridge.emitFlow(state, "tool")!;
+    const epochBefore = state.epoch;
+
+    submit(bus, flowId, { kind: "answer", mode: "submit", answers: { n1: { customText: "under an hour" } } });
+
+    // The bridge's OWN submission shipped exactly once (the remote user's
+    // deliberate submit — NOT withheld by the hold).
+    expect(sent).toHaveLength(1);
+    expect(ledger.calls).toBe(1); // h2.44 contract fired before the hook ran
+    // The inherited hook ran exactly once — and found zero pending (the
+    // step-5 flush precedes it): no hold armed, no second submission.
+    expect(hookCalls).toBe(1);
+    expect(panel.gateWarning).toBeNull();
+    expect(panelSendMessage).not.toHaveBeenCalled();
+    expect(state.epoch).toBe(epochBefore + 1); // bumped once, inside buildSubmission only
+    expect(state.getQuestion("n1")!.status).toBe("submitted");
+    expect(state.getQuestion("g1")!.status).toBe("open"); // the gate question is untouched
   });
 });
 

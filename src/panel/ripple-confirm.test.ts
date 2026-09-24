@@ -797,3 +797,75 @@ describe("ripple confirm — deferred commits auto-submit (AUTOSUBMIT-001)", () 
     expect(state.epoch).toBe(1);
   });
 });
+
+describe("ripple edit commits inherit the gate hold (BUG-001, AC-2d)", () => {
+  /** Delivery deps injected through the panel args (the autoDeps pattern). */
+  function holdDeps() {
+    const sendMessage = vi.fn();
+    return { delivery: { sendMessage, isIdle: () => true }, sendMessage };
+  }
+
+  /**
+   * The firing fixtures' chain (q1←q2←q3, q4 answered) plus g1: its own
+   * "foundation" group makes it THE gate group and it stays OPEN — the
+   * canonical BUG-001 scenario. The ONLY delta vs the auto-submit firing
+   * tests above is g1: the identical APPLIED commits now hold instead of
+   * shipping. The ripple tails call maybeAutoSubmit(panel), which reads
+   * panel.delivery — hence the explicit delivery in the panel args (a
+   * headless panel without delivery would early-return and never arm).
+   */
+  function seedHoldChain(): InterrogationState {
+    const state = seedRippleChain();
+    state.applyAnswer("q4", { value: "a", at: T0 });
+    state.upsertQuestion(choiceQ("g1", { group: "foundation", gate: true })); // OPEN
+    return state;
+  }
+
+  test("test_hold_choice_edit_commit_arms_hold_no_submit", () => {
+    // The modal's APPLIED choice commit (applyConfirmedEdit tail) lands the
+    // edit and moots the victims, then the inherited hook WITHHOLDS the
+    // auto-submit: hold line armed, no delivery, no flash, no epoch bump.
+    const state = seedHoldChain();
+    const { delivery, sendMessage } = holdDeps();
+    const handle = makePanel(state, { delivery });
+    const epochBefore = state.epoch;
+
+    triggerChoiceConfirm(handle.panel);
+    expect(handle.panel.confirmMode?.kind).toBe("choice");
+    handle.panel.handleInput("\r"); // modal enter = keep → applyConfirmedEdit
+
+    // The APPLIED commit landed (edit applied, victims mooted)…
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(state.getQuestion("q1")?.answer?.value).toBe("b");
+    expect(state.getQuestion("q2")?.status).toBe("moot");
+    // …but the auto-submit is held.
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(handle.panel.footerFlash?.text).toBeUndefined();
+    expect(state.epoch).toBe(epochBefore);
+    expect(handle.panel.gateWarning).toEqual({ count: 1, kind: "hold", submitLabel: "Ctrl+S" });
+    expect(handle.panel.render(80).join("\n")).toContain(
+      "⚠ 1 foundational unanswered — answer them or Ctrl+S to submit now",
+    );
+  });
+
+  test("test_hold_writein_edit_commit_arms_hold_no_submit", () => {
+    // The second APPLIED commit site (applyWriteInConfirm tail) inherits the
+    // same hold: custom write-in applied, nothing shipped.
+    const state = seedHoldChain();
+    const { delivery, sendMessage } = holdDeps();
+    const handle = makePanel(state, { delivery });
+    const epochBefore = state.epoch;
+
+    enterWriteInDuty(handle, "cockroachdb");
+    handle.panel.handleInput("\r"); // → writein modal (victims q2, q3)
+    expect(handle.panel.confirmMode?.kind).toBe("writein");
+    handle.panel.handleInput("\r"); // modal enter = keep → applyWriteInConfirm
+
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(state.getQuestion("q1")?.answer?.value).toBe("cockroachdb"); // applied
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(handle.panel.footerFlash?.text).toBeUndefined();
+    expect(state.epoch).toBe(epochBefore);
+    expect(handle.panel.gateWarning).toEqual({ count: 1, kind: "hold", submitLabel: "Ctrl+S" });
+  });
+});

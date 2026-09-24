@@ -12,11 +12,18 @@
  * Panels are constructed directly (not via openPanel) so each scenario owns
  * its instance; dispose() is called where flash timers are armed.
  */
-import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  KeybindingsManager,
+  Theme,
+} from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "../config.js";
 import { renderDutyLabel } from "./layout.js";
+import { createLifecycle } from "../lifecycle.js";
+import { buildSubmissionCard } from "../renderers.js";
+import type { SubmissionMessage } from "../delivery.js";
 import {
   createInterrogationState,
   type InterrogationState,
@@ -34,6 +41,7 @@ import {
   panelActions,
   prevQuestion,
   submit,
+  writeInEnter,
   type SubmitDeps,
 } from "./actions.js";
 import { InterrogationPanel, type InterrogationPanelArgs } from "./panel.js";
@@ -705,6 +713,12 @@ describe("submit — flush pending answers", () => {
     // AC-13 guard: the BUG-008 filter must never drop a genuine user edit of
     // an archived (closed) answer — its entry carries a real answer, so the
     // `to !== "(unanswered)"` half keeps it, and the (changed) marker stays.
+    // MANUFACTURED BASELINE KEPT (BUG-003 P1.M1.T3.S2 decision): this
+    // harness predates lifecycle wiring, so q1's closed status is seeded via
+    // state.setStatus rather than the real close pass — the fixture point
+    // here is the BUG-008 filter, not the archive transition. The REAL
+    // close-pass → editedArchived path is covered by
+    // bug003_real_close_pass_edited_archived_entry_flags_changed_ac13 below.
     const state = seed(BASIC);
     state.applyAnswer("q1", { value: "a", at: T0 });
     state.setStatus("q1", "closed"); // archived with its answer (h2.38)
@@ -727,6 +741,80 @@ describe("submit — flush pending answers", () => {
     expect(msg.details.changed[0]?.editedArchived).toBe(true); // AC-13 marker data
     expect(msg.details.changed[0]?.to).toBe("Beta"); // a real answer, NOT "(unanswered)"
     expect(msg.content).toContain("q1: Beta (changed)"); // renderer marker source
+  });
+
+  test("bug003_real_close_pass_edited_archived_entry_flags_changed_ac13", () => {
+    // BUG-003 / AC-13 REAL-pipeline regression (P1.M1.T3.S2): ZERO
+    // state.setStatus in the path. q1 is archived by the REAL close pass
+    // (lifecycle runClosePass — which now takes the post-close ring
+    // snapshot), the user edits the archived answer through the REAL ✎ Other
+    // write-in path, and the auto-submit that fires diffs against the
+    // close-pass snapshot → editedArchived true → " (changed)" in the
+    // delivered content line AND the submission card. Before the fix the
+    // ring never held a 'closed' snapshot, so editedArchived could never be
+    // true through production paths.
+    const state = seed([
+      { id: "q1", overrides: { title: "DB", recommendation: "a" } },
+      { id: "q2" },
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+
+    // Answer both through panel commit paths → auto-submit fires (epoch 2).
+    accept(panel); // q1 ← option a (★ preselect); advance → q2
+    accept(panel); // q2 ← option a; nothing left open → AUTOSUBMIT-001 fires
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.epoch).toBe(2);
+    expect(state.getQuestion("q1")!.status).toBe("submitted");
+    expect(state.getQuestion("q2")!.status).toBe("submitted");
+
+    // REAL close pass via the exported API (PRP contract — not setStatus):
+    // closes both submitted ids and (THE FIX) appends ONE same-epoch
+    // 'closed' snapshot. No epoch bump.
+    const lifecycle = createLifecycle(
+      { on: () => undefined } as unknown as Pick<ExtensionAPI, "on">,
+      { getState: () => state },
+    );
+    expect(lifecycle.runClosePass()?.closed).toEqual(["q1", "q2"]);
+    lifecycle.dispose();
+    expect(state.epoch).toBe(2); // close pass NEVER bumps
+    expect(state.snapshots).toHaveLength(2); // submit-time + close-pass entries
+    const closedSnap = state.snapshots[1]!;
+    expect(closedSnap.epoch).toBe(2);
+    expect(
+      Object.values(closedSnap.state.questions).every((q) => q.status === "closed"),
+    ).toBe(true);
+
+    // Edit the ARCHIVED answer through the real ✎ Other write-in path
+    // (currentId → ✎ row → accept → type → enter). Closed is "not pending",
+    // not immutable (FR-2): the commit re-pends q1.
+    panel.currentId = "q1";
+    panel.cursorIndex = 2; // past the two options = the ✎ Other row
+    expect(accept(panel)).toBe(true);
+    expect(panel.textDuty).toBe("writein");
+    panel.textField.setText("postgres");
+    expect(writeInEnter(panel)).toBe(true); // commit → auto-submit fires
+    // NOTE: the re-pend (FR-2 "answered") is transient — the synchronous
+    // auto-submit's markSubmitted has already shipped it by the time this
+    // line runs. The shipped editedArchived marker below PROVES the
+    // closed→answered transition happened (a still-closed q1 ships nothing).
+
+    // Second submission diffs against the CLOSE-PASS snapshot (the fix):
+    // before.status === "closed" → editedArchived → " (changed)" everywhere.
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(state.epoch).toBe(3);
+    const msg = sendMessage.mock.calls[1][0] as SubmissionMessage;
+    expect(msg.details.changed).toHaveLength(1);
+    expect(msg.details.changed[0]?.id).toBe("q1");
+    expect(msg.details.changed[0]?.editedArchived).toBe(true); // AC-13 marker data
+    expect(msg.details.changed[0]?.to).toBe("✎ postgres"); // write-in value (✎ custom marker), real answer
+    expect(msg.content).toContain("q1: ✎ postgres (changed)"); // delivery.ts content line
+
+    // The user-only card renders the (changed) marker too (renderers.ts).
+    const cardLines = buildSubmissionCard(msg, { expanded: false, outputPad: 0 }, stubTheme)
+      .render(500)
+      .map((l) => l.replace(/\s+$/, ""));
+    expect(cardLines.some((l) => l.includes("DB: Alpha → ✎ postgres (changed)"))).toBe(true);
   });
 });
 

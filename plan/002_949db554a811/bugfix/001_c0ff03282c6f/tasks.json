@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Major correctness fixes (BUG-001, BUG-002, BUG-003)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Restore the three broken hard promises: FR-3/AC-2d gate-hold feedback, R4/ESC-002 draft sacredness on every editor exit, and AC-13/FR-2 '(changed)' marker through the real submit pipeline.",
           "tasks": [
             {
@@ -117,7 +117,7 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Make AC-13 '(changed)' marker reachable through the real submit pipeline (BUG-003)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "editedArchived requires a 'closed' baseline status, but snapshots are only taken post-markSubmitted and the agent-settled close pass never snapshots — so '(changed)' can never fire in production. Take a snapshot at the close pass after auditing ring consumers.",
               "subtasks": [
                 {
@@ -139,7 +139,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "Take snapshot in the agent-settled close pass so editedArchived can fire",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -156,7 +156,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S3",
                   "title": "End-to-end AC-13 acceptance test through the real submit pipeline",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S2"
@@ -184,14 +184,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Re-derive text duty on question navigation (BUG-004)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "textDuty survives question navigation, so enter commits a write-in on a question whose cursor sits on a real option, violating WRITEIN-001 FR-12's cursor-follow rule. Re-derive duty from the new question's cursor position in syncBufferToQuestion.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Re-derive textDuty in syncBufferToQuestion from the new question's cursor position",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S3"

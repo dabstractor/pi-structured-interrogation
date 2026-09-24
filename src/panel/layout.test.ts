@@ -177,6 +177,38 @@ describe("statusMarkers", () => {
     });
     expect(statusMarkers(choiceWithNote, theme)).toBe(" ✎ text answer");
   });
+
+  test("writein_choice_answer_shows_text_answer_marker", () => {
+    const q = mkQuestion("q1", {
+      status: "answered",
+      answer: { value: "my write-in", custom: true, at: "2026-01-01T00:00:00Z" },
+    });
+    expect(statusMarkers(q, theme)).toBe(" ✎ text answer");
+  });
+
+  test("writein_submitted_status_also_marks", () => {
+    const q = mkQuestion("q1", {
+      status: "submitted",
+      answer: { value: "my write-in", custom: true, at: "2026-01-01T00:00:00Z" },
+    });
+    expect(statusMarkers(q, theme)).toBe(" ✎ text answer");
+  });
+
+  test("custom_strict_true_only_corrupt_truthy_rejected", () => {
+    const q = mkQuestion("q1", {
+      status: "answered",
+      answer: { value: "x", custom: "yes" as unknown as boolean, at: "2026-01-01T00:00:00Z" },
+    });
+    expect(statusMarkers(q, theme)).toBe(""); // corrupt truthy is NOT a write-in (strict === true)
+  });
+
+  test("plain_option_answer_still_no_marker", () => {
+    const q = mkQuestion("q1", {
+      status: "answered",
+      answer: { value: "a", at: "2026-01-01T00:00:00Z" },
+    });
+    expect(statusMarkers(q, theme)).toBe("");
+  });
 });
 
 // --------------------------------------------------------- renderQuestionLine
@@ -193,6 +225,16 @@ describe("renderQuestionLine", () => {
     const q = mkQuestion("q1", { title: undefined });
     const line = renderQuestionLine(q, 1, theme, 80);
     expect(line).toContain("(none) · Q1/q1 prompt:q1");
+  });
+
+  test("writein answer renders the ✎ marker on the composed question line (BUG-005)", () => {
+    const q = mkQuestion("q1", {
+      status: "answered",
+      answer: { value: "my write-in", custom: true, at: "2026-01-01T00:00:00Z" },
+    });
+    const line = renderQuestionLine(q, 1, theme, 100);
+    expect(line).toContain("✎ text answer");
+    expect(visibleWidth(line)).toBeLessThanOrEqual(100);
   });
 
   test("markers render per status and sit at the end of the line", () => {

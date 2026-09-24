@@ -1790,7 +1790,11 @@ describe("deep view (P1.M5.T1.S1)", () => {
 
     panel.handleInput(CTRL_D);
     panel.handleInput(DOWN);
-    panel.handleInput(DOWN); // consumed no-op at the domain edge (no ✎ in deep)
+    panel.handleInput(DOWN); // onto the synthetic ✎ Other section (P1.M2.T6.S1)
+    expect(panel.cursorIndex).toBe(2);
+    panel.handleInput(DOWN); // consumed no-op at the domain edge (no wrap past Other)
+    expect(panel.cursorIndex).toBe(2);
+    panel.handleInput(UP);
     expect(panel.cursorIndex).toBe(1);
     panel.handleInput(UP);
     expect(panel.cursorIndex).toBe(0);

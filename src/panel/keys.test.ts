@@ -689,7 +689,9 @@ describe("deep view routing gates (P1.M5.T1.S1)", () => {
     expect(route(DOWN, panel as unknown as InterrogationPanel)).toBe(true);
     expect(panel.cursorIndex).toBe(1);
     expect(route(DOWN, panel as unknown as InterrogationPanel)).toBe(true);
-    expect(panel.cursorIndex).toBe(1); // clamped — no ✎ index in deep
+    expect(panel.cursorIndex).toBe(2); // onto the synthetic ✎ Other section
+    expect(route(DOWN, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(panel.cursorIndex).toBe(2); // clamped — no wrap past Other
     expect(actions.optionDown).not.toHaveBeenCalled();
   });
 

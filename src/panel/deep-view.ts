@@ -5,11 +5,14 @@
  * The deep view (FR-8 / h2.29 / Q19-Q20) is a FULL replacement of the Q&A
  * region between header and footer: the full goal text (FR-30, dimmed) on
  * top, then the full `question.description`, then one sticky section per
- * option (`▸ ★ sqlite` header + wrapped ramification text). `↑/↓` SCROLL
- * the pane / move the selection — they NEVER navigate questions (h2.29:
- * question navigation belongs to the config prev/next keys only); `enter`
- * selects the highlighted option and returns to the short view (advancing
- * to the next unanswered question, Q14); `esc` descends via the existing
+ * option (`▸ ★ sqlite` header + wrapped ramification text), then — on
+ * choice questions — the synthetic `✎ Other — write your own` section
+ * (P1.M2.T6.S1). `↑/↓` SCROLL the pane / move the selection — they NEVER
+ * navigate questions (h2.29: question navigation belongs to the config
+ * prev/next keys only); `enter` selects the highlighted option — or, on
+ * the Other section, opens the write-in duty back on the short form
+ * (h2.32) — and returns to the short view (advancing to the next
+ * unanswered question, Q14); `esc` descends via the existing
  * router ladder without destroying anything (FR-16).
  *
  * MODE A CONTRACT — MARKER GLYPH VOCABULARY (panel-wide, short-view.ts):
@@ -18,9 +21,14 @@
  * - `⊘`  moot (reason line prepended, whole pane dimmed)
  * - `⊗`  withdrawn (pane collapses to the single dim line)
  * - `▸`  cursor / highlighted section header
- * - NO `✎` — the free-text affordance belongs to the short form; text
- *   questions in deep view render goal + description only and `enter` is a
- *   consumed no-op (the embedded editor is a short-view affordance).
+ * - `✎`  the synthetic Other section on choice questions (P1.M2.T6.S1):
+ *   rendered AFTER the last option at cursor index `options.length`; the
+ *   label is shared with short-view.ts (`OTHER_AFFORDANCE`) and the
+ *   ramification is the fixed `OTHER_RAMIFICATION` string (h2.29). It is
+ *   selectable (same sticky-header machinery as real options) and `enter`
+ *   on it enters the write-in duty — short form + editor focused (h2.32).
+ *   Text questions still render goal + description only and `enter` is a
+ *   consumed no-op (the embedded editor composes on the short form).
  *
  * MODE A CONTRACT — ALIGNMENT (mirrors short-view.ts):
  *
@@ -52,7 +60,7 @@ import type { Question } from "../state.js";
 import { acceptOptionIndex } from "./actions.js";
 import { truncateVisible } from "./layout.js";
 import type { InterrogationPanel } from "./panel.js";
-import { initialCursorIndex, mootReason } from "./short-view.js";
+import { OTHER_AFFORDANCE, initialCursorIndex, mootReason } from "./short-view.js";
 
 // ---------------------------------------------------------------- constants
 
@@ -77,6 +85,15 @@ const RAM_INDENT = "    ";
 const MOOT_HEAD = "⊘ moot — ";
 /** Withdrawn questions collapse to this single dimmed line. */
 const WITHDRAWN_LINE = "⊗ withdrawn";
+/**
+ * The synthetic Other section's ramification (P1.M2.T6.S1, h2.29) — a FIXED
+ * extension-supplied string rendered verbatim through the SAME
+ * capText → wrapText → dim → RAM_INDENT pipeline as option ramifications.
+ * Deliberately NOT configurable; never starred (the Other row is not an
+ * option and is never recommended).
+ */
+export const OTHER_RAMIFICATION =
+  "None of the listed options fit — write your own answer; it ships as the official answer for this question, not as an attachment to one of them.";
 /**
  * Fallback render width for scroll math before the panel's first render
  * (lastWidth === -1) — only affects offset clamping fidelity between the
@@ -116,7 +133,8 @@ export interface DeepContent {
   lines: string[];
   /** Per option: index into {@link lines} of its section header line. */
   sectionHeaderLineIndex: number[];
-  /** Per option: plain header body (`★ sqlite` / `postgres`), theme-free. */
+  /** Per section: plain header body (`★ sqlite` / `postgres` / the ✎ Other
+   *  label), theme-free. The Other section is always the LAST entry. */
   sectionHeaders: string[];
   /** True for moot questions — headers re-render dimmed (whole pane dim). */
   dimAll: boolean;
@@ -198,8 +216,14 @@ export function wrapText(text: string, budget: number): string[] {
  * - Moot: a `⊘ moot — {reason}` line is prepended and the whole pane
  *   renders dimmed ({@link DeepContent.dimAll}); options are still listed
  *   (audit trail, Q34=A).
- * - Text questions: goal + description only — no option sections, no ✎
- *   affordance (the embedded editor is a short-view affordance).
+ * - Choice questions: after the real option sections, the synthetic
+ *   `✎ Other — write your own` section (P1.M2.T6.S1) renders at cursor
+ *   index `options.length` — label shared with short-view.ts
+ *   (`OTHER_AFFORDANCE`), ramification the fixed `OTHER_RAMIFICATION`
+ *   (h2.29), never starred. Present even when `options` is undefined or
+ *   empty (the Other row is the whole cursor domain there).
+ * - Text questions: goal + description only — no option sections and no
+ *   Other section (the embedded editor composes on the short form).
  */
 export function buildDeepContent(input: DeepViewInput): DeepContent {
   const { question: q, goal, theme, width, maxChars } = input;
@@ -249,6 +273,17 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
         pushBlock(lines, opt.ramification, theme, budget, maxChars, true, RAM_INDENT);
       }
     }
+    // P1.M2.T6.S1: the synthetic ✎ Other section — cursor index
+    // `options.length` (WRITEIN-001 deep parity), ALWAYS the LAST
+    // sectionHeaderLineIndex entry so clampScroll/renderDeepWindow work
+    // unchanged. Present even with zero options (the Other row is the
+    // whole domain there); never on withdrawn/text questions.
+    sectionHeaders.push(OTHER_AFFORDANCE);
+    sectionHeaderLineIndex.push(lines.length);
+    const prefix = options.length === input.cursorIndex ? CURSOR : BLANK;
+    const composed = `${INSET}${prefix}${OTHER_AFFORDANCE}`;
+    lines.push(dimAll ? theme.fg("dim", composed) : composed);
+    pushBlock(lines, OTHER_RAMIFICATION, theme, budget, maxChars, true, RAM_INDENT);
   }
   return { lines, sectionHeaderLineIndex, sectionHeaders, dimAll, viewportHeight: DEEP_VIEW_HEIGHT };
 }
@@ -380,26 +415,28 @@ export function deepSelectionUp(panel: InterrogationPanel): boolean {
   return stepDeepSelection(panel, -1);
 }
 
-/** Move the deep selection down one option (clamped at the last option). */
+/** Move the deep selection down one section (clamped at the Other section). */
 export function deepSelectionDown(panel: InterrogationPanel): boolean {
   return stepDeepSelection(panel, 1);
 }
 
 /**
  * Shared deep-selection step: mutate `panel.cursorIndex` within
- * `[0, options.length - 1]` — the short view's ✎ affordance index does NOT
- * exist here — recompute `panel.scrollOffset` via {@link clampScroll}, and
- * invalidate. NEVER touches `panel.currentId` (h2.29: ↑/↓ in deep view do
- * not navigate questions). Consumed no-op for text/moot/withdrawn (nothing
- * to select), false only when no question context exists.
+ * `[0, options.length]` — index `options.length` IS the synthetic
+ * `✎ Other` section (P1.M2.T6.S1; same domain convention as actions.ts's
+ * cursorDomainSize) — recompute `panel.scrollOffset` via
+ * {@link clampScroll}, and invalidate. NEVER touches `panel.currentId`
+ * (h2.29: ↑/↓ in deep view do not navigate questions). Consumed no-op for
+ * text/moot/withdrawn (nothing to select) and at the domain boundaries
+ * (zero-option choice questions own the single Other index, so moves are
+ * no-ops there); false only when no question context exists.
  */
 function stepDeepSelection(panel: InterrogationPanel, delta: number): boolean {
   const { q } = deepInput(panel);
   if (q === undefined) return false;
   if (q.type !== "choice") return true;
   const count = q.options?.length ?? 0;
-  if (count === 0) return true;
-  const next = Math.min(count - 1, Math.max(0, panel.cursorIndex + delta));
+  const next = Math.min(count, Math.max(0, panel.cursorIndex + delta));
   if (next !== panel.cursorIndex) {
     panel.cursorIndex = next;
     const { input } = deepInput(panel);
@@ -415,7 +452,11 @@ function stepDeepSelection(panel: InterrogationPanel, delta: number): boolean {
  * the EXACT short-view commit semantics ({@link acceptOptionIndex} —
  * ripple-confirm seam on answered/submitted edits, applyAnswer, advance to
  * the next unanswered question), then return to the short view and reset
- * the scroll offset. `deepSticky` is untouched — the toggle stays sticky
+ * the scroll offset. On the synthetic `✎ Other` section (index
+ * `options.length`, P1.M2.T6.S1) NOTHING is answered: the panel returns to
+ * the short form with the editor focused in write-in duty (h2.32) — the
+ * commit happens at writeInEnter when the user presses enter in the
+ * editor. `deepSticky` is untouched — the toggle stays sticky
  * for the panel session.
  *
  * No-op paths (all consumed, `true`):
@@ -432,8 +473,18 @@ export function acceptFromDeep(panel: InterrogationPanel): boolean {
   if (q.type !== "choice") return true;
   if (q.status === "moot" || q.status === "withdrawn") return true;
   const count = q.options?.length ?? 0;
-  if (count === 0) return true;
-  const index = Math.min(Math.max(0, panel.cursorIndex), count - 1);
+  const index = Math.min(Math.max(0, panel.cursorIndex), count);
+  if (index === count) {
+    // ✎ Other section (WRITEIN-001 deep parity, P1.M2.T6.S1): enter only
+    // OPENS the write-in duty — short form + editor focused, seeded from
+    // the freshest draft by focusTextField; writeInEnter owns the commit
+    // (h2.32). Branch order mirrors actions.ts accept()'s Other row.
+    panel.textDuty = "writein";
+    panel.setView("short");
+    panel.scrollOffset = 0;
+    panel.focusTextField();
+    return true;
+  }
   const before = q.answer;
   const accepted = acceptOptionIndex(panel, q, index);
   // Veto detection without re-invoking the seam: applyAnswer always assigns
@@ -449,13 +500,15 @@ export function acceptFromDeep(panel: InterrogationPanel): boolean {
 /**
  * Seed the deep selection for a question — the ★ recommendation preselect
  * (R2, via {@link initialCursorIndex}) clamped into the deep cursor domain
- * `[0, options.length - 1]` (no ✎ index here). Used by panel.setView when
- * ENTERING deep view; `currentId`'s own setter already re-seeds on question
- * changes.
+ * `[0, options.length]` (P1.M2.T6.S1: the synthetic Other index is legal —
+ * the clamp bound is `count`, not `count - 1`, so a cursor parked on the
+ * Other section is tolerated rather than snapped below it). Zero-option
+ * choice questions seed onto the Other row itself (index 0 === count).
+ * Used by panel.setView when ENTERING deep view; `currentId`'s own setter
+ * already re-seeds on question changes.
  */
 export function deepSeedCursorIndex(q: Question | undefined): number {
   if (q === undefined || q.type !== "choice") return 0;
   const count = q.options?.length ?? 0;
-  if (count === 0) return 0;
-  return Math.min(initialCursorIndex(q), count - 1);
+  return Math.min(initialCursorIndex(q), count);
 }

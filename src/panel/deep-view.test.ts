@@ -11,13 +11,14 @@
  *
  * Coverage: wrapText (short/long/unbounded-word/unicode width bounds),
  * buildDeepContent (full goal, description, ★ header, capped text
- * ellipsized, moot/withdrawn/text variants, options never filtered),
+ * ellipsized, moot/withdrawn/text variants, options never filtered, the
+ * synthetic ✎ Other section — P1.M2.T6.S1),
  * clampScroll (global bounds, sticky pin above/below, minimal scroll),
  * renderDeepWindow (window ≤ DEEP_VIEW_HEIGHT, highlighted header prefix,
  * column alignment), deepSelectionUp/Down (domain clamp, currentId never
  * touched, offset recompute), acceptFromDeep (apply + setView("short") +
- * advance, ripple veto stays in deep, text/moot no-ops, deepSticky
- * preserved), deepSeedCursorIndex.
+ * advance, Other → write-in duty, ripple veto stays in deep, text/moot
+ * no-ops, deepSticky preserved), deepSeedCursorIndex.
  */
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
@@ -33,6 +34,7 @@ import {
   deepSelectionDown,
   deepSelectionUp,
   DEEP_VIEW_HEIGHT,
+  OTHER_RAMIFICATION,
   renderDeepWindow,
   wrapText,
   type DeepContent,
@@ -203,8 +205,10 @@ describe("buildDeepContent", () => {
     const flat = content.lines.join("\n");
     expect(flat).toContain(RAM_A);
     expect(flat).toContain(RAM_B);
-    // R1: options are never filtered — both sections exist.
-    expect(content.sectionHeaders).toHaveLength(2);
+    // R1: options are never filtered — both sections exist, followed by
+    // the synthetic Other section (P1.M2.T6.S1).
+    expect(content.sectionHeaders).toHaveLength(3);
+    expect(content.sectionHeaders[2]).toBe("✎ Other — write your own");
     // Ramification lines are indented 4 columns (aligns under labels).
     const ramLine = content.lines[content.sectionHeaderLineIndex[0]! + 1]!;
     expect(ramLine.startsWith("      ")).toBe(true); // INSET(2) + RAM_INDENT(4)
@@ -214,8 +218,10 @@ describe("buildDeepContent", () => {
     const ram = Array.from({ length: 400 }, (_, i) => `word${i}`).join(" ");
     const q = choiceQ("db", { options: [{ value: "a", label: "a", ramification: ram }] });
     const content = buildDeepContent(deepInputFor(q, { maxChars: 600 }));
+    // Slice ONLY option a's ramification block — the synthetic Other
+    // section (P1.M2.T6.S1) follows it in `lines`.
     const ramText = content.lines
-      .slice(content.sectionHeaderLineIndex[0]! + 1)
+      .slice(content.sectionHeaderLineIndex[0]! + 1, content.sectionHeaderLineIndex[1])
       .map((l) => l.replace(/^\s+/, ""))
       .join(" ");
     // 600-char cap + single `…` ellipsis, wrapped — bounded total.
@@ -234,7 +240,7 @@ describe("buildDeepContent", () => {
     expect(content.lines[0]).toContain("⊘ moot — sqlite");
     // Every non-blank line dimmed, options still listed (audit trail, Q34=A).
     for (const ln of content.lines) if (ln !== "") expect(ln).toContain(DIM);
-    expect(content.sectionHeaders).toHaveLength(2);
+    expect(content.sectionHeaders).toHaveLength(3); // options + Other, dimmed
   });
 
   test("test_moot_reason_falls_back_to_generic", () => {
@@ -383,12 +389,16 @@ describe("deep selection (deepSelectionUp/Down)", () => {
     expect(panel.scrollOffset).toBe(0); // header still visible — no scroll
   });
 
-  test("test_selection_clamped_within_option_domain_no_pen_mark", () => {
+  test("test_selection_clamped_at_the_other_section_no_wrap", () => {
     const panel = setup([choiceQ("db")]);
     panel.setView("deep");
     deepSelectionDown(panel);
-    expect(deepSelectionDown(panel)).toBe(true); // consumed no-op at the end
-    expect(panel.cursorIndex).toBe(1); // NOT the short view's ✎ index (2)
+    deepSelectionDown(panel); // onto the Other section (the short view's ✎ index)
+    expect(panel.cursorIndex).toBe(2);
+    expect(deepSelectionDown(panel)).toBe(true); // consumed no-op past Other
+    expect(panel.cursorIndex).toBe(2);
+    expect(deepSelectionUp(panel)).toBe(true);
+    expect(panel.cursorIndex).toBe(1);
     expect(deepSelectionUp(panel)).toBe(true);
     expect(panel.cursorIndex).toBe(0);
     expect(deepSelectionUp(panel)).toBe(true); // consumed no-op at the top
@@ -504,6 +514,133 @@ describe("deepSeedCursorIndex", () => {
     expect(deepSeedCursorIndex(textQ("name"))).toBe(0);
     expect(deepSeedCursorIndex(choiceQ("db", { options: [] }))).toBe(0);
     expect(deepSeedCursorIndex(undefined)).toBe(0);
+  });
+
+  test("test_seed_domain_tolerates_the_other_index", () => {
+    // Deep domain is [0, options.length] (P1.M2.T6.S1): the clamp bound is
+    // count, so a zero-option choice seeds onto the Other row itself
+    // (index 0 === count) instead of snapping outside the domain.
+    expect(deepSeedCursorIndex(choiceQ("db", { options: [] }))).toBe(0);
+    expect(deepSeedCursorIndex(choiceQ("db"))).toBe(0); // ★ seed unchanged
+    expect(deepSeedCursorIndex(choiceQ("db", { recommendation: "postgres" }))).toBe(1);
+  });
+});
+
+// --------------------------------- Other section (P1.M2.T6.S1, FR-D1/AC-5)
+
+describe("Other section (P1.M2.T6.S1)", () => {
+  function setup(questions: Question[]): InterrogationPanel {
+    const state = createInterrogationState("goal");
+    for (const q of questions) state.upsertQuestion(q);
+    return new InterrogationPanel(panelArgsFor(state));
+  }
+
+  test("test_other_section_rendered_after_last_option_with_verbatim_ramification", () => {
+    const content = buildDeepContent(deepInputFor(choiceQ("db")));
+    // Synthetic section is the LAST section, at index options.length = 2.
+    expect(content.sectionHeaders).toHaveLength(3);
+    expect(content.sectionHeaders[2]).toBe("✎ Other — write your own");
+    const headerIdx = content.sectionHeaderLineIndex[2]!;
+    expect(headerIdx).toBeGreaterThan(content.sectionHeaderLineIndex[1]!);
+    expect(content.lines[headerIdx]).toContain("✎ Other — write your own");
+    // Never recommended — no ★ on the Other row.
+    expect(content.lines[headerIdx]).not.toContain("★");
+    // VERBATIM ramification (em-dash intact), wrapped + RAM_INDENT indent.
+    const ramText = content.lines
+      .slice(headerIdx + 1)
+      .map((l) => l.replace(/^\s+/, ""))
+      .join(" ");
+    expect(ramText).toBe(OTHER_RAMIFICATION);
+    expect(ramText).toContain("fit — write your own answer");
+    for (const ln of content.lines.slice(headerIdx + 1)) {
+      expect(ln.startsWith("      ")).toBe(true); // INSET(2) + RAM_INDENT(4)
+    }
+  });
+
+  test("test_other_ramification_flows_through_the_same_dim_pipeline", () => {
+    const content = buildDeepContent(deepInputFor(choiceQ("db"), { theme: dimTheme }));
+    const headerIdx = content.sectionHeaderLineIndex[2]!;
+    expect(content.lines.slice(headerIdx + 1).length).toBeGreaterThan(0);
+    for (const ln of content.lines.slice(headerIdx + 1)) expect(ln).toContain(DIM);
+  });
+
+  test("test_other_header_sticky_and_cursor_prefix_in_window", () => {
+    const ram = "word ".repeat(120).trim(); // long rams → real scrolling
+    const q = choiceQ("db", {
+      options: [
+        { value: "a", label: "a", ramification: ram },
+        { value: "b", label: "b", ramification: ram },
+      ],
+    });
+    const content = buildDeepContent(deepInputFor(q));
+    const headerIdx = content.sectionHeaderLineIndex[2]!;
+    // Cursor ON the Other section: sticky math keeps the header + its first
+    // ramification line inside the window, and the window re-renders the
+    // Other header with the `▸ ` prefix.
+    const offset = clampScroll(content, 0, 2);
+    const window = renderDeepWindow(content, 2, offset, theme, 80);
+    const header = window[headerIdx - offset];
+    expect(header).toBeDefined();
+    expect(header).toContain("✎ Other — write your own");
+    expect(header!.startsWith("  ▸ ")).toBe(true);
+  });
+
+  test("test_zero_option_choice_renders_other_as_the_only_section", () => {
+    const content = buildDeepContent(deepInputFor(choiceQ("db", { options: [] })));
+    expect(content.sectionHeaders).toEqual(["✎ Other — write your own"]);
+    expect(content.lines.join("\n")).toContain("None of the listed options fit");
+  });
+
+  test("test_no_other_section_on_text_or_withdrawn", () => {
+    expect(buildDeepContent(deepInputFor(textQ("t"))).lines.join("\n")).not.toContain("✎ Other");
+    expect(
+      buildDeepContent(deepInputFor(choiceQ("w", { status: "withdrawn" }))).lines.join("\n"),
+    ).not.toContain("✎ Other");
+  });
+
+  test("test_selection_reaches_and_clamps_at_the_other_section", () => {
+    const panel = setup([choiceQ("db")]);
+    panel.setView("deep");
+    deepSelectionDown(panel);
+    deepSelectionDown(panel); // onto the Other section (index options.length)
+    expect(panel.cursorIndex).toBe(2);
+    expect(deepSelectionDown(panel)).toBe(true); // consumed no-op — no wrap
+    expect(panel.cursorIndex).toBe(2);
+    expect(deepSelectionUp(panel)).toBe(true); // back onto the last option
+    expect(panel.cursorIndex).toBe(1);
+  });
+
+  test("test_zero_option_choice_selection_domain_is_the_other_row", () => {
+    const panel = setup([choiceQ("db", { options: [] })]);
+    panel.setView("deep");
+    expect(panel.cursorIndex).toBe(0); // the Other section IS the domain
+    expect(deepSelectionDown(panel)).toBe(true); // consumed no-op
+    expect(panel.cursorIndex).toBe(0);
+  });
+
+  test("test_accept_other_returns_to_short_in_writein_duty_editor_focused", () => {
+    const panel = setup([choiceQ("q1")]);
+    panel.setView("deep");
+    deepSelectionDown(panel);
+    deepSelectionDown(panel); // Other
+    expect(acceptFromDeep(panel)).toBe(true);
+    expect(panel.view).toBe("short");
+    expect(panel.textDuty).toBe("writein");
+    expect(panel.focus).toBe("text"); // editor focused
+    expect(panel.textField.focused).toBe(true);
+    expect(panel.scrollOffset).toBe(0);
+    expect(panel.state.getQuestion("q1")?.answer).toBeUndefined(); // nothing answered
+    expect(panel.currentId).toBe("q1"); // no advance — the duty is open
+    expect(panel.cursorIndex).toBe(2); // parked on the short form's ✎ row
+  });
+
+  test("test_accept_other_on_zero_option_choice_opens_writein", () => {
+    const panel = setup([choiceQ("z", { options: [] })]);
+    panel.setView("deep");
+    expect(acceptFromDeep(panel)).toBe(true);
+    expect(panel.view).toBe("short");
+    expect(panel.textDuty).toBe("writein");
+    expect(panel.state.getQuestion("z")?.answer).toBeUndefined();
   });
 });
 

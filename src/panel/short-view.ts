@@ -68,9 +68,11 @@ const STAR = "★ ";
  * (`custom: true`). Fixed label — deliberately NOT configurable and NOT
  * digit-selectable (h2.32/h2.36); it replaces the retired explain
  * affordance in the same last-row cursor slot (the elaboration duty moved
- * to `ctrl+t`, P1.M2.T3.S1).
+ * to `ctrl+t`, P1.M2.T3.S1). Exported for deep-view.ts's synthetic Other
+ * section (P1.M2.T6.S1) — single source of truth so the label never drifts
+ * between views.
  */
-const OTHER_AFFORDANCE = "✎ Other — write your own";
+export const OTHER_AFFORDANCE = "✎ Other — write your own";
 /** Placeholder for the primary text-field affordance (text questions). */
 const TEXT_PLACEHOLDER = "answer…";
 /** Generic moot reason when state carries no derivable cause. */

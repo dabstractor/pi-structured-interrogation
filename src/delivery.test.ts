@@ -537,6 +537,33 @@ const GOLDEN_CONTENT = [
 ].join("\n");
 
 describe("buildCompletion (P1.M2.T1.S3 — the one full injection)", () => {
+  test("write-in answer (custom) renders ✎ {text}; labeled choice regression intact", () => {
+    const s = createInterrogationState("Plan the migration");
+    s.upsertQuestion(
+      q({
+        id: "w1",
+        title: "Wildcard",
+        type: "choice",
+        group: "G",
+        options: [{ value: "a", label: "Alpha" }],
+      }),
+    );
+    s.applyAnswer("w1", { value: "my own text", custom: true, at: T0 });
+    s.upsertQuestion(
+      q({
+        id: "l1",
+        title: "Labeled",
+        type: "choice",
+        group: "G",
+        options: [{ value: "a", label: "Alpha" }],
+      }),
+    );
+    s.applyAnswer("l1", ans("a"));
+    const msg = buildCompletion(s);
+    expect(msg.content).toContain("[G] w1 Wildcard: ✎ my own text");
+    expect(msg.content).toContain("[G] l1 Labeled: Alpha");
+  });
+
   test("golden_record_multi_group_byte_exact_content_and_envelope", () => {
     const msg = buildCompletion(goldenState(), [
       "Chose sqlite after profiling",

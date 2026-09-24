@@ -166,6 +166,11 @@ export function buildSubmissionCard(
   // survive across lines of a single Text). truncateToWidth runs AFTER the
   // themed string is composed (it is ANSI-aware); String.slice would be
   // ANSI-unsafe. Collapsed truncates to the budget; expanded never does.
+  // Write-in answers (h2.42) arrive PRE-PREFIXED as `✎ {text}` in from/to
+  // from the summary layer (snapshots.answerSummary / delivery
+  // completionAnswerSummary) — no special-casing here: the existing
+  // truncateToWidth satisfies "truncated to fit" when collapsed, and the
+  // expanded branch shows the full write-in text.
   const shown = expanded ? entries : entries.slice(0, COLLAPSED_ENTRY_CAP);
   for (const e of shown) {
     let line = `${INDENT}${e?.title ?? ""}: ${e?.from ?? ""} → ${e?.to ?? ""}`;

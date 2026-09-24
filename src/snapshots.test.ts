@@ -282,6 +282,56 @@ describe("computeDiff", () => {
   });
 });
 
+describe("write-in answers (✎ custom, WRITEIN-001)", () => {
+  test("custom choice answer renders ✎ value in diff from/to — label lookup bypassed", () => {
+    state.upsertQuestion(
+      q({
+        id: "q3",
+        type: "choice",
+        options: [
+          { value: "sqlite", label: "SQLite" },
+          { value: "postgres", label: "Postgres" },
+        ],
+      }),
+    );
+    state.applyAnswer("q3", ans("sqlite"));
+    const prev = state.serialize();
+    state.applyAnswer("q3", { value: "my own text", custom: true, at: T0 });
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed).toEqual([
+      {
+        id: "q3",
+        title: "prompt for q3",
+        from: "SQLite",
+        to: "✎ my own text",
+        editedArchived: false,
+        value: "my own text",
+      },
+    ]);
+  });
+
+  test("custom + elaboration composes `✎ value — text` (NEW-003 grammar preserved)", () => {
+    state.upsertQuestion(
+      q({ id: "q1", type: "choice", options: [{ value: "a", label: "Alpha" }] }),
+    );
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: "my own text", text: "because", custom: true, at: T0 });
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed[0]?.from).toBe("(unanswered)");
+    expect(diff.changed[0]?.to).toBe("✎ my own text — because");
+  });
+
+  test("custom value colliding with a real option value still renders ✎ (no lookup)", () => {
+    state.upsertQuestion(
+      q({ id: "q3", type: "choice", options: [{ value: "sqlite", label: "SQLite" }] }),
+    );
+    const prev = state.serialize();
+    state.applyAnswer("q3", { value: "sqlite", custom: true, at: T0 });
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed[0]?.to).toBe("✎ sqlite");
+  });
+});
+
 describe("digestSince", () => {
   test("one_segment_per_changed_submission_joined_by_pipe_separator", () => {
     state.upsertQuestion(q({ id: "q1" }));

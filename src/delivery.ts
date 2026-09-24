@@ -261,14 +261,22 @@ export interface CompletionMessage {
 
 /**
  * Label-preferred answer summary — a local replication of snapshots.ts's
- * module-PRIVATE `answerSummary` (choice → option label whose value matches
- * `answer.value`, falling back to the raw value; text → raw value; no answer
- * → "(unanswered)"). Duplicated by design; THIS comment is the sync
- * reference between the two rules — do NOT import the private.
+ * module-PRIVATE `answerSummary` (WRITE-IN answers (`custom === true`) →
+ * `✎ {value}`, never checked against option lists; choice → option label
+ * whose value matches `answer.value`, falling back to the raw value; text →
+ * raw value; no answer → "(unanswered)"). Duplicated by design; THIS comment
+ * is the sync reference between the two rules — both share the ✎ write-in
+ * branch (WRITEIN-001/h2.42) and must stay behaviorally identical (this
+ * helper has no ` — {text}` elaboration suffix; the record's line assembly
+ * handles free text) — do NOT import the private.
  */
 function completionAnswerSummary(q: Question): string {
   const answer = q.answer;
   if (answer === undefined) return COMPLETION_UNANSWERED;
+  // WRITEIN-001 (h2.42): value holds free text — ✎ prefix, never an option
+  // lookup; placed BEFORE the choice dispatch so a value collision with a
+  // real option still renders as a write-in.
+  if (answer.custom === true) return `✎ ${answer.value}`;
   if (q.type === "choice") {
     return q.options?.find((o) => o.value === answer.value)?.label ?? answer.value;
   }

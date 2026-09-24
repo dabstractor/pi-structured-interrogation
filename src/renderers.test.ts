@@ -24,6 +24,8 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text, visibleWidth } from "@earendil-works/pi-tui";
 import type { CompletionRecapEntry } from "./delivery.js";
 import { INTERROGATION_STATE_ENTRY_TYPE } from "./persistence.js";
+import { computeDiff } from "./snapshots.js";
+import { createInterrogationState } from "./state.js";
 import {
   buildCompletionRecapCard,
   buildStateEntryMarker,
@@ -160,6 +162,49 @@ describe("buildSubmissionCard", () => {
     expect(visibleWidth(line as string)).toBeLessThanOrEqual(COLLAPSED_LINE_BUDGET);
     // Head of the value survives (truncation cuts the tail, keeps the start).
     expect(line).toContain("Database: sqlite → yyy");
+  });
+
+  test("WRITEIN-001: ✎ write-in entry renders; collapsed truncates to budget; expanded shows full text", () => {
+    const longWriteIn = "✎ " + "w".repeat(200);
+
+    // Collapsed: prefix survives, line obeys the visible budget.
+    const collapsedOut = buildSubmissionCard(
+      msg(card({ changed: [entry({ from: "SQLite", to: longWriteIn })] })),
+      collapsed,
+      stubTheme,
+    );
+    const line = lines(collapsedOut).find((l) => l.includes("Database:"));
+    expect(line).toBeDefined();
+    expect(line).toContain("Database: SQLite → ✎ www");
+    expect(visibleWidth(line as string)).toBeLessThanOrEqual(COLLAPSED_LINE_BUDGET);
+
+    // Expanded: the full write-in text renders untruncated.
+    const expandedOut = buildSubmissionCard(
+      msg(card({ changed: [entry({ from: "SQLite", to: longWriteIn })] })),
+      expanded,
+      stubTheme,
+    );
+    expect(lines(expandedOut).some((l) => l.includes(longWriteIn))).toBe(true);
+  });
+
+  test("WRITEIN-001 end-to-end: custom answer flows answerSummary → computeDiff → card line", () => {
+    const s = createInterrogationState("Plan the migration");
+    s.upsertQuestion({
+      id: "w1",
+      prompt: "Wildcard",
+      title: "Wildcard",
+      type: "choice",
+      rev: 1,
+      status: "open",
+      options: [{ value: "a", label: "Alpha" }],
+    });
+    s.applyAnswer("w1", { value: "a", at: "2025-01-01T00:00:00.000Z" });
+    const prev = s.serialize();
+    s.applyAnswer("w1", { value: "my own text", custom: true, at: "2025-01-01T00:00:00.000Z" });
+    const data = computeDiff(prev, s.serialize());
+    expect(data.changed[0]?.to).toBe("✎ my own text");
+    const out = buildSubmissionCard(msg(data), collapsed, stubTheme);
+    expect(lines(out).some((l) => l.includes("Wildcard: Alpha → ✎ my own text"))).toBe(true);
   });
 
   test("collapsed entry cap: 10 entries → cap lines + `+{m} more` rollup", () => {

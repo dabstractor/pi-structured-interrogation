@@ -115,15 +115,29 @@ function answerSignature(q: Question | undefined): string | undefined {
 }
 
 /**
- * Human-readable answer summary for diff cards / digests. Choice questions
- * prefer the label of the option whose `value` matches the answer value
- * (falling back to the raw value when no option matches); text questions use
- * the raw value. Missing question/answer → "(unanswered)". No truncation —
- * display truncation is the renderer's job.
+ * Human-readable answer summary for diff cards / digests. WRITE-IN answers
+ * (`answer.custom === true`, WRITEIN-001/h2.42) render `✎ {value}` — the
+ * committed text IS the answer, so the option-label lookup is bypassed
+ * entirely. Otherwise choice questions prefer the label of the option whose
+ * `value` matches the answer value (falling back to the raw value when no
+ * option matches); text questions use the raw value. A non-blank
+ * `answer.text` elaboration rides the summary as ` — {text}` (NEW-003),
+ * including on write-ins. Missing question/answer → "(unanswered)". No
+ * truncation — display truncation is the renderer's job.
  */
 function answerSummary(q: Question | undefined): string {
   const answer = q?.answer;
   if (q === undefined || answer === undefined) return UNANSWERED;
+  // WRITEIN-001 (h2.42): value holds free text — ✎ prefix, never an option
+  // lookup. Checked BEFORE the choice/text dispatch so a custom value that
+  // collides with a real option value still renders as a write-in.
+  if (answer.custom === true) {
+    const base = `✎ ${answer.value}`;
+    if (typeof answer.text === "string" && answer.text.trim() !== "") {
+      return `${base} — ${answer.text}`;
+    }
+    return base;
+  }
   // Label-preferred for choice, raw value otherwise (text → the typed text).
   const summary =
     q.type === "choice"

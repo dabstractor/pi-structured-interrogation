@@ -1943,6 +1943,14 @@ describe("maybeAutoSubmit — gate hold (AUTOSUBMIT-002, AC-2d)", () => {
    * withdrawn/moot) gate questions, while the T1.S1 completeness
    * predicate only blocks open/reasked — so the set passes completeness
    * and reaches the P2.M1.T2.S1 hold check with n = 1.
+   *
+   * Since the BUG-001 reorder this fixture is no longer the ONLY path to
+   * the hold: maybeAutoSubmit now computes the gate count BEFORE the
+   * completeness return, so the canonical OPEN-gate flow (g1 open, user
+   * committing later-group answers) arms the same hold line — pinned by
+   * test_auto_open_gate_question_arms_hold_line_no_submit below. These
+   * closed-no-answer tests keep passing unchanged: the path reaches the
+   * SAME n > 0 && pending > 0 condition, just more reachable.
    */
   const HOLD_FIXTURE: Array<{ id: string; overrides?: Partial<Question> }> = [
     { id: "g1", overrides: { group: "foundation", gate: true, status: "closed" } },
@@ -2039,15 +2047,41 @@ describe("maybeAutoSubmit — gate hold (AUTOSUBMIT-002, AC-2d)", () => {
     expect(panel.footerFlash?.text).toBeUndefined();
   });
 
-  test("test_auto_open_gate_question_returns_at_completeness_no_hold_line", () => {
-    // The completeness return runs FIRST: with the gate question itself
-    // still open the set is not otherwise-complete — maybeAutoSubmit
-    // returns at the unanswered check, so no hold line either (the line
-    // never fires when there is nothing shippable).
+  test("test_auto_open_gate_question_arms_hold_line_no_submit", () => {
+    // BUG-001 fix — the canonical AC-2d flow: the gate question itself is
+    // still OPEN while later-group answers exist. maybeAutoSubmit computes
+    // the gate count BEFORE the completeness return, so the hold line arms
+    // and nothing ships (previously dead code: the completeness return
+    // fired first and the user got no feedback).
     const state = seed([
       { id: "g1", overrides: { group: "foundation", gate: true } }, // open
       { id: "g2", overrides: { group: "foundation", status: "answered" } },
       { id: "n1", overrides: { group: "later", status: "answered" } },
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch;
+
+    maybeAutoSubmit(panel, deps);
+
+    expect(sendMessage).not.toHaveBeenCalled(); // withheld
+    expect(state.epoch).toBe(epochBefore); // no submission
+    expect(panel.footerFlash?.text).toBeUndefined(); // no flash on the hold path
+    expect(panel.gateWarning).toEqual({ count: 1, kind: "hold", submitLabel: "Ctrl+S" });
+    // The rendered footer-adjacent line is the EXACT hold string.
+    expect(panel.render(80).join("\n")).toContain(
+      "⚠ 1 foundational unanswered — answer them or Ctrl+S to submit now",
+    );
+  });
+
+  test("test_auto_gate_unanswered_zero_pending_stays_silent", () => {
+    // Zero-pending silence (BUG-001 reorder guard): the hold arms only when
+    // something was actually committed (pending > 0). A bare maybeAutoSubmit
+    // call with the gate question unanswered and NOTHING answered must arm
+    // no line — n > 0 but pending === 0 falls through both returns silently.
+    const state = seed([
+      { id: "g1", overrides: { group: "foundation", gate: true } }, // open
+      { id: "n1", overrides: { group: "later" } }, // open, never answered
     ]);
     const { deps, sendMessage } = makeDeps(true);
     const { panel } = makePanel(state, { delivery: deps });

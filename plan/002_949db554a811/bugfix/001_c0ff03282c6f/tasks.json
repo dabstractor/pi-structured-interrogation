@@ -349,14 +349,14 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Full-suite regression sweep",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Run the complete verification loop over the integrated changeset and triage expected flips vs unexpected fallout, including the no-hardcoded-keys guard for any new runtime strings.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Run npm test + typecheck over the integrated changeset; triage flips and guard checks",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -395,7 +395,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "README.md sweep: verify all behavior passages match the fixed semantics",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1"

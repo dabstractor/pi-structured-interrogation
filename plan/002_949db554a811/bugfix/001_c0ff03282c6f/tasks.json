@@ -256,7 +256,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Flatten newlines/tabs in answerSummary so every delta entry is single-line",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S2"

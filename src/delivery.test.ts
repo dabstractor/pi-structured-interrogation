@@ -824,3 +824,52 @@ describe("buildSubmission — NOTE: content line (h2.32/R3, P1.M4.T2.S2)", () =>
     expect(lines[2]).toBe("NOTE: hold");
   });
 });
+
+// ------------------------------------------------------- BUG-006 flatten half
+
+describe("BUG-006 flatten half — multi-line write-ins (P1.M2.T3.S1)", () => {
+  test("bug006_multi_line_write_in_delta_stays_two_lines", () => {
+    state.upsertQuestion(choice("q1"));
+    state.upsertQuestion(q({ id: "q2" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: "line one\nline two 🚀", custom: true, at: T0 });
+    state.applyAnswer("q2", ans("A"));
+    const diff = diffFrom(prev);
+
+    const msg = buildSubmission(state, diff);
+
+    // Byte-exact: the multi-line write-in entry is SINGLE-LINE (runs of
+    // \n/\t collapse to " / " — the NOTE line's grammar), so the content
+    // keeps the 2-line shape (+reminder) instead of spilling.
+    expect(msg.content).toBe(
+      "Submitted 2: q1: ✎ line one / line two 🚀; q2: A (state epoch 2)\n" +
+        "Consider how these affect your other questions.",
+    );
+    expect(msg.content.split("\n")).toHaveLength(2);
+    // Card to/from fields carry no newlines or tabs for any entry.
+    for (const entry of msg.details.changed) {
+      expect(entry.to.includes("\n")).toBe(false);
+      expect(entry.to.includes("\t")).toBe(false);
+      expect(entry.from.includes("\n")).toBe(false);
+      expect(entry.from.includes("\t")).toBe(false);
+    }
+    // The committed value in STATE keeps its raw newlines (summary-only).
+    expect(state.getQuestion("q1")?.answer?.value).toBe("line one\nline two 🚀");
+  });
+
+  test("bug006_note_adds_exactly_one_line_over_flattened_entries", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: "one\ntwo", custom: true, at: T0 });
+    const diff = diffFrom(prev);
+
+    // With a (multi-line) note the budget is 3 lines: delta + NOTE + reminder.
+    const msg = buildSubmission(state, diff, "multi\nline note");
+
+    const lines = msg.content.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe("Submitted 1: q1: ✎ one / two (state epoch 2)");
+    expect(lines[1]).toBe("Consider how these affect your other questions.");
+    expect(lines[2]).toBe("NOTE: multi / line note"); // NOTE's own flatten (unchanged)
+  });
+});

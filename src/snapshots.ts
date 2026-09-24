@@ -122,6 +122,20 @@ function answerSignature(q: Question | undefined): string | undefined {
 }
 
 /**
+ * Flatten runs of newlines and tabs to the single-line separator — BUG-006
+ * (h3.5): write-ins commit raw newlines ("multi-line values keep their
+ * newlines", actions.ts), but every summary surface (delta content entries,
+ * card to/from, digestSince segments) must be single-line so the model
+ * delta keeps the ≤3-line shape (FR-3/AC-2). Same grammar as the NOTE line
+ * (delivery.ts's `note.replace(/\n+/g, " / ")`) extended to tabs: RUNS
+ * collapse (mixed `\n\t` runs included) to one `" / "`. Applied to the
+ * FINAL composed summary only — never to `answer.value`/`answer.text` in
+ * state (raw values stay raw) and never to {@link answerSignature} (the
+ * change predicate compares raw value+text).
+ */
+const flatten = (s: string): string => s.replace(/[\n\t]+/g, " / ");
+
+/**
  * Human-readable answer summary for diff cards / digests. WRITE-IN answers
  * (`answer.custom === true`, WRITEIN-001/h2.42) render `✎ {value}` — the
  * committed text IS the answer, so the option-label lookup is bypassed
@@ -129,8 +143,16 @@ function answerSignature(q: Question | undefined): string | undefined {
  * `value` matches the answer value (falling back to the raw value when no
  * option matches); text questions use the raw value. A non-blank
  * `answer.text` elaboration rides the summary as ` — {text}` (NEW-003),
- * including on write-ins. Missing question/answer → "(unanswered)". No
- * truncation — display truncation is the renderer's job.
+ * including on write-ins. Missing question/answer → "(unanswered)".
+ *
+ * SINGLE-LINE guarantee (BUG-006 flatten half, h3.5): the FINAL composed
+ * string is flattened — runs of `\n`/`\t` collapse to `" / "` ({@link
+ * flatten}) — so every delta content entry and card to/from field is
+ * single-line. Strictly a summary transform: raw state (answer.value/text)
+ * and {@link answerSignature} keep raw characters, and a newline-free
+ * summary is byte-identical (the regex is a no-op without \n/\t). No
+ * truncation — display truncation is the renderer's job; per-entry length
+ * bounding is P1.M2.T3.S2's cap, NOT this function.
  */
 function answerSummary(q: Question | undefined): string {
   const answer = q?.answer;
@@ -138,25 +160,29 @@ function answerSummary(q: Question | undefined): string {
   // WRITEIN-001 (h2.42): value holds free text — ✎ prefix, never an option
   // lookup. Checked BEFORE the choice/text dispatch so a custom value that
   // collides with a real option value still renders as a write-in.
+  let composed: string;
   if (answer.custom === true) {
-    const base = `✎ ${answer.value}`;
+    composed = `✎ ${answer.value}`;
     if (typeof answer.text === "string" && answer.text.trim() !== "") {
-      return `${base} — ${answer.text}`;
+      composed = `${composed} — ${answer.text}`;
     }
-    return base;
+  } else {
+    // Label-preferred for choice, raw value otherwise (text → the typed text).
+    composed =
+      q.type === "choice"
+        ? (q.options?.find((o) => o.value === answer.value)?.label ?? answer.value)
+        : answer.value;
+    // NEW-003 (h2.45/R4): a shipped ✎ elaboration rides the delta and the
+    // diff card — same `{answer} — {free text}` grammar as the completion
+    // record (h2.46), so the model sees the reasoning, not just the label.
+    if (typeof answer.text === "string" && answer.text.trim() !== "") {
+      composed = `${composed} — ${answer.text}`;
+    }
   }
-  // Label-preferred for choice, raw value otherwise (text → the typed text).
-  const summary =
-    q.type === "choice"
-      ? (q.options?.find((o) => o.value === answer.value)?.label ?? answer.value)
-      : answer.value;
-  // NEW-003 (h2.45/R4): a shipped ✎ elaboration rides the delta and the
-  // diff card — same `{answer} — {free text}` grammar as the completion
-  // record (h2.46), so the model sees the reasoning, not just the label.
-  if (typeof answer.text === "string" && answer.text.trim() !== "") {
-    return `${summary} — ${answer.text}`;
-  }
-  return summary;
+  // BUG-006 (h3.5): single-line summaries only — raw newline/tab runs in the
+  // committed value/text collapse here, at the LAST moment, so raw state and
+  // the change signature upstream stay untouched.
+  return flatten(composed);
 }
 
 /**

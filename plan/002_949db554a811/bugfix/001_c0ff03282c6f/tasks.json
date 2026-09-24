@@ -1,0 +1,310 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Bugfix Wave 1 — Post-Validation Fixes (BUG-001..BUG-008)",
+      "status": "Ready",
+      "description": "Fix the 8 verified bugs from the post-validation adversarial bug hunt against the shipped M8 delta (WRITEIN/AUTOSUBMIT/SURFACE): 3 majors (gate-hold dead code, R4 draft loss on ctrl+c/discuss/note-mode, AC-13 '(changed)' unreachable) and 5 minors (duty persistence across navigation, write-in invisibility, unbounded multi-line delta, swallowed bridge errors, enter no-op on text questions). All claims verified CONFIRMED at HEAD 613437d — see architecture/ dossiers. No new deps, config surface, or pi APIs.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Major correctness fixes (BUG-001, BUG-002, BUG-003)",
+          "status": "Planned",
+          "description": "Restore the three broken hard promises: FR-3/AC-2d gate-hold feedback, R4/ESC-002 draft sacredness on every editor exit, and AC-13/FR-2 '(changed)' marker through the real submit pipeline.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Restore gate-hold ⚠ line in canonical flows (BUG-001)",
+              "status": "Planned",
+              "description": "maybeAutoSubmit's completeness early-return fires before gate-hold arming, so the canonical 'answering later groups while a foundational question is open' scenario renders no ⚠ line and hides the ctrl+s override. Reorder so the hold arms whenever unanswered gate questions exist at commit time.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Reorder maybeAutoSubmit: arm gate-hold before the completeness return",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.2", "h3.0", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-001-gate-hold.md (verified @ 613437d). maybeAutoSubmit at src/panel/actions.ts:604-641: `if (unanswered > 0) return;` at :611 precedes hold arming at :624-635. Helpers: countUnansweredGate (src/panel/gate.ts:100), gateHoldLine (gate.ts:143), gateGroupNames (gate.ts:68). panel.gateWarning declared src/panel/panel.ts:479-481, rendered non-expiring by footerNoticeLine (panel.ts:1204-1220), any-key dismiss (panel.ts:778-781).\n2. INPUT: Unmodified maybeAutoSubmit (actions.ts:604-641) and its existing hold branch for closed-no-answer gates; panel state with gate-group questions.\n3. LOGIC: Implement FR-3/AC-2d (PRD h3.0): move the gate-hold computation BEFORE the completeness return — on every commit, compute n = countUnansweredGate(state); when n > 0 AND there are pending/unanswered non-gate answers, arm panel.gateWarning = gateHoldLine(...) and return WITHOUT auto-submitting (this now also fires when the gate question itself is open/reasked — the canonical scenario). Preserve: zero-pending silence (n > 0 but nothing new committed → no line), auto-submit when complete with n === 0, and the existing closed-no-answer hold path. TDD: invert the pinned deviation test src/panel/actions.test.ts:2042 (test_auto_open_gate_question_returns_at_completeness_no_hold_line → now asserts the ⚠ line arms and no auto-submit in the canonical g1-open + n1/n2-answered scenario); adjust the HOLD_FIXTURE describe (actions.test.ts:1937-2058) as needed; test at :2023 (non-gate silence) must stay green. Panel harness: makePanel/seed/makeDeps stubs (actions.test.ts:29-112) — no mocking beyond the standard TUI stub.\n4. OUTPUT: maybeAutoSubmit that arms gateWarning in the canonical scenario; all commit paths (actions.ts:251,311; ripple-confirm.ts:160,304; remote-submit.ts:165,181; index.ts:107-109) inherit the behavior unchanged. Consumed by P1.M1.T1.S2.\n5. DOCS: none — README.md:52-53 and spec/ui-spec.md:72 already promise exactly this fixed behavior; changeset-level sweep in P1.M3.T2 verifies."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S2",
+                  "title": "Pin gate-hold inheritance across all commit entry points (accept, ripple edit, bridge submit)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.0", "h2.2", "h3.0", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-001-gate-hold.md — maybeAutoSubmit callers: accept path actions.ts:251, writeInEnter actions.ts:311, ripple-confirm.ts:160 and :304 (edit commits), remote-submit.ts:165 and :181 (bridge recordRemoteSubmission + its maybeAutoSubmit slot), late-binding wiring index.ts:107-109.\n2. INPUT: Fixed maybeAutoSubmit from P1.M1.T1.S1.\n3. LOGIC: Per PRD h3.0 user impact, verify every commit path surfaces the hold: add/extend tests for (a) ripple modal edit commit while a gate question is open → gateWarning armed, no auto-submit; (b) bridge recordRemoteSubmission (remote-submit.ts) committing later-group answers while gate unanswered → hold armed (use the FakeBus + makePi + makeBridge harness from src/remote-bridge.test.ts:21-75 to fake the events bus and pi — never a real pi); (c) confirm by grep that no commit path bypasses maybeAutoSubmit; fix any that do. TDD: each test fails first (or is absent), then passes.\n4. OUTPUT: Green tests pinning the hold on every commit entry point; no behavior delta beyond S1's inheritance.\n5. DOCS: none — covered by final sweep P1.M3.T2."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "Draft write-through on every editor exit (BUG-002 / R4)",
+              "status": "Planned",
+              "description": "Three gestures (ctrl+c, ctrl+shift+e discuss, ctrl+shift+m note mode) exit or swap the shared editor without staging the buffer, destroying typed-but-unsubmitted text — now including complete write-in answers. Add one ungated write-through helper and call it at every exit/swap point.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "Ungated write-through helper + suspend() integration (ctrl+c path)",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.2", "h3.1", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-002-draft-r4.md. suspend() = src/panel/panel.ts:903-907 (resolved guard + done(null) only); ctrl+c branch panel.ts:748-751 fires from ANY focus. Existing write-through tail: commitTextDraft(questionId, text) panel.ts:881-901 (draft slot + DraftStore seam + EXPLAIN-003 reseed + blur); stageText (panel.ts:866-879) wraps it with FR-18 ripple deferral — DO NOT use stageText here (modal would orphan pre-suspend). draftSlots = panel-local Map (panel.ts:402); DraftStore seam panel.ts:126-135, impl src/draft-store.ts (extension memory, no disk).\n2. INPUT: Unmodified suspend() and the existing commitTextDraft body to mirror.\n3. LOGIC: Implement R4/ESC-002 (PRD h3.1): add a private Panel helper writeThroughCurrentDraft(): when focus === 'text' and the buffer is non-empty, stage the buffer text directly to its owner question's draftSlots entry + DraftStore seam — mirroring commitTextDraft's slot/seam writes but SKIPPING blur/invalidate side effects (the panel may be disposing during suspend) and skipping the FR-18 modal. Call it at the top of suspend(), before done(null). If the editor is in note mode (note buffer owner), route to the note draft slot (note-mode exits are completed by P1.M1.T2.S3). TDD: extend the ctrl+c test src/panel/panel.test.ts:1339 (currently pins suspend-only) to also assert drafts.getDraft('q1') and the draft slot survive handleInput('\\x03') from editor focus with typed text; suspend.test.ts:585 (R4 store-survival money test) must stay green. Panel harness makePanel/seed/makeDeps — no external mocks.\n4. OUTPUT: Helper writeThroughCurrentDraft() + suspend() integration; contract consumed by P1.M1.T2.S2 and P1.M1.T2.S3.\n5. DOCS: Mode A — update the JSDoc on suspend() (panel.ts) to state the R4 write-through guarantee ('every editor exit is a draft write-through'). README/spec wording handled by P1.M3.T2."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S2",
+                  "title": "Discuss gesture (ctrl+shift+e) preserves the in-flight draft",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S1"],
+                  "prd_selectors": ["h2.0", "h2.2", "h3.1", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-002-draft-r4.md — discussInChat at src/panel/discuss.ts:~105-126 suspends via panel.suspend(); the keys.ts step-4 config intercept for ctrl+shift+e is ungated by editor focus, so it fires mid-editing.\n2. INPUT: writeThroughCurrentDraft()-armed suspend() from P1.M1.T2.S1.\n3. LOGIC: Per PRD h3.1 repro step 3 (discuss variant): verify discussInChat's suspend path now writes the buffer through (it calls panel.suspend(), which S1 armed). TDD: new test — open editor in write-in duty on a choice question, type 'precious unsaved typing', call discussInChat(pi, panel) → panel resolved with discuss payload AND drafts.getDraft(qid) populated + draftSlots entry intact. If any discuss code path suspends by other means, call the helper explicitly before suspending. Mock: fake pi object capturing sendMessage (see discuss.test.ts patterns) — no real pi.\n4. OUTPUT: Green test proving drafts survive the discuss gesture; no double-staging regressions (typing again after resume re-seeds from the draft).\n5. DOCS: none — README drafts passages (66-68/212/254-255) swept in P1.M3.T2."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S3",
+                  "title": "Note-mode swap (ctrl+shift+m) writes through both buffers symmetrically",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T2.S1"],
+                  "prd_selectors": ["h2.0", "h2.2", "h3.1", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-002-draft-r4.md — enterNoteMode at src/panel/panel.ts:1110-1116 calls textField.seed(note) which overwrites the in-flight question buffer with nothing written to draftSlots/DraftStore; the reverse swap (note exit) re-seeds the question buffer the same way; ctrl+c from note focus suffers the mirrored loss (routed by P1.M1.T2.S1's note branch).\n2. INPUT: writeThroughCurrentDraft() helper from P1.M1.T2.S1; enterNoteMode/exitNoteMode (panel.ts:1110+) and the note draft slot mechanism (same draftSlots/DraftStore seam keyed by the note owner).\n3. LOGIC: Per PRD h3.1 (note-mode variant): before textField.seed(note) in enterNoteMode, write the current question buffer through (helper); on every note-mode exit gesture (esc / ctrl+shift+m toggle back), write the note buffer to its slot before re-seeding the question buffer — symmetric swaps, nothing destroyed (R4). TDD: (a) type question text → enterNoteMode → question draft survives AND editor shows the seeded note text; (b) type note text → exit note mode → note draft survives and editor re-seeds from the question draft; (c) type note text → ctrl+c → note draft survives. Panel harness; no external mocks.\n4. OUTPUT: Both buffers survive every swap/exit; consumed as the serialization gate for P1.M2.T1.S1 (panel.ts draft machinery frozen after this).\n5. DOCS: Mode A — update JSDoc on enterNoteMode to state the swap write-through guarantee."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T3",
+              "title": "Make AC-13 '(changed)' marker reachable through the real submit pipeline (BUG-003)",
+              "status": "Planned",
+              "description": "editedArchived requires a 'closed' baseline status, but snapshots are only taken post-markSubmitted and the agent-settled close pass never snapshots — so '(changed)' can never fire in production. Take a snapshot at the close pass after auditing ring consumers.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S1",
+                  "title": "Audit snapshot-ring consumers for one-snapshot-per-epoch / submitted-only invariants",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.2", "h3.2", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-003-snapshots-changed.md — snapshot ring: state.snapshots (src/state.ts:247-248, SNAPSHOT_RING_SIZE=10, in-memory, survives completion); takeSnapshot (src/snapshots.ts:196, ordering contract: BEFORE any bumpEpoch); current take sites: delivery.ts:185 (after markSubmitted) and fallback.ts:261 (comment at :260 declares the invariant 'snapshot must hold submitted'); close pass closeSubmitted (src/merge.ts:282) invoked from src/lifecycle.ts:227 (runClosePass on agent_settled). submissionBaselineOf (snapshots.ts:43-49) = last ring entry.\n2. INPUT: Unmodified snapshot machinery; the planned insertion point (runClosePass after closeSubmitted when toClose.length > 0).\n3. LOGIC: Per PRD h3.2 + recommendation 3: grep EVERY consumer of state.snapshots (submissionBaselineOf, digestSince, lifecycle.test.ts, compaction.ts, results.ts, fallback.ts, delivery.ts) and enumerate each assumption that (a) one snapshot exists per epoch, or (b) snapshots only hold 'submitted' statuses. Adjust consumer code/tests that would break when a second same-epoch snapshot holding 'closed' statuses enters the ring; document the audited conclusion in code comments at the invariant sites. If a HARD invariant blocks the close-pass snapshot, STOP and record the pivot decision (diff archived-edit flags against pre-close state instead) in the subtask result for P1.M1.T3.S2 to consume. TDD: consumer tests updated first where behavior shifts.\n4. OUTPUT: Audited + adjusted consumers (or a documented pivot decision) unblocking P1.M1.T3.S2; full existing suite green.\n5. DOCS: Mode A — update the fallback.ts:260 invariant comment and spec/state-and-persistence.md:126-130 (snapshot semantics) to record that close-pass snapshots hold 'closed' statuses; these are the exact files this change invalidates."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S2",
+                  "title": "Take snapshot in the agent-settled close pass so editedArchived can fire",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T3.S1"],
+                  "prd_selectors": ["h2.0", "h2.2", "h3.2", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-003-snapshots-changed.md — editedArchived set at src/snapshots.ts:209 (before?.status === 'closed'); renders: model delta src/delivery.ts:147 (' (changed)') and card src/renderers.ts:70/177 (warning-styled CHANGED_MARKER). Existing real-pipeline test actions.test.ts:701 manufactures the closed baseline via state.setStatus — replace with the real close pass if trivial, else keep alongside.\n2. INPUT: Audit outcome from P1.M1.T3.S1 (consumer adjustments already landed, or the documented pivot). runClosePass at src/lifecycle.ts:227 calling closeSubmitted (merge.ts:282).\n3. LOGIC: Implement PRD h3.2 fix option (a): in runClosePass, after closeSubmitted(state, toClose) when toClose.length > 0, call takeSnapshot(state) (respect the ordering contract — the close pass never bumps epoch, so no ordering conflict). Verify through the real pipeline: answer → auto-submit → close pass → edit the archived answer (e.g. via write-in) → auto-submit → computeDiff now sees baseline status 'closed' for the edited id → editedArchived true → ' (changed)' appears in the delivery content line and the submission card. All direct computeDiff unit tests stay green. Panel/state harness; no external mocks.\n4. OUTPUT: Real-pipeline '(changed)'; snapshot ring now records close-pass state. Consumed by P1.M1.T3.S3 (acceptance proof) and gates P1.M2.T3.S1 (golden delta tests must land after this).\n5. DOCS: covered by P1.M1.T3.S1's Mode A updates if not already applied; verify spec/state-and-persistence.md:126-130 reflects the close-pass snapshot before closing this subtask."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S3",
+                  "title": "End-to-end AC-13 acceptance test through the real submit pipeline",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S2"],
+                  "prd_selectors": ["h2.0", "h2.2", "h3.2", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-003-snapshots-changed.md — the existing AC-13 test (src/ac-scripted.test.ts:~554-635) passes only by hand-building pre = state.serialize() at the closed moment and calling computeDiff directly, bypassing the snapshot-ring baseline.\n2. INPUT: Fixed pipeline from P1.M1.T3.S2 (close pass snapshots; submissionBaselineOf now returns closed-status baselines after settle).\n3. LOGIC: Add the acceptance test the PRD h3.2 repro describes, end-to-end: panel with q1 (choice) + q2 → answer both → auto-submit delivers (capture via fake delivery) → run the agent-settled close pass (lifecycle) → edit q1 via write-in (Other row → type → enter) → auto-submit fires → assert the second submission card has editedArchived:true for q1 and the content line carries ' (changed)'. Keep the existing direct-computeDiff test as a unit test (do not delete). Mock: fake delivery/pi capture only (harness patterns from ac-scripted.test.ts / actions.test.ts).\n4. OUTPUT: Permanent regression net proving AC-13 through production code paths; the manufactured-baseline test at actions.test.ts:701 either converted or retained as documentation.\n5. DOCS: none — README.md:262 AC-13 passage already promises this; final sweep P1.M3.T2 verifies."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Minor fixes (BUG-004 .. BUG-008)",
+          "status": "Planned",
+          "description": "Five verified minor issues: duty re-derivation on navigation, write-in visibility/marker parity, bounded single-line model delta, bridge internal-error nack, and enter-opens-editor on text questions.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Re-derive text duty on question navigation (BUG-004)",
+              "status": "Planned",
+              "description": "textDuty survives question navigation, so enter commits a write-in on a question whose cursor sits on a real option, violating WRITEIN-001 FR-12's cursor-follow rule. Re-derive duty from the new question's cursor position in syncBufferToQuestion.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "Re-derive textDuty in syncBufferToQuestion from the new question's cursor position",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T2.S3"],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.3", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-004-textduty.md — textDuty declared src/panel/panel.ts:427, reset ONLY in blurTextField (panel.ts:1086). Navigation: prev/next config keys are ungated in editor focus (keys.ts step 4) → prev/nextQuestion → currentId setter (panel.ts:352-363) reseeds cursorIndex = initialCursorIndex(q) (★ preselect) BEFORE calling syncBufferToQuestion (panel.ts:985-1019), which writes the draft through but never re-derives duty; the enter fork (panel.ts:794-803) then trusts the stale duty. desiredTextDuty predicate lives at src/panel/keys.ts:288 (→ 'writein' for type:'text'; cursor-position rules otherwise). Duty labels: renderDutyLabel layout.ts:277-290 ('OTHER — this text is the answer' / 'EXPLAIN — …').\n2. INPUT: Frozen panel.ts draft machinery from P1.M1.T2.S3; the desiredTextDuty predicate logic (keys.ts:288) to extract.\n3. LOGIC: Implement PRD h3.3 / recommendation 4: at the END of syncBufferToQuestion, when focus === 'text', re-derive panel.textDuty from the NEW question's type + the already-reseeded cursorIndex, using a pure predicate EXTRACTED from desiredTextDuty into a shared module (a direct keys.ts→panel.ts import risks a cycle — verify with the existing module graph; keys.ts imports panel types). Navigation to a choice question with cursor on a real option → duty 'elaboration' (enter saves+blurs, never answers); to a type:'text' question → duty 'writein' (enter commits); back to a question with cursor on the ✎/Other row → duty 'writein'. TDD: repro test first — writein duty on q1 Other row → handleInput('\\x1b[Z') (shift+tab) to q2 (cursor on ★ real option) → type + enter → q2 NOT answered as {value, custom:true} (it is a save+blur); then the text-question and navigate-back cases. Panel harness; no external mocks.\n4. OUTPUT: Duty follows cursor position after every navigation; the 'OTHER — this text is the answer' label updates on swap (via existing renderDutyLabel wiring).\n5. DOCS: Mode A — update JSDoc on syncBufferToQuestion documenting the duty re-derivation rule (cursor-follow per FR-12)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T2",
+              "title": "Surface recorded write-in answers in the panel (BUG-005)",
+              "status": "Planned",
+              "description": "Choice write-in answers get no ✎ on the question line (hasTextAnswer misses answer.custom) while the overview shows ✎, and the revisit answer preview never renders because it reads answer.text which write-ins never set. Fix both display seams.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S1",
+                  "title": "✎ marker parity: hasTextAnswer honors answer.custom",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-005-display-markers.md — hasTextAnswer at src/panel/layout.ts:181-186 checks (q.type === 'text' || answer.text), missing answer.custom; overview markerParts (src/panel/overview.ts:130-141) already uses (custom === true || type text) and additionally distinguishes elaboration '≡'; write-in commits store {value, custom: true} with NO text field (src/panel/actions.ts:304).\n2. INPUT: Unmodified hasTextAnswer and its call sites (short-view question-line ✎ marker); write-in answer shape from the M8 delta.\n3. LOGIC: Implement PRD h3.4 part (1): hasTextAnswer returns true when answer.custom === true (in addition to current conditions), so a CHOICE write-in renders ✎ on the question line, matching the overview's vocabulary. Keep elaboration (answer.text) semantics unchanged. TDD: layout.test.ts + a short-view render test — question with answer {value:'my write-in', custom:true} shows the ✎ question-line marker; plain option answers and elaborations unchanged. Harness: stubTheme + render(width) sweeps; no mocks.\n4. OUTPUT: Consistent ✎ semantics between question line and overview for the same answer; consumed implicitly by P1.M2.T2.S2's revisit rendering.\n5. DOCS: none — README write-in passages (36/43-47/198-204) swept in P1.M3.T2."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S2",
+                  "title": "Revisit preview: render the recorded write-in/text value as the dimmed answer preview",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-005-display-markers.md — answerPreviewLine at src/panel/short-view.ts:259-269 reads only q.answer?.text; write-in and text answers commit to answer.value, so the dimmed current-value preview is dead code; test short-view.test.ts:197 only passes because it hand-sets answer.text. Helpers: truncateVisible (layout.ts:95) and an inline split('\\n',1)[0] first-line precedent. Cursor intentionally never pins to recorded answers (panel.ts:368 — by design; do NOT add cursor sync).\n2. INPUT: ✎ parity from P1.M2.T2.S1 is independent; answerPreviewLine's current shape and the recorded answer objects.\n3. LOGIC: Implement PRD h3.4 part (2): answerPreviewLine renders the dimmed FIRST LINE of (answer.custom === true || q.type === 'text') ? answer.value : answer.text, truncated via truncateVisible to the region budget. Empty/undefined answers render nothing (unchanged). TDD: revisit scenario — state q1 with {value:'my write-in', custom:true} and q2 text {value:'text answer'}; render(100) with currentId on each → preview line shows each recorded value; multi-line values show only line one; existing short-view.test.ts:197 (hand-set answer.text) stays green. No mocks.\n4. OUTPUT: Recorded write-in answers finally visible in the short view; the panel no longer requires the transcript card or a model read for review.\n5. DOCS: none — final sweep covers README write-in visibility passages."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T3",
+              "title": "Bound and flatten the model-visible submission delta (BUG-006)",
+              "status": "Planned",
+              "description": "The delivery budget loop keeps at least one entry whole, so a single long write-in produces an unbounded content line, and raw newlines turn the ≤3-line delta into 4+ lines. Flatten summaries to single lines and cap each entry.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T3.S1",
+                  "title": "Flatten newlines/tabs in answerSummary so every delta entry is single-line",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T3.S2"],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.5", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-006-delta-bounds.md — answerSummary at src/snapshots.ts:128-154 embeds raw answer.value (write-ins preserve raw newlines per actions.ts:255 JSDoc); in-module flattening precedent: the note line at src/delivery.ts:176-178 uses replace(/\\n+/g, ' / '). Golden tests delivery.test.ts:79 and :600 pin the content grammar for SHORT strings (flatten must be a no-op without newlines). Card fields (snapshots.ts:208 to/from; delivery.ts:191-195 details.card) also carry raw newlines. Depends on P1.M1.T3.S2 so golden-delta churn happens after the snapshot change settles.\n2. INPUT: Fixed snapshot pipeline from P1.M1.T3.S2; unmodified answerSummary.\n3. LOGIC: Implement PRD h3.5 (flatten half): in answerSummary, flatten runs of newlines (and tabs) to ' / ' matching the delivery.ts precedent, so every summary — and therefore every 'Submitted {k}: …' content entry and card to/from field — is single-line. TDD: multi-line write-in ('line one\\nline two 🚀') → delta content line count stays within the ≤3-line + reminder shape; card to field flattened; golden tests :79/:600 byte-identical for short/option answers. No mocks.\n4. OUTPUT: Single-line summaries everywhere summaries render (delta + card via the shared answerSummary seam). Consumed by P1.M2.T3.S2.\n5. DOCS: Mode A — update the answerSummary JSDoc (snapshots.ts) to document single-line flattening."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T3.S2",
+                  "title": "Per-entry char cap in the delivery budget loop",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M2.T3.S1"],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.5", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-006-delta-bounds.md — budget loop at src/delivery.ts:156-181 with guard (entries.length - dropped > 1) always keeps ≥1 entry whole; SUBMISSION_LIST_MAX_CHARS = 240 (delivery.ts:53); delivery.test.ts:133 PINS the unbounded single-entry behavior (flip it). 3000-char write-in repro produced a 3044-char content line with no ellipsis.\n2. INPUT: Flattened single-line entries from P1.M2.T3.S1; the existing loop and its constants.\n3. LOGIC: Implement PRD h3.5 (cap half) per recommendation 5: introduce a per-entry truncation (ellipsis-terminated) applied within the budget loop so even the last kept entry is bounded (e.g. relax the >1 guard so the final kept entry is truncated to the remaining budget rather than kept whole); preserve the exact content grammar ('Submitted {k}: q: ✎ text …' / '(changed)' suffixes) for short entries — golden tests delivery.test.ts:79/:600 stay green. TDD: 'X'.repeat(3000) write-in → first content line bounded with ellipsis; combined long+multi-entry cases stay within ≤3 content lines + reminder (FR-3/AC-2). No mocks.\n4. OUTPUT: AC-2 '≤3-line delta + reminder' restored for arbitrary write-in text; delivery.test.ts:133 re-pinned to assert the bound.\n5. DOCS: none — README delta-shape passage (55-57) swept in P1.M3.T2."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T4",
+              "title": "Bridge submit internal-error nack (BUG-007)",
+              "status": "Planned",
+              "description": "The pi-ask submit handler's bare catch swallows unexpected internal errors after state mutation, so remote clients hang without an ack while state sits half-mutated. Emit a submit-result nack and complete the flow instead.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T4.S1",
+                  "title": "Emit submit-result nack + completeFlow on unexpected internal errors in the bridge submit handler",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.6", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-007-bridge-errors.md — outer bare `catch {}` at src/remote-bridge.ts:261-267 (bus guard; its docstring's 'state consistency is guarded upstream' claim is false today). Submit path: requestId + flowId parsed at remote-bridge.ts:303-304; recordRemoteSubmission invoked ~:348; emitSubmitResult at :287-298 with error union at :289 limited to 'flow_not_found' | 'invalid_answer'; completeFlow for flow teardown. recordRemoteSubmission (src/remote-submit.ts) mutates state first: applyAnswer :130 → markSubmitted :155 → deliverSubmission :173 → noteSubmissionDelivered :176 → maybeAutoSubmit :181 — NO rollback is possible (snapshot ring/epoch are not undoable; do NOT attempt rollback).\n2. INPUT: Unmodified bridge submit handler; the emitSubmitResult helper to reuse.\n3. LOGIC: Implement PRD h3.6 / recommendation 6: wrap the recordRemoteSubmission call (~remote-bridge.ts:348) in try/catch — on ANY unexpected internal error, emit a submit-result nack via emitSubmitResult with a widened error literal (add 'internal_error' to the union at :289) and call completeFlow(flowId) so the remote client receives its ack and never hangs; keep the outer bare catch strictly as a last-resort bus guard. TDD: use the FakeBus + makePi + makeBridge harness (src/remote-bridge.test.ts:21-75), inject a throwing state via RemoteBridgeOptions.getState (e.g. a state whose applyAnswer path throws from a listener) → assert the submit-result event is emitted on the fake bus with ok:false + error 'internal_error' AND the flow is completed; also assert valid submits and validation nacks are unchanged. Mock: FakeBus events bus + fake pi only — never a real pi or events bus.\n4. OUTPUT: Remote clients always receive a submit-result (ok or nack); state remains half-mutated only in the documented worst case (no rollback, next upsert resurfaces).\n5. DOCS: Mode A — if spec/tool-protocol.md documents the submit-result error values, add 'internal_error' there (spec/ is living documentation); README has no bridge-ack passage (verified), so no README change."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T5",
+              "title": "Enter opens the editor on text questions (BUG-008)",
+              "status": "Planned",
+              "description": "On type:'text' questions the rendered primary affordance ('✎ answer…' at cursor 0) plus the footer's 'enter accept' hint lead users into a silent no-op. Make accept() mirror the Other-row branch: open the editor in write-in duty.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T5.S1",
+                  "title": "accept() on type:'text' opens the editor in write-in duty",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h3.7", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-008-enter-text.md — accept() at src/panel/actions.ts:217-218 short-circuits type:'text' with a consumed no-op (`if (q.type === 'text') return true;`); the affordance is short-view.ts:245-252 ('✎ answer…', cursor 0, the only focus target); renderFooter (layout.ts:462) unconditionally prefixes 'enter accept'; the documented entry ctrl+t goes through panel.ts:628 focusTextField(desiredTextDuty(p)) where desiredTextDuty (keys.ts:288) → 'writein' for text questions. DO NOT import keys.ts into actions.ts (import cycle) — set the duty directly.\n2. INPUT: Unmodified accept(); the Other-row branch at actions.ts:~223 (sets panel.textDuty = 'writein' then panel.focusTextField()) as the pattern to mirror; ripple/modal side effects already handled downstream in writeInEnter (actions.ts:282-313).\n3. LOGIC: Implement PRD h3.7: in accept(), replace the text no-op with the Other-row mirror — set panel.textDuty = 'writein' and call panel.focusTextField() (which seeds the editor with any existing draft), then return true (consumed). The footer hint and affordance become truthful; AC-2c's text-answer enter flow works on first try. TDD: rewrite the pinned noop seam test src/panel/actions.test.ts:268 to assert the editor opens with duty 'writein' (duty label via renderDutyLabel), focus === 'text', and a subsequent type+enter answers the question ({value, custom:true} commit through writeInEnter). Panel harness; no mocks.\n4. OUTPUT: Enter on a text question's affordance opens the write-in editor; consumed by AC-2c flows.\n5. DOCS: none — spec AC-2c (product-requirements.md:79) already describes the intended behavior; final sweep P1.M3.T2 verifies wording."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M3",
+          "title": "Regression gate + changeset-level documentation sync",
+          "status": "Planned",
+          "description": "Final gate: full-suite + typecheck sweep triaging the deliberate test flips, then the Mode B changeset-level documentation sync across README.md and the living spec/ docs.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M3.T1",
+              "title": "Full-suite regression sweep",
+              "status": "Planned",
+              "description": "Run the complete verification loop over the integrated changeset and triage expected flips vs unexpected fallout, including the no-hardcoded-keys guard for any new runtime strings.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S1",
+                  "title": "Run npm test + typecheck over the integrated changeset; triage flips and guard checks",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M1.T2.S2", "P1.M1.T2.S3", "P1.M1.T3.S1", "P1.M1.T3.S2", "P1.M1.T3.S3", "P1.M2.T1.S1", "P1.M2.T2.S1", "P1.M2.T2.S2", "P1.M2.T3.S1", "P1.M2.T3.S2", "P1.M2.T4.S1", "P1.M2.T5.S1"],
+                  "prd_selectors": ["h2.0", "h2.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/system_context.md + testing-and-docs.md — verify loop is `npm test` (vitest run, 1224 tests) + `npm run typecheck` at repo root (no validate.sh exists; scripts/ has only remote-rpc-itest.mjs + verify-keymap-conflicts.sh). Deliberate flips expected from this changeset: actions.test.ts:2042 (hold-line deviation pin inverted), actions.test.ts:268 (enter-on-text noop rewritten), delivery.test.ts:133 (budget pin re-pinned), short-view.test.ts:197 (extended beyond hand-set answer.text). no-hardcoded-keys.test.ts regexes ctrl+[a-z0-9] in non-test src — any NEW runtime string naming a key (e.g. a hold line or flash mentioning ctrl+s) must interpolate resolveKeyLabels(config) (config.ts:449); keymap-guard.test.ts pins defaults + ALL_ACTIONS completeness.\n2. INPUT: All 15 implementing subtasks landed (dependencies above); the deliberate-flip inventory.\n3. LOGIC: Run the full suite + typecheck; classify every failure as expected-flip (verify the flip's assertion matches the new intended behavior from the source subtask) or unexpected fallout (fix in the touched seam, following that bug's architecture dossier). Confirm no-hardcoded-keys + keymap-guard green. No live TUI, no real interrogate calls (AUTOMATION-POLICY). Mock: none — suite only.\n4. OUTPUT: Green `npm test` + `npm run typecheck` on the final integrated tree; a failure-triage note (in the subtask result) listing each flip with its justifying bug ID.\n5. DOCS: none."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T2",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Mode B final sweep: verify README.md and the living spec/ documents state the FIXED behaviors across all 8 bugs. Most docs already promise the fixed behavior — this task verifies and corrects drift.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S1",
+                  "title": "README.md sweep: verify all behavior passages match the fixed semantics",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M3.T1.S1"],
+                  "prd_selectors": ["h2.0", "h2.2", "h2.3", "h2.5", "h3.0", "h3.1", "h3.2", "h3.3", "h3.4", "h3.5", "h3.6", "h3.7"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/testing-and-docs.md — README.md doc-sync targets (~8 passages): gate-hold 52-54 + 253 · drafts/R4 sacredness 66-68, 212, 254-255 (now true for ctrl+c/discuss/note-mode too) · AC-13 '(changed)' 262 · write-ins 36, 43-47, 198-204 (duty re-derivation, ✎ parity, revisit preview, enter-on-text) · delta shape 55-57 (≤3 lines restored) · hotkey table 151-162 · config ref 98-150 · Limitations 214-234. README has NO bridge-ack passage (BUG-007 needs none).\n2. INPUT: Green integrated tree from P1.M3.T1.S1; the final behavior of all 8 fixes.\n3. LOGIC: Walk each passage and verify it states the fixed behavior; adjust wording where the old text implied the buggy limitations (e.g. enter-on-text discoverability, write-in invisibility on revisit, '(changed)' reachability, delta line bounds). Do not invent features; correct drift only. No mocks.\n4. OUTPUT: README.md consistent with shipped behavior across the whole changeset.\n5. DOCS: This IS the docs task (Mode B) for README.md — no further README work elsewhere."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S2",
+                  "title": "spec/ living-documents sweep: align FR/AC/decision records with fixed semantics",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M3.T2.S1", "P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M1.T2.S2", "P1.M1.T2.S3", "P1.M1.T3.S1", "P1.M1.T3.S2", "P1.M1.T3.S3", "P1.M2.T1.S1", "P1.M2.T2.S1", "P1.M2.T2.S2", "P1.M2.T3.S1", "P1.M2.T3.S2", "P1.M2.T4.S1", "P1.M2.T5.S1"],
+                  "prd_selectors": ["h2.0", "h2.2", "h2.3", "h2.5", "h3.0", "h3.1", "h3.2", "h3.3", "h3.4", "h3.5", "h3.6", "h3.7"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/testing-and-docs.md — spec/ is LIVING documentation (git log shows spec commits riding fixes). Targets: spec/product-requirements.md (FR-3 :27, FR-12 :38, FR-32 :66, AC-13 :91, AC-2 :76-77, AC-2c :79) · spec/ui-spec.md (:39, 56-65, :72 gate-hold wording, :129) · spec/decisions.md (:13 ESC-002, :21 WRITEIN-001 cursor-follow, :27 R4, :40-41 D-R5/6) · spec/architecture.md (149-162) · spec/state-and-persistence.md (126-130 — snapshot invariant; may already be updated by P1.M1.T3.S1/S2 Mode A — verify, don't duplicate) · spec/tool-protocol.md (submit-result error values; may already be updated by P1.M2.T4.S1 Mode A — verify).\n2. INPUT: README sweep complete (P1.M3.T2.S1); every implementing subtask (dependencies above); the Mode A doc updates already ridden with BUG-003 and BUG-007.\n3. LOGIC: For each target passage, verify the spec statement matches shipped semantics after the 8 fixes; update stale premises (e.g. decisions.md's 'answering later groups before foundational' scenario now actually shows the ⚠ line; D-R6 internal-error nack semantics now specified). Cross-check no statement contradicts another spec file. No mocks.\n4. OUTPUT: spec/ corpus consistent with the codebase; changeset documentation complete (Modes A+B closed).\n5. DOCS: This IS the docs task (Mode B) for spec/ — final subtask of the changeset; nothing follows it."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

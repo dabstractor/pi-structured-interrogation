@@ -1,0 +1,17 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+ h2.2 Major Issues (Should Fix)
+  h3.0 Issue 1: Gate-hold ⚠ line (AUTOSUBMIT-002) never renders in the canonical scenario — hold branch is dead code in natural flows
+  h3.1 Issue 2: R4 draft loss: ctrl+c, discuss (ctrl+shift+e), and note mode (ctrl+shift+m) exit/swap the editor without the draft write-through
+  h3.2 Issue 3: AC-13 '(changed)' marker for edited archived answers is unreachable through the real submit pipeline
+ h2.3 Minor Issues (Nice to Fix)
+  h3.3 Issue 1: Write-in duty persists across question navigation — enter commits a write-in on a question whose cursor sits on a real option
+  h3.4 Issue 2: Recorded write-in answers are invisible in the short view on revisit; ✎ marker inconsistent between question line and overview
+  h3.5 Issue 3: Model-visible submission delta line unbounded and multi-line for write-in answers (AC-2 '≤3-line delta' violated)
+  h3.6 Issue 4: Bridge submit internal errors are swallowed with no submit-result ack and leave state half-mutated
+  h3.7 Issue 5: Enter on a text question's primary affordance is a silent no-op (pre-existing)
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:29 list:10

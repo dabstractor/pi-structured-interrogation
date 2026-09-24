@@ -67,24 +67,28 @@
  *    every `/tree` hop onto a branch with interrogation history, even when
  *    the panel was suspended or the user never had it open):
  *      - `session-start` (a fresh session runtime — restart/resume/fork):
- *        FR-28 auto-open. TUI: `openPanel(ctx, { config, state, drafts })`
- *        through the EXISTING host path, mirroring maybeAutoOpen's call
- *        shape. openPanel no-ops while a panel is already open
- *        (single-instance guard) and reopens a suspended host; passing the
- *        FRESH state is load-bearing — `resumePanel` would rehydrate the
- *        PRE-reconstruction lastOpts.state, violating branch-relativity, so
- *        it is deliberately NOT used here. NO drafts are restored (FR-28,
- *        Q6=B): the factory's DraftStore is passed through untouched (empty
- *        at session start by design — restart loses drafts, never
- *        reconstructs them). Non-TUI: the module fallback flag is set —
+ *        SURFACE-002 (FR-28 / FR-D7): the FR-28 panel auto-open is
+ *        DISABLED ENTIRELY — session_start NEVER opens the panel.
+ *        Reconstruction's ONLY UI act is the suspend widget line:
+ *        `updateSuspendWidget(ctx, state)` — the helper owns the
+ *        hasResumableQuestions gate (set when resumable questions exist,
+ *        clear otherwise) and is a no-op on surfaces without a widget
+ *        slot. The panel returns only via the allow-list: `/interrogate`
+ *        (closed-host-with-live-state path), an agent upsert leaving
+ *        unanswered questions, or {reopen:true}. NO drafts are restored
+ *        (FR-28, Q6=B): restart loses drafts, never reconstructs them —
+ *        reconstruction never touches the DraftStore. Non-TUI: the module
+ *        fallback flag is set —
  *        {@link isFallbackActive} is the contract the interrogate tool
  *        executor (h2.26 digest decision, later milestone) consumes to pick
  *        digest-vs-panel mode after a restart. `onRestored` (FR-34) fires
- *        so a conformant remote client re-renders after the restart.
+ *        BEFORE any local UI act so a conformant remote client re-renders
+ *        after the restart — only the local panel is suppressed, remote
+ *        surfaces are not.
  *      - `session-tree` (mid-session `/tree` navigation): SILENT. The state
  *        singleton is installed (later tool reads, `/interrogate` resumes,
  *        and the completion path must reflect the branch the user is on
- *        NOW), but NO surface ever appears: no `openPanel`, no reopen of a
+ *        NOW), but NO surface ever appears: no panel open, no reopen of a
  *        suspended host, no FR-34 `onRestored` bridge emission (re-emitting
  *        would pop remote clients exactly the way the panel popped). A
  *        panel that is STILL OPEN at navigation time is suspended — it can
@@ -119,12 +123,8 @@ import type { InterrogatorConfig } from "./config.js";
 import type { SubmissionMessage } from "./delivery.js";
 import { isNonTui } from "./fallback.js";
 import { evaluateDependsOn } from "./depends-on.js";
-import {
-  openPanel,
-  type DraftStore,
-  type PanelHost,
-  type PiUISurface,
-} from "./panel/panel.js";
+import type { DraftStore, PanelHost, PiUISurface } from "./panel/panel.js";
+import { updateSuspendWidget } from "./panel/suspend.js";
 import {
   INTERROGATION_STATE_ENTRY_TYPE,
   type InterrogationStateEntryData,
@@ -160,9 +160,10 @@ export type ReconstructSource = "tool-result" | "mirror-entry" | "none";
 /**
  * Which event triggered the run — the ONLY input that splits surfacing
  * behavior (module JSDoc step 5). `session-start` (pi's session replacement
- * flows: startup|reload|new|resume|fork) may auto-open per FR-28;
- * `session-tree` (mid-session `/tree` navigation) is always silent — state
- * reconstructs, surfaces never move.
+ * flows: startup|reload|new|resume|fork) never auto-opens the panel
+ * (SURFACE-002) — state installs silently and the suspend widget line is
+ * set when resumable questions exist; `session-tree` (mid-session `/tree`
+ * navigation) is always silent — state reconstructs, surfaces never move.
  */
 export type ReconstructionOrigin = "session-start" | "session-tree";
 
@@ -172,7 +173,11 @@ export interface ReconstructResult {
   source: ReconstructSource;
   /** Number of submission entries replayed onto the base. */
   replayed: number;
-  /** Whether the TUI auto-open path actually opened the panel. */
+  /**
+   * Whether the TUI auto-open path actually opened the panel — ALWAYS
+   * false under SURFACE-002 (session-start never opens; the field stays
+   * for the P3.M2.T2.S1 test contract).
+   */
   opened: boolean;
   /** Whether the non-TUI fallback flag was set by this run. */
   fallbackActive: boolean;
@@ -188,8 +193,9 @@ export interface ReconstructionOptions {
   /** Panel host (phase source + residue cleanup for empty branches). */
   host: PanelHost;
   /**
-   * The factory's ONE DraftStore — passed through to openPanel untouched.
-   * NEVER read or written by reconstruction itself (FR-28, Q6=B).
+   * The factory's ONE DraftStore — held for the deliberate resume paths
+   * (`/interrogate` etc.). NEVER read or written by reconstruction itself
+   * (FR-28, Q6=B).
    */
   drafts?: DraftStore;
   /**
@@ -357,8 +363,9 @@ function replaySubmission(state: LiveState, details: SubmissionMessage["details"
  *
  * @param ctx    the handler's ExtensionContext (structurally narrowed)
  * @param opts   shared config + panel host + the factory DraftStore
- * @param origin which event fired the run — "session-start" (FR-28
- *               auto-open allowed; the default keeps direct callers on the
+ * @param origin which event fired the run — "session-start" (NEVER opens
+ *               the panel under SURFACE-002: silent install + suspend
+ *               widget line; the default keeps direct callers on the
  *               historical restart contract) or "session-tree" (silent:
  *               state only, NEVER a surface — see module JSDoc step 5)
  */
@@ -468,21 +475,26 @@ export function reconstructFromBranch(
   }
 
   // FR-34: restored with live content on a fresh runtime — hand the state
-  // to the remote bridge surface (before the TUI auto-open below).
+  // to the remote bridge surface. Remote clients STILL re-render after a
+  // restart: only the local panel surface is suppressed (SURFACE-002).
   opts.onRestored?.(state);
 
-  // session-start TUI: the existing host path only — same call shape as
-  // maybeAutoOpen. Fresh state is load-bearing on the suspended-reopen path
-  // (resumePanel would reuse the pre-reconstruction lastOpts.state). Drafts
-  // pass through untouched (FR-28).
-  const opened = openPanel(ctx, { config: opts.config, state, drafts: opts.drafts });
-  return { source, replayed, opened, fallbackActive: false };
+  // SURFACE-002 (FR-28 / FR-D7): session_start NEVER opens the panel.
+  // Reconstruction's ONLY UI act is the suspend widget line — set directly
+  // via suspend.ts's helper (hasResumableQuestions gate + exact h2.3 string).
+  // The panel returns only via the allow-list: /interrogate (closed-host-
+  // with-live-state path), an agent upsert leaving unanswered questions, or
+  // {reopen:true}. Drafts are not restored either way (FR-28, Q6=B) — no
+  // DraftStore is touched here.
+  updateSuspendWidget(ctx, state);
+  return { source, replayed, opened: false, fallbackActive: false };
 }
 
 /**
  * Subscribe reconstruction to BOTH branch-truth events: `session_start`
- * (every reason — startup|reload|new|resume|fork; FR-28 auto-open allowed)
- * and `session_tree` (mid-session `/tree` branch navigation; ctx already
+ * (every reason — startup|reload|new|resume|fork; SURFACE-002: silent
+ * install + suspend widget line, NEVER a panel) and `session_tree`
+ * (mid-session `/tree` branch navigation; ctx already
  * reflects the new leaf — SILENT: state only, never a surface). Event
  * payloads are ignored — the ctx branch is the only input; the ORIGIN is
  * the only thing the two subscriptions disagree on.

@@ -1943,6 +1943,152 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     expect(p2.focus).toBe("note");
     expect(p2.textField.getText()).toBe("resume-safe note"); // preserved (R4)
   });
+
+  // ---------------------------------------- BUG-002 gesture 3: swap symmetry
+
+  test("test_note_mode_swap_preserves_in_flight_question_draft", () => {
+    // Contract (a): ctrl+shift+m while a question answer is in flight must
+    // STAGE the question buffer (slot + DraftStore seam) before the note
+    // seed overwrites the editor — the forward half of the symmetric swap.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDrafts("");
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts: drafts as unknown as DraftStore }),
+    );
+
+    panel.focusTextField("writein"); // ✎ Other-row accept path — question duty
+    expect(panel.focus).toBe("text");
+    panel.textField.setText("precious elaboration in flight");
+    panel.enterNoteMode(); // THE gesture under test
+
+    // Question draft survived (R4 — typed text is never destroyed).
+    expect(panel.draftTextFor("q1")).toBe("precious elaboration in flight");
+    expect(drafts.setDraft).toHaveBeenCalledWith("q1", "precious elaboration in flight");
+    // And the editor was swapped to note duty with the seeded note text.
+    expect(panel.focus).toBe("note");
+    expect(panel.textField.getText()).toBe(""); // no saved note → empty editor
+  });
+
+  test("test_enter_note_mode_seeds_existing_note_from_seam", () => {
+    // Contract (a) second half: the editor shows the EXISTING note (seam
+    // precedence `getNote() || batchNote || ""`) over the staged question.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDrafts("pre-existing note");
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts: drafts as unknown as DraftStore }),
+    );
+    panel.focusTextField();
+    panel.textField.setText("question text");
+    panel.enterNoteMode();
+
+    expect(panel.textField.getText()).toBe("pre-existing note");
+    expect(panel.draftTextFor("q1")).toBe("question text"); // staged, not lost
+  });
+
+  test("test_note_mode_exit_preserves_note_and_reseeds_question", () => {
+    // Contract (b): exit writes the note through (batchNote + seam) BEFORE
+    // re-seeding the question's freshest draft — already-correct reverse
+    // half, pinned here per the item contract.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDrafts("");
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts: drafts as unknown as DraftStore }),
+    );
+
+    panel.focusTextField();
+    panel.textField.setText("question draft");
+    panel.enterNoteMode(); // stages "question draft" (forward half)
+    panel.textField.setText("my batch note");
+    panel.exitNoteMode(); // THE reverse gesture under test
+
+    expect(panel.batchNote).toBe("my batch note");
+    expect(drafts.setNote).toHaveBeenCalledWith("my batch note");
+    // bufferOwner re-scoped to the question (EXPLAIN-002, pinned behaviorally
+    // like :1427): the editor re-seeded from the QUESTION's draft, not the note.
+    expect(panel.textField.getText()).toBe("question draft");
+  });
+
+  test("test_ctrl_c_from_note_focus_preserves_note_and_suspends", () => {
+    // Contract (c): ctrl+c from note focus survives via S1's suspend()
+    // write-through — asserted here per the item contract, no new fix.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDrafts("");
+    const done = vi.fn();
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts: drafts as unknown as DraftStore, done }),
+    );
+    panel.enterNoteMode();
+    panel.textField.setText("note in flight");
+
+    expect(panel.handleInput("\u0003")).toBe(false); // pi's own ctrl+c flow
+    expect(done).toHaveBeenCalledWith(null); // suspend, never destroy
+    expect(panel.batchNote).toBe("note in flight");
+    expect(drafts.setNote).toHaveBeenCalledWith("note in flight");
+  });
+
+  test("test_enter_note_mode_from_empty_or_blurred_buffer_writes_nothing", () => {
+    // Empty-buffer guard: options focus (blurred buffer) or a focused-but-
+    // empty buffer must NOT write phantom "" slots/seam entries.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDrafts("");
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts: drafts as unknown as DraftStore }),
+    );
+
+    panel.enterNoteMode(); // from options focus — buffer not in editor duty
+    expect(drafts.setDraft).not.toHaveBeenCalled();
+    expect(drafts.setNote).not.toHaveBeenCalled();
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+
+    panel.exitNoteMode();
+    panel.focusTextField(); // focused editor, but EMPTY buffer
+    panel.enterNoteMode();
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // empty trim guard
+  });
+
+  test("test_note_mode_round_trip_is_idempotent_latest_text_wins", () => {
+    // Full swap cycle via the ROUTED toggle (ctrl+shift+m both directions):
+    // question draft → note → question → note — every buffer survives and
+    // the question slot carries exactly one entry whose latest text wins.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDrafts("");
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts: drafts as unknown as DraftStore }),
+    );
+
+    panel.focusTextField();
+    panel.textField.setText("question draft");
+    panel.handleInput(BATCH_NOTE); // toggle in (routed)
+    expect(panel.focus).toBe("note");
+    panel.textField.setText("the note");
+    panel.handleInput(BATCH_NOTE); // toggle out (routed)
+    expect(panel.batchNote).toBe("the note");
+    expect(panel.textField.getText()).toBe("question draft"); // re-seeded
+
+    panel.handleInput(BATCH_NOTE); // re-enter — note re-seeds idempotently
+    expect(panel.textField.getText()).toBe("the note");
+    expect(panel.draftTextFor("q1")).toBe("question draft"); // still intact
+    panel.handleInput(BATCH_NOTE); // out again — question draft re-seeds
+    expect(panel.textField.getText()).toBe("question draft");
+
+    // Re-focus the question editor and revise the answer; the NEXT swap
+    // stages the latest text over the SAME slot entry (latest wins).
+    panel.focusTextField();
+    panel.textField.setText("question draft v2");
+    panel.handleInput(BATCH_NOTE); // swap in — stages v2
+    expect(panel.draftTextFor("q1")).toBe("question draft v2");
+    expect(panel.textField.getText()).toBe("the note"); // note survives too
+
+    const q1DraftCalls = drafts.setDraft.mock.calls.filter((c) => c[0] === "q1");
+    expect(q1DraftCalls).toHaveLength(2); // staged twice, latest wins — one slot
+    expect(q1DraftCalls[1]).toStrictEqual(["q1", "question draft v2"]);
+  });
 });
 
 // ------------------------------------ deep view (FR-8, P1.M5.T1.S1)

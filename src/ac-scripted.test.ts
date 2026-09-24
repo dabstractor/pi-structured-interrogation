@@ -69,6 +69,11 @@ import {
   type SerializedState,
 } from "./state.js";
 import { executeInterrogate, type ExecutorContext } from "./tool.js";
+import type { TUI } from "@earendil-works/pi-tui";
+import type { SubmissionMessage } from "./delivery.js";
+import { accept, type SubmitDeps } from "./panel/actions.js";
+import { InterrogationPanel } from "./panel/panel.js";
+import { submissionBaselineOf } from "./snapshots.js";
 
 // ------------------------------------------------------------------ fixtures
 
@@ -627,6 +632,164 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
     // The user-only card renders "(changed)" (renderers.ts submission card).
     const cardLines = renderLines(buildSubmissionCard(msg, { expanded: false, outputPad: 0 }, stubTheme));
     expect(cardLines.some((l) => l.includes("Database: SQLite → Postgres (changed)"))).toBe(true);
+  });
+});
+
+// ------------------------- AC-13 (end-to-end) — BUG-003 regression net
+
+/**
+ * BUG-003 (PRD h3.2) regression net: the retained AC-13 unit test above
+ * passes only by hand-building its `pre` baseline via state.serialize() and
+ * calling computeDiff directly. THIS suite drives the REAL pipeline only —
+ * executor upsert → panel commits (maybeAutoSubmit tails) → real
+ * agent_settled close pass (S2's ring snapshot) → ✎ write-in edit of the
+ * archived answer → second real auto-submit — and reads the verdict off the
+ * DELIVERED sendMessage payload plus the rendered card. Forbidden here:
+ * state.setStatus, hand-built serialize() baselines, direct
+ * computeDiff/buildSubmission (the delivery must come out of sendMessage).
+ *
+ * Fixture shape (the completion wall — why q2 is a never-answered MOOT
+ * text question): h3.9 fires the completion flow when NO question is in
+ * {open, reasked, answered, submitted, moot}, and that flow CLEARS the
+ * state — a fixture where both questions end closed at the settle would
+ * erase the archived answer before the edit step. q2's dependsOn
+ * ("Timeline" matters only if Database = "a") keeps it MOOT for the whole
+ * run: moot blocks completion (h3.9 BLOCKING set) yet never blocks an
+ * auto-submit (maybeAutoSubmit counts only open/reasked as unanswered).
+ * The user accordingly answers q1 with option "b" — NOT the ★ "a" — so q2
+ * stays moot under BOTH the first answer and the later write-in edit
+ * (neither value equals "a").
+ */
+describe("AC-13 (end-to-end) — edited archived answer flags (changed) through the REAL submit pipeline", () => {
+  /** Mirror of actions.test.ts makeDeps: idle pi transport with a captured mock. */
+  function makeSubmitDeps(): { deps: SubmitDeps; sendMessage: ReturnType<typeof vi.fn> } {
+    const sendMessage = vi.fn();
+    return { deps: { sendMessage, isIdle: () => true }, sendMessage };
+  }
+
+  test("AC-13_e2e_real_pipeline_close_pass_writein_edit_changed", () => {
+    // 1. Harness + REAL tool upsert (the executor runs the caps engine and
+    //    FR-17 evaluation: q2 arrives moot — an unanswered dependency is
+    //    unmet, even for a condition that would compare values).
+    const h = makePiHarness();
+    const lifecycle = wireLifecycle(h);
+    registerDebugBridge(h, lifecycle);
+    executeInterrogate(
+      {
+        goal: "Pick the store",
+        epoch: 1,
+        questions: [
+          {
+            id: "q1",
+            title: "Database",
+            prompt: "Which database?",
+            type: "choice",
+            recommendation: "a",
+            options: [
+              { value: "a", label: "Alpha", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
+              { value: "b", label: "Beta", ramification: "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates." },
+            ],
+          },
+          {
+            id: "q2",
+            title: "Timeline",
+            prompt: "When?",
+            type: "text",
+            dependsOn: [{ id: "q1", equals: "a" }],
+          },
+        ],
+      },
+      tuiCtx(),
+      DEFAULT_CONFIG,
+    );
+    const state = getState()!;
+    expect(state.getQuestion("q2")!.status).toBe("moot"); // FR-17 instant-local
+
+    // 2. Panel built on the SINGLETON (shares state with the lifecycle and
+    //    the close pass) with the auto-submit delivery wired (isIdle → the
+    //    commit tails actually fire).
+    const { deps, sendMessage } = makeSubmitDeps();
+    const panel = new InterrogationPanel({
+      tui: { requestRender: vi.fn() } as unknown as TUI,
+      theme: stubTheme,
+      done: () => {},
+      state,
+      config: DEFAULT_CONFIG,
+      delivery: deps,
+    });
+
+    // 3. Answer q1 through the REAL panel commit path. The commit tail's
+    //    maybeAutoSubmit fires the FIRST REAL auto-submit: q2 is moot (not
+    //    open/reasked) so completeness holds, and ONE full submission runs
+    //    (reconcile → ring baseline → diff → markSubmitted → buildSubmission
+    //    → deliverSubmission).
+    panel.currentId = "q1"; // setter re-seeds cursorIndex to the ★ preselect
+    panel.cursorIndex = 1; // option "b" — keeps q2's equals-"a" dependency unmet
+    expect(accept(panel)).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(1); // auto-submit #1 — real tail
+    expect(state.epoch).toBe(2); // buildSubmission bumps exactly once
+    expect(state.getQuestion("q1")!.status).toBe("submitted");
+    expect(state.getQuestion("q2")!.status).toBe("moot"); // completion blocker, untouched
+
+    // 4. REAL close pass via the lifecycle event (NO setStatus anywhere):
+    //    q1 archived, and — the S2 contract — the ring now holds a
+    //    same-epoch 'closed' snapshot that the NEXT submit will diff
+    //    against. q2's moot status blocks the completion flow (h3.9), so
+    //    the state survives for the archived-edit step.
+    h.emit("agent_settled");
+    expect(state.getQuestion("q1")!.status).toBe("closed");
+    expect(state.getQuestion("q2")!.status).toBe("moot");
+    expect(sendMessage).toHaveBeenCalledTimes(1); // NO completion message fired
+    expect(state.epoch).toBe(2); // the close pass NEVER bumps
+    expect(state.snapshots).toHaveLength(2); // submit-time + close-pass entries
+    const closeSnap = state.snapshots[1]!;
+    expect(closeSnap.epoch).toBe(2);
+    expect(closeSnap.state.questions["q1"]?.status).toBe("closed");
+    expect(submissionBaselineOf(state).epoch).toBe(2); // next submit diffs against THIS snapshot
+
+    // 5. Edit the ARCHIVED answer through the real ✎ Other write-in path
+    //    (closed is "not pending", not immutable — FR-2). q1 is closed (not
+    //    answered/submitted), so the FR-18 ripple gate does not apply — the
+    //    commit lands directly and re-pends q1.
+    panel.currentId = "q1"; // setter re-seeds cursorIndex to the ★ preselect
+    panel.cursorIndex = 2; // past both options = the ✎ Other write-in row
+    expect(accept(panel)).toBe(true);
+    expect(panel.focus).toBe("text");
+    expect(panel.textDuty).toBe("writein");
+    panel.textField.setText("edited archived answer");
+    expect(panel.handleInput("\r")).toBe(true); // write-in enter COMMITS
+    // The commit tail's maybeAutoSubmit fires the SECOND REAL auto-submit:
+    // q1 re-pended + q2 moot → completeness holds. submit() diffs against
+    // submissionBaselineOf — the CLOSE-PASS snapshot — so the entry's prev
+    // status is "closed" → editedArchived (the BUG-003 fix, observable
+    // only through the real ring baseline).
+    expect(sendMessage).toHaveBeenCalledTimes(2); // auto-submit #2 — real tail
+    expect(state.epoch).toBe(3);
+
+    // 6. THE AC-13 VERDICT — read from the DELIVERED message, never from a
+    //    hand-built diff object.
+    const msg2 = sendMessage.mock.calls[1][0] as SubmissionMessage;
+    expect(msg2.details.changed).toHaveLength(1);
+    expect(msg2.details.changed[0]).toEqual(
+      expect.objectContaining({
+        id: "q1",
+        title: "Database",
+        from: "Beta", // the close-pass snapshot's archived answer
+        to: "✎ edited archived answer", // write-in values carry the ✎ marker
+        editedArchived: true, // AC-13 marker data — the whole point
+        value: "edited archived answer",
+      }),
+    );
+    // Model-visible delta line (delivery.ts renders the " (changed)" suffix).
+    expect(msg2.content).toContain("q1: ✎ edited archived answer (changed)");
+    expect(msg2.content).toContain(" (changed)");
+
+    // 7. The user-only card highlights the edit too (renderers.ts marker).
+    const cardLines = renderLines(buildSubmissionCard(msg2, { expanded: false, outputPad: 0 }, stubTheme));
+    expect(cardLines.some((l) => l.includes("(changed)"))).toBe(true);
+    expect(cardLines.some((l) => l.includes("Database: Beta → ✎ edited archived answer (changed)"))).toBe(true);
+
+    panel.dispose(); // the auto-submit flashes arm footer timers
   });
 });
 

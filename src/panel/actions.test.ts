@@ -709,6 +709,11 @@ describe("submit — flush pending answers", () => {
     expect(store.getDraft("q2")).toBe("q2 is not being shipped"); // not shipped → survives
   });
 
+  // UNIT GUARD ONLY — manufactured closed baseline via state.setStatus (see
+  // the in-test comment): the fixture point is the BUG-008 filter, not the
+  // archive transition. The REAL pipeline (close pass → ring baseline →
+  // "(changed)") is covered by bug003_real_close_pass_edited_archived_entry_flags_changed_ac13
+  // below and AC-13_e2e_real_pipeline_close_pass_writein_edit_changed in src/ac-scripted.test.ts.
   test("bug008_edited_archived_entry_still_ships_ac13", () => {
     // AC-13 guard: the BUG-008 filter must never drop a genuine user edit of
     // an archived (closed) answer — its entry carries a real answer, so the

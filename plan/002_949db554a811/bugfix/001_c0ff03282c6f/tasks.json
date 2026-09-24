@@ -184,14 +184,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Re-derive text duty on question navigation (BUG-004)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "textDuty survives question navigation, so enter commits a write-in on a question whose cursor sits on a real option, violating WRITEIN-001 FR-12's cursor-follow rule. Re-derive duty from the new question's cursor position in syncBufferToQuestion.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Re-derive textDuty in syncBufferToQuestion from the new question's cursor position",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S3"
@@ -210,14 +210,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Surface recorded write-in answers in the panel (BUG-005)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Choice write-in answers get no ✎ on the question line (hasTextAnswer misses answer.custom) while the overview shows ✎, and the revisit answer preview never renders because it reads answer.text which write-ins never set. Fix both display seams.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "✎ marker parity: hasTextAnswer honors answer.custom",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-005-display-markers.md — hasTextAnswer at src/panel/layout.ts:181-186 checks (q.type === 'text' || answer.text), missing answer.custom; overview markerParts (src/panel/overview.ts:130-141) already uses (custom === true || type text) and additionally distinguishes elaboration '≡'; write-in commits store {value, custom: true} with NO text field (src/panel/actions.ts:304).\n2. INPUT: Unmodified hasTextAnswer and its call sites (short-view question-line ✎ marker); write-in answer shape from the M8 delta.\n3. LOGIC: Implement PRD h3.4 part (1): hasTextAnswer returns true when answer.custom === true (in addition to current conditions), so a CHOICE write-in renders ✎ on the question line, matching the overview's vocabulary. Keep elaboration (answer.text) semantics unchanged. TDD: layout.test.ts + a short-view render test — question with answer {value:'my write-in', custom:true} shows the ✎ question-line marker; plain option answers and elaborations unchanged. Harness: stubTheme + render(width) sweeps; no mocks.\n4. OUTPUT: Consistent ✎ semantics between question line and overview for the same answer; consumed implicitly by P1.M2.T2.S2's revisit rendering.\n5. DOCS: none — README write-in passages (36/43-47/198-204) swept in P1.M3.T2.",
@@ -232,7 +232,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "Revisit preview: render the recorded write-in/text value as the dimmed answer preview",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug-005-display-markers.md — answerPreviewLine at src/panel/short-view.ts:259-269 reads only q.answer?.text; write-in and text answers commit to answer.value, so the dimmed current-value preview is dead code; test short-view.test.ts:197 only passes because it hand-sets answer.text. Helpers: truncateVisible (layout.ts:95) and an inline split('\\n',1)[0] first-line precedent. Cursor intentionally never pins to recorded answers (panel.ts:368 — by design; do NOT add cursor sync).\n2. INPUT: ✎ parity from P1.M2.T2.S1 is independent; answerPreviewLine's current shape and the recorded answer objects.\n3. LOGIC: Implement PRD h3.4 part (2): answerPreviewLine renders the dimmed FIRST LINE of (answer.custom === true || q.type === 'text') ? answer.value : answer.text, truncated via truncateVisible to the region budget. Empty/undefined answers render nothing (unchanged). TDD: revisit scenario — state q1 with {value:'my write-in', custom:true} and q2 text {value:'text answer'}; render(100) with currentId on each → preview line shows each recorded value; multi-line values show only line one; existing short-view.test.ts:197 (hand-set answer.text) stays green. No mocks.\n4. OUTPUT: Recorded write-in answers finally visible in the short view; the panel no longer requires the transcript card or a model read for review.\n5. DOCS: none — final sweep covers README write-in visibility passages.",

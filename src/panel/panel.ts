@@ -1037,6 +1037,18 @@ export class InterrogationPanel implements Component {
    *   never been drafted). The write-through is deliberately UNGATED (no
    *   FR-18 ripple modal): navigation is not an answer gesture — the modal
    *   guards only the explicit save/exit gestures (enter, ctrl+t, esc-esc).
+   *
+   *   [Mode A] BUG-004 duty re-derivation (WRITEIN-001 cursor-follow,
+   *   FR-12 / h3.3): when the switch happens while the editor is focused
+   *   (`focus === "text"`), the tail re-declares {@link textDuty} via
+   *   {@link desiredTextDuty} from the NEW question's type + freshly
+   *   reseeded cursor — a session that entered as a write-in on q1's Other
+   *   row becomes an elaboration session the moment navigation lands on
+   *   q2's ★ option (enter then saves+blurs, never commits), and flips
+   *   back to write-in for `type:"text"` questions or an Other-row cursor.
+   *   The `bufferOwner === "note"` early-return keeps the question-
+   *   agnostic note duty untouched; the focus guard keeps options-focus
+   *   navigation write-free.
    */
   private syncBufferToQuestion(id: string | undefined): void {
     if (this.bufferOwner === "note") return; // note duty ignores question switches
@@ -1057,6 +1069,17 @@ export class InterrogationPanel implements Component {
     this.bufferOwner = id;
     const draft = this.freshestDraftFor(id);
     this.textField.seed(draft);
+    // BUG-004 / WRITEIN-001 "duty follows entry path and cursor position":
+    // a text-focus session that spans a question change re-declares its
+    // duty from the NEW question's freshly-reseeded cursor (★ preselect,
+    // set by the currentId setter BEFORE this runs). desiredTextDuty is
+    // already imported (ctrl+t entry) — keys.ts→panel.ts is type-only, no
+    // runtime cycle. The bufferOwner === "note" early-return above keeps
+    // note duty question-agnostic, and the focus guard below skips
+    // options-focus navigation entirely (no pointless duty writes).
+    if (this.focus === "text") {
+      this.textDuty = desiredTextDuty(this);
+    }
   }
 
   /**
@@ -1093,12 +1116,17 @@ export class InterrogationPanel implements Component {
    * "elaboration", so every focus session re-declares it. When the
    * parameter is OMITTED the caller has pre-set the duty itself (actions.ts's
    * ✎ Other accept assigns `textDuty = "writein"` before calling this) —
-   * a caller's declaration is never clobbered with the default.
+   * a caller's declaration is never clobbered with the default. BUG-004
+   * (h3.3, FR-12 cursor-follow): an explicit `duty` argument is applied
+   * AFTER {@link syncBufferToQuestion} so entry paths always win — sync's
+   * tail re-derives the duty from the current cursor on every question
+   * switch while the editor is focused, and the explicit entry declaration
+   * lands last by construction.
    */
   focusTextField(duty?: "writein" | "elaboration"): void {
     this.focus = "text";
-    if (duty !== undefined) this.textDuty = duty; // per-focus-session — see JSDoc
-    this.syncBufferToQuestion(this.currentId);
+    this.syncBufferToQuestion(this.currentId); // re-derives from the cursor…
+    if (duty !== undefined) this.textDuty = duty; // …then the explicit entry duty wins
     this.textField.seed(this.freshestDraftFor(this.currentId));
     this.bufferOwner = this.currentId;
     this.textField.focus();

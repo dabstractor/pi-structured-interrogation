@@ -662,6 +662,72 @@ describe("upsert + state integration", () => {
     expect(mock.calls[1].resolved).toBe(false); // fresh floating promise
   });
 
+  // SURFACE-001 / FR-D6 contract: a description-only edit over a fully
+  // answered set must NOT pop the suspended panel — state.ts emits
+  // questions-upserted unconditionally, so the suspended branch's
+  // nextUnanswered gate is what keeps the editor untouched.
+  test("test_upsert_description_only_over_answered_set_does_not_reopen", async () => {
+    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    const mock = makeMockPi();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.setStatus("q1", "answered"); // fully answered set
+    openPanel(mock.pi, optsFor(state));
+
+    firstCall(mock).done(null); // suspend
+    await flush();
+    expect(mock.custom).toHaveBeenCalledTimes(1);
+    expect(host.isSuspended()).toBe(true);
+
+    // Description-only edit: re-upsert the EXISTING answered id (state.ts
+    // preserves caller-supplied status on existing ids). A NEW id would be
+    // forced to "open" and could not exercise the no-open gate.
+    state.upsertQuestion(choiceQ("q1", { status: "answered", description: "edited wording", rev: 2 }));
+    expect(state.getQuestion("q1")?.description).toBe("edited wording"); // upsert really fired
+
+    await flush();
+    expect(mock.custom).toHaveBeenCalledTimes(1); // NO reopen — surfaces nothing
+    expect(host.isSuspended()).toBe(true); // stays suspended, widget untouched
+  });
+
+  test("test_upsert_reasked_reopens", async () => {
+    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    const mock = makeMockPi();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.setStatus("q1", "answered"); // answered set — plain edits would not reopen
+    openPanel(mock.pi, optsFor(state));
+    firstCall(mock).done(null);
+    await flush();
+    expect(host.isSuspended()).toBe(true);
+
+    // Re-ask the existing question: reasked is in UNANSWERED_STATUSES.
+    state.upsertQuestion(choiceQ("q1", { status: "reasked", rev: 2 }));
+    expect(mock.custom).toHaveBeenCalledTimes(2); // reopened
+    expect(host.isOpen()).toBe(true);
+    expect(host.isSuspended()).toBe(false);
+    // Focus ladder intact: the re-upserted currently-active id gets focus.
+    expect(mock.calls[1].component.currentId).toBe("q1");
+  });
+
+  test("test_upsert_new_question_over_answered_set_reopens", async () => {
+    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    const mock = makeMockPi();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.setStatus("q1", "answered");
+    openPanel(mock.pi, optsFor(state));
+    firstCall(mock).done(null);
+    await flush();
+    expect(host.isSuspended()).toBe(true);
+
+    // NEW id: state.ts forces status "open" — open counts as unanswered.
+    state.upsertQuestion(choiceQ("q2"));
+    expect(mock.custom).toHaveBeenCalledTimes(2); // reopened
+    expect(host.isOpen()).toBe(true);
+    expect(mock.calls[1].component.currentId).toBe("q2");
+  });
+
   test("test_upsert_while_open_invalidates_single_panel", () => {
     createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();

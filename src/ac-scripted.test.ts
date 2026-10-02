@@ -548,7 +548,7 @@ describe("AC-11 — pi -p print mode: digest, answers[], consistent read (FR-25)
     const read = executeInterrogate({}, printCtx(), DEFAULT_CONFIG);
     expect(read.details.action).toBe("read");
     expect(read.details.epoch).toBe(2);
-    expect(read.content).toContain("0/30 answered · 0 re-asked · 1 moot · epoch 2"); // submitted ≠ answered count (h2.28); q10 stays moot
+    expect(read.content).toContain("2/30 answered · 0 re-asked · 1 moot · epoch 2"); // q01/q02 submitted WITH answer records — record-derived count (2026-10-02); q10 stays moot
     expect(read.content).toContain("q01: Question q01 — submitted (rev 1) · answered: alpha");
     expect(read.content).toContain("q02: Question q02 — submitted (rev 1) · answered: beta");
   });

@@ -523,7 +523,7 @@ describe("executeInterrogate: record", () => {
       printCtx(),
     );
     const lines = r.content.split("\n");
-    expect(lines[0]).toBe("0/2 answered · 0 re-asked · 0 moot · epoch 2"); // q1 is submitted (BUG-004), not counted as answered
+    expect(lines[0]).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 2"); // q1 submitted WITH an answer record — record-derived count (2026-10-02)
     expect(lines[1]).toBe("unknown ids: zz");
     expect(lines).toHaveLength(2);
     expect(r.details.action).toBe("record");
@@ -555,7 +555,7 @@ describe("executeInterrogate: record", () => {
       printCtx(),
     );
     const lines = r.content.split("\n");
-    expect(lines[0]).toBe("0/2 answered · 0 re-asked · 0 moot · epoch 2"); // q1 submitted (BUG-004), not answered
+    expect(lines[0]).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 2"); // q1 submitted WITH an answer record — record-derived count (2026-10-02)
     expect(lines[1]).toBe("not recordable (moot/withdrawn/closed): q2");
     // Only q1 recorded → exactly one epoch bump; q2 untouched.
     expect(lines).toHaveLength(2);
@@ -850,89 +850,3 @@ describe("module hygiene", () => {
   });
 });
 
-// ------------------------------------------- FR-31/D-R6 + FR-34: bridge hooks
-
-describe("remote bridge hooks (FR-31/D-R6; FR-34 digest invariance)", () => {
-  beforeEach(() => {
-    resetState();
-  });
-
-  test("onLiveQuestions does NOT fire on upsert (end-phase emission) in either mode", () => {
-    // FR-31/D-R6 amendment (live RPC itest deadlock #2): upsert emission is
-    // deferred to the tool_execution_END phase in index.ts — after the
-    // lifecycle's rule-1 flip (touched submitted → reasked) which runs only
-    // after the executor returns. In-executor the live predicate is not yet
-    // true for rule-1 re-upserts touching submitted questions, so the hook
-    // must stay silent on upserts; index.ts owns the end-phase emission.
-    const calls: Array<{ source: string; ids: string[] }> = [];
-    const hook = (state: InterrogationState, source: "upsert" | "reopen") => {
-      calls.push({ source, ids: state.orderedQuestions().map((q) => q.id) });
-      return true;
-    };
-
-    executeInterrogate({ goal: "g", questions: [qi("q1"), qi("q2")] }, tuiCtx(), DEFAULT_CONFIG, {
-      onLiveQuestions: hook,
-    });
-    expect(calls).toEqual([]); // deferred — NOT emitted in-executor
-
-    resetState();
-    executeInterrogate({ goal: "g", questions: [qi("q1")] }, printCtx(), DEFAULT_CONFIG, {
-      onLiveQuestions: hook,
-    });
-    expect(calls).toEqual([]);
-  });
-
-  test("TUI reopen invokes the hook after the outcome; result unchanged", () => {
-    const st = seedState();
-    seedQ(st, "q1");
-    const seen: string[] = [];
-    const r = executeInterrogate({ reopen: true }, tuiCtx(), DEFAULT_CONFIG, {
-      onReopen: () => "reopened",
-      onLiveQuestions: (_state, source) => {
-        seen.push(source);
-        return true;
-      },
-    });
-    expect(seen).toEqual(["reopen"]);
-    expect(r.content).not.toContain("Remote surface re-surfaced."); // TUI result unchanged
-    expect(r.content).toContain("Panel reopened.");
-  });
-
-  test("non-TUI reopen: read body preserved; re-surface line ONLY when the hook emits", () => {
-    const st = seedState();
-    seedQ(st, "q1");
-    const plain = executeInterrogate({ reopen: true }, printCtx(), DEFAULT_CONFIG, {});
-    const emitted = executeInterrogate({ reopen: true }, printCtx(), DEFAULT_CONFIG, {
-      onLiveQuestions: () => true,
-    });
-    const silent = executeInterrogate({ reopen: true }, printCtx(), DEFAULT_CONFIG, {
-      onLiveQuestions: () => false,
-    });
-    expect(plain.content).toBe(silent.content); // no emission → byte-identical to the bare read
-    expect(emitted.content).toContain("Remote surface re-surfaced.");
-    expect(emitted.content).toContain(plain.content.slice(plain.content.indexOf("0/1"))); // read body rides along
-  });
-
-  test("FR-34 REGRESSION: non-TUI upsert digest is BYTE-IDENTICAL with or without bridge emission", () => {
-    const q = qi("q1", {
-      type: "choice",
-      title: "T",
-      options: [
-        { value: "a", label: "A", ramification: "ra" },
-        { value: "b", label: "B", ramification: "rb" },
-      ],
-      recommendation: "a",
-    });
-    const without = executeInterrogate({ goal: "goal text", questions: [q] }, printCtx());
-    const snapshotWithout = JSON.stringify(without);
-    resetState();
-    const withHook = executeInterrogate({ goal: "goal text", questions: [q] }, printCtx(), DEFAULT_CONFIG, {
-      onLiveQuestions: () => true, // bridge emitted — result must not care
-    });
-    expect(withHook.content).toBe(without.content);
-    expect(JSON.stringify(withHook)).toBe(snapshotWithout);
-    // And it is the digest shape, not a device variant.
-    expect(without.content).toContain("INTERROGATION — goal text (epoch 1)");
-    expect(without.content).toContain(RELAY_INSTRUCTION);
-  });
-});

@@ -412,8 +412,6 @@ src/
 ├── renderers.ts       # transcript cards (submission diff, completion recap, mirror markers)
 ├── command.ts         # /interrogate invoke command (open/resume — never toggles)
 ├── debug-commands.ts  # keyboard-driven debug commands (`/interrogate debug …`)
-├── remote-bridge.ts   # pi-ask bridge surface: `itg:` flow emission + wire mapping (FR-31..34)
-├── remote-submit.ts   # bridge-submission pipeline (same machinery as ctrl+s; customText → custom parity)
 ├── draft-store.ts     # in-session draft survival across panel open/close
 ├── external-editor.ts # external editor handoff
 ├── depends-on.ts      # question dependency / moot-ness data layer

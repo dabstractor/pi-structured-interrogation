@@ -29,7 +29,6 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 - `panel/panel.ts` + `panel/actions.ts`: editor duties (write-in commit = `applyAnswer({value, custom:true})` + advance; elaboration save+blur, never advances; `ctrl+t` duty follows cursor-on-Other/text); REMOVE `advanceArmed` two-stage machinery; `maybeAutoSubmit(panel, deps)` after every commit (zero open/reasked + ≥1 pending → exact submit pipeline + flash; gate questions unanswered → ⚠ hold line + no auto-submit); `reconcileDraftsForSubmit` role-binding (real option → `answer.text`; Other/text → `answer.value custom`); zero-pending flash: held-elaboration wording.
 - `panel/panel.ts` `maybeAutoOpen` + `handleUpserted`: SURFACE-001 gates (upsert-call via the `pendingUpsertArgs` stash, unanswered-exist, not-completed); reads never surface.
 - `reconstruct.ts`: SURFACE-002 — session_start NEVER opens the panel (auto-open disabled entirely); set the suspend widget line when resumable questions exist (non-TUI fallback flag unchanged: it shapes tool results, not surfaces).
-- `remote-submit.ts`: run `maybeAutoSubmit` at the pipeline tail; customText-only bridge answers set `custom: true` (WRITEIN-001 parity).
 - `state.ts`/`snapshots.ts`/`renderers.ts`/`completion.ts`: `answer.custom` marker; `✎ {text}` display in diff cards + completion record; replay stays value-first.
 - Tests: FLIP the four characterizations in `src/tree-nav-repro.test.ts` (reads/all-answered/completed must NOT open; suspended-at-nav and open-at-nav stay green); flip the reconstruction auto-open assertions (reconstruct.test.ts / ac-panel.test.ts `opened: true` session-start rows → widget-set, no panel); new ACs 2a–2d, 15 (AC-9 rewritten: restart opens nothing); existing two-stage tests (`two-stage.test.ts`) rewrite for commit-at-enter semantics.
 - Verify AC-2a/2b/2c/2d/15 + rewritten AC-9 (product-requirements.md).
@@ -81,13 +80,8 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
   "caps": { "description": 1200, "ramification": 600, "options": 7,
             "questions": 40, "goal": 400, "contextBudgetPct": 4 },
   "gateWarnings": true, "roundDetection": true, "digitQuickSelect": true,
-  "editorMode": "composed",
-  "remote": { "enabled": true, "resurface": true }
+  "editorMode": "composed"
 }
 ```
-
-## Remote integration milestone (2026-09-18; spec/decisions.md §Remote bridge surface)
-
-Build order: config surface → `remote-bridge.ts` (pi-ask contract emission + submit handling) → `remote-submit.ts` (panel-parity pipeline; extract `submissionBaselineOf` into snapshots.ts) → tool.ts `onLiveQuestions` hook → index/completion/reconstruct wiring (`onCompleted`, `onRestored`) → tests (unit, real-bridge contract compat, live RPC round trip) → README. The FR-25 digest fallback is untouched by all of it.
 
 Every display string that names a key (footer, widget, dialogs) is generated from the resolved config — never hardcode a key label.

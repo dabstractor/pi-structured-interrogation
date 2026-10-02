@@ -1951,13 +1951,11 @@ export function resumeOpenPanel(pi: PiUISurface): boolean {
  *    questions; that ghost must never pop (gates 2 and 3 each block it
  *    independently — both are enforced).
  *
- * GATE (1) args access — PEEK, NEVER CONSUME: end events carry no args, so
+ * GATE (1) args access — CONSUME: end events carry no args, so
  * the call is classified via `peekArgs(toolCallId)` over index.ts's
- * `pendingUpsertArgs` start-phase stash. The LAST-registered
- * tool_execution_end handler (the FR-31/D-R6 deferred bridge emission)
- * consumes + deletes the entry; this handler registers and fires FIRST, so
- * it must peek only — a delete here would starve the bridge emission. The
- * default peek (`() => undefined`) classifies every call as a read ⇒ no
+ * `pendingUpsertArgs` start-phase stash; the lookup consumes the entry
+ * (get + delete — wired that way by index.ts, the stash's only consumer).
+ * The default lookup (`() => undefined`) classifies every call as a read ⇒ no
  * auto-open — the read-conservative default that lets unwired test surfaces
  * and the P3.M1.T3.S1 tree-nav characterization flips stay safe.
  *
@@ -1975,8 +1973,8 @@ export function resumeOpenPanel(pi: PiUISurface): boolean {
  * path inside openPanel handles upserts that bypass tool events, e.g. the
  * debug command).
  *
- * @param peekArgs start-phase args stash lookup, wired by index.ts as
- *                 `(id) => pendingUpsertArgs.get(id)`; defaults to
+ * @param peekArgs start-phase args stash lookup (consuming: get + delete),
+ *                 wired by index.ts; defaults to
  *                 "unknown call" so an unwired surface never auto-opens.
  *
  * pi.on returns void in the installed runtime — no unsubscriber is assumed
@@ -1991,9 +1989,8 @@ export function maybeAutoOpen(
 ): void {
   void pi.on("tool_execution_end", (event, ctx) => {
     if (event.toolName !== "interrogate" || event.isError) return;
-    // SURFACE-001 gate (1) — upsert-call: PEEK the start-phase args stash
-    // (never delete — the LAST-registered end handler consumes it for the
-    // D-R6 bridge emission). Missing entry / `questions: []` = read.
+    // SURFACE-001 gate (1) — upsert-call: consume the start-phase args stash
+    // (get + delete, per the wiring). Missing entry / `questions: []` = read.
     if (!isUpsertArgs(peekArgs(event.toolCallId))) return;
     if (host.isOpen()) return;
     const state = getState();

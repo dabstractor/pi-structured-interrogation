@@ -395,7 +395,11 @@ describe("renderFooter", () => {
 describe("width invariants (40/60/80/120)", () => {
   test("every renderer returns ≤ 1 line whose visibleWidth ≤ requested width", () => {
     const labels = resolveKeyLabels(mkConfig());
-    const qOpen = mkQuestion("q1", { title: "T".repeat(90), status: "answered" });
+    const qOpen = mkQuestion("q1", {
+      title: "T".repeat(90),
+      status: "answered",
+      answer: { value: "a", at: "t" },
+    });
     const qMoot = mkQuestion("q2", {
       title: "M".repeat(90),
       status: "moot",
@@ -439,7 +443,7 @@ describe("width invariants (40/60/80/120)", () => {
   test("count semantics skip orphaned order ids", () => {
     const state = mkState({
       order: ["q1", "ghost"],
-      questions: { q1: mkQuestion("q1", { status: "answered" }) },
+      questions: { q1: mkQuestion("q1", { status: "answered", answer: { value: "a", at: "t" } }) },
     });
     const { line } = renderHeader(state, theme, 120);
     expect(line).toContain("1/2 answered · 0 re-asked"); // total = order.length

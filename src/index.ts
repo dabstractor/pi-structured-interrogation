@@ -39,11 +39,9 @@ import { drainBatchNotes } from "./delivery.js";
 import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
-import { maybeAutoSubmit } from "./panel/actions.js";
 import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
 import { hasResumableQuestions, resumePanel } from "./panel/suspend.js";
 import { createStateMirror } from "./persistence.js";
-import { createRemoteBridge } from "./remote-bridge.js";
 import { createReconstruction } from "./reconstruct.js";
 import {
   registerCompletionRecapRenderer,
@@ -61,9 +59,6 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // P1.M2.T2.S2 — completion trigger (h3.9) plugged into onAfterClosePass:
   // injects the one full interrogation-completion record, dismisses the
   // panel, then clears in-memory state (exactly once per interrogation).
-  // FR-33 (remote bridge surface): onCompleted resolves every outstanding
-  // `itg:` flow AFTER the state settles so no conformant client surface
-  // lingers past completion.
   //
   // Circularity note: the trigger needs the lifecycle (dismissPanel) and the
   // engine needs the trigger (onAfterClosePass). Resolved with a late-binding
@@ -82,32 +77,7 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       // (deliverSubmission); draining here is the notes' final destination,
       // so a follow-up interrogation starts from an empty ledger.
       getBatchNotes: drainBatchNotes,
-      // FR-33: resolve every outstanding `itg:` flow after the completion
-      // flow settles (late-binding closure — remoteBridge is assigned a few
-      // statements below, before any close pass can ever fire).
-      onCompleted: () => remoteBridge.completeAll(),
     }),
-  });
-
-  // FR-31..34 — remote bridge surface: speak the pi-ask bridge contract on
-  // the shared `pi.events` bus. Any conformant client (remote-pi's app
-  // today) renders started flows natively and returns submits, which ride
-  // the panel-parity pipeline (remote-submit.ts). Emission is inert when
-  // nothing listens; submits are filtered by the `itg:` flow registry.
-  // Created BEFORE the tool/reconstruction wiring below so every consumer
-  // captures the same handle; disposed on session_shutdown (below).
-  const remoteBridge = createRemoteBridge(pi, {
-    config,
-    lifecycle,
-    // AUTOSUBMIT-001 (h2.33): the shared hook runs at the bridge submission
-    // tail too — a bridge partial submit that completes the set ships
-    // panel-pending answers ONCE, through the same pipeline. Late-binding
-    // closure: panelHost is created below (the same pattern as onCompleted
-    // above); closed/suspended panel → getPanel() undefined → no-op.
-    maybeAutoSubmit: (commit) => {
-      const panel = panelHost.getPanel();
-      if (panel !== undefined) maybeAutoSubmit(panel, undefined, commit);
-    },
   });
 
   // P1.M7.T4.S1 — plain-text round detection (FR-26, h2.27): TUI-only,
@@ -128,7 +98,6 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   const mirror = createStateMirror(pi);
   pi.on("session_shutdown", () => {
     mirror.flush();
-    remoteBridge.dispose(); // FR-33: resolve outstanding flows + unsub the submit listener
   });
 
   // P1.M7.T2.S1 — compaction preservation (FR-29, h2.42): when pi compacts
@@ -163,12 +132,14 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // persistence.ts (P1.M7.T1) must not serialize it.
   const drafts = new DraftStore();
   // SURFACE-001 gate (1): start-phase args stash for interrogate calls.
-  // Declared BEFORE maybeAutoOpen so its auto-open handler can PEEK entries
-  // by toolCallId (read-only); consumption (get+delete) belongs EXCLUSIVELY
-  // to the D-R6 bridge-emission end handler registered further down — a
-  // delete on the peek path would starve that emission.
+  // Declared BEFORE maybeAutoOpen so its auto-open handler can CONSUME
+  // entries by toolCallId (get + delete) — the stash's only consumer.
   const pendingUpsertArgs = new Map<string, unknown>();
-  maybeAutoOpen(pi, config, panelHost, drafts, (id) => pendingUpsertArgs.get(id));
+  maybeAutoOpen(pi, config, panelHost, drafts, (id) => {
+    const args = pendingUpsertArgs.get(id);
+    pendingUpsertArgs.delete(id);
+    return args;
+  });
 
   // P1.M7.T1.S2 — reconstruction (h2.41/h2.43/h3.11, FR-28): on session_start
   // (all reasons) AND session_tree (mid-session /tree branch navigation — ctx
@@ -178,7 +149,7 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // recompute moot-ness, then split BY ORIGIN: session_start auto-opens the
   // panel (TUI, FR-28) or sets the non-TUI digest fallback flag; session_tree
   // is SILENT — state follows the branch but NO surface ever appears (no
-  // panel open/reopen, no bridge re-emit); a still-open panel suspends and
+  // panel open/reopen); a still-open panel suspends and
   // the host retargets onto the fresh state so the next deliberate resume
   // (/interrogate, model upsert, {reopen:true}) is branch-correct. Navigating
   // the tree must never pop the panel in the user's face. resetState() at the
@@ -189,12 +160,6 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
     config,
     host: panelHost,
     drafts,
-    // FR-34: restored-with-live-content → re-emit a bridge flow
-    // (`ask:resume`) so conformant clients re-render after a restart
-    // (rpc daemon has no panel to auto-open). emitFlow gates internally.
-    onRestored: (state) => {
-      remoteBridge.emitFlow(state, "ask:resume");
-    },
   });
 
   // P1.M6.T2.S1 — agent-judgment reopen (FR-6/Q12, h2.35): the tool's
@@ -222,30 +187,14 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // checked by the executor BEFORE the hook, and a suspended host implies
   // a prior panel ctx existed.
   let resumeSurface: ExtensionContext | undefined;
-  // FR-31/D-R6 end-phase emission: upsert flows emit at tool_execution_END —
-  // AFTER the lifecycle's rule-1 flip (touched submitted → reasked), which
-  // runs in ITS tool_execution_end handler after the executor returns. The
-  // registration order below guarantees it: createLifecycle subscribed its
-  // end handler earlier in this factory, so by the time this handler runs
-  // the flip has landed and emitFlow's live predicate sees the post-flip
-  // set (live RPC itest deadlock #2: a rule-1 re-upsert touching submitted
-  // questions found nothing live in-executor and left the re-asked set
-  // surfaceless). Args ride the start-phase stash declared above (end
-  // events may lack them); THIS end handler is the stash's only consumer —
-  // maybeAutoOpen's SURFACE-001 gate peeks without deleting.
+  // tool_execution_start stashes the interrogate call's args for
+  // maybeAutoOpen's SURFACE-001 gate (1) — the only consumer (it consumes
+  // entries by toolCallId: get + delete).
   pi.on("tool_execution_start", (event, ctx) => {
     if (event.toolName === "interrogate") {
       resumeSurface = ctx;
       pendingUpsertArgs.set(event.toolCallId, event.args);
     }
-  });
-  pi.on("tool_execution_end", (event) => {
-    if (event.toolName !== "interrogate") return;
-    const args = pendingUpsertArgs.get(event.toolCallId);
-    pendingUpsertArgs.delete(event.toolCallId);
-    if (event.isError || !Array.isArray((args as { questions?: unknown } | undefined)?.questions)) return;
-    const state = getState();
-    if (state !== undefined) remoteBridge.emitFlow(state, "tool");
   });
   pi.registerTool(
     createInterrogateTool(config, {
@@ -263,10 +212,6 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
         resumePanel(resumeSurface);
         return "reopened";
       },
-      // FR-31/D-R6: REOPEN emission hook (both modes; upserts emit at the
-      // end phase above — see tool.ts upsert comment); truthy return =
-      // emitted (the non-TUI reopen result reports the re-surface).
-      onLiveQuestions: (state) => remoteBridge.emitFlow(state, "tool") !== null,
       // AC-11: a non-TUI record re-arms the close pass (re-asked-then-
       // re-answered ids must close at this run's settle — see tool.ts record).
       onAnswersRecorded: () => lifecycle.noteSubmissionDelivered(),

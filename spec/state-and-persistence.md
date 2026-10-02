@@ -34,7 +34,7 @@
 
 ## Answer shape (WRITEIN-001)
 
-`answer = { value, at, text?, custom? }`. `custom: true` marks a WRITE-IN: `value` holds the user's own text (not an option value), committed via the synthetic Other row (panel) or a `customText`-only bridge submission. Renderers, diff cards, and the completion record display write-ins as `✎ {text}`. Replay/reconstruction is value-first and needs no special case; the bridge's answer validation accepts custom values as-is (they are not checked against option lists).
+`answer = { value, at, text?, custom? }`. `custom: true` marks a WRITE-IN: `value` holds the user's own text (not an option value), committed via the synthetic Other row (panel), shown as `✎ {text}`. Renderers, diff cards, and the completion record display write-ins as `✎ {text}`. Replay/reconstruction is value-first and needs no special case.
 
 ## Storage (three layers, one source of truth)
 
@@ -101,9 +101,6 @@ Consequences:
   teardown: open panel suspended, reminder widget cleared, resume record
   disposed — nothing may stay resumable advertising a foreign branch's
   questions.
-- FR-34 `onRestored` bridge emission does NOT fire on `session_tree` —
-  re-emitting would surface the question set on remote clients exactly the
-  way the panel used to pop on the TUI.
 
 Design rationale: navigation is a read-only act on the user's part. Any
 surprise surface movement on a read-only act is a bug, not a convenience.

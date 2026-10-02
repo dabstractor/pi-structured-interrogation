@@ -972,8 +972,8 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
   let state: InterrogationState;
   let lifecycle: ReturnType<typeof makeMockLifecycle>;
   // SURFACE-001 gate (1): local stand-in for index.ts's pendingUpsertArgs
-  // start-phase stash; maybeAutoOpen receives a PEEK closure over it — the
-  // production wiring shape is `(id) => pendingUpsertArgs.get(id)`.
+  // start-phase stash; maybeAutoOpen receives a CONSUMING closure over it — the
+  // production wiring shape is `(id) => { get; delete; }`.
   let stash: Map<string, unknown>;
 
   const endEvent = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -982,6 +982,13 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     isError: false,
     ...overrides,
   });
+
+  /** CONSUMING lookup — the production wiring shape (get + delete). */
+  const consumeArgs = (id: string): unknown => {
+    const args = stash.get(id);
+    stash.delete(id);
+    return args;
+  };
 
   /** Seed the stash exactly like index.ts's tool_execution_start handler. */
   function stashArgs(toolCallId: string, args: unknown): void {
@@ -1000,7 +1007,7 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     state = createInterrogationState("goal");
     setState(state);
     stash = new Map();
-    maybeAutoOpen(mock.pi, DEFAULT_CONFIG, host, undefined, (id) => stash.get(id));
+    maybeAutoOpen(mock.pi, DEFAULT_CONFIG, host, undefined, consumeArgs);
   }
 
   afterEach(() => {
@@ -1048,7 +1055,7 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     state = createInterrogationState("goal");
     setState(state);
     stash = new Map();
-    maybeAutoOpen(mock.pi, DEFAULT_CONFIG, host, undefined, (id) => stash.get(id));
+    maybeAutoOpen(mock.pi, DEFAULT_CONFIG, host, undefined, consumeArgs);
     state.upsertQuestion(choiceQ("q1")); // SURFACE-001: live open work + upsert args
     stashArgs("call-1", upsertArgs("q1"));
     mock.emit("tool_execution_end", endEvent());
@@ -1056,7 +1063,7 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
 
     const staleHost = { isOpen: () => false, isSuspended: () => false } as unknown as PanelHost;
     const second = makeMockPi();
-    maybeAutoOpen(second.pi, DEFAULT_CONFIG, staleHost, undefined, (id) => stash.get(id));
+    maybeAutoOpen(second.pi, DEFAULT_CONFIG, staleHost, undefined, consumeArgs);
     stashArgs("call-9", upsertArgs("q1"));
     second.emit("tool_execution_end", endEvent({ toolCallId: "call-9" }));
     expect(second.custom).toHaveBeenCalledTimes(1);
@@ -1187,16 +1194,15 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     expect(host.isOpen()).toBe(false);
   });
 
-  test("test_peek_does_not_consume", () => {
+  test("test_lookup_consumes", () => {
     arm();
     state.upsertQuestion(choiceQ("q1"));
     stashArgs("call-1", upsertArgs("q1"));
     mock.emit("tool_execution_end", endEvent());
-    expect(mock.custom).toHaveBeenCalledTimes(1); // the peek SAW the upsert args
-    // PEEK-without-delete contract: consumption belongs exclusively to the
-    // LAST-registered end handler (D-R6 bridge emission) — maybeAutoOpen
-    // must leave the stash entry in place.
-    expect(stash.has("call-1")).toBe(true);
+    expect(mock.custom).toHaveBeenCalledTimes(1); // the lookup SAW the upsert args
+    // CONSUMING contract: the lookup deletes the entry (the stash's only
+    // consumer — no unbounded growth).
+    expect(stash.has("call-1")).toBe(false);
   });
 });
 

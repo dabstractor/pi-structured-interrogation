@@ -1,6 +1,6 @@
 # pi-interrogator — SPEC
 
-Structured interrogation for the pi coding agent: the model asks dozens of planning questions through a single `interrogate` tool; the user answers them in a persistent bottom-dock panel that never scrolls away, submits partial answers any time, breaks out for side conversations, and edits answers as understanding evolves. The extension is the source of truth for question/answer state; the model reads and updates it through guards that make stale views fail loudly (like `edit`'s oldText and `write`'s read-before-write). The extension also speaks pi-ask's documented bridge contract on `pi.events`, so any conformant remote client (e.g. the remote-pi app) renders the question set natively — bridge submissions ride the identical state/submission pipeline as the panel.
+Structured interrogation for the pi coding agent: the model asks dozens of planning questions through a single `interrogate` tool; the user answers them in a persistent bottom-dock panel that never scrolls away, submits partial answers any time, breaks out for side conversations, and edits answers as understanding evolves. The extension is the source of truth for question/answer state; the model reads and updates it through guards that make stale views fail loudly (like `edit`'s oldText and `write`'s read-before-write).
 
 **Package:** `pi-interrogator` · **Tool:** `interrogate` · **Command:** `/interrogate`
 

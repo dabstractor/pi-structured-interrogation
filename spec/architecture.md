@@ -18,8 +18,6 @@ pi-interrogator/
 │   ├── text-field.ts         # embedded editor wrapper (factory composition)
 │   └── keys.ts               # key routing: config-driven, panel-intercept rules
 ├── fallback.ts             # non-TUI digest + chat answer recording
-├── remote-bridge.ts        # pi-ask bridge contract: event emission + submit handling (FR-31..34)
-├── remote-submit.ts        # bridge-submission pipeline (mirrors panel ctrl+s ordering)
 ├── lifecycle.ts              # auto-close on agent_settled, reopen, suspend/resume, widget
 ├── renderers.ts              # registerMessageRenderer / registerEntryRenderer cards
 ├── persistence.ts            # details mirroring, session_start reconstruction
@@ -35,8 +33,6 @@ pi-interrogator/
 | `panel/*` | The bottom-dock UI while open. Owns drafts (typed-not-submitted answers + batch note), the Other write-in row + two editor duties (WRITEIN-001), and the completeness auto-submit hook (AUTOSUBMIT-001) |
 | `delivery.ts` | Builds delta custom messages (`interrogation-submission`) and the one-time completion record |
 | `lifecycle.ts` | Panel open/suspend/resume orchestration, `agent_settled` auto-close, suspend widget, reopen handling |
-| `remote-bridge.ts` | Speaks the pi-ask bridge contract on `pi.events` (`started`/`submit`/`submit-result`/`completed`); accepts bridge submits; resurface-after-partial-submit; flow registry with foreign/stale filtering |
-| `remote-submit.ts` | Bridge answers → state → submission delta (same ordering contract as `panel/actions.submit`) |
 | `persistence.ts` | Mirrors state to `interrogation-state` custom entries (debounced); reconstructs on `session_start` |
 
 ## Key flows
@@ -116,7 +112,7 @@ session_start → persistence: walk buildContextEntries()
 ```
 session_tree → same reconstruction walk against the new branch
   state follows the branch (reset + rebuild + replay + moot recompute)
-  NEVER open/reopen the panel; never re-emit the bridge flow
+  NEVER open/reopen the panel
   panel open → suspend (stale-branch content must not linger)
   panel suspended → stays suspended; host state refs retargeted
     (next /interrogate, model upsert, {reopen:true} resumes branch-correct)
@@ -131,7 +127,6 @@ session_tree → same reconstruction walk against the new branch
 - `pi.on`: `session_start`, `session_tree` (silent reconstruction — never a surface), `agent_settled`, `tool_execution_end` (detect upserts for auto-close), `session_before_compact`, `session_shutdown`
 - `ctx.ui.custom` (panel host), `ctx.ui.setWidget` (suspend reminder), `ctx.ui.getEditorComponent` (compose user's editor), `ctx.ui.setEditorText` (discuss handoff), `ctx.ui.notify`
 - `pi.sendMessage` (submission/completion custom messages), `pi.appendEntry` (state mirror)
-- `pi.events.on/emit` (`@eko24ive/pi-ask:*` contract; emission inert without remote-pi listening)
 - `pi.registerMessageRenderer` ×2, `pi.registerEntryRenderer` ×1
 - `ctx.mode` / `ctx.hasUI` guards throughout; `ctx.model.contextWindow` for cap scaling
 
@@ -144,23 +139,6 @@ session_tree → same reconstruction walk against the new branch
 | `agent_settled` | auto-close pass (FR-4); completion check (FR-5) |
 | `tool_execution_end` | record whether this agent run upserted (feeds auto-close); `maybeAutoOpen` opens the panel ONLY for upsert calls leaving unanswered questions (SURFACE-001 — reads never surface) |
 | `session_before_compact` | return customInstructions (FR-29) |
-| `session_shutdown` | flush mirror entry; dispose remote bridge (complete outstanding flows) |
-
-### Bridge submit (pi-ask contract; FR-32)
-
-```
-bridge client submit → remote-pi (or any conformant bridge) emits @eko24ive/pi-ask:submit
-  remote-bridge.ts: parse → flowId registry check (foreign/stale/malformed filtered)
-  remote-submit.ts: validate answers vs current options → applyAnswer ×n
-      → baseline/computeDiff/pendingIds (BUG-008 filter) → markSubmitted
-      → buildSubmission (snapshot+bump once) → deliverSubmission (steer|followUp)
-      → lifecycle.noteSubmissionDelivered()
-  emit submit-result ok:true → completed (resolve the flow)
-  (internal throw in the pipeline → submit-result internal_error nack + completed; no rollback — BUG-007)
-  → (this submit completes the set → maybeAutoSubmit tail — same auto-submit + gate-hold semantics as the panel, AUTOSUBMIT-001 bridge parity)
-  → remaining live questions + remote.resurface? emit fresh flow (ask:replay)
-model receives interrogation-submission delta → replies (identical to panel ctrl+s)
-```
 | `session_shutdown` | flush mirror entry |
 
 ## Data shapes (authoritative in tool-protocol.md / state-and-persistence.md)

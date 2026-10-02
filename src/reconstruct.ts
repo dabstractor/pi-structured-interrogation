@@ -81,16 +81,12 @@
  *        fallback flag is set —
  *        {@link isFallbackActive} is the contract the interrogate tool
  *        executor (h2.26 digest decision, later milestone) consumes to pick
- *        digest-vs-panel mode after a restart. `onRestored` (FR-34) fires
- *        BEFORE any local UI act so a conformant remote client re-renders
- *        after the restart — only the local panel is suppressed, remote
- *        surfaces are not.
+ *        digest-vs-panel mode after a restart.
  *      - `session-tree` (mid-session `/tree` navigation): SILENT. The state
  *        singleton is installed (later tool reads, `/interrogate` resumes,
  *        and the completion path must reflect the branch the user is on
  *        NOW), but NO surface ever appears: no panel open, no reopen of a
- *        suspended host, no FR-34 `onRestored` bridge emission (re-emitting
- *        would pop remote clients exactly the way the panel popped). A
+ *        suspended host. A
  *        panel that is STILL OPEN at navigation time is suspended — it can
  *        never keep rendering the abandoned branch's questions — and the
  *        host's stored references are retargeted (`retargetState`) onto the
@@ -198,17 +194,6 @@ export interface ReconstructionOptions {
    * (FR-28, Q6=B).
    */
   drafts?: DraftStore;
-  /**
-   * FR-34 (remote bridge surface): invoked once per run with the restored
-   * state whenever the branch yielded a non-empty interrogation — BEFORE
-   * the mode split, so BOTH the TUI auto-open and the non-TUI fallback
-   * paths see it. index.ts routes it to remote-bridge's emitFlow
-   * (`ask:resume`) so a conformant client re-renders the question set
-   * after a restart even when no desktop panel exists (rpc daemon). The
-   * hook must not throw into reconstruction (bridge handlers stay
-   * defensive); emitFlow gates on live questions + config internally.
-   */
-  onRestored?: (state: InterrogationState) => void;
 }
 
 /**
@@ -455,11 +440,6 @@ export function reconstructFromBranch(
   // not a popup, and the branch the user is on NOW decides it.
   if (isNonTui(ctx.mode ?? "tui", ctx.hasUI ?? true)) {
     setFallbackActive(true);
-    // FR-34 (restart only): a fresh runtime re-renders on conformant remote
-    // clients. Deliberately NOT fired on session-tree — re-emitting would
-    // surface the question set on remote clients the same way the panel
-    // popped on tree navigation.
-    if (origin === "session-start") opts.onRestored?.(state);
     return { source, replayed, opened: false, fallbackActive: true };
   }
 
@@ -473,11 +453,6 @@ export function reconstructFromBranch(
     if (opts.host.isOpen()) opts.host.suspend();
     return { source, replayed, opened: false, fallbackActive: false };
   }
-
-  // FR-34: restored with live content on a fresh runtime — hand the state
-  // to the remote bridge surface. Remote clients STILL re-render after a
-  // restart: only the local panel surface is suppressed (SURFACE-002).
-  opts.onRestored?.(state);
 
   // SURFACE-002 (FR-28 / FR-D7): session_start NEVER opens the panel.
   // Reconstruction's ONLY UI act is the suspend widget line — set directly

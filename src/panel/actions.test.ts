@@ -831,11 +831,11 @@ describe("submit — flush pending answers", () => {
     expect(accept(panel)).toBe(true);
     expect(panel.textDuty).toBe("writein");
     panel.textField.setText("postgres");
-    expect(writeInEnter(panel)).toBe(true); // commit → auto-submit fires
-    // NOTE: the re-pend (FR-2 "answered") is transient — the synchronous
-    // auto-submit's markSubmitted has already shipped it by the time this
-    // line runs. The shipped editedArchived marker below PROVES the
-    // closed→answered transition happened (a still-closed q1 ships nothing).
+    expect(writeInEnter(panel)).toBe(true); // commit — AUTOSUBMIT-003: q1 is NOT the last
+    // sequential answerable (q2 closed follows), so the edit alone ships nothing;
+    // the user submits manually, exactly the flow the new rule protects.
+    expect(sendMessage).toHaveBeenCalledTimes(1); // still only the first firing
+    expect(submit(panel, deps)).toBe(true); // MANUAL ctrl+s-equivalent ships the edit
 
     // Second submission diffs against the CLOSE-PASS snapshot (the fix):
     // before.status === "closed" → editedArchived → " (changed)" everywhere.
@@ -1784,10 +1784,11 @@ describe("maybeAutoSubmit — completeness hook", () => {
     expect(state.epoch).toBe(2);
   });
 
-  test("test_auto_edit_of_answered_on_complete_set_fires_again", () => {
-    // One submission per commit: the FIRST complete-set commit fires; a
-    // later edit of an already-submitted answer on the (still) complete set
-    // fires AGAIN — each firing is a full submission (h2.41).
+  test("test_auto_edit_on_complete_set_fires_only_on_last_sequential", () => {
+    // AUTOSUBMIT-003 (2026-09-30): completeness alone no longer fires — an
+    // edit of a NON-last question on a complete set ships nothing (the
+    // bug-premature-fill experience that motivated the rule); an edit of
+    // the LAST sequential question fires (the review-flow exit).
     const state = seed(BASIC);
     const { deps, sendMessage } = makeDeps(true);
     const { panel } = makePanel(state, { delivery: deps });
@@ -1802,15 +1803,20 @@ describe("maybeAutoSubmit — completeness hook", () => {
     expect(state.epoch).toBe(2);
     expect(panel.footerFlash?.text).toBe("submitted — 2 answer(s)");
 
-    // Edit q1 (submitted → ripple seam passes on the default no-op seam):
-    // re-answer, set stays complete (q2 submitted, q1 answered) → 2nd firing.
+    // Edit q1 (NOT last — q2 follows): applies, set stays complete → NO firing.
     panel.currentId = "q1"; // setter re-seeds the cursor to the ★ "a" preselect
     panel.cursorIndex = 1; // propose "b"
     accept(panel);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.epoch).toBe(2); // no bump — nothing shipped
 
+    // Edit q2 (LAST sequential, set complete) → fires with q1+q2 pending.
+    panel.currentId = "q2"; // setter re-seeds the cursor to the ★ "a" preselect
+    panel.cursorIndex = 1; // propose "b"
+    accept(panel);
     expect(sendMessage).toHaveBeenCalledTimes(2);
-    expect(state.epoch).toBe(3); // +1 per firing
-    expect(panel.footerFlash?.text).toBe("submitted — 1 answer(s)"); // only q1 pending now
+    expect(state.epoch).toBe(3); // +1 for the review-flow-exit firing
+    expect(panel.footerFlash?.text).toBe("submitted — 2 answer(s)"); // q1 edit + q2 edit both pending
   });
 
   test("test_auto_consecutive_edits_each_one_submission_one_epoch_bump", () => {
@@ -1837,33 +1843,30 @@ describe("maybeAutoSubmit — completeness hook", () => {
     expect(state.snapshots).toHaveLength(1);
 
     // Three consecutive edits of already-submitted answers; the set stays
-    // complete throughout, so every commit tail fires (h2.33 trade-off:
-    // each deliberate edit costs one model turn).
-    const edits: Array<{ id: string; index: number }> = [
-      { id: "q1", index: 1 }, // "a" → "b"
-      { id: "q2", index: 1 }, // "a" → "b"
-      { id: "q1", index: 0 }, // "b" → "a" (changed vs the last snapshot)
+    // complete throughout. AUTOSUBMIT-003: only the LAST-sequential edit
+    // fires (review-flow exit); the q1 edits ship nothing — manual ctrl+s
+    // territory, exactly what the premature-fill experience demanded.
+    const edits: Array<{ id: string; index: number; fires: boolean }> = [
+      { id: "q1", index: 1, fires: false }, // "a" → "b" — NOT last → silent
+      { id: "q2", index: 1, fires: true }, // "a" → "b" — last sequential → fires
+      { id: "q1", index: 0, fires: false }, // "b" → "a" — NOT last → silent
     ];
-    for (const [i, edit] of edits.entries()) {
+    let fired = 1; // the completeness firing above
+    for (const edit of edits) {
       panel.currentId = edit.id; // setter re-seeds the cursor to the ★ preselect
       panel.cursorIndex = edit.index;
       accept(panel);
-
-      // Per iteration: exactly ONE new submission — one delivery, one
-      // epoch bump, one snapshot, one flash counting only the edited
-      // answer (it was the sole pending id at commit time).
-      expect(sendMessage).toHaveBeenCalledTimes(2 + i);
-      expect(state.epoch).toBe(3 + i);
-      expect(state.snapshots).toHaveLength(2 + i);
-      expect(panel.footerFlash?.text).toBe("submitted — 1 answer(s)");
+      if (edit.fires) fired++;
+      expect(sendMessage).toHaveBeenCalledTimes(fired);
     }
+    expect(panel.footerFlash?.text).toBe("submitted — 2 answer(s)"); // q1 edit + q2 edit pending at the q2 firing
 
-    // Totals: 1 complete-set firing + 3 edit firings = 4 submissions.
-    expect(sendMessage).toHaveBeenCalledTimes(4);
-    expect(state.epoch).toBe(5); // epoch 1 + exactly +1 per firing
-    expect(state.snapshots).toHaveLength(4);
+    // Totals: 1 complete-set firing + 1 last-sequential edit firing = 2.
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(state.epoch).toBe(3);
+    expect(state.snapshots).toHaveLength(2);
     // `epoch-bumped` emitted ONCE per firing with the post-bump value.
-    expect(bumped).toEqual([2, 3, 4, 5]);
+    expect(bumped).toEqual([2, 3]);
     state.off("epoch-bumped", onBumped);
     panel.dispose(); // flash timers armed → dispose per harness convention
   });
@@ -1920,8 +1923,10 @@ describe("maybeAutoSubmit — completeness hook", () => {
     };
     state.on("epoch-bumped", onBumped);
 
-    panel.currentId = "q1"; // setter re-seeds the cursor to the ★ "a" preselect
-    panel.cursorIndex = 1; // edit the pending answer → "b"
+    panel.currentId = "q2"; // setter re-seeds the cursor to the ★ "a" preselect
+    panel.cursorIndex = 1; // edit the pending LAST-sequential answer → "b"
+    // (AUTOSUBMIT-003 rule (b): all answered pre-commit + last sequential —
+    // the commit tail fires once and ships the WHOLE pending set)
 
     expect(accept(panel)).toBe(true);
 
@@ -2126,11 +2131,31 @@ describe("maybeAutoSubmit — gate hold (AUTOSUBMIT-002, AC-2d)", () => {
     // The user answers the gate question (agent re-opened it; seeded via
     // the raw applyAnswer primitive) → the set is truly complete.
     state.applyAnswer("g1", { value: "a", at: T0 });
-    maybeAutoSubmit(panel, deps); // the next commit tail fires the same hook
+    // The commit tail carries AUTOSUBMIT-003 context — g1 WAS the last
+    // unanswered question, so this is the transition firing.
+    maybeAutoSubmit(panel, deps, { wasUnanswered: true, questionId: "g1" });
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(panel.footerFlash?.text).toBe("submitted — 3 answer(s)");
     expect(state.epoch).toBe(2);
+  });
+
+  test("test_auto_probe_without_commit_context_never_fires", () => {
+    // AUTOSUBMIT-003: the commit context is load-bearing — a context-free
+    // call (probe/direct) on a COMPLETE set with pending answers never
+    // auto-submits; only the panel/bridge commit tails carry context.
+    const state = seed([
+      { id: "q1", overrides: { status: "answered" } },
+      { id: "q2", overrides: { status: "answered" } },
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+
+    maybeAutoSubmit(panel, deps);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(state.epoch).toBe(1);
+    expect(panel.footerFlash?.text).toBeUndefined();
   });
 
   test("test_auto_ctrl_s_override_delivers_and_swaps_to_legacy_warning", () => {

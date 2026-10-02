@@ -89,8 +89,12 @@ export interface RemoteSubmitDeps {
   isIdle?: () => boolean;
   /** P2.M1.T3.S1 — AUTOSUBMIT-001 bridge tail. Invoked AFTER
    * noteSubmissionDelivered on BOTH exit paths (success + nothing_shippable).
-   * Injected from index.ts (panel singletons live there); absent → no-op. */
-  maybeAutoSubmit?: () => void;
+   * Injected from index.ts (panel singletons live there); absent → no-op.
+   * AUTOSUBMIT-003: carries the transition flag — wasUnanswered is true iff
+   * this bridge submission answered at least one previously-open/reasked
+   * question (the last-unanswered transition); edit-shaped re-submissions
+   * pass false and rule (b) cannot match (no single questionId). */
+  maybeAutoSubmit?: (commit?: { wasUnanswered: boolean; questionId?: string }) => void;
 }
 
 /** Outcome of one remote submission attempt. */
@@ -125,6 +129,15 @@ export function recordRemoteSubmission(
   deps: RemoteSubmitDeps = {},
 ): RemoteSubmitOutcome {
   // 1. Apply answers (caller-validated; statuses were checked recordable).
+  // AUTOSUBMIT-003 context: which targets were still unanswered pre-commit
+  // (the transition flag for the tail hook).
+  const preUnanswered = new Set(
+    state
+      .orderedQuestions()
+      .filter((q) => q.status === "open" || q.status === "reasked")
+      .map((q) => q.id),
+  );
+  const wasUnansweredTransition = answers.some((a) => preUnanswered.has(a.id));
   const at = new Date().toISOString();
   for (const answer of answers) {
     state.applyAnswer(answer.id, {
@@ -162,7 +175,7 @@ export function recordRemoteSubmission(
   //    exactly like the shipped-path variant (live RPC itest deadlock #4).
   if (diff.changed.length === 0 || userChanged.length === 0) {
     if (pendingIds.length > 0) deps.lifecycle?.noteSubmissionDelivered();
-    deps.maybeAutoSubmit?.(); // tail hook runs here too — always AFTER the lifecycle call
+    deps.maybeAutoSubmit?.({ wasUnanswered: wasUnansweredTransition }); // tail hook runs here too — always AFTER the lifecycle call
     return { ok: false, reason: "nothing_shippable" };
   }
 
@@ -178,7 +191,7 @@ export function recordRemoteSubmission(
   // 10. AUTOSUBMIT-001 tail hook — always AFTER the lifecycle call (h2.44
   // line-1 ordering is load-bearing). Zero pending after step 5's flush
   // makes a faithfully-wired hook a no-op: ships once, never twice.
-  deps.maybeAutoSubmit?.();
+  deps.maybeAutoSubmit?.({ wasUnanswered: wasUnansweredTransition });
 
   return { ok: true, msg };
 }

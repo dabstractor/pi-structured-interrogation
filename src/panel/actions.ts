@@ -249,6 +249,9 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   const opt = displayOptions(q)[optionIndex];
   if (opt === undefined) return false;
   const proposed = { value: opt.value, at: new Date().toISOString() };
+  // AUTOSUBMIT-003 commit context: open/reasked pre-commit = this accept can
+  // be the last-unanswered TRANSITION; answered/submitted = an edit.
+  const wasUnanswered = q.status === "open" || q.status === "reasked";
   if (q.status === "answered" || q.status === "submitted") {
     if (!panel.confirmRippleEdit(q.id, proposed)) return true; // seam vetoed
   }
@@ -260,7 +263,7 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   // mootered questions must not be advance targets).
   evaluateDependsOn(panel.state);
   advanceAfterAccept(panel);
-  maybeAutoSubmit(panel); // P2.M1.T1.S1 — AUTOSUBMIT-001 completeness check
+  maybeAutoSubmit(panel, undefined, { wasUnanswered, questionId: q.id }); // AUTOSUBMIT-001/003 — transition-gated completeness check
   return true;
 }
 
@@ -326,7 +329,7 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
   panel.consumeCommittedBuffer(q.id);
   advanceAfterAccept(panel); // Q14 parity: currentId → next unanswered, cursor → ★ preselect
   panel.blurTextField(); // resets textDuty to "elaboration"
-  maybeAutoSubmit(panel); // P2.M1.T1.S1 — AUTOSUBMIT-001, direct-commit exit ONLY (never the empty-buffer or deferred exits)
+  maybeAutoSubmit(panel, undefined, { wasUnanswered: status === "open" || status === "reasked", questionId: q.id }); // AUTOSUBMIT-001/003, direct-commit exit ONLY (never the empty-buffer or deferred exits)
   return true;
 }
 
@@ -622,7 +625,11 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
  * Consumed by: the remote-submit bridge tail (P2.M1.T3.S1), and AC-9
  * pending-ship (P3.M2.T2.S1) — the optional `deps` param is their seam.
  */
-export function maybeAutoSubmit(panel: InterrogationPanel, deps?: SubmitDeps): void {
+export function maybeAutoSubmit(
+  panel: InterrogationPanel,
+  deps?: SubmitDeps,
+  commit?: { wasUnanswered: boolean; questionId?: string },
+): void {
   const d = deps ?? panel.delivery;
   if (d === undefined) return; // no delivery surface (e.g. headless tests) — no-op
   const ordered = panel.state.orderedQuestions();
@@ -653,6 +660,25 @@ export function maybeAutoSubmit(panel: InterrogationPanel, deps?: SubmitDeps): v
   }
   if (unanswered > 0) return; // ordinary non-gate skip — silent (h2.58)
   if (pending === 0) return; // no-op on zero pending — NO flash, NO submit call
+  // AUTOSUBMIT-003 (2026-09-30 interrogation): completeness alone no
+  // longer fires — the bug-premature-fill experience made every EDIT of a
+  // complete set re-ship the full group. The auto-submit trigger is now
+  // (a) the TRANSITION — this commit answered the last remaining
+  // unanswered question (commit.wasUnanswered; zero open/reasked remain,
+  // checked above), ANYWHERE in the list — or (b) an edit commit ON the
+  // last sequential ANSWERABLE question while the set is already complete
+  // (the review-flow exit: finish at the end of the list and it ships;
+  // fix an early answer and it waits for the manual submit). Last
+  // ANSWERABLE, not literal last row — moot/withdrawn tails can never be
+  // committed and the archived-edit flow (AC-13) must keep firing.
+  // commit === undefined (probe/direct call) → never auto-submits.
+  if (commit === undefined) return;
+  if (!commit.wasUnanswered) {
+    const lastAnswerable = [...ordered]
+      .reverse()
+      .find((q) => q.status !== "moot" && q.status !== "withdrawn");
+    if (commit.questionId === undefined || lastAnswerable?.id !== commit.questionId) return;
+  }
   // One firing = one full submission (h2.41: epoch bumps per firing).
   const shipped = submit(panel, d);
   if (shipped) {

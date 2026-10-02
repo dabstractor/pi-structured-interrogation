@@ -208,8 +208,9 @@ export interface RemoteBridgeOptions {
   /** AUTOSUBMIT-001 bridge tail (P2.M1.T3.S1, h2.33): the shared hook, run by
    * recordRemoteSubmission at BOTH exit tails (always after the lifecycle
    * call). Injected from index.ts (panel singletons live there); absent →
-   * no-op. */
-  maybeAutoSubmit?: () => void;
+   * no-op. AUTOSUBMIT-003: carries the transition flag from the bridge
+   * submission (true iff it answered a previously-open/reasked question). */
+  maybeAutoSubmit?: (commit?: { wasUnanswered: boolean; questionId?: string }) => void;
   /** State source; defaults to the state.ts singleton (injectable for tests). */
   getState?: () => InterrogationState | undefined;
 }

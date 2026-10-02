@@ -59,6 +59,11 @@ const INSET = "  ";
 const CURSOR = "▸ ";
 /** Non-cursor prefix — two spaces, same width as the cursor prefix. */
 const BLANK = "  ";
+/**
+ * D-R13 (2026-09-30): 2-col RIGHT margin — answers sit equidistant from the
+ * pane frame's left and right edges (variation A, live-review pass).
+ */
+export const RIGHT = "  ";
 /** Recommendation mark inserted between prefix and label. */
 const STAR = "★ ";
 /**
@@ -87,10 +92,26 @@ const MIN_TEASER_WIDTH = 4;
 // ------------------------------------------------------------------ helpers
 
 /**
+ * D-R13 (2026-09-30): DISPLAY order — recommended option first, the rest in
+ * state order (stable). Presentation only: state stores nothing about the
+ * order; the cursor domain, digit quick-select (1..9), and the ★ preselect
+ * all speak display positions, and actions.acceptOptionIndex maps back at
+ * its single seam. Exported (deep-view.ts sections render the same order).
+ */
+export function displayOptions(q: Question): QuestionOption[] {
+  const options = q.options ?? [];
+  if (q.recommendation === undefined) return options;
+  const rec = options.find((o) => o.value === q.recommendation);
+  if (rec === undefined) return options;
+  return [rec, ...options.filter((o) => o !== rec)];
+}
+
+/**
  * Initial cursor position for a question — the ★ recommendation preselect
- * (R2). Choice questions: the index of the option whose value matches
- * `q.recommendation`, clamped to 0 when unset or when the recommendation
- * references a value no longer in `options` (post-upsert — findIndex → -1).
+ * (R2). Choice questions: the DISPLAY index of the option whose value
+ * matches `q.recommendation` (displayOptions order — D-R13; recommended
+ * first means 0 when set), clamped to 0 when unset or when the
+ * recommendation references a value no longer in `options` (post-upsert).
  * Text questions: 0 (the primary affordance). Status-agnostic: a revisited
  * `answered` question still preselects the recommendation — answers never
  * pin the cursor (enter accept+advance is P1.M3.T2.S2's concern).
@@ -98,7 +119,7 @@ const MIN_TEASER_WIDTH = 4;
 export function initialCursorIndex(q: Question): number {
   if (q.type === "text") return 0;
   if (q.recommendation === undefined) return 0;
-  const idx = (q.options ?? []).findIndex((o) => o.value === q.recommendation);
+  const idx = displayOptions(q).findIndex((o) => o.value === q.recommendation);
   return idx >= 0 ? idx : 0;
 }
 
@@ -155,7 +176,7 @@ export interface ShortViewInput {
  */
 export function renderShortViewOptions(input: ShortViewInput): string[] {
   const { question: q, cursorIndex, theme, width, dimmed } = input;
-  const budget = Math.max(1, width - INSET.length); // inset 2
+  const budget = Math.max(1, width - INSET.length - RIGHT.length); // inset 2 + right margin 2 (variation A)
 
   if (q.status === "withdrawn") {
     const line = `${INSET}${theme.fg("dim", WITHDRAWN_LINE)}`;
@@ -171,7 +192,7 @@ export function renderShortViewOptions(input: ShortViewInput): string[] {
     const preview = answerPreviewLine(q, theme, budget, dimAll);
     if (preview !== undefined) lines.push(preview);
   } else {
-    const options = q.options ?? [];
+    const options = displayOptions(q); // D-R13: recommended-first display order
     for (let i = 0; i < options.length; i++) {
       lines.push(optionLine(q, options[i], i, cursorIndex, theme, budget, dimAll));
     }
@@ -222,8 +243,12 @@ function optionLine(
     // Moot dims the whole line — cursor prefix and ★ included (h2.29).
     return `${INSET}${theme.fg("dim", `${prefix}${star}${label}${teaser}`)}`;
   }
+  // D-R13 (2026-09-30): the recorded answer's option row highlights accent —
+  // color is the selection signal; write-in answers keep their dim preview.
+  const answered = q.answer !== undefined && q.answer.custom !== true && q.answer.value === opt.value;
+  const styledLabel = answered ? theme.fg("accent", label) : label;
   const dimTeaser = teaser === "" ? "" : theme.fg("dim", teaser);
-  return `${INSET}${prefix}${star}${label}${dimTeaser}`;
+  return `${INSET}${prefix}${star}${styledLabel}${dimTeaser}`;
 }
 
 /**

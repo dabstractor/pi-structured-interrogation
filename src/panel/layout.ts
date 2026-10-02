@@ -464,6 +464,7 @@ export function renderFooter(
   const keyActions = narrow ? NARROW_FOOTER_ACTIONS : SCREEN_KEYS[screen];
   const hints: string[] = keyActions.map((action) => `${labels[action]} ${ACTION_WORDS[action]}`);
   if (screen === "short") hints.unshift("enter accept"); // enter is not remappable
+  if (screen === "short") hints.push(`${labels.focusText} explain`); // D-R11: the footer permanently names the chord
   if (screen === "deep") hints.push("esc back", "↑/↓ scroll");
   if (screen === "overview") hints.push("enter jump", "esc back");
   if (editorExit !== undefined) {
@@ -472,7 +473,7 @@ export function renderFooter(
     // (single esc forwards to the editor), arrows do not scroll. Drop the
     // descent statics and swap in the editor's own affordances; the fit
     // loop drops the appended close gestures right-to-left first.
-    const statics = new Set(["enter accept", "enter jump", "esc back", "↑/↓ scroll"]);
+    const statics = new Set(["enter accept", "enter jump", "esc back", "↑/↓ scroll", `${labels.focusText} explain`]);
     const kept = hints.filter((h) => !statics.has(h));
     hints.length = 0;
     hints.push("enter save", ...kept);

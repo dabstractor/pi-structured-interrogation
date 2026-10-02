@@ -1380,6 +1380,7 @@ export class InterrogationPanel implements Component {
       const snapshot = this.state.serialize();
       const lines: string[] = [renderNoteHeader(this.theme, width)];
       lines.push(...this.textField.render(width));
+      lines.push(""); // variation A: breathing room below the scroll area, above the footer
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
       lines.push(this.footerLine(snapshot, width, budget.narrow));
@@ -1442,6 +1443,9 @@ export class InterrogationPanel implements Component {
           lines.push(...this.textField.render(width));
         }
       }
+      // Variation A (fixed 2026-09-30): breathing room BELOW the scroll
+      // area — above the footer, not after it (live-review correction).
+      lines.push("");
       // Transient line directly above the footer (h2.37): the gate-warning
       // line when active, else the flash line; timer expiry clears flashes.
       const notice = this.footerNoticeLine(width);
@@ -1467,6 +1471,7 @@ export class InterrogationPanel implements Component {
         });
         lines.push(...renderDeepWindow(content, this.cursorIndex, this.scrollOffset, this.theme, width));
       }
+      lines.push(""); // variation A: breathing room below the scroll area, above the footer
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
       lines.push(this.footerLine(snapshot, width, budget.narrow));
@@ -1500,6 +1505,7 @@ export class InterrogationPanel implements Component {
         const end = Math.min(content.lines.length, offset + content.viewportHeight);
         for (let i = offset; i < end; i++) lines.push(content.lines[i]!);
       }
+      lines.push(""); // variation A: breathing room below the scroll area, above the footer
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
       lines.push(this.footerLine(snapshot, width, budget.narrow));

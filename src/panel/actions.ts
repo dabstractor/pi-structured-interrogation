@@ -28,7 +28,7 @@ import type { Question, SerializedState } from "../state.js";
 import { countUnansweredGate, gateGroupNames } from "./gate.js";
 import type { InterrogationPanel } from "./panel.js";
 import { beginWriteInConfirm, rippleVictims } from "./ripple-confirm.js";
-import { initialCursorIndex } from "./short-view.js";
+import { initialCursorIndex, displayOptions } from "./short-view.js";
 
 // ------------------------------------------------------------------- types
 
@@ -243,7 +243,10 @@ export function accept(panel: InterrogationPanel): boolean {
  * advance.
  */
 export function acceptOptionIndex(panel: InterrogationPanel, q: Question, optionIndex: number): boolean {
-  const opt = q.options?.[optionIndex];
+  // D-R13 (2026-09-30): optionIndex is a DISPLAY position (recommended-first
+  // order — displayOptions); the mapping lives HERE, the single seam, so
+  // cursor domain, digits, and deep view can all speak display positions.
+  const opt = displayOptions(q)[optionIndex];
   if (opt === undefined) return false;
   const proposed = { value: opt.value, at: new Date().toISOString() };
   if (q.status === "answered" || q.status === "submitted") {

@@ -1208,7 +1208,7 @@ describe("panel.flash — transient footer flash", () => {
     expect(panel.footerFlash?.text).toBe("nothing to submit");
     const lines = panel.render(80); // cache was invalidated → rebuild
     expect(lines.at(-2)).toContain("nothing to submit"); // directly above the footer
-    expect(lines.at(-1)).toContain("answered"); // footer is still last
+    expect(lines.at(-1)).toContain("answered"); // footer (blank is last)
 
     vi.advanceTimersByTime(2500);
     expect(panel.footerFlash).toBeUndefined();

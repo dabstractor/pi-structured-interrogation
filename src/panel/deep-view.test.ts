@@ -209,9 +209,10 @@ describe("buildDeepContent", () => {
     // the synthetic Other section (P1.M2.T6.S1).
     expect(content.sectionHeaders).toHaveLength(3);
     expect(content.sectionHeaders[2]).toBe("✎ Other — write your own");
-    // Ramification lines are indented 4 columns (aligns under labels).
+    // Ramification rows: 1-char explanation indent (amended 6) — bar at
+    // col 3, text col 4.
     const ramLine = content.lines[content.sectionHeaderLineIndex[0]! + 1]!;
-    expect(ramLine.startsWith("      ")).toBe(true); // INSET(2) + RAM_INDENT(4)
+    expect(ramLine.startsWith("   │")).toBe(true);
   });
 
   test("test_cap_verbose_text_ellipsized_bounded_lines", () => {
@@ -222,7 +223,8 @@ describe("buildDeepContent", () => {
     // section (P1.M2.T6.S1) follows it in `lines`.
     const ramText = content.lines
       .slice(content.sectionHeaderLineIndex[0]! + 1, content.sectionHeaderLineIndex[1])
-      .map((l) => l.replace(/^\s+/, ""))
+      .filter((l) => l !== "") // variation B section separators are not text
+      .map((l) => l.replace(/^\s*│\s?/, "")) // D-R14 pipe + indent are not text
       .join(" ");
     // 600-char cap + single `…` ellipsis, wrapped — bounded total.
     expect(ramText.startsWith("word0")).toBe(true);
@@ -327,9 +329,9 @@ describe("renderDeepWindow", () => {
   test("test_window_slice_respects_offset_and_end", () => {
     const content = fixedContent();
     const window = renderDeepWindow(content, 0, 12, theme, 80);
-    // Header lines (index 12 "b", 20 "c") re-render with the cursor prefix.
+    // Header lines (index 12 "b", 20 "c") re-render with selection styling.
     expect(window).toEqual([
-      "    b", "L13", "L14", "L15", "L16", "L17", "L18", "L19", "    c", "L21",
+      "  b", "L13", "L14", "L15", "L16", "L17", "L18", "L19", "  c", "L21",
     ]);
   });
 
@@ -338,8 +340,8 @@ describe("renderDeepWindow", () => {
     const window = renderDeepWindow(content, 1, 0, theme, 80);
     const h0 = window[content.sectionHeaderLineIndex[0]!];
     const h1 = window[content.sectionHeaderLineIndex[1]!];
-    expect(h0).toBe("    ★ sqlite"); // INSET + BLANK prefix — no cursor
-    expect(h1).toBe("  ▸ postgres"); // INSET + cursor prefix
+    expect(h0).toBe("  ★ sqlite"); // de-indented title, unselected (stub passthrough)
+    expect(h1).toBe("  postgres"); // selected — accent+bold (invisible in stub)
   });
 
   test("test_header_labels_stay_column_aligned_across_cursor_moves", () => {
@@ -359,7 +361,7 @@ describe("renderDeepWindow", () => {
     // Offset 100 (stale after a width change) re-clamps to maxOffset 20.
     const window = renderDeepWindow(content, 0, 100, theme, 80);
     expect(window).toHaveLength(10);
-    expect(window[0]).toBe("    c"); // line 20 is option 2's header
+    expect(window[0]).toBe("  c"); // line 20 is option 2's header
   });
 
   test("test_moot_window_dims_headers", () => {
@@ -507,7 +509,8 @@ describe("acceptFromDeep", () => {
 describe("deepSeedCursorIndex", () => {
   test("test_seeds_recommendation_clamped_into_option_domain", () => {
     expect(deepSeedCursorIndex(choiceQ("db"))).toBe(0); // ★ sqlite
-    expect(deepSeedCursorIndex(choiceQ("db", { recommendation: "postgres" }))).toBe(1);
+    // D-R13: display order puts the recommendation first — seed is display 0
+    expect(deepSeedCursorIndex(choiceQ("db", { recommendation: "postgres" }))).toBe(0);
   });
 
   test("test_text_and_empty_domains_seed_zero", () => {
@@ -522,7 +525,8 @@ describe("deepSeedCursorIndex", () => {
     // (index 0 === count) instead of snapping outside the domain.
     expect(deepSeedCursorIndex(choiceQ("db", { options: [] }))).toBe(0);
     expect(deepSeedCursorIndex(choiceQ("db"))).toBe(0); // ★ seed unchanged
-    expect(deepSeedCursorIndex(choiceQ("db", { recommendation: "postgres" }))).toBe(1);
+    // D-R13: display order — recommendation leads, seed stays display 0
+    expect(deepSeedCursorIndex(choiceQ("db", { recommendation: "postgres" }))).toBe(0);
   });
 });
 
@@ -545,15 +549,15 @@ describe("Other section (P1.M2.T6.S1)", () => {
     expect(content.lines[headerIdx]).toContain("✎ Other — write your own");
     // Never recommended — no ★ on the Other row.
     expect(content.lines[headerIdx]).not.toContain("★");
-    // VERBATIM ramification (em-dash intact), wrapped + RAM_INDENT indent.
+    // VERBATIM ramification (em-dash intact), wrapped + D-R14 pipe indent.
     const ramText = content.lines
       .slice(headerIdx + 1)
-      .map((l) => l.replace(/^\s+/, ""))
+      .map((l) => l.replace(/^\s*│\s?/, ""))
       .join(" ");
     expect(ramText).toBe(OTHER_RAMIFICATION);
     expect(ramText).toContain("fit — write your own answer");
     for (const ln of content.lines.slice(headerIdx + 1)) {
-      expect(ln.startsWith("      ")).toBe(true); // INSET(2) + RAM_INDENT(4)
+      expect(ln.startsWith("   │")).toBe(true); // 1-char indent: bar col 3, text col 4
     }
   });
 
@@ -561,7 +565,8 @@ describe("Other section (P1.M2.T6.S1)", () => {
     const content = buildDeepContent(deepInputFor(choiceQ("db"), { theme: dimTheme }));
     const headerIdx = content.sectionHeaderLineIndex[2]!;
     expect(content.lines.slice(headerIdx + 1).length).toBeGreaterThan(0);
-    for (const ln of content.lines.slice(headerIdx + 1)) expect(ln).toContain(DIM);
+    // D-R13 inversion: ramifications render FULL intensity (not dim)
+    for (const ln of content.lines.slice(headerIdx + 1)) expect(ln).not.toContain(DIM);
   });
 
   test("test_other_header_sticky_and_cursor_prefix_in_window", () => {
@@ -582,7 +587,7 @@ describe("Other section (P1.M2.T6.S1)", () => {
     const header = window[headerIdx - offset];
     expect(header).toBeDefined();
     expect(header).toContain("✎ Other — write your own");
-    expect(header!.startsWith("  ▸ ")).toBe(true);
+    expect(header!.startsWith("  ✎")).toBe(true); // de-indented title (no arrow glyph)
   });
 
   test("test_zero_option_choice_renders_other_as_the_only_section", () => {

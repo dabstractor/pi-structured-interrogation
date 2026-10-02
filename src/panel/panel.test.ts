@@ -481,15 +481,15 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(short.some((l) => l.includes("✎ Other — write your own"))).toBe(true); // real options region
     expect(short).not.toContain("options region (TODO M3.T2)"); // placeholder replaced
     expect(short.some((l) => l.startsWith("focus: "))).toBe(false); // placeholder gone
-    expect(short[short.length - 1]).toMatch(/^└ .*⏎ ┘$/); // S2 footer
+    expect(short[short.length - 1]).toMatch(/^└ .*⏎ ┘$/); // S2 footer (trailing blank is last — variation A)
 
     panel.handleInput(CTRL_D);
     const deep = panel.render(80);
     // Real deep view (P1.M5.T1.S1): header + bounded pane + view-aware footer.
     expect(deep[0]).toMatch(/^┌ interrogation ·?/);
-    expect(deep.some((l) => l.includes("▸"))).toBe(true); // option section header
+    expect(deep.some((l) => l.includes("│"))).toBe(true); // D-R14 explanation pipes
     expect(deep.some((l) => l.includes("goal"))).toBe(true); // FR-30 full goal
-    expect(deep[deep.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer, still last
+    expect(deep[deep.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer (blank is last — variation A)
 
     panel.handleInput(CTRL_L);
     const overview = panel.render(80);
@@ -497,7 +497,7 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(overview[0]).toMatch(/^┌ interrogation ·?/);
     expect(overview.some((l) => l.includes("▸") && l.includes("prompt:q1"))).toBe(true); // cursor row
     expect(overview.some((l) => l.includes("· "))).toBe(true); // open-question marker
-    expect(overview[overview.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer, still last
+    expect(overview[overview.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer (blank is last)
     expect(overview).not.toContain("[overview] placeholder (TODO M5.T2)"); // placeholder replaced
   });
 
@@ -553,7 +553,7 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(panel.overviewScroll).toBeGreaterThan(0); // actions recompute the window
 
     const lines = panel.render(80);
-    const body = lines.slice(1, lines.length - 1); // header/footer outside the window
+    const body = lines.slice(1, lines.length - 2); // header/footer + trailing blank outside the window
     expect(body.length).toBeLessThanOrEqual(20); // OVERVIEW_HEIGHT window cap
     expect(body.some((l) => l.includes("▸") && l.includes("prompt:q26"))).toBe(true);
     expect(lines[lines.length - 1]).toMatch(/^└ /);
@@ -615,7 +615,7 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(panel.view).toBe("short");
     expect(panel.currentId).toBe("q2");
     expect(panel.focus).toBe("options");
-    expect(panel.cursorIndex).toBe(1); // ★ recommendation preselect (R2)
+    expect(panel.cursorIndex).toBe(0); // ★ preselect — display 0 under D-R13 order
     const short = panel.render(80);
     expect(short.some((l) => l.includes("▸ ★ ") && l.includes("Beta"))).toBe(true);
   });
@@ -635,9 +635,9 @@ describe("view switching (built-in S1 bindings)", () => {
     panel.handleInput(CTRL_L);
     expect(panel.view).toBe("overview");
     const lines = panel.render(80);
-    expect(lines).toHaveLength(2); // no flash yet — just header + footer
+    expect(lines).toHaveLength(3); // no flash yet — header + footer + variation-A trailing blank
     expect(lines[0]).toMatch(/^┌ /);
-    expect(lines[1]).toMatch(/^└ /);
+    expect(lines[2]).toMatch(/^└ /);
   });
 });
 
@@ -801,7 +801,7 @@ describe("upsert + state integration", () => {
       focusQuestionId: "q1",
     });
 
-    expect(panel.cursorIndex).toBe(1); // ★ preselect on the recommended option (R2)
+    expect(panel.cursorIndex).toBe(0); // ★ preselect — display 0 under D-R13 order
     panel.cursorIndex = 0; // simulated navigation — real movement is P1.M3.T2.S2
     panel.currentId = "q2";
     expect(panel.cursorIndex).toBe(0); // question change re-seeds the cursor
@@ -918,12 +918,12 @@ describe("terminal fallbacks (h2.30, P1.M7.T5.S1)", () => {
     const at11 = new InterrogationPanel({ ...panelArgsFor(stateWith(8)), tui: tuiWithRows(11) });
     at11.setView("overview");
     const lowLines = at11.render(80);
-    expect(lowLines.length).toBe(1 + 5 + 1); // header + 5-line window + footer
+    expect(lowLines.length).toBe(1 + 5 + 1 + 1); // header + 5-line window + footer + variation-A blank
     expect(lowLines[lowLines.length - 1]).toMatch(/^└ /);
 
     const at12 = new InterrogationPanel({ ...panelArgsFor(stateWith(8)), tui: tuiWithRows(12) });
     at12.setView("overview");
-    expect(at12.render(80).length).toBe(1 + 9 + 1); // all content (< default window 20)
+    expect(at12.render(80).length).toBe(1 + 9 + 1 + 1); // content + footer + variation-A blank
   });
 
   test("test_deep_view_height_untouched_at_low_rows", () => {
@@ -1843,7 +1843,7 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     const lines = panel.render(80);
     expect(lines[0]).toBe("┌ NOTE — ships with next submission ┐"); // exact h2.32
     expect(lines).toContain(" e1"); // the SAME embedded editor renders
-    expect(lines.at(-1)).toContain("answered"); // footer still terminates
+    expect(lines.at(-1)).toContain("answered"); // footer still terminates (blank is last)
     // The question/hint/options region is REPLACED — no question line.
     expect(lines.join("\n")).not.toContain("prompt:q1");
   });
@@ -2124,7 +2124,7 @@ describe("deep view (P1.M5.T1.S1)", () => {
     panel.handleInput(CTRL_D);
     const lines = panel.render(80);
     expect(lines[0]).toMatch(/^┌ interrogation ·/); // header unchanged
-    expect(lines[lines.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer unchanged
+    expect(lines[lines.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer unchanged (blank is last)
     // FR-30: FULL goal text rendered (not the header's truncated form).
     expect(lines.join("\n")).toContain("Ship the widget");
     expect(lines.join("\n")).toContain("Context you should read before choosing.");
@@ -2143,14 +2143,14 @@ describe("deep view (P1.M5.T1.S1)", () => {
     expect(panel.view).toBe("short");
 
     panel.handleInput(CTRL_D); // entering deep seeds once
-    expect(panel.cursorIndex).toBe(1); // ★ preselect, clamped to option domain
+    expect(panel.cursorIndex).toBe(0); // ★ preselect, display 0 under D-R13 order
     expect(panel.scrollOffset).toBe(0);
 
     panel.handleInput(UP); // move selection — NOT a re-seed
     expect(panel.cursorIndex).toBe(0);
     panel.handleInput(CTRL_D); // toggle back to short
     panel.handleInput(CTRL_D); // re-enter → re-seeds from ★
-    expect(panel.cursorIndex).toBe(1);
+    expect(panel.cursorIndex).toBe(0); // display 0 under D-R13 order
     expect(panel.scrollOffset).toBe(0);
   });
 
@@ -2337,6 +2337,8 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
       }),
       renderFooter(snapshot, "short", resolveKeyLabels(DEFAULT_CONFIG), stubTheme, 80),
     ];
+    // variation A: the blank sits ABOVE the footer (below the scroll area)
+    expected.splice(expected.length - 1, 0, "");
     expect(lines).toEqual(expected);
   });
 
@@ -2348,7 +2350,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
     expect(lines[lines.length - 2]).toBe(
       "  ⚠ 2 foundational unanswered — later answers may shift",
     );
-    expect(lines[lines.length - 1]).toContain("└"); // footer still last
+    expect(lines[lines.length - 1]).toContain("└"); // footer (blank is last)
 
     // Shared slot rule: the warning wins over a still-live flash (h2.37).
     panel.flash("nothing to submit");
@@ -2393,7 +2395,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
     expect(lines[lines.length - 2]).toBe(
       "  ⚠ 1 foundational unanswered — answer them or Ctrl+S to submit now",
     );
-    expect(lines[lines.length - 1]).toContain("└"); // footer still last
+    expect(lines[lines.length - 1]).toContain("└"); // footer (blank is last)
 
     // Shared slot rule: the hold line wins over a still-live flash (h2.37).
     panel.flash("nothing to submit");

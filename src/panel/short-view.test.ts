@@ -75,9 +75,11 @@ function render(q: Question, cursorIndex: number, th: Theme = theme, width = 80)
 // ------------------------------------------------- cursor domain + preselect
 
 describe("initialCursorIndex (R2 preselect)", () => {
-  test("points at the recommended option and only at it", () => {
+  test("points at the recommended option — always display 0 under D-R13 order", () => {
     expect(initialCursorIndex(choiceQ())).toBe(0);
-    expect(initialCursorIndex(choiceQ({ recommendation: "postgres" }))).toBe(1);
+    // D-R13: recommended-first display order — postgres leads, so the
+    // preselect is display 0 regardless of state-order position.
+    expect(initialCursorIndex(choiceQ({ recommendation: "postgres" }))).toBe(0);
   });
 
   test("no recommendation → 0; unknown recommendation value clamps to 0", () => {

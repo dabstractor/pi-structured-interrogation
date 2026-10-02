@@ -60,7 +60,7 @@ import type { Question } from "../state.js";
 import { acceptOptionIndex } from "./actions.js";
 import { truncateVisible } from "./layout.js";
 import type { InterrogationPanel } from "./panel.js";
-import { OTHER_AFFORDANCE, initialCursorIndex, mootReason } from "./short-view.js";
+import { OTHER_AFFORDANCE, RIGHT, displayOptions, initialCursorIndex, mootReason } from "./short-view.js";
 
 // ---------------------------------------------------------------- constants
 
@@ -73,14 +73,29 @@ export const DEEP_VIEW_HEIGHT = 20;
 
 /** Two-column inset applied to every content line (short-view.ts pattern). */
 const INSET = "  ";
-/** Cursor prefix — exactly 2 visible cols so labels align with "  ". */
-const CURSOR = "▸ ";
-/** Non-cursor prefix — two spaces, same width as the cursor prefix. */
-const BLANK = "  ";
-/** Recommendation mark inserted between prefix and label (short-view.ts). */
+/**
+ * D-R14 (amended 6, 2026-09-30 live-review): amendment 5 (title/explanation
+ * color swap) REVERTED — it made bars and explanation text share a color,
+ * killing the bars' distinctness. Titles PRIMARY (theme text), selected =
+ * accent + bold on title AND its bars; explanation text RAW full-intensity;
+ * bars PRIMARY (theme text) — the amendment-4 state, which read best. The
+ * explanation block now indents 1 char (bar col 3, text col 4).
+ */
+/** Recommendation mark inserted before the title label (short-view.ts). */
 const STAR = "★ ";
-/** Ramification indent (4 visible cols total) — aligns under header labels. */
-const RAM_INDENT = "    ";
+/**
+ * Explanation-row pipe indent: 1 space + │ + space (3 visible cols; bar at
+ * col 3, text col 4 — amended 6: 1-char explanation indent). Bars PRIMARY
+ * (theme text); the SELECTED section's bars highlight — accent + bold.
+ */
+function ramIndent(theme: Theme, selected: boolean): string {
+  const bar = " │ ";
+  return selected ? theme.bold(theme.fg("accent", bar)) : theme.fg("text", bar);
+}
+/** Title styling: selected = accent + bold (bold survives colorless terminals); unselected = PRIMARY (theme text). */
+function titleStyle(theme: Theme, selected: boolean, body: string): string {
+  return selected ? theme.bold(theme.fg("accent", body)) : theme.fg("text", body);
+}
 /** Moot reason line head (mirrors short-view.ts). */
 const MOOT_HEAD = "⊘ moot — ";
 /** Withdrawn questions collapse to this single dimmed line. */
@@ -227,7 +242,7 @@ export function wrapText(text: string, budget: number): string[] {
  */
 export function buildDeepContent(input: DeepViewInput): DeepContent {
   const { question: q, goal, theme, width, maxChars } = input;
-  const budget = Math.max(1, width - INSET.length);
+  const budget = Math.max(1, width - INSET.length - RIGHT.length); // inset 2 + right margin 2 (variation A)
 
   if (q.status === "withdrawn") {
     return {
@@ -257,21 +272,28 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     lines.push("");
   }
   if (q.type === "choice") {
-    const options = q.options ?? [];
+    const options = displayOptions(q); // D-R13: recommended-first display order (same as short view)
     for (let i = 0; i < options.length; i++) {
       const opt = options[i]!;
       const star = opt.value === q.recommendation ? STAR : "";
       const body = `${star}${truncateVisible(opt.label, Math.max(1, budget - visibleWidth(star)))}`;
       sectionHeaders.push(body);
       sectionHeaderLineIndex.push(lines.length);
-      // Placeholder header (build-time cursor prefix baked in); renderDeepWindow
-      // re-renders header lines with the CURRENT cursor prefix every render.
-      const prefix = i === input.cursorIndex ? CURSOR : BLANK;
-      const composed = `${INSET}${prefix}${body}`;
+      // Placeholder title (D-R14: de-indented, color+bold selection, no ▸);
+      // renderDeepWindow re-renders title lines with the CURRENT selection
+      // styling every render.
+      const composed = `${INSET}${titleStyle(theme, i === input.cursorIndex, body)}`;
       lines.push(dimAll ? theme.fg("dim", composed) : composed);
+      // D-R13/D-R14: explanation rows — full intensity, each prefixed by the
+      // colored quote-bar pipe. Moot dims the whole pane over it.
       if (opt.ramification !== undefined && opt.ramification !== "") {
-        pushBlock(lines, opt.ramification, theme, budget, maxChars, true, RAM_INDENT);
+        pushBlock(lines, opt.ramification, theme, budget, maxChars, dimAll, ramIndent(theme, i === input.cursorIndex));
       }
+      // Variation B (2026-09-30, promoted from live-review to spec): one
+      // blank line between each answer section — the separator rides the
+      // content, so it scrolls with it; sectionHeaderLineIndex bookkeeping
+      // follows automatically since blanks are pushed while building.
+      lines.push("");
     }
     // P1.M2.T6.S1: the synthetic ✎ Other section — cursor index
     // `options.length` (WRITEIN-001 deep parity), ALWAYS the LAST
@@ -280,10 +302,9 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     // whole domain there); never on withdrawn/text questions.
     sectionHeaders.push(OTHER_AFFORDANCE);
     sectionHeaderLineIndex.push(lines.length);
-    const prefix = options.length === input.cursorIndex ? CURSOR : BLANK;
-    const composed = `${INSET}${prefix}${OTHER_AFFORDANCE}`;
+    const composed = `${INSET}${titleStyle(theme, options.length === input.cursorIndex, OTHER_AFFORDANCE)}`;
     lines.push(dimAll ? theme.fg("dim", composed) : composed);
-    pushBlock(lines, OTHER_RAMIFICATION, theme, budget, maxChars, true, RAM_INDENT);
+    pushBlock(lines, OTHER_RAMIFICATION, theme, budget, maxChars, dimAll, ramIndent(theme, options.length === input.cursorIndex));
   }
   return { lines, sectionHeaderLineIndex, sectionHeaders, dimAll, viewportHeight: DEEP_VIEW_HEIGHT };
 }
@@ -367,7 +388,7 @@ export function renderDeepWindow(
   theme: Theme,
   width: number,
 ): string[] {
-  const budget = Math.max(1, width - INSET.length);
+  const budget = Math.max(1, width - INSET.length - RIGHT.length);
   const maxOffset = Math.max(0, content.lines.length - content.viewportHeight);
   const offset = Math.max(0, Math.min(scrollOffset, maxOffset));
   const end = Math.min(content.lines.length, offset + content.viewportHeight);
@@ -376,9 +397,9 @@ export function renderDeepWindow(
   for (let s = 0; s < content.sectionHeaderLineIndex.length; s++) {
     const lineIdx = content.sectionHeaderLineIndex[s]!;
     if (lineIdx < offset || lineIdx >= end) continue;
-    const prefix = s === cursorIndex ? CURSOR : BLANK;
-    const body = truncateVisible(content.sectionHeaders[s]!, Math.max(1, budget - visibleWidth(prefix)));
-    const composed = `${INSET}${prefix}${body}`;
+    const body = truncateVisible(content.sectionHeaders[s]!, Math.max(1, budget));
+    // D-R14: de-indented title, selection = accent+bold (no arrow glyph).
+    const composed = `${INSET}${titleStyle(theme, s === cursorIndex, body)}`;
     window[lineIdx - offset] = content.dimAll ? theme.fg("dim", composed) : composed;
   }
   return window;

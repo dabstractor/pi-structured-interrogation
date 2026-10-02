@@ -450,7 +450,7 @@ describe("overviewJump — enter jumps to the short form", () => {
     expect(panel.view).toBe("short");
     expect(panel.currentId).toBe("q2");
     // R2 preselect: the currentId setter re-seeded the ★ recommendation.
-    expect(panel.cursorIndex).toBe(1);
+    expect(panel.cursorIndex).toBe(0); // display 0 under D-R13 order
     expect(panel.overviewScroll).toBe(0);
   });
 

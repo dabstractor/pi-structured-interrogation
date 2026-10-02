@@ -124,6 +124,17 @@ Fixed-key notes: `←`/`→` navigate the FULL question list (every status navig
   (discussing q{id} — agent: side-chat freely; reopen panel when done)
   ```
 
+## Color, order & breathing room (LOCKED 2026-09-30 — interrogation D-R11–D-R13 + live-review D-R14)
+
+The visual contract below is LOCKED as of 2026-09-30; amendment history and reversion rationale live in decisions.md (D-R14), not here.
+
+- **Footer names the explain chord (D-R11).** The short-view footer permanently carries `ctrl+t explain` (resolved via `keys.focusText`), appended after the existing hints — first casualty of the narrow-width right-to-left drop loop, and dropped (not swapped) while the editor holds focus, where `focusText close` already owns the label.
+- **No explain surface for Other (D-R12).** A write-in (or `type:"text"`) answer is the whole answer; explaining means writing it into the value. The custom-skip rule in the submit pipeline stands.
+- **Selected answer highlight (short view).** The recorded answer's option row renders its label in `accent`; write-in previews stay dim.
+- **Recommended-first display order (D-R13).** Option rows (short) and option sections (deep) render recommended-first — the ★ option leads, the rest keep state order (stable sort; display-only — state stores nothing about the order). The cursor domain, digit quick-select (1..9 follow displayed order), and the ★ preselect all speak display positions; accept maps display→option internally (`displayOptions`).
+- **Deep-view visual contract (D-R14, locked).** On expand the explanation is the primary element: ramification text RAW full-intensity; titles PRIMARY (theme `text`), both at the INSET column (col 2). Every explanation row carries a `│` pipe one char right of the titles (bar col 3, text col 4); bars render PRIMARY (theme `text`). The selected section is shown BY COLOR — `accent` + `bold` on its title AND its bars; no ▸ arrow glyph (bold is the no-color fallback: color degrades harmlessly in colorless terminals while bold still differentiates; the short view keeps its ▸ cursor). `accent` otherwise appears only in the short-view highlight. Moot still dims the whole pane.
+- **Padding (variations A + B, locked).** One blank line below every view's scroll area — ABOVE the footer, not after it; transient gate-warning/flash lines stay adjacent to the footer, directly on top of it — plus a 2-col right margin on the options region (short) and deep pane content so answers sit equidistant from the frame edges. One blank line between each deep-view answer section (after every option's ramification block, including before the ✎ Other section); the separator rides the content and scrolls with it.
+
 ## Renderers
 
 - `interrogation-submission` (registerMessageRenderer): user-only card from `details.card` — each changed answer `{title}: {old} → {new (changed)}` + any `NOTE:` line + `{open} remain open`; write-in answers render as `✎ {text}` (truncated to fit); compact by default, `expanded` shows full submission including full write-in text.

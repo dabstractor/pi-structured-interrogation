@@ -370,7 +370,7 @@ describe("AC-1 — render proof at panel level (FR-1/FR-9)", () => {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
       }
       expect(lines[0]).toMatch(/^┌ interrogation ·?/);
-      expect(lines[lines.length - 1]).toMatch(/^└ /);
+      expect(lines[lines.length - 1]).toMatch(/^└ /); // footer (blank is last)
       expect(lines.join("\n")).toContain("Question q09"); // gate question line
       expect(lines.join("\n")).toContain("answered"); // progress footer
     }
@@ -638,8 +638,8 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
       panel.handleInput(DOWN);
       expect(panel.cursorIndex).toBe(i);
       const lines = panel.render(80);
-      expect(lines.length).toBeLessThanOrEqual(1 + DEEP_VIEW_HEIGHT + 1);
-      const body = lines.slice(1, lines.length - 1);
+      expect(lines.length).toBeLessThanOrEqual(1 + DEEP_VIEW_HEIGHT + 2);
+      const body = lines.slice(1, lines.length - 2);
       expect(body.some((l) => l.includes(`opt ${i}`))).toBe(true); // sticky
     }
     expect(panel.scrollOffset).toBeGreaterThan(0); // the clamp really moved
@@ -650,7 +650,7 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
     for (let k = 0; k <= maxOffset; k++) {
       panel.scrollOffset = k;
       panel.invalidate();
-      const body = panel.render(80).slice(1, -1);
+      const body = panel.render(80).slice(1, -2);
       expect(body.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
       for (const line of body) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
     }

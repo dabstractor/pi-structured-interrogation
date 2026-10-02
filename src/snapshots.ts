@@ -30,9 +30,8 @@ import type { InterrogationState, Question, SerializedState, Snapshot } from "./
 export const SNAPSHOT_RING_SIZE = 10;
 
 /**
- * Pending-answer diff baseline over a bare state (FR-32; extracted from
- * panel/actions.ts `submissionBaseline` so the remote bridge-submission
- * pipeline shares the EXACT baseline semantics): the latest snapshot's
+ * Pending-answer diff baseline over a bare state (extracted from
+ * panel/actions.ts `submissionBaseline`): the latest snapshot's
  * state ("answered since the LAST submission"), or a fresh empty baseline
  * before the first snapshot exists. The empty baseline is safe: computeDiff
  * compares answer signatures, and a question missing from `prev` with no

@@ -74,9 +74,12 @@ export interface InterrogateResult {
  * `"{answered}/{total} answered · {reasked} re-asked · {moot} moot · epoch {n}"`.
  *
  * Counts come from `state.questions` following `state.order` (orphans are
- * skipped defensively): total = `state.order.length`; `answered` counts
- * status === "answered" ONLY — `submitted`/`closed` are pending/archived
- * territory and never join this bucket, and `open`/`withdrawn` do not appear
+ * skipped defensively): total = `state.order.length`; `answered` is
+ * RECORD-DERIVED (2026-10-02: single source of truth with the per-question
+ * records — a question counts iff it has `answer` on record and status
+ * `answered`/`submitted`/`closed`; `open`/`reasked`/`moot`/`withdrawn`
+ * never count, so the counter can never read `0/N` above N questions that
+ * all display recorded answers). `open`/`withdrawn` do not appear
  * in the line at all. Separators are ` · ` (space, middle dot U+00B7,
  * space). Empty state → `0/0 answered · 0 re-asked · 0 moot · epoch {n}`.
  *
@@ -91,11 +94,24 @@ export function buildStatusLine(state: SerializedState): string {
   for (const id of state.order) {
     const q = state.questions[id];
     if (q === undefined) continue; // defensive: skip orphaned order ids
-    if (q.status === "answered") answered++;
+    if (isRecordAnswered(q)) answered++;
     else if (q.status === "reasked") reasked++;
     else if (q.status === "moot") moot++;
   }
   return `${answered}/${state.order.length} answered · ${reasked} re-asked · ${moot} moot · epoch ${state.epoch}`;
+}
+
+/**
+ * Record-derived "answered" rule (2026-10-02, spec/tool-protocol.md
+ * §Status line format): a question counts iff `answer` is present and
+ * status is `answered`/`submitted`/`closed`. `open`/`reasked`/`moot`/
+ * `withdrawn` never count.
+ */
+export function isRecordAnswered(q: { status: string; answer?: unknown }): boolean {
+  return (
+    q.answer !== undefined &&
+    (q.status === "answered" || q.status === "submitted" || q.status === "closed")
+  );
 }
 
 /**
@@ -185,8 +201,9 @@ function envelope(state: SerializedState, action: ResultAction, statusLine: stri
 
 /**
  * Pure mirror of `state.ts` `groupSummaries()` bucket semantics, reduced to
- * the h3.7 summary line: `{group}: {answered}/{total} answered`, first-
- * appearance order following `state.order`, absent groups under
+ * the h3.7 summary line: `{group}: {answered}/{total} answered` (the same
+ * record-derived answered rule as {@link buildStatusLine} — 2026-10-02),
+ * first-appearance order following `state.order`, absent groups under
  * `UNGROUPED_LABEL`. Takes the serialized projection — never the live class.
  */
 function groupSummaryLines(state: SerializedState): string[] {
@@ -203,7 +220,7 @@ function groupSummaryLines(state: SerializedState): string[] {
       groups.push({ name, total: 0, answered: 0 });
     }
     groups[i].total++;
-    if (q.status === "answered") groups[i].answered++;
+    if (isRecordAnswered(q)) groups[i].answered++;
   }
   return groups.map((g) => `${g.name}: ${g.answered}/${g.total} answered`);
 }

@@ -649,7 +649,7 @@ describe("upsertedThisRun (P1.M7.T4.S1 getter)", () => {
   });
 });
 
-// ------------------------------------------------- AC-11 regression (FR-32)
+// ------------------------------------------------- AC-11 regression
 
 describe("close pass × non-TUI record (live RPC itest repro)", () => {
   afterEach(() => resetState());
@@ -659,8 +659,8 @@ describe("close pass × non-TUI record (live RPC itest repro)", () => {
     const mock = makeMockPi();
     const st = newState();
     setState(st); // the executor resolves the singleton, not the lifecycle opt
-    // The bridge/panel shipped q1 (status submitted) — the world right after
-    // a remote submission or panel ctrl+s.
+    // The panel shipped q1 (status submitted) — the world right after
+    // a panel ctrl+s.
     seedSubmitted(st, ["q1"]);
     let fired: boolean | undefined;
     const sent: string[] = [];

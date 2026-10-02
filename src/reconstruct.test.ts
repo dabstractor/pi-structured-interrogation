@@ -510,19 +510,6 @@ describe("reconstructFromBranch — surface decision", () => {
     expect((ctx.ui.custom as Mock)).not.toHaveBeenCalled();
   });
 
-  test("tree navigation never fires the FR-34 bridge; session start does", () => {
-    const base = seededState((s) => {
-      applyUpsert(s, [choiceQ("q1")]);
-    });
-    const onRestored = vi.fn();
-    const opts: ReconstructionOptions = { ...makeOpts(makeHost()), onRestored };
-
-    reconstructFromBranch(makeCtx([toolResultEntry(base)]), opts, "session-tree");
-    expect(onRestored).not.toHaveBeenCalled();
-
-    reconstructFromBranch(makeCtx([toolResultEntry(base)]), opts, "session-start");
-    expect(onRestored).toHaveBeenCalledTimes(1);
-  });
 
   test("completed (empty) state installs but opens nothing", () => {
     const done = seededState((s) => {

@@ -32,7 +32,7 @@ Every decision that shaped this spec, with its disposition. (Full deliberation h
 - 2026-09-14 bugfix pin (Q7 clarification): a new interrogation after completion REPLACES the completed singleton — fresh state, epoch 1, completed=false, empty questions/snapshots; goal retained unless the new upsert supplies one. Resolves the gap flagged in architecture/spec-contracts.md § "Second interrogation in one session / epoch semantics after completion" (epoch-reset-on-new-interrogation was UNSPECIFIED); consistent with state-and-persistence.md § "Auto-close algorithm" "clear in-memory state" — the exactly-once completion guard is per interrogation lifecycle, not per session.
 - 2026-09-15 patch-semantics pin (protocol amendment, supersedes rule-4-by-omission): first agent to use the tool edited one question with a 1-id batch and rule 4 withdrew the entire live plan — the wire format contradicted the tool's own "re-ask only materially affected" guideline. Panel decision (4 answers): (1) `questions[]` is surgical — omitted live ids are untouched by default; (2) withdrawal is opt-in set-replace mode: resend the kept set with `withdrawOmitted: true` (chosen over an explicit `withdraw: [ids]` list for muscle-memory continuity; full-content reads below offset the resend cost after compaction); (3) tolerant posture — withdrawals report as an informational result line (`withdrew (withdrawOmitted): …`), never a hard refusal (no unknown-id surface exists under flag semantics; inert ids stay no-ops); (4) `{}` read now returns FULL question content blocks (one-liner + prompt/description/options/meta) so surgical edits and full-set resends are compaction-proof. Rationale: patch semantics matches model priors, makes edit cost O(changed) not O(set), and removes the compaction fragility where an agent that cannot reconstruct the full set cannot safely edit anything.
 
-## Remote bridge surface (2026-09-18; FR-31..34)
+## Remote bridge surface (2026-09-18; FR-31..34; REMOVED 2026-10-02 — see §Remote bridge surface removed below)
 - D-R1 Speak pi-ask's documented bridge contract verbatim (`@eko24ive/pi-ask:*` on `pi.events` — pi-ask's remote-events.md designs the channel for "local bridges: status cards, desktop helpers, or approval UIs"; remote-pi's extension_ui_bridge is one conformant client): any conformant client renders the question set with ZERO bespoke integration; emission is inert with no listener. No runtime listener detection, no existence acks — the contract has none. Cost: bounded co-install cross-talk (a co-installed pi-ask nacks our flowIds → one transient client-side warning; our `completed` still resolves the flow) and a lossy wire mapping (D-R3).
 - D-R2 FlowIds namespaced `itg:<rand>:<seq>` — stray submits attributable; foreign flowIds ignored silently (never nacked — pi-ask owns its own flows); malformed submits ignored (pi-ask owns nacking them; two nacks would double-warn).
 - D-R3 Lossy field mapping (protocol conformance): prompt+description→prompt (bridge-side readers are the standalone readers the deep-view contract targets), title→label with explicit empty string (never omit — remote-pi's bridge duplicates the prompt into label otherwise), ramification→option description, ★ suffix on recommended option label, text questions = options:[], open+reasked questions only. gate/dependsOn/rev/epoch stay extension-side. Bridge clients cannot edit past answers in v1 (the panel's role).
@@ -42,7 +42,26 @@ Every decision that shaped this spec, with its disposition. (Full deliberation h
 - D-R7 Config `interrogator.remote = { enabled: true, resurface: true }`, coerced like existing nested sections.
 
 ## 2026-09-30 interrogation — auto-submit trigger narrowed (AUTOSUBMIT-003)
-- D-R15 REVERSES the 2026-09-19 AUTOSUBMIT-001 pin's "edits included" clause (q2 = every-commit). Live experience: a bug prematurely filled every answer with the recommended option; every corrective edit of the complete set then re-shipped the full group — one model turn per keystroke-level fix. New trigger, both rules require zero open/reasked + ≥1 pending first: (a) the TRANSITION — the commit answered the last remaining unanswered question anywhere in the list; (b) the review-flow exit — the set was already complete and the commit edited the last sequential ANSWERABLE question (non-moot/withdrawn; moot/withdrawn tails can never be committed). All other edits of a complete set ship nothing — manual ctrl+s. Gate hold (AUTOSUBMIT-002) unchanged; bridge tail carries the transition flag. The "review the whole list then finish at the end" interaction that rule (b) hints at is deliberately NOT specified yet — the user deferred defining that interaction.
+- D-R15 REVERSES the 2026-09-19 AUTOSUBMIT-001 pin's "edits included" clause (q2 = every-commit). Live experience: a bug prematurely filled every answer with the recommended option; every corrective edit of the complete set then re-shipped the full group — one model turn per keystroke-level fix. New trigger, both rules require zero open/reasked + ≥1 pending first: (a) the TRANSITION — the commit answered the last remaining unanswered question anywhere in the list; (b) the review-flow exit — the set was already complete and the commit edited the last sequential ANSWERABLE question (non-moot/withdrawn; moot/withdrawn tails can never be committed). All other edits of a complete set ship nothing — manual ctrl+s. Gate hold (AUTOSUBMIT-002) unchanged; bridge tail carries the transition flag (bridge surface since removed 2026-10-02, below). The "review the whole list then finish at the end" interaction that rule (b) hints at is deliberately NOT specified yet — the user deferred defining that interaction.
+
+## Remote bridge surface removed (2026-10-02; supersedes D-R1..D-R7 / FR-31..34)
+
+BUG-panel-phantom-recommended-submissions: the default-on bridge emitted every
+upsert as a pi-ask flow whose wire marked each question's recommended option
+(D-R3), and D-R5 committed every wire answer as a user shipment — the design
+even expected full-set re-submits (D-R6). A conformant client rendering the
+form with the ★-marked option preselected therefore shipped, for every
+question the user never touched on that client, exactly the recommendation
+value; the extension applied, submitted, archived, and completed on them
+(phantom "Submitted N: … (recommended)" deltas, a completion record with ★
+phantoms, panel closed, no user-side reopen). Reproduced deterministically on
+the real machinery. Rulings: (1) the remote surface had no usable experience
+and no users — remove it entirely (emission and submit acceptance both)
+rather than gate it; (2) the FR-31 "inert without a listener" rationale
+covered emission only and is retired with the feature; (3) the panel, tool
+executor, lifecycle, close pass, and completion trigger are exonerated —
+unchanged. Removed: remote-bridge.ts, remote-submit.ts, their tests, and
+scripts/remote-rpc-itest.mjs.
 
 ## Staging philosophy (discussion resolution)
 - Gate the interaction, never the commitment: all questions sent in the first upsert (anti-loss anchor); grouping is display+focus only; contradictions self-heal via re-ask; contract carries broad-first ordering.

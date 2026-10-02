@@ -138,8 +138,7 @@ function currentQuestion(panel: InterrogationPanel): Question | undefined {
 
 /**
  * Pending-answer diff baseline — now a thin delegation to snapshots.ts's
- * {@link submissionBaselineOf} (FR-32: the remote phone-submission pipeline
- * shares the EXACT baseline semantics; extracted with no behavior change).
+ * {@link submissionBaselineOf} (extracted with no behavior change).
  */
 export function submissionBaseline(panel: InterrogationPanel): SerializedState {
   return submissionBaselineOf(panel.state);
@@ -622,7 +621,7 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
  * "later answers may shift"). `config.gateWarnings` off ⇒ silent withhold
  * (the display toggle governs both gate strings).
  *
- * Consumed by: the remote-submit bridge tail (P2.M1.T3.S1), and AC-9
+ * Consumed by: AC-9
  * pending-ship (P3.M2.T2.S1) — the optional `deps` param is their seam.
  */
 export function maybeAutoSubmit(

@@ -69,12 +69,13 @@ export function hasResumableQuestions(state: InterrogationState): boolean {
 
 /**
  * Status → count buckets feeding the line builder's n/m. `open` counts
- * status "open" ONLY and `answered` counts status "answered" ONLY —
- * submitted/reasked/moot/withdrawn/closed join NEITHER bucket (mirrors
- * results.ts buildStatusLine's convention). NOT the visibility rule —
+ * status "open" ONLY; `answered` is RECORD-DERIVED (2026-10-02 — `answer`
+ * present and status `answered`/`submitted`/`closed`, the same rule as
+ * results.ts `isRecordAnswered`); reasked/moot/withdrawn join NEITHER
+ * bucket. NOT the visibility rule —
  * visibility keys on {@link hasResumableQuestions} (BUG-005).
  */
-function countStatuses(ordered: readonly { status: string }[]): {
+function countStatuses(ordered: readonly { status: string; answer?: unknown }[]): {
   open: number;
   answered: number;
 } {
@@ -82,7 +83,11 @@ function countStatuses(ordered: readonly { status: string }[]): {
   let answered = 0;
   for (const q of ordered) {
     if (q.status === "open") open++;
-    else if (q.status === "answered") answered++;
+    else if (
+      q.answer !== undefined &&
+      (q.status === "answered" || q.status === "submitted" || q.status === "closed")
+    )
+      answered++;
   }
   return { open, answered };
 }

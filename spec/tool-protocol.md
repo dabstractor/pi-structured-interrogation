@@ -50,7 +50,7 @@ const InterrogateParams = Type.Object({
 | `{reopen:true}` | Resurface panel | Confirmation |
 | `{answers:[...]}` | Record user answers (non-TUI only; ignored in TUI) | Status line |
 
-Answer values in results and deltas may be WRITE-INS (WRITEIN-001): the user's own text, committed via the Other row or a bridge customText-only submit, shown as `✎ {text}` and flagged `custom`. Submissions may arrive without any user submit keypress — the panel auto-submits the moment every question is answered, and again on every subsequent answer commit while the set stays complete (AUTOSUBMIT-001): expect several small deltas during an edit pass instead of one batch; the read `{}` is the pull-refresh between them.
+Answer values in results and deltas may be WRITE-INS (WRITEIN-001): the user's own text, committed via the Other row, shown as `✎ {text}` and flagged `custom`. Submissions may arrive without any user submit keypress — the panel auto-submits the moment every question is answered, and again on every subsequent answer commit while the set stays complete (AUTOSUBMIT-001): expect several small deltas during an edit pass instead of one batch; the read `{}` is the pull-refresh between them.
 
 ## Merge rules on upsert (by id)
 
@@ -89,11 +89,11 @@ Answer values in results and deltas may be WRITE-INS (WRITEIN-001): the user's o
 
 `renderCall`: one-line row `interrogate {n} questions {+m new ~k updated}`. `renderResult`: status line + epoch; `expanded` shows full state summary. Renderers stay compact — the panel is the display, not the tool row.
 
-## Non-TUI fallback (FR-25 — unchanged by the remote bridge)
+## Non-TUI fallback (FR-25)
 
-`ctx.mode !== "tui" || !ctx.hasUI` → no panel. The upsert result contains a numbered markdown digest (id, title, prompt, options with ★ marks, recommendation); the description instructs the model to relay it verbatim in chat. The user answers in their next prompt; the model records via `{answers:[...]}` (epoch-guarded). Read/completion work identically. Completion record is still injected once at close. Bridge activity NEVER alters this result — the digest is the no-panel surface, a bridge client answering simply delivers answers sooner through the same state machine.
+`ctx.mode !== "tui" || !ctx.hasUI` → no panel. The upsert result contains a numbered markdown digest (id, title, prompt, options with ★ marks, recommendation); the description instructs the model to relay it verbatim in chat. The user answers in their next prompt; the model records via `{answers:[...]}` (epoch-guarded). Read/completion work identically. Completion record is still injected once at close. The digest is the no-panel surface.
 
-**Emission hooks:** the executor calls an injected `onLiveQuestions(state, "reopen")` dep after a successful reopen with live questions, in ALL modes; index.ts routes it to remote-bridge's `emitFlow` (conformant clients re-render; inert otherwise). **Upsert emission is deferred to the end phase**: index.ts subscribes `tool_execution_end` (registered after the lifecycle's own handler) and emits there, because the lifecycle's rule-1 flip — touched *submitted* → *reasked* — runs only after the executor returns, and an in-executor emission would miss rule-1 re-upserts touching submitted questions (found by the live RPC itest). A non-TUI record that records ≥1 answer invokes `onAnswersRecorded` (wired to `lifecycle.noteSubmissionDelivered`) so re-asked-then-re-answered ids close at that run's settle (AC-11). The executor stays UI-free and event-free — hooks only.
+**Emission hooks:** A non-TUI record that records ≥1 answer invokes `onAnswersRecorded` (wired to `lifecycle.noteSubmissionDelivered`) so re-asked-then-re-answered ids close at that run's settle (AC-11). The executor stays UI-free and event-free — hooks only.
 
 ## Plain-text round detection (FR-26, TUI only)
 
@@ -102,3 +102,10 @@ After `agent_settled`, if the final assistant message contains ≥3 lines matchi
 ## Status line format (shared by results and panel footer)
 
 `{answered}/{total} answered · {reasked} re-asked · {moot} moot · epoch {n}`
+
+`answered` counts questions with a decision on record: `answer` present and
+status one of `answered`/`submitted`/`closed`. `withdrawn`/`moot` never count
+as answered (their own segments report them). The same record-derived rule
+governs the panel header, group summary lines, and the suspend widget line
+(2026-10-02: single source of truth — the counter can no longer read `0/6`
+above six questions that all display recorded answers).

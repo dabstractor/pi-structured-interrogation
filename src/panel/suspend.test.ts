@@ -177,7 +177,8 @@ function firstCall(mock: MockPi): CustomCall {
 describe("buildSuspendWidgetLine — exact h2.3 string", () => {
   test("test_buildSuspendWidgetLine_exact_counts_and_label", () => {
     const state = makeState(3, 2);
-    // submitted / reasked / withdrawn / moot join NEITHER bucket.
+    // submitted WITH an answer record joins the answered bucket
+    // (record-derived, 2026-10-02); reasked/withdrawn/moot join NEITHER.
     state.upsertQuestion(choiceQ("s1"));
     state.applyAnswer("s1", { value: "a", at: "t" });
     state.setStatus("s1", "submitted");
@@ -189,7 +190,7 @@ describe("buildSuspendWidgetLine — exact h2.3 string", () => {
     state.setStatus("m1", "moot");
 
     expect(buildSuspendWidgetLine(state)).toBe(
-      "3 open · 2 answered — /interrogate to resume",
+      "3 open · 3 answered — /interrogate to resume",
     );
   });
 
@@ -408,10 +409,11 @@ describe("suspend — widget set at the single choke point", () => {
     firstCall(mock).done(null);
     await flush();
 
-    // submitted/reasked join neither count bucket but ARE resumable.
+    // submitted WITH an answer record counts as answered (2026-10-02);
+    // reasked joins neither bucket — both ARE resumable.
     expect(mock.setWidgetCalls[1]).toEqual([
       WIDGET_KEY,
-      ["0 open · 0 answered — /interrogate to resume"],
+      ["0 open · 1 answered — /interrogate to resume"],
     ]);
   });
 

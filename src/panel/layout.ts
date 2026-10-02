@@ -26,7 +26,7 @@
  * - h2.28 divergence (deliberate, do NOT unify): the panel header/footer use
  *   a SUBSET of the status-line counts (`answered`, `re-asked`) — no moot
  *   count, no epoch. results.ts buildStatusLine stays the model-facing
- *   format; count SEMANTICS (status === "answered" only, orphan ids skipped,
+ *   format; count SEMANTICS (record-derived answered, orphan ids skipped,
  *   total = order.length) are shared and replicated here.
  */
 import { stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -161,8 +161,10 @@ export function firstSentence(description: string): string {
 
 /**
  * Panel count semantics (mirrors results.ts buildStatusLine discipline,
- * minus moot/epoch which are model-facing only): `answered` counts
- * status === "answered" ONLY; total = order.length; orphaned order ids
+ * minus moot/epoch which are model-facing only): `answered` is
+ * RECORD-DERIVED (2026-10-02 — `answer` present and status
+ * `answered`/`submitted`/`closed`, the same rule as results.ts
+ * `isRecordAnswered`); total = order.length; orphaned order ids
  * (no matching question) are skipped defensively.
  */
 function statusCounts(state: SerializedState): { answered: number; reasked: number; total: number } {
@@ -171,7 +173,11 @@ function statusCounts(state: SerializedState): { answered: number; reasked: numb
   for (const id of state.order) {
     const q = state.questions[id];
     if (q === undefined) continue; // defensive: skip orphaned order ids
-    if (q.status === "answered") answered++;
+    if (
+      q.answer !== undefined &&
+      (q.status === "answered" || q.status === "submitted" || q.status === "closed")
+    )
+      answered++;
     else if (q.status === "reasked") reasked++;
   }
   return { answered, reasked, total: state.order.length };

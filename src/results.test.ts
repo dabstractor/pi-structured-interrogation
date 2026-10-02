@@ -52,20 +52,23 @@ describe("buildStatusLine", () => {
     );
   });
 
-  test("mixed statuses byte-exact: answered counts status==='answered' ONLY", () => {
-    // 8 total: 2 answered, 1 reasked, 1 moot, and open/submitted/withdrawn/closed
-    // must NOT join the answered bucket nor appear in the line.
+  test("mixed statuses byte-exact: record-derived answered (2026-10-02)", () => {
+    // 8 total: a1/a2 answered, s1 submitted, c1 closed — the first three
+    // carry answer records and COUNT; c1 is closed WITHOUT an answer record
+    // (e.g. withdrawn-then-closed fixture) and does NOT. open/reasked/moot/
+    // withdrawn never count and do not appear in the line.
+    const ans = { value: "v", at: "t" };
     const state = ser([
-      q({ id: "a1", status: "answered" }),
-      q({ id: "a2", status: "answered" }),
+      q({ id: "a1", status: "answered", answer: ans }),
+      q({ id: "a2", status: "answered", answer: ans }),
       q({ id: "r1", status: "reasked" }),
       q({ id: "m1", status: "moot" }),
       q({ id: "o1", status: "open" }),
-      q({ id: "s1", status: "submitted" }),
+      q({ id: "s1", status: "submitted", answer: ans }),
       q({ id: "w1", status: "withdrawn" }),
       q({ id: "c1", status: "closed" }),
     ]);
-    expect(buildStatusLine(state)).toBe("2/8 answered · 1 re-asked · 1 moot · epoch 1");
+    expect(buildStatusLine(state)).toBe("3/8 answered · 1 re-asked · 1 moot · epoch 1");
   });
 
   test("separator is exactly ' · ' (space, middle dot U+00B7, space)", () => {
@@ -78,7 +81,7 @@ describe("buildStatusLine", () => {
   });
 
   test("orphans in order[] are skipped for counts but total stays order.length", () => {
-    const state = ser([q({ id: "a1", status: "answered" })]);
+    const state = ser([q({ id: "a1", status: "answered", answer: { value: "v", at: "t" } })]);
     state.order.push("ghost");
     expect(buildStatusLine(state)).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 1");
   });
@@ -140,7 +143,7 @@ describe("buildReadResult", () => {
   });
 
   test("details envelope: action read, epoch, statusLine mirrors content line", () => {
-    const state = ser([q({ id: "a1", status: "answered" })], { epoch: 9 });
+    const state = ser([q({ id: "a1", status: "answered", answer: { value: "v", at: "t" } })], { epoch: 9 });
     const result = buildReadResult(state);
     expect(result.details.action).toBe("read");
     expect(result.details.epoch).toBe(9);

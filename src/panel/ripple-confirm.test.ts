@@ -733,10 +733,10 @@ describe("ripple confirm — deferred commits auto-submit (AUTOSUBMIT-001)", () 
 
     expect(handle.panel.confirmMode).toBeNull();
     expect(state.getQuestion("q1")?.answer?.value).toBe("b"); // edit applied
-    expect(sendMessage).toHaveBeenCalledTimes(1); // exactly one firing
-    // Pending set AFTER the moot ripple: q1 (answered) + q4 (answered).
-    expect(handle.panel.footerFlash?.text).toBe("submitted — 2 answer(s)");
-    expect(state.epoch).toBe(2);
+    // AUTOSUBMIT-003: the deferred commit ran the gated check — q1 is NOT
+    // the last sequential answerable (q4 follows), so nothing ships.
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(handle.panel.footerFlash?.text).toBeUndefined();
   });
 
   test("test_auto_choice_modal_esc_never_fires", () => {
@@ -774,9 +774,8 @@ describe("ripple confirm — deferred commits auto-submit (AUTOSUBMIT-001)", () 
       custom: true,
       at: expect.any(String),
     });
-    expect(sendMessage).toHaveBeenCalledTimes(1); // exactly one firing
-    expect(handle.panel.footerFlash?.text).toBe("submitted — 2 answer(s)"); // q1 + q4
-    expect(state.epoch).toBe(2);
+    expect(sendMessage).not.toHaveBeenCalled(); // AUTOSUBMIT-003 — not last sequential
+    expect(handle.panel.footerFlash?.text).toBeUndefined();
   });
 
   test("test_auto_writein_modal_esc_never_fires", () => {

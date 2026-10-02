@@ -104,9 +104,9 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
     // panel-pending answers ONCE, through the same pipeline. Late-binding
     // closure: panelHost is created below (the same pattern as onCompleted
     // above); closed/suspended panel → getPanel() undefined → no-op.
-    maybeAutoSubmit: () => {
+    maybeAutoSubmit: (commit) => {
       const panel = panelHost.getPanel();
-      if (panel !== undefined) maybeAutoSubmit(panel);
+      if (panel !== undefined) maybeAutoSubmit(panel, undefined, commit);
     },
   });
 

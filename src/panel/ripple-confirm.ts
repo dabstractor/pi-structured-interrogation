@@ -157,7 +157,7 @@ export function applyConfirmedEdit(panel: InterrogationPanel): void {
   const nextId = nextUnanswered(ordered, from);
   if (nextId !== undefined) panel.currentId = nextId; // setter re-seeds cursor (R2)
   panel.invalidate();
-  maybeAutoSubmit(panel); // P2.M1.T1.S1 — the APPLIED commit runs the auto-submit check (h2.35)
+  maybeAutoSubmit(panel, undefined, { wasUnanswered: false, questionId: cm.questionId }); // AUTOSUBMIT-003: the applied ripple commit is always an EDIT — rule (b) territory (last-sequential-answerable)
 }
 
 /**
@@ -304,7 +304,7 @@ export function applyWriteInConfirm(panel: InterrogationPanel): void {
   if (nextId !== undefined) panel.currentId = nextId; // setter re-seeds cursor (R2)
   panel.blurTextField(); // AFTER advance (S1's ordering: advance's cursor reset wins), resets duty
   panel.invalidate();
-  maybeAutoSubmit(panel); // P2.M1.T1.S1 — the APPLIED commit runs the auto-submit check (h2.35)
+  maybeAutoSubmit(panel, undefined, { wasUnanswered: false, questionId: cm.questionId }); // AUTOSUBMIT-003: applied write-in edit — rule (b) territory
 }
 
 /**

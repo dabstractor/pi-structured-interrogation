@@ -203,11 +203,13 @@ export function digit(panel: InterrogationPanel, n: number): boolean {
  * - moot/withdrawn → consumed no-op (R1 keeps them navigable, not editable).
  * - Text question → WRITE-IN duty: textDuty="writein" + focusTextField
  *   (BUG-008 — the ✎ affordance + "enter accept" footer are the advertised
- *   entry); enter in that duty commits via writeInEnter.
+ *   entry); enter in that duty commits via writeInEnter (byte-identical
+ *   re-commit inert — ANSWER-PIN-001).
  * - Cursor on the ✎ Other row (index options.length) → WRITE-IN duty:
  *   textDuty="writein" + focusTextField (seeded from the freshest draft);
  *   enter in that duty COMMITS the buffer as the answer via writeInEnter
- *   (WRITEIN-001, Q14 parity).
+ *   (WRITEIN-001, Q14 parity; byte-identical re-commit inert —
+ *   ANSWER-PIN-001).
  * - Cursor on an option → acceptOptionIndex (same-value re-commit inert —
  *   ANSWER-PIN-001; ripple seam on edit, commit, advance).
  */
@@ -289,9 +291,14 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
  * {@link acceptOptionIndex}'s post-commit sequence exactly (h2.42 answer
  * shape: value holds the user's own text, custom: true marks the write-in;
  * no option is selected). EMPTY buffer: save the draft + blur back to
+ * Buffer: EMPTY buffer: save the draft + blur back to
  * options, NO commit (nothing answered — h2.32) via the shared
  * commitTextDraft tail (draft slot + DraftStore seam + EXPLAIN-003 ★
- * re-seed) with arming explicitly off. FR-18 ripple routing (h2.35,
+ * re-seed) with arming explicitly off. BYTE-IDENTICAL buffer FIRST (a
+ * byte-identical write-in re-commit — a recorded custom write-in, or any
+ * recorded value on text questions — is an inert no-op: consume + advance
+ * + blur only; no modal, applyAnswer, moot recompute, or auto-submit —
+ * ANSWER-PIN-001 / FR-D9). FR-18 ripple routing (h2.35,
  * P1.M2.T2.S2): a commit on an ANSWERED/SUBMITTED question whose ripple has
  * victims defers into the keep/cancel modal via beginWriteInConfirm — NOT
  * confirmRippleEdit (that is the choice seam: it stashes kind "choice" and
@@ -320,6 +327,28 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
     // existing save tail (draftSlots + DraftStore seam + EXPLAIN-003
     // cursor re-seed to ★), explicitly NOT a commit.
     panel.commitTextDraft(q.id, text);
+    return true;
+  }
+  // ANSWER-PIN-001 / FR-D9: a byte-identical write-in re-commit is an inert
+  // no-op that advances — never a re-proposal. Checked BEFORE the
+  // ripple-victims branch: a same-value re-commit is not a change (FR-18),
+  // so no keep/cancel modal, no applyAnswer (no fresh answer.at), no moot
+  // recompute, no auto-submit. Two-clause match: choice questions require a
+  // recorded WRITE-IN (custom === true) — an option answer whose value
+  // byte-equals the buffer text is a different-KIND commit (it would flip
+  // custom OFF) and routes through the normal paths; text questions match on
+  // value alone (fallback answers[] records text answers without the custom
+  // flag — same kind either way). Byte-identical = strict === on the RAW
+  // buffer; whitespace-differing text is a real edit. VAL-002 parity: the
+  // buffer still "became" the answer, so consume it — otherwise the advance's
+  // syncBufferToQuestion write-through stages the identical text into q's
+  // draft slot, where a later option accept would ship it as bogus
+  // elaboration (answer.text).
+  const recorded = q.answer;
+  if (recorded !== undefined && recorded.value === text && (recorded.custom === true || q.type === "text")) {
+    panel.consumeCommittedBuffer(q.id); // BEFORE advance: kill the write-through source
+    advanceAfterAccept(panel); // Q14 rhythm: advance only, no state write
+    panel.blurTextField(); // AFTER advance (commit-tail parity): editor closes, duty resets
     return true;
   }
   // FR-18 / h2.35: a write-in commit on an answered/submitted question with

@@ -500,6 +500,151 @@ describe("accept same-value — inert no-op (ANSWER-PIN-001 / FR-D9)", () => {
   });
 });
 
+describe("write-in same-value — inert no-op + buffer consume (ANSWER-PIN-001 / FR-D9)", () => {
+  /** Seed q1 with a recorded WRITE-IN "alpha" (custom: true, at T0) + open q2. */
+  function writeInSeed(extra: Array<{ id: string; overrides?: Partial<Question> }> = []): InterrogationState {
+    const state = seed([{ id: "q1" }, ...extra]);
+    state.applyAnswer("q1", { value: "alpha", custom: true, at: T0 });
+    return state;
+  }
+
+  test("test_wi_same_value_recommit_on_answered_writein_is_inert_and_advances", () => {
+    const state = writeInSeed([{ id: "q2" }]);
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.focusTextField("writein"); // claims bufferOwner (claims the seams)
+    panel.textField.setText("alpha"); // byte-identical to the recorded write-in
+    expect(writeInEnter(panel)).toBe(true);
+    // Inert: no rewrite of the recorded answer — the core prohibition.
+    const q1 = state.getQuestion("q1");
+    expect(q1?.answer?.value).toBe("alpha");
+    expect(q1?.answer?.at).toBe(T0); // no fresh timestamp
+    expect(q1?.status).toBe("answered");
+    // Q14 rhythm: still advances to the next unanswered question.
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_wi_same_value_recommit_with_victims_skips_modal_and_is_inert", () => {
+    // BRANCH-ORDER PROOF: q2's met dependsOn makes the ripple victims list
+    // NON-EMPTY, so today's code would defer into the keep/cancel modal —
+    // but a same-value re-commit is not a change (FR-18), so the victims
+    // branch must never be reached.
+    const state = writeInSeed([{ id: "q2", overrides: { status: "answered", dependsOn: [{ id: "q1", equals: "alpha" }] } }, { id: "q3" }]);
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.focusTextField("writein");
+    panel.textField.setText("alpha");
+    expect(writeInEnter(panel)).toBe(true);
+    expect(panel.confirmMode).toBeNull(); // no beginWriteInConfirm — branch skipped
+    expect(state.getQuestion("q1")?.answer?.at).toBe(T0);
+    expect(panel.currentId).toBe("q3"); // advances (q2 is answered)
+  });
+
+  test("test_wi_same_value_recommit_on_text_question_without_custom_flag_is_inert", () => {
+    // Fallback shape: fallback.ts/debug-commands.ts record text answers
+    // WITHOUT the custom flag — text questions match on value alone.
+    const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
+    state.applyAnswer("t1", { value: "my answer", at: T0 }); // NO custom flag
+    const { panel } = makePanel(state);
+    panel.currentId = "t1";
+    panel.focusTextField("writein");
+    panel.textField.setText("my answer");
+    expect(writeInEnter(panel)).toBe(true);
+    const t1 = state.getQuestion("t1");
+    expect(t1?.answer?.value).toBe("my answer");
+    expect(t1?.answer?.at).toBe(T0);
+    expect(t1?.status).toBe("answered");
+  });
+
+  test("test_wi_same_value_recommit_on_closed_stays_closed_not_remarked_pending", () => {
+    const state = writeInSeed([{ id: "q2" }]);
+    state.setStatus("q1", "closed"); // archived WITH its recorded write-in
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.focusTextField("writein");
+    panel.textField.setText("alpha");
+    expect(writeInEnter(panel)).toBe(true);
+    const q1 = state.getQuestion("q1");
+    // AC-13's "editing re-marks pending" applies to CHANGES only.
+    expect(q1?.status).toBe("closed");
+    expect(q1?.answer?.at).toBe(T0);
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_wi_recorded_option_answer_equal_text_is_not_inert", () => {
+    // A recorded OPTION answer (seed's default, no custom) whose value
+    // byte-equals the buffer is a DIFFERENT-KIND commit (custom flips ON) —
+    // it must route through the normal path, not the inert no-op.
+    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.focusTextField("writein");
+    panel.textField.setText("a"); // equals the recorded option value "a"
+    expect(writeInEnter(panel)).toBe(true);
+    const q1 = state.getQuestion("q1");
+    expect(q1?.answer?.value).toBe("a");
+    expect(q1?.answer?.custom).toBe(true); // kind flipped: option → write-in
+    expect(q1?.answer?.at).not.toBe(T0); // fresh timestamp — a real commit
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_wi_different_text_on_answered_writein_still_commits_normally", () => {
+    // FR-18 regression guard: different text is a real edit — direct commit
+    // (zero victims) with a fresh timestamp, exactly today's behavior.
+    const state = writeInSeed([{ id: "q2" }]);
+    const { panel } = makePanel(state);
+    panel.currentId = "q1";
+    panel.focusTextField("writein");
+    panel.textField.setText("beta");
+    expect(writeInEnter(panel)).toBe(true);
+    const q1 = state.getQuestion("q1");
+    expect(q1?.answer?.value).toBe("beta");
+    expect(q1?.answer?.custom).toBe(true);
+    expect(q1?.answer?.at).not.toBe(T0);
+    expect(q1?.status).toBe("answered");
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_wi_same_value_recommit_consumes_buffer_no_draft_residue", () => {
+    // VAL-002: the buffer still "became" the answer, so the inert path must
+    // consume it BEFORE the advance — otherwise syncBufferToQuestion stages
+    // the identical text into q1's draft slot, where a later option accept
+    // would ship it as a bogus answer.text elaboration.
+    const state = writeInSeed([{ id: "q2" }]);
+    const { panel } = makePanel(state, { drafts: new DraftStore() });
+    panel.currentId = "q1";
+    panel.focusTextField("writein"); // claims bufferOwner
+    panel.textField.setText("alpha");
+    expect(writeInEnter(panel)).toBe(true);
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // consume deleted the slot + store draft (API returns undefined for absent)
+    expect(panel.focus).toBe("options"); // editor closed (blur after advance)
+  });
+
+  test("test_wi_same_value_on_complete_set_does_not_auto_submit", () => {
+    // AUTOSUBMIT-003 rule (b) position: complete set, currentId = the LAST
+    // answerable question. Today a same-value write-in "edit" ships a
+    // phantom submission (epoch bump + model turn + suspend); the inert
+    // no-op suppresses that entirely.
+    const state = writeInSeed([
+      { id: "q2", overrides: { status: "answered" } },
+      { id: "q3", overrides: { status: "answered" } },
+    ]);
+    state.applyAnswer("q2", { value: "alphabet", custom: true, at: T0 });
+    state.applyAnswer("q3", { value: "alphazero", custom: true, at: T0 });
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch;
+    panel.currentId = "q3"; // last answerable — rule-(b) position
+    panel.focusTextField("writein");
+    panel.textField.setText("alphazero"); // byte-identical to q3's write-in
+    expect(writeInEnter(panel)).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(0);
+    expect(state.epoch).toBe(epochBefore); // no bump — nothing shipped
+    expect(panel.footerFlash).toBeUndefined(); // no "submitted — " flash
+    expect(state.getQuestion("q3")?.answer?.at).toBe(T0);
+  });
+});
+
 describe("digit — quick-select (R5)", () => {
   test("test_e_digit_accepts_option_and_advances_like_accept", () => {
     const state = seed(BASIC);

@@ -121,7 +121,7 @@ The visual contract below is LOCKED as of 2026-09-30; amendment history and reve
 
 ## Renderers
 
-- `interrogation-submission` (registerMessageRenderer): user-only card from `details.card` — each changed answer `{title}: {old} → {new (changed)}` + any `NOTE:` line + `{open} remain open`; write-in answers render as `✎ {text}` (truncated to fit); compact by default, `expanded` shows full submission including full write-in text.
+- `interrogation-submission` (registerMessageRenderer): user-only card from `details.card` — each changed answer renders `{title}: {new}` when first answered (NEVER `(unanswered) → …`: an answered question must not read as unanswered) and `{title}: {old} → {new (changed)}` only when a prior answer existed (re-answer/edit; an answer clearance shows `→ (unanswered)`, which is honest — it IS unanswered now), plus any `NOTE:` line + `{open} remain open`; write-in answers render as `✎ {text}` (truncated to fit); compact by default, `expanded` shows full submission including full write-in text.
 - `interrogation-completion`: recap card — goal, every question with final answer (grouped; write-ins as `✎ {text}`), timestamps; `expanded` shows withdrawn/moot with reasons.
 - `interrogation-state` (registerEntryRenderer): dimmed one-line mirror marker (audit trail; not interactive).
 - Tool row renderers per tool-protocol.md.

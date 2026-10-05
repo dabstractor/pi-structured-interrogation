@@ -278,10 +278,12 @@ describe("AC-2 — submission delta, reminder, open count, epoch (FR-3)", () => 
     expect(buildStatusLine(state.serialize())).toBe("2/30 answered · 0 re-asked · 1 moot · epoch 2");
 
     // The user-only card (rendered from details, h2.36) shows both answers
-    // and the "27 remain open" footer.
+    // (first-time answers render `{title}: {to}` alone — never the
+    // "(unanswered)" sentinel) and the "27 remain open" footer.
     const cardLines = renderLines(buildSubmissionCard(msg, { expanded: false, outputPad: 0 }, stubTheme));
-    expect(cardLines.some((l) => l.includes("Question q01: (unanswered) → Alpha"))).toBe(true);
-    expect(cardLines.some((l) => l.includes("Question q02: (unanswered) → Beta"))).toBe(true);
+    expect(cardLines.some((l) => l.includes("Question q01: Alpha"))).toBe(true);
+    expect(cardLines.some((l) => l.includes("Question q02: Beta"))).toBe(true);
+    expect(cardLines.some((l) => l.includes("(unanswered)"))).toBe(false);
     expect(cardLines.some((l) => l.endsWith("27 remain open"))).toBe(true);
   });
 });

@@ -102,6 +102,24 @@ describe("buildSubmissionCard", () => {
     expect(ls.some((l) => l.endsWith("3 remain open"))).toBe(true);
   });
 
+  test("first answers never render the (unanswered) sentinel; clearances keep `→ (unanswered)`", () => {
+    const data = card({
+      changed: [
+        entry({ from: "(unanswered)", to: "Alpha" }),
+        entry({ id: "q2", title: "Cache", from: "none", to: "(unanswered)" }),
+      ],
+    });
+    for (const opts of [collapsed, expanded]) {
+      const ls = lines(buildSubmissionCard(msg(data), opts, stubTheme));
+      // First-time answer: `{title}: {to}` alone — no arrow, no sentinel.
+      expect(ls.some((l) => l.includes("Database: Alpha"))).toBe(true);
+      // Clearance keeps the full form — it IS unanswered now (honest).
+      expect(ls.some((l) => l.includes("Cache: none → (unanswered)"))).toBe(true);
+      // The sentinel NEVER appears as a was-unanswered from-side label.
+      expect(ls.some((l) => l.includes("(unanswered) →"))).toBe(false);
+    }
+  });
+
   test("AC-13: editedArchived entry renders the (changed) marker, styled warning", () => {
     const data = card({ changed: [entry({ editedArchived: true })] });
     const out = buildSubmissionCard(msg(data), collapsed, stubTheme);

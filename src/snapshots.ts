@@ -53,8 +53,17 @@ export function submissionBaselineOf(state: InterrogationState): SerializedState
   return { goal: "", epoch: 0, order: [], questions: {}, completed: false };
 }
 
-/** Summary used on either diff side when the question/answer is missing. */
-const UNANSWERED = "(unanswered)";
+/**
+ * Summary used on either diff side when the question/answer is missing.
+ * Exported because the user-facing card renderer (renderers.ts) must DETECT
+ * it on the `from` side to suppress the misleading `"(unanswered) → X""
+ * first-answer presentation: a question that just got its first answer must
+ * never read as unanswered (and the collapsed 80-col truncation can cut the
+ * answer right after the sentinel, leaving "(unanswered)" as the visible
+ * takeaway). Model-facing surfaces (digestSince segments, delivery content
+ * entries) keep the sentinel — the data layer always carries it.
+ */
+export const UNANSWERED_SUMMARY = "(unanswered)";
 
 /**
  * One changed answer in a submission diff (h2.36 / AC-13).
@@ -90,8 +99,11 @@ export interface DiffEntry {
 
 /**
  * Shape consumed by the submission card renderer (P1.M7.T3.S1, ui-spec.md
- * h2.36: "{title}: {old} → {new (changed)}" + NOTE: line + "{open} remain
- * open") and the delivery delta builder (P1.M2.T1.S1).
+ * h2.36: "{title}: {old} → {new (changed)}" — the renderer shows the
+ * `{old} → ` half ONLY when `from` is a real prior answer (a first-time
+ * answer renders `{title}: {new}` alone; `from === UNANSWERED_SUMMARY` is
+ * never displayed as the from side) — + NOTE: line + "{open} remain open")
+ * and the delivery delta builder (P1.M2.T1.S1).
  */
 export interface SubmissionCardData {
   /** One entry per question whose answer signature changed. */
@@ -155,7 +167,7 @@ const flatten = (s: string): string => s.replace(/[\n\t]+/g, " / ");
  */
 function answerSummary(q: Question | undefined): string {
   const answer = q?.answer;
-  if (q === undefined || answer === undefined) return UNANSWERED;
+  if (q === undefined || answer === undefined) return UNANSWERED_SUMMARY;
   // WRITEIN-001 (h2.42): value holds free text — ✎ prefix, never an option
   // lookup. Checked BEFORE the choice/text dispatch so a custom value that
   // collides with a real option value still renders as a write-in.

@@ -55,7 +55,7 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import type { CompletionMessage } from "./delivery.js";
 import { INTERROGATION_STATE_ENTRY_TYPE } from "./persistence.js";
-import type { SubmissionCardData } from "./snapshots.js";
+import { UNANSWERED_SUMMARY, type SubmissionCardData } from "./snapshots.js";
 
 /** Visible-column budget for each collapsed card line (h2.36 compact card). */
 export const COLLAPSED_LINE_BUDGET = 80;
@@ -101,7 +101,10 @@ export interface SubmissionCardMessage {
  *
  * ```
  * Submitted {k} changed · epoch {n}
- *   {title}: {from} → {to}[ (changed)]     ← ≤ cap lines, 80-col truncation
+ *   {title}: {to}[ (changed)]              ← FIRST answers — never
+ *                                           "(unanswered)" (≤ cap lines,
+ *                                           80-col truncation)
+ *   {title}: {from} → {to}[ (changed)]     ← RE-answers (real prior answer)
  *   [+{m} more]                            ← rollup when over the cap
  *   [NOTE: {note}]                         ← only when a note shipped
  * {remainOpen} remain open
@@ -173,7 +176,19 @@ export function buildSubmissionCard(
   // expanded branch shows the full write-in text.
   const shown = expanded ? entries : entries.slice(0, COLLAPSED_ENTRY_CAP);
   for (const e of shown) {
-    let line = `${INDENT}${e?.title ?? ""}: ${e?.from ?? ""} → ${e?.to ?? ""}`;
+    // A FIRST-TIME answer never renders the "(unanswered)" sentinel as the
+    // from side — "Question q1: (unanswered) → Alpha" reads as unanswered
+    // AFTER the user answered it (and collapsed 80-col truncation can cut
+    // the answer off right after the sentinel, making "(unanswered)" the
+    // visible takeaway). First answers render `{title}: {to}` alone; only
+    // re-answers — a real prior answer existed — show `{from} → {to}`.
+    // Answer CLEARANCES keep the full form: `Alpha → (unanswered)` is
+    // honest (the question IS unanswered now).
+    const from = e?.from ?? "";
+    const hadPriorAnswer = from !== "" && from !== UNANSWERED_SUMMARY;
+    let line = hadPriorAnswer
+      ? `${INDENT}${e?.title ?? ""}: ${from} → ${e?.to ?? ""}`
+      : `${INDENT}${e?.title ?? ""}: ${e?.to ?? ""}`;
     if (e?.editedArchived) line += theme.fg("warning", CHANGED_MARKER); // AC-13
     box.addChild(new Text(expanded ? line : truncateToWidth(line, COLLAPSED_LINE_BUDGET), outputPad, 0));
   }

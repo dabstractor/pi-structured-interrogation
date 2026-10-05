@@ -301,18 +301,30 @@ export function renderDutyLabel(
 /**
  * Status marker fragment for the question line's right side, e.g.
  * `" ⟳ re-asked"` (leading space separator; "" when no marker applies).
- * Markers: `⟳ re-asked`, `✎ text answer` (text questions, elaborations,
- * and write-ins — custom answers), `⊘ moot` (+ reason from the
- * answer text, dimmed), `⊗ withdrawn` — only the applicable ones, joined
- * with " · ". The whole fragment is dim-wrapped so visibleWidth accounting
- * stays ANSI-safe (marker glyphs may be double-width — always measure,
- * never assume 1 col per glyph). The moot reason is capped at
- * {@link MARKER_REASON_CAP} columns so one verbose reason cannot crowd out
- * the question text on ordinary widths.
+ * Markers: `⟳ re-asked`, `★ answered` (FR-D10 — any status carrying
+ * `q.answer` EXCEPT moot/withdrawn: answered/submitted/closed — parity
+ * with overview.ts markerParts, h2.28 record-derived answered; h2.38
+ * archived questions still show ★), `✎ text answer` (text questions,
+ * elaborations, and write-ins — custom answers), `⊘ moot` (+ reason from
+ * the answer text, dimmed), `⊗ withdrawn` — only the applicable ones,
+ * joined with " · ". `⟳ re-asked` overrides ★ (the re-ask is the freshest
+ * fact, same precedence as the overview; structural — status is one enum
+ * value, so they never co-occur) and ★ composes with `✎ text answer`
+ * (joined with " · ": `" ★ answered · ✎ text answer"`). The whole fragment
+ * is dim-wrapped so visibleWidth accounting stays ANSI-safe (marker glyphs
+ * may be double-width — always measure, never assume 1 col per glyph). The
+ * moot reason is capped at {@link MARKER_REASON_CAP} columns so one verbose
+ * reason cannot crowd out the question text on ordinary widths.
  */
 export function statusMarkers(q: Question, theme: Theme): string {
   const parts: string[] = [];
   if (q.status === "reasked") parts.push("⟳ re-asked");
+  if (
+    q.answer !== undefined &&
+    (q.status === "answered" || q.status === "submitted" || q.status === "closed")
+  ) {
+    parts.push("★ answered");
+  }
   if (hasTextAnswer(q)) parts.push("✎ text answer");
   if (q.status === "moot") {
     const reason = truncateVisible(q.answer?.text ?? "", MARKER_REASON_CAP);

@@ -167,14 +167,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "FR-D10 — ★ answered marker on the short-view question line",
-              "status": "Planned",
+              "status": "Complete",
               "description": "statusMarkers gains the ★ answered marker with overview parity: answer present && status ∈ {answered, submitted, closed}; moot/withdrawn excluded; ⟳ re-asked overrides; composes with the ✎ write-in marker.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S7",
                   "title": "statusMarkers: add ★ answered marker (overview parity)",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Markers — src/panel/layout.ts:313 `statusMarkers(q: Question, theme: Theme): string`, consumed at :362 for the short-view question line; parity source src/panel/overview.ts:111-112: \"★ answered — any status carrying q.answer EXCEPT moot/withdrawn (answered/submitted/closed)\"; ⟳ re-asked overrides, as in the overview vocabulary.\n2. INPUT: question record with answer + status from state; the existing ✎ text-answer marker in the same function.\n3. LOGIC: Implement FR-D10: emit ★ when answer present && status ∈ {answered, submitted, closed}; exclude moot/withdrawn; ⟳ overrides; must COMPOSE with the existing ✎ marker for write-ins. Tests in src/panel/layout.test.ts: marker present per status, exclusions (moot/withdrawn/⟳), write-in composition (★ + ✎). Check src/panel/overview.test.ts ~:412/452 — flip/extend only if they assert question-line parity; otherwise leave to P1.M1.T5.S9. Mock: none.\n4. OUTPUT: updated statusMarkers vocabulary rendered on the short-view question line; consumed by the AC-16 walk-through in P1.M1.T5.S10.\n5. DOCS: [Mode A] JSDoc on statusMarkers stating marker semantics + the overview-parity rule.",

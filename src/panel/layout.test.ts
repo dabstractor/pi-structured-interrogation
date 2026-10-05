@@ -170,12 +170,12 @@ describe("statusMarkers", () => {
       status: "answered",
       answer: { value: "some text", at: "2026-01-01T00:00:00Z" },
     });
-    expect(statusMarkers(textQ, theme)).toBe(" ✎ text answer");
+    expect(statusMarkers(textQ, theme)).toBe(" ★ answered · ✎ text answer");
     const choiceWithNote = mkQuestion("q1", {
       status: "submitted",
       answer: { value: "a", text: "elaboration", at: "2026-01-01T00:00:00Z" },
     });
-    expect(statusMarkers(choiceWithNote, theme)).toBe(" ✎ text answer");
+    expect(statusMarkers(choiceWithNote, theme)).toBe(" ★ answered · ✎ text answer");
   });
 
   test("writein_choice_answer_shows_text_answer_marker", () => {
@@ -183,7 +183,7 @@ describe("statusMarkers", () => {
       status: "answered",
       answer: { value: "my write-in", custom: true, at: "2026-01-01T00:00:00Z" },
     });
-    expect(statusMarkers(q, theme)).toBe(" ✎ text answer");
+    expect(statusMarkers(q, theme)).toBe(" ★ answered · ✎ text answer");
   });
 
   test("writein_submitted_status_also_marks", () => {
@@ -191,7 +191,7 @@ describe("statusMarkers", () => {
       status: "submitted",
       answer: { value: "my write-in", custom: true, at: "2026-01-01T00:00:00Z" },
     });
-    expect(statusMarkers(q, theme)).toBe(" ✎ text answer");
+    expect(statusMarkers(q, theme)).toBe(" ★ answered · ✎ text answer");
   });
 
   test("custom_strict_true_only_corrupt_truthy_rejected", () => {
@@ -199,15 +199,38 @@ describe("statusMarkers", () => {
       status: "answered",
       answer: { value: "x", custom: "yes" as unknown as boolean, at: "2026-01-01T00:00:00Z" },
     });
-    expect(statusMarkers(q, theme)).toBe(""); // corrupt truthy is NOT a write-in (strict === true)
+    expect(statusMarkers(q, theme)).toBe(" ★ answered"); // ★ yes — record-derived; ✎ no — strict === true (not a write-in)
   });
 
-  test("plain_option_answer_still_no_marker", () => {
+  test("plain_option_answer_shows_star_answered_marker", () => {
     const q = mkQuestion("q1", {
       status: "answered",
       answer: { value: "a", at: "2026-01-01T00:00:00Z" },
     });
-    expect(statusMarkers(q, theme)).toBe("");
+    expect(statusMarkers(q, theme)).toBe(" ★ answered");
+  });
+
+  test("star_answered_marker_per_status_answered_submitted_closed", () => {
+    for (const status of ["answered", "submitted", "closed"] as QuestionStatus[]) {
+      const q = mkQuestion("q1", {
+        status,
+        answer: { value: "a", at: "2026-01-01T00:00:00Z" },
+      });
+      expect(statusMarkers(q, theme)).toBe(" ★ answered");
+    }
+  });
+
+  test("star_answered_excludes_reasked_moot_withdrawn_even_with_residual_answer", () => {
+    const at = "2026-01-01T00:00:00Z";
+    expect(
+      statusMarkers(mkQuestion("q1", { status: "reasked", answer: { value: "a", at } }), theme),
+    ).toBe(" ⟳ re-asked"); // ⟳ overrides ★ (status enum — they never co-occur)
+    expect(
+      statusMarkers(mkQuestion("q1", { status: "moot", answer: { value: "", text: "reason", at } }), theme),
+    ).toBe(" ⊘ moot reason");
+    expect(
+      statusMarkers(mkQuestion("q1", { status: "withdrawn", answer: { value: "a", at } }), theme),
+    ).toBe(" ⊗ withdrawn");
   });
 });
 
@@ -234,6 +257,7 @@ describe("renderQuestionLine", () => {
     });
     const line = renderQuestionLine(q, 1, 2, theme, 100);
     expect(line).toContain("✎ text answer");
+    expect(line).toContain("★ answered"); // ★ composes with ✎ on the rendered line (FR-D10)
     expect(visibleWidth(line)).toBeLessThanOrEqual(100);
   });
 

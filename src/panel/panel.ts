@@ -1031,10 +1031,12 @@ export class InterrogationPanel implements Component {
   setView(view: PanelView): void {
     if (this.view === view) return;
     this.view = view;
-    // Deep entry (P1.M5.T1.S1): seed the selection to the ★ recommendation
-    // (clamped into the deep cursor domain — no ✎ index) and reset the
-    // scroll window ONCE per entry; deepSticky bookkeeping stays with the
-    // router's onDeep/onOverview seams.
+    // Deep entry (P1.M5.T1.S1): seed the selection via deepSeedCursorIndex —
+    // ANSWER-PIN-001/FR-35: a recorded answer owns the selection (its
+    // display row; the ✎ Other section for write-ins — legal under the
+    // count clamp), ★ preselect only while unanswered — and reset the
+    // scroll window ONCE per entry; deepSticky bookkeeping stays with
+    // the router's onDeep/onOverview seams.
     if (view === "deep") {
       const q =
         this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;

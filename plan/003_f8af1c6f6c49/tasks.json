@@ -195,14 +195,14 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "Purge residual status-agnostic-preselect claims",
-              "status": "Planned",
+              "status": "Implementing",
               "description": "After the seam work lands, sweep every remaining \"answers never pin the cursor\" / status-agnostic-preselect comment in files not already purged by T1/T2 subtasks.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T4.S8",
                   "title": "Comment sweep: keys.ts, overview.ts, residuals",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

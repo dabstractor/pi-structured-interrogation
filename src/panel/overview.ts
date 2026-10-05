@@ -9,8 +9,10 @@
  * status marker, with dimmed group headers inserted at group boundaries
  * and the gate group's header marked `▲`. A cursor row moves with ↑/↓ and
  * the config prevQuestion/nextQuestion accelerators (contract 3); `enter`
- * jumps to the selected question in the SHORT form (focus restored, R2
- * preselect re-seeded via the currentId setter); `esc` descends the
+ * jumps to the selected question in the SHORT form (focus restored; the
+ * currentId setter re-seeds the option cursor per ANSWER-PIN-001/FR-35 —
+ * a recorded answer owns the caret, the ★ preselect applies only while
+ * unanswered); `esc` descends the
  * existing router ladder (deepSticky-aware) without destroying anything
  * (FR-16).
  *
@@ -386,8 +388,11 @@ function stepOverviewCursor(panel: InterrogationPanel, delta: number): boolean {
  *   restores options focus); note focus never reaches here (the panel's
  *   stage-1 enter intercept fires before the router) and is left untouched
  *   defensively — a held note stays held.
- * - `panel.currentId = q.id` re-seeds the short-view option cursor to the
- *   ★ recommendation (R2 preselect) via the setter.
+ * - `panel.currentId = q.id` re-seeds the short-view option cursor via the
+ *   setter — ANSWER-PIN-001/FR-35: a recorded answer (any status carrying
+ *   one) owns the caret — its display row, the ✎ Other row for write-ins;
+ *   the ★ preselect applies only while the target is UNANSWERED. Jump
+ *   targets are unfiltered (R1), so both cases occur.
  * - `panel.setView("short")` + reset the overview scroll offset.
  *
  * No-questions: consumed no-op (`true`) with a transient footer flash —
@@ -402,7 +407,7 @@ export function overviewJump(panel: InterrogationPanel): boolean {
   const q = ordered[panel.overviewCursor];
   if (q === undefined) return false;
   if (panel.focus === "text") panel.blurTextField();
-  panel.currentId = q.id; // setter re-seeds cursorIndex (R2 preselect)
+  panel.currentId = q.id; // setter re-seeds cursorIndex — recorded answer first, else ★ (ANSWER-PIN-001)
   panel.setView("short");
   panel.overviewScroll = 0;
   return true;

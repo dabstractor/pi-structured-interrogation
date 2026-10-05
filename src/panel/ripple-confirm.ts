@@ -155,7 +155,7 @@ export function applyConfirmedEdit(panel: InterrogationPanel): void {
   const ordered = panel.state.orderedQuestions();
   const from = ordered.findIndex((q) => q.id === panel.currentId);
   const nextId = nextUnanswered(ordered, from);
-  if (nextId !== undefined) panel.currentId = nextId; // setter re-seeds cursor (R2)
+  if (nextId !== undefined) panel.currentId = nextId; // setter seeds cursor — ★ for this unanswered target (ANSWER-PIN-001)
   panel.invalidate();
   maybeAutoSubmit(panel, undefined, { wasUnanswered: false, questionId: cm.questionId }); // AUTOSUBMIT-003: the applied ripple commit is always an EDIT — rule (b) territory (last-sequential-answerable)
 }
@@ -301,7 +301,7 @@ export function applyWriteInConfirm(panel: InterrogationPanel): void {
   const ordered = panel.state.orderedQuestions();
   const from = ordered.findIndex((entry) => entry.id === panel.currentId);
   const nextId = nextUnanswered(ordered, from);
-  if (nextId !== undefined) panel.currentId = nextId; // setter re-seeds cursor (R2)
+  if (nextId !== undefined) panel.currentId = nextId; // setter seeds cursor — ★ for this unanswered target (ANSWER-PIN-001)
   panel.blurTextField(); // AFTER advance (S1's ordering: advance's cursor reset wins), resets duty
   panel.invalidate();
   maybeAutoSubmit(panel, undefined, { wasUnanswered: false, questionId: cm.questionId }); // AUTOSUBMIT-003: applied write-in edit — rule (b) territory

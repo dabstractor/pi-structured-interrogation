@@ -321,10 +321,11 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
  * {@link acceptOptionIndex}'s post-commit sequence exactly (h2.42 answer
  * shape: value holds the user's own text, custom: true marks the write-in;
  * no option is selected). EMPTY buffer: save the draft + blur back to
- * Buffer: EMPTY buffer: save the draft + blur back to
  * options, NO commit (nothing answered — h2.32) via the shared
- * commitTextDraft tail (draft slot + DraftStore seam + EXPLAIN-003 ★
- * re-seed) with arming explicitly off. BYTE-IDENTICAL buffer FIRST (a
+ * commitTextDraft tail (draft slot + DraftStore seam + cursor re-seed —
+ * ANSWER-PIN-001: the recorded answer's row when one exists, else the ★
+ * preselect; supersedes EXPLAIN-003's re-seed-to-★ clause, h2.65 ruling
+ * 5) with arming explicitly off. BYTE-IDENTICAL buffer FIRST (a
  * byte-identical write-in re-commit — a recorded custom write-in, or any
  * recorded value on text questions — is an inert no-op: consume + advance
  * + blur only; no modal, applyAnswer, moot recompute, or auto-submit —
@@ -354,8 +355,9 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
   const text = panel.textField.getText();
   if (text.trim().length === 0) {
     // Empty: draft write-through + blur, no commit (R4) — reuse the
-    // existing save tail (draftSlots + DraftStore seam + EXPLAIN-003
-    // cursor re-seed to ★), explicitly NOT a commit.
+    // existing save tail (draftSlots + DraftStore seam + cursor re-seed —
+    // ANSWER-PIN-001: recorded answer first, ★ only while unanswered),
+    // explicitly NOT a commit.
     panel.commitTextDraft(q.id, text);
     return true;
   }
@@ -401,7 +403,7 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
   // of the new choice). Must precede advanceAfterAccept: the currentId
   // setter's syncBufferToQuestion write-through fires inside it.
   panel.consumeCommittedBuffer(q.id);
-  advanceAfterAccept(panel); // Q14 parity: currentId → next unanswered, cursor → ★ preselect
+  advanceAfterAccept(panel); // Q14 parity: currentId → next unanswered; its cursor seed is the ★ preselect (target is unanswered — ANSWER-PIN-001)
   panel.blurTextField(); // resets textDuty to "elaboration"
   maybeAutoSubmit(panel, undefined, { wasUnanswered: status === "open" || status === "reasked", questionId: q.id }); // AUTOSUBMIT-001/003, direct-commit exit ONLY (never the empty-buffer or deferred exits)
   return true;
@@ -410,8 +412,11 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
 /**
  * Move to the next unanswered question (nextUnanswered — forward scan with
  * wrap); when none remains (all answered, or only moot/withdrawn/closed),
- * STAY on the current question. Assigning currentId re-seeds cursorIndex to
- * the ★ recommendation preselect via the panel's own setter.
+ * STAY on the current question. Assigning currentId re-seeds cursorIndex
+ * via the panel's own setter (ANSWER-PIN-001/FR-35: a recorded answer
+ * owns the caret; ★ preselect only while unanswered — the nextUnanswered
+ * target is unanswered by construction, so its seed is the ★ when a
+ * recommendation exists, else display row 0).
  */
 function advanceAfterAccept(panel: InterrogationPanel): void {
   const ordered = panel.state.orderedQuestions();
@@ -425,7 +430,9 @@ function advanceAfterAccept(panel: InterrogationPanel): void {
  * Previous question (R1/FR-9): ±1 over orderedQuestions() with NO status
  * filtering — open, answered, reasked, moot, withdrawn, closed are all
  * navigable — clamped at the ends (wrap belongs only to advance). Cursor
- * resets to the ★ preselect via the currentId setter on every change.
+ * re-seeds via the currentId setter on every change (ANSWER-PIN-001: a
+ * recorded answer owns the caret — R1 navigation reaches answered
+ * questions, so the caret follows their recorded answers, not the ★).
  */
 export function prevQuestion(panel: InterrogationPanel): boolean {
   return stepQuestion(panel, -1);
@@ -443,7 +450,7 @@ function stepQuestion(panel: InterrogationPanel, delta: number): boolean {
   if (idx === -1) return false;
   const next = Math.min(ordered.length - 1, Math.max(0, idx + delta));
   if (next !== idx) {
-    panel.currentId = ordered[next].id; // setter re-seeds cursorIndex (R2)
+    panel.currentId = ordered[next].id; // setter re-seeds cursorIndex — recorded answer first, else ★ (ANSWER-PIN-001)
     panel.invalidate();
   }
   return true;

@@ -437,8 +437,9 @@ export function buildKeyRouter(
     // 3. Fixed enter — options focus only. In text focus enter FORWARDS so
     // the embedded text field implements its two-stage save (P1.M4.T1.S2).
     // Overview (P1.M5.T2.S1): enter JUMPS to the selected question in the
-    // short form (overviewJump — restores options focus, R2 preselect via
-    // the currentId setter). Deep view (P1.M5.T1.S1): enter accepts the
+    // short form (overviewJump — restores options focus; the currentId
+    // setter re-seeds the cursor per ANSWER-PIN-001 — recorded answer
+    // first, ★ only while unanswered). Deep view (P1.M5.T1.S1): enter accepts the
     // highlighted option and returns to the short view (acceptFromDeep —
     // text/moot/withdrawn are consumed no-ops there).
     if (panel.focus !== "text" && matchesKey(data, Key.enter)) {

@@ -45,6 +45,16 @@ materialize; runtime loads via jiti against pi's tree.
    IS the answer and `enter` commits it immediately. On a `type:"text"`
    question, `enter` on the `✎ answer…` affordance itself opens the editor
    in the write-in duty — `ctrl+t` is not the only entry.
+   Revisits are answer-first: on any question that already carries an answer,
+   the caret and highlight sit on that recorded answer in every view — the
+   ★ recommendation stays visible on its own row but never owns the caret
+   once an answer exists — and `enter` or a digit on the recorded value
+   just moves you along — no state change, no resubmission, no confirm.
+   Changing an answer takes an explicit different choice (another row, a
+   different digit, edited write-in text), which raises the invalidation
+   confirm when it would moot dependent questions. A write-in answer pins
+   the caret to its `✎ Other` row (with a dimmed preview of the text), and
+   answered questions carry the ★ answered marker on the question line.
 3. Submitting is mostly automatic: answering the last open question — by
    option accept, `✎ Other` write-in, or text `enter` — ships the submission
    for you (footer flashes `submitted — {n} answer(s)`), and an edit made
@@ -249,8 +259,8 @@ Unknown subcommands print a usage line — nothing ever throws.
 
 The acceptance list lives in
 [`spec/product-requirements.md`](spec/product-requirements.md); this delta
-extends it to 2a–2d and 15. Summary (scripted where possible — see the spec
-for the full text and the scripted tests proving each):
+extends it to 2a–2d, 15, and 16. Summary (scripted where possible — see
+the spec for the full text and the scripted tests proving each):
 
 1. Model upserts questions across groups with one gate group → panel opens; gate focused; other groups dimmed but answerable.
 2. Partial `ctrl+s` → compact delta + reminder; epoch bumps; remainder stays open.
@@ -271,6 +281,7 @@ for the full text and the scripted tests proving each):
 13. Editing an archived answer re-marks it pending; next diff card highlights the change.
 14. All questions closed → completion record injected once; recap card in transcript.
 15. **Reads never surface (SURFACE-001)**: a model `interrogate({})` read completes → panel stays closed, editor untouched — for live, all-answered, and completed states alike.
+16. **Answer pinning (ANSWER-PIN-001)**: revisit an answered question → caret + highlight sit on the recorded answer (★ visible on its own row, never owning the caret); `enter`/digit on the recorded value is a zero-state-change advance; a byte-identical write-in re-commit is inert; a DIFFERENT choice raises the FR-18 invalidation confirm.
 
 ## Limitations
 

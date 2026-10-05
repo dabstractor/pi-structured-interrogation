@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "Phase D1 — Answer pinning (ANSWER-PIN-001 / FR-35, spec M9)",
-      "status": "Planned",
+      "status": "Complete",
       "description": "A recorded answer owns the caret in every view and on every entry path; same-value commits are inert no-ops that only advance; FR-18 confirm fires only on an explicit different choice; ★ answered marker on the short-view question line. Only the unshipped remainder of the spec (de633b0) — everything else in the PRD diff already shipped through c7d44c0 (cite, don't rebuild). Non-goals: no config surface, no auto-submit/gate changes, no state-machine/rev/epoch/persistence changes.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "D1.M1 — The caret follows the recorded answer",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Single milestone delivering FR-D8 (cursor seeding pins to the recorded answer), FR-D9 (inert same-value commits on all accept paths), FR-D10 (★ answered marker), the status-agnostic-preselect comment purge, test flips, AC-16, and changeset-level docs.",
           "tasks": [
             {
@@ -284,14 +284,14 @@
               "type": "Task",
               "id": "P1.M1.T6",
               "title": "Sync changeset-level documentation (Mode B)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Final catch-all: README.md gains the revisit usage sentence and AC-16 in the acceptance-criteria summary. Runs after every implementing subtask.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T6.S11",
                   "title": "README.md: revisit usage + AC-16 in acceptance list",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

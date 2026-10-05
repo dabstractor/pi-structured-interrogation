@@ -390,6 +390,116 @@ describe("accept on answered — ripple-confirm seam (AC-13)", () => {
   });
 });
 
+describe("accept same-value — inert no-op (ANSWER-PIN-001 / FR-D9)", () => {
+  test("test_same_value_accept_on_answered_is_inert_and_advances", () => {
+    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
+    const confirmRipple = seamMock(true);
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1"; // T1: caret seeds to the recorded "a" (display row 0)
+    expect(panel.cursorIndex).toBe(0);
+    expect(accept(panel)).toBe(true);
+    // Inert: the seam is NEVER consulted for a same-value re-commit.
+    expect(confirmRipple).toHaveBeenCalledTimes(0);
+    const q1 = state.getQuestion("q1");
+    expect(q1?.answer?.value).toBe("a");
+    expect(q1?.answer?.at).toBe(T0); // no fresh timestamp — the core prohibition
+    expect(q1?.status).toBe("answered");
+    // Q14 rhythm: still advances to the next unanswered question.
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_same_value_digit_inherits_inert_no_op", () => {
+    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
+    const confirmRipple = seamMock(true);
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1";
+    expect(digit(panel, 1)).toBe(true); // option 1 = "a" — the recorded value
+    expect(confirmRipple).toHaveBeenCalledTimes(0); // digit inherits via acceptOptionIndex
+    expect(state.getQuestion("q1")?.answer?.at).toBe(T0);
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_same_value_on_submitted_is_inert", () => {
+    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
+    state.setStatus("q1", "submitted"); // submitted WITH its recorded answer
+    const confirmRipple = seamMock(true);
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1";
+    expect(accept(panel)).toBe(true);
+    expect(confirmRipple).toHaveBeenCalledTimes(0);
+    const q1 = state.getQuestion("q1");
+    expect(q1?.status).toBe("submitted"); // flushed stays flushed
+    expect(q1?.answer?.at).toBe(T0);
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_same_value_on_closed_stays_closed_not_remarked_pending", () => {
+    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
+    state.setStatus("q1", "closed"); // archived WITH its recorded answer
+    const confirmRipple = seamMock(true);
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1";
+    expect(accept(panel)).toBe(true);
+    expect(confirmRipple).toHaveBeenCalledTimes(0);
+    const q1 = state.getQuestion("q1");
+    // AC-13's "editing re-marks pending" applies to CHANGES only — a
+    // same-value re-commit is not an edit, so the archive stays intact.
+    expect(q1?.status).toBe("closed");
+    expect(q1?.answer?.value).toBe("a");
+    expect(q1?.answer?.at).toBe(T0);
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_custom_answer_matching_option_value_is_not_inert", () => {
+    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
+    // Write-in whose text byte-equals option "a" — a different-KIND commit
+    // (accepting the option would flip the custom flag), so NOT inert.
+    state.applyAnswer("q1", { value: "a", custom: true, at: T0 });
+    const confirmRipple = seamMock(true);
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1"; // custom pins the caret to the ✎ Other row (T1)
+    panel.cursorIndex = 0; // explicitly target option "a"
+    expect(accept(panel)).toBe(true);
+    // Routes through the seam like any edit (FR-18)…
+    expect(confirmRipple).toHaveBeenCalledTimes(1);
+    expect(confirmRipple.mock.calls[0]?.[2]?.value).toBe("a");
+    // …and commits: the option accept replaces the write-in (custom off).
+    expect(state.getQuestion("q1")?.answer?.custom).toBeUndefined();
+  });
+
+  test("test_different_value_still_routes_through_seam", () => {
+    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
+    const confirmRipple = seamMock(true);
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1";
+    panel.cursorIndex = 1; // option "b" — DIFFERENT from the stored "a"
+    expect(accept(panel)).toBe(true);
+    expect(confirmRipple).toHaveBeenCalledTimes(1);
+    expect(confirmRipple.mock.calls[0]?.[2]?.value).toBe("b"); // FR-18 regression guard
+  });
+
+  test("test_same_value_on_complete_set_does_not_auto_submit", () => {
+    // AUTOSUBMIT-003 rule (b) position: complete set (all answered, ≥1
+    // pending), currentId = the LAST answerable question. Today a
+    // same-value accept counts as an "edit commit" and ships a phantom
+    // submission; the inert no-op must suppress that entirely.
+    const state = seed([
+      { id: "q1", overrides: { status: "answered" } },
+      { id: "q2", overrides: { status: "answered" } },
+      { id: "q3", overrides: { status: "answered" } },
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch;
+    panel.currentId = "q3"; // last answerable; caret pins to the recorded "a"
+    expect(accept(panel)).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(0);
+    expect(state.epoch).toBe(epochBefore); // no bump — nothing shipped
+    expect(panel.footerFlash).toBeUndefined(); // no "submitted — " flash
+    expect(state.getQuestion("q3")?.answer?.at).toBe(T0);
+  });
+});
+
 describe("digit — quick-select (R5)", () => {
   test("test_e_digit_accepts_option_and_advances_like_accept", () => {
     const state = seed(BASIC);

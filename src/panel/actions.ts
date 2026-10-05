@@ -179,8 +179,8 @@ export function optionDown(panel: InterrogationPanel): boolean {
 
 /**
  * Digit quick-select (R5): accept option `n-1` (1-based) through the SAME
- * path as accept — ripple seam on answered/submitted, moot/withdrawn no-op,
- * advance after commit. Requires config.digitQuickSelect. Out of range
+ * path as accept — same-value re-commit inert (ANSWER-PIN-001), ripple seam
+ * on answered/submitted edits, moot/withdrawn no-op, advance after commit. Requires config.digitQuickSelect. Out of range
  * (`n-1` past the option count — the ✎ Other write-in row is NOT
  * digit-selectable, h2.36: quick-select covers REAL options only),
  * on text questions, or with quick-select disabled → no-op returning false
@@ -208,8 +208,8 @@ export function digit(panel: InterrogationPanel, n: number): boolean {
  *   textDuty="writein" + focusTextField (seeded from the freshest draft);
  *   enter in that duty COMMITS the buffer as the answer via writeInEnter
  *   (WRITEIN-001, Q14 parity).
- * - Cursor on an option → acceptOptionIndex (ripple seam on edit, commit,
- *   advance).
+ * - Cursor on an option → acceptOptionIndex (same-value re-commit inert —
+ *   ANSWER-PIN-001; ripple seam on edit, commit, advance).
  */
 export function accept(panel: InterrogationPanel): boolean {
   const q = currentQuestion(panel);
@@ -236,10 +236,14 @@ export function accept(panel: InterrogationPanel): boolean {
 }
 
 /**
- * Shared commit path for accept + digit: route answered/submitted edits
- * through the ripple-confirm seam FIRST (AC-13 — a veto skips everything),
- * applyAnswer (status → answered, the pending state per h2.38), then
- * advance.
+ * Shared commit path for accept + digit + deep view. Same-value re-commit
+ * FIRST (ANSWER-PIN-001 / FR-D9): a non-custom recorded answer whose value
+ * byte-equals the proposed option is an INERT NO-OP that advances (Q14
+ * rhythm) — no ripple seam, no applyAnswer (answer.at is never rewritten),
+ * no moot recompute, no auto-submit; digit inherits for free. Otherwise:
+ * route answered/submitted edits through the ripple-confirm seam FIRST
+ * (AC-13 — a veto skips everything), applyAnswer (status → answered, the
+ * pending state per h2.38), then advance.
  */
 export function acceptOptionIndex(panel: InterrogationPanel, q: Question, optionIndex: number): boolean {
   // D-R13 (2026-09-30): optionIndex is a DISPLAY position (recommended-first
@@ -247,6 +251,18 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   // cursor domain, digits, and deep view can all speak display positions.
   const opt = displayOptions(q)[optionIndex];
   if (opt === undefined) return false;
+  // ANSWER-PIN-001 / FR-D9: enter (or digit) on the ALREADY-RECORDED value
+  // is a state no-op that advances — never a re-proposal. Checked BEFORE
+  // the ripple seam: a same-value re-commit is not a change (FR-18), so
+  // no modal, no applyAnswer (no fresh answer.at), no evaluateDependsOn,
+  // no maybeAutoSubmit. Non-custom only: a write-in answer (custom) whose
+  // text byte-equals an option value is a different-KIND commit (it would
+  // flip the custom flag) and routes through the seam like any edit.
+  const recorded = q.answer;
+  if (recorded !== undefined && recorded.custom !== true && recorded.value === opt.value) {
+    advanceAfterAccept(panel); // Q14 rhythm: advance only, no state write
+    return true;
+  }
   const proposed = { value: opt.value, at: new Date().toISOString() };
   // AUTOSUBMIT-003 commit context: open/reasked pre-commit = this accept can
   // be the last-unanswered TRANSITION; answered/submitted = an edit.

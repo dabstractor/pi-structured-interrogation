@@ -992,8 +992,38 @@ describe("write-in duty (WRITEIN-001, FR-D1)", () => {
     expect(q1.status).toBe("open");
     expect(panel.draftTextFor("q1")).toBe(""); // draft slot + DraftStore seam written
     expect(panel.focus).toBe("options"); // blurred back to options
-    expect(panel.cursorIndex).toBe(0); // EXPLAIN-003 ★ re-seed off the Other row
+    expect(panel.cursorIndex).toBe(0); // EXPLAIN-003 re-seed: q1 UNANSWERED → ★ row 0 (ANSWER-PIN-001)
     expect(panel.textDuty).toBe("elaboration");
+  });
+
+  test("test_wi_enter_empty_buffer_reseeds_to_recorded_answer_row", () => {
+    // EXPLAIN-003 × ANSWER-PIN-001 (FR-35): with a recorded answer, the
+    // editor-close re-seed lands on the ANSWER's display row — never the ★
+    // row, never 0-by-default. D-R13 display order is recommended-first:
+    // options [a,b] + recommendation "b" + answer "a" → display [b(★), a],
+    // so the recorded "a" owns display row 1 (row 0 is the ★ Beta row).
+    const state = seed([
+      { id: "q1", overrides: { recommendation: "b", status: "answered", answer: { value: "a", at: T0 } } },
+    ]);
+    const { panel } = makePanel(state, { drafts: new DraftStore() });
+    panel.currentId = "q1";
+    panel.cursorIndex = 2; // parked on the ✎ affordance
+    accept(panel); // → write-in duty, editor focused
+    expect(panel.textField.getText()).toBe(""); // no draft seeded
+
+    expect(panel.handleInput("\r")).toBe(true); // empty buffer + enter → draft save, NO commit
+
+    const q1 = state.getQuestion("q1")!;
+    expect(q1.answer?.value).toBe("a"); // answer untouched — a draft save is not an answer gesture
+    expect(q1.status).toBe("answered");
+    expect(panel.draftTextFor("q1")).toBe(""); // draft slot + DraftStore seam written
+    expect(panel.focus).toBe("options"); // blurred back to options
+    expect(panel.cursorIndex).toBe(1); // the RECORDED answer's display row (D-R13) — not 0, not ★
+    expect(panel.textDuty).toBe("elaboration");
+    // The rendered cursor ▸ sits on the recorded answer's row, not the ★ row.
+    const lines = panel.render(80);
+    expect(lines.some((l) => l.includes("▸") && l.includes("Alpha"))).toBe(true);
+    expect(lines.some((l) => l.includes("▸") && l.includes("Beta"))).toBe(false);
   });
 
   test("test_wi_commit_reruns_dependsOn", () => {

@@ -620,6 +620,30 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(short.some((l) => l.includes("▸ ★ ") && l.includes("Beta"))).toBe(true);
   });
 
+  test("test_overview_enter_revisit_seeds_to_recorded_answer_row", () => {
+    // ANSWER-PIN-001 (FR-35): the overview jump seeds through the SAME
+    // currentId → initialCursorIndex seam — with a recorded answer, the
+    // caret lands on the ANSWER's display row, never the ★ row. D-R13:
+    // options [a,b] + recommendation "b" + answer "a" → display [b(★), a],
+    // so "a" (Alpha) owns display row 1.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2", { recommendation: "b" }));
+    state.applyAnswer("q2", { value: "a", at: "t" });
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.handleInput(CTRL_L);
+    panel.overviewCursor = 1;
+
+    panel.handleInput(ENTER);
+    expect(panel.view).toBe("short");
+    expect(panel.currentId).toBe("q2");
+    expect(panel.focus).toBe("options");
+    expect(panel.cursorIndex).toBe(1); // the recorded answer's display row (D-R13) — ★ row 0 stays cursorless
+    const short = panel.render(80);
+    expect(short.some((l) => l.includes("▸") && l.includes("Alpha"))).toBe(true);
+    expect(short.some((l) => l.includes("▸ ★ "))).toBe(false); // ▸ never shares the ★ row
+  });
+
   test("test_overview_footer_lists_jump_and_back_keys", () => {
     const state = overviewState();
     const panel = new InterrogationPanel(panelArgsFor(state));

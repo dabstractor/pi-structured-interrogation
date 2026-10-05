@@ -344,9 +344,12 @@ export class InterrogationPanel implements Component {
   private currentIdValue: string | undefined;
 
   /**
-   * Focused question id. Assigning it re-seeds {@link cursorIndex} to the
-   * ★ recommendation preselect (R2) — question changes never carry an old
-   * cursor over. Navigation (P1.M3.T2.S2) mutates cursorIndex directly.
+   * Focused question id. Assigning it re-seeds {@link cursorIndex} via
+   * {@link initialCursorIndex} — a recorded answer OWNS the caret (its
+   * display row, D-R13; the ✎ Other row for write-ins); the ★
+   * recommendation preselect applies only while the question is UNANSWERED
+   * (FR-35 / ANSWER-PIN-001). Question changes never carry an old cursor
+   * over. Navigation (P1.M3.T2.S2) mutates cursorIndex directly.
    */
   get currentId(): string | undefined {
     return this.currentIdValue;
@@ -367,9 +370,11 @@ export class InterrogationPanel implements Component {
   /**
    * Cursor index within the short-view options region (P1.M3.T2.S1). Domain:
    * choice questions 0..options.length (last index = the ✎ affordance);
-   * text questions 0 (the primary affordance). Seeded to the ★
-   * recommendation on every currentId change (R2 — the recommendation is
-   * the preselected cursor position; answers never pin the cursor).
+   * text questions 0 (the primary affordance). Seeded on every currentId
+   * change via {@link initialCursorIndex} (ANSWER-PIN-001 / FR-35): a
+   * recorded answer OWNS the caret — its display row (D-R13), the ✎ Other
+   * row for write-ins — while the ★ recommendation preselect applies only
+   * while the question is UNANSWERED.
    * Lives ONLY on the panel instance: suspend keeps the live component's
    * value; a fresh reopened instance re-seeds from state (h2.29/h2.35).
    * Movement keys are NOT wired here — P1.M3.T2.S2 owns navigation.
@@ -879,11 +884,13 @@ export class InterrogationPanel implements Component {
     if (questionId !== undefined) {
       this.draftSlots.set(questionId, { value: questionId, text });
       this.drafts?.setDraft(questionId, text);
-      // EXPLAIN-003 cursor landing: when the explain editor closes on a
-      // CHOICE question with the cursor resting on the ✎ affordance,
-      // re-seed to the ★ preselect (R2 discipline) — the affordance's job
-      // is done (draft saved) and the next enter should ACCEPT the
-      // recommendation, not re-open the editor.
+      // EXPLAIN-003 cursor landing (ANSWER-PIN-001): when the explain
+      // editor closes on a CHOICE question with the cursor resting on the
+      // ✎ affordance, re-seed via initialCursorIndex — to the RECORDED
+      // answer's display row when one exists (the ✎ row for write-ins),
+      // to the ★ preselect only while the question is UNANSWERED.
+      // Supersedes the old "re-seed to the ★ preselect / next enter should
+      // ACCEPT the recommendation" clause (EXPLAIN-003 — h2.65 ruling 5).
       const q = this.state.getQuestion(questionId);
       if (
         q !== undefined &&
@@ -1100,8 +1107,10 @@ export class InterrogationPanel implements Component {
     this.textField.seed(draft);
     // BUG-004 / WRITEIN-001 "duty follows entry path and cursor position":
     // a text-focus session that spans a question change re-declares its
-    // duty from the NEW question's freshly-reseeded cursor (★ preselect,
-    // set by the currentId setter BEFORE this runs). desiredTextDuty is
+    // duty from the NEW question's freshly-reseeded cursor (via
+    // initialCursorIndex: the recorded answer's row when one exists, ★
+    // preselect only while unanswered — set by the currentId setter BEFORE
+    // this runs). desiredTextDuty is
     // already imported (ctrl+t entry) — keys.ts→panel.ts is type-only, no
     // runtime cycle. The bufferOwner === "note" early-return above keeps
     // note duty question-agnostic, and the focus guard below skips

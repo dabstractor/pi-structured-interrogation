@@ -556,14 +556,17 @@ export function acceptFromDeep(panel: InterrogationPanel): boolean {
 }
 
 /**
- * Seed the deep selection for a question — the ★ recommendation preselect
- * (R2, via {@link initialCursorIndex}) clamped into the deep cursor domain
- * `[0, options.length]` (P1.M2.T6.S1: the synthetic Other index is legal —
- * the clamp bound is `count`, not `count - 1`, so a cursor parked on the
- * Other section is tolerated rather than snapped below it). Zero-option
- * choice questions seed onto the Other row itself (index 0 === count).
- * Used by panel.setView when ENTERING deep view; `currentId`'s own setter
- * already re-seeds on question changes.
+ * Seed the deep selection for a question — via {@link initialCursorIndex},
+ * clamped into the deep cursor domain `[0, options.length]` (P1.M2.T6.S1:
+ * the synthetic Other index is legal — the clamp bound is `count`, not
+ * `count - 1`, so a cursor parked on the Other section is tolerated rather
+ * than snapped below it). ANSWER-PIN-001 (FR-35): a recorded answer owns
+ * the caret — its display row (D-R13), or the ✎ Other index for write-ins
+ * (legal under the `count` clamp; stale values land on display row 0) —
+ * while the ★ recommendation preselect applies only to UNANSWERED
+ * questions. Zero-option choice questions seed onto the Other row itself
+ * (index 0 === count). Used by panel.setView when ENTERING deep view;
+ * `currentId`'s own setter already re-seeds on question changes.
  */
 export function deepSeedCursorIndex(q: Question | undefined): number {
   if (q === undefined || q.type !== "choice") return 0;

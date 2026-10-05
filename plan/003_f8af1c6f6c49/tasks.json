@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "FR-D8 — Cursor seeding pins to the recorded answer",
-              "status": "Ready",
+              "status": "Complete",
               "description": "initialCursorIndex returns the recorded answer's position instead of the status-agnostic ★ preselect; the three seed sites inherit automatically (comments only); tool-schema recommendation description becomes spec-verbatim.",
               "subtasks": [
                 {
@@ -64,7 +64,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "tool-schema recommendation description → spec-verbatim string",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

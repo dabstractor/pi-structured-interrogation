@@ -56,6 +56,14 @@ describe("schema exports", () => {
     expect(props).toContain("rev");
     expect((QuestionSchema as { properties: Record<string, unknown> }).properties.rev).toBeDefined();
   });
+
+  it("recommendation description is the ANSWER-PIN-001 spec-verbatim string (h2.19)", () => {
+    const rec = (QuestionSchema as { properties: Record<string, { description?: string }> })
+      .properties.recommendation;
+    expect(rec?.description).toBe(
+      "Recommended option value; marked ★; preselected only while unanswered — a recorded answer always owns the cursor",
+    );
+  });
 });
 
 // ------------------------------------------------------------------- routing

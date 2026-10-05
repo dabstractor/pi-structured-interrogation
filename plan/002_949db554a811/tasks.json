@@ -633,28 +633,28 @@
       "type": "Phase",
       "id": "P4",
       "title": "Delta closure — verification sweep and changeset-level documentation",
-      "status": "Planned",
+      "status": "Complete",
       "description": "Mode B catch-all: full suite + typecheck + keymap guard green; README.md synced to the whole changeset (write-ins, auto-submit, surfacing, hotkey table, AC list 2a–2d + 15, two-stage references removed).",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P4.M1",
           "title": "Sync changeset-level documentation",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Final task per SOW §5 Mode B — runs after every implementing subtask.",
           "tasks": [
             {
               "type": "Task",
               "id": "P4.M1.T1",
               "title": "Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Complete",
               "description": "README.md changeset sync + full-suite verification sweep. Enumerates the changeset-level doc files and depends on every implementing subtask so it runs last.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T1.S1",
                   "title": "Full verification sweep: vitest suite, typecheck, keymap guard",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -690,7 +690,7 @@
                   "type": "Subtask",
                   "id": "P4.M1.T1.S2",
                   "title": "README.md changeset sync (Mode B)",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",

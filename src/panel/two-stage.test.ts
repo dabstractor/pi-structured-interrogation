@@ -517,9 +517,13 @@ describe("VAL-002 — committed write-in is consumed, never re-bound as elaborat
     // draft pipeline (that stale copy was Issue B's poison).
     expect(drafts.setDraft).not.toHaveBeenCalled();
     expect(panel.draftTextFor("q1")).toBeUndefined();
-    // Change of mind: supersede the write-in with the ★ option.
+    // Change of mind: supersede the write-in with the ★ option. FR-35 note:
+    // the revisit now re-seeds to the recorded ✎ row (ANSWER-PIN-001), so
+    // the test drives to "a" explicitly instead of relying on the old
+    // ★-reseed ("a" is display row 0 — leads state order, no recommendation).
     panel.currentId = "q1";
-    panel.handleInput("\r"); // accept "a" (cursor re-seeded to ★)
+    panel.cursorIndex = 0;
+    panel.handleInput("\r"); // accept "a"
     const answer = state.getQuestion("q1")!.answer!;
     expect(answer.value).toBe("a");
     expect(answer.custom).toBeUndefined();

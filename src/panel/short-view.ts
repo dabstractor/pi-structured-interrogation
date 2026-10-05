@@ -19,11 +19,14 @@
  *
  * WHY ★ AND PRESELECT COEXIST (R2 — hard requirement from user tooling
  * evaluations): a recommendation that isn't unmistakable is a disqualifying
- * failure. The `★` keeps the recommendation visible wherever the cursor
- * wanders; {@link initialCursorIndex} ALSO preselects it, so the first
- * render of a question puts the cursor on the ★ line (`▸ ★ sqlite`). The
- * preselect is a cursor position, never an implicit answer — there is
- * deliberately NO bulk-accept affordance (Q15=A).
+ * failure. The `★` keeps the recommendation visible on its row wherever the
+ * cursor wanders — but since ANSWER-PIN-001 (FR-35) the PRESELECT belongs
+ * to the recorded answer on revisits: {@link initialCursorIndex} seeds the
+ * ★ line only while the question is UNANSWERED (`▸ ★ sqlite` on first
+ * render); once an answer exists the cursor pins to the answer's row and
+ * the ★ stays visible but never re-owns the caret. The preselect is a
+ * cursor position, never an implicit answer — there is deliberately NO
+ * bulk-accept affordance (Q15=A).
  *
  * MODE A CONTRACT — ALIGNMENT (the whole game):
  *
@@ -107,20 +110,34 @@ export function displayOptions(q: Question): QuestionOption[] {
 }
 
 /**
- * Initial cursor position for a question — the ★ recommendation preselect
- * (R2). Choice questions: the DISPLAY index of the option whose value
- * matches `q.recommendation` (displayOptions order — D-R13; recommended
- * first means 0 when set), clamped to 0 when unset or when the
- * recommendation references a value no longer in `options` (post-upsert).
- * Text questions: 0 (the primary affordance). Status-agnostic: a revisited
- * `answered` question still preselects the recommendation — answers never
- * pin the cursor (enter accept+advance is P1.M3.T2.S2's concern).
+ * Initial cursor position for a question (ANSWER-PIN-001 / FR-35): a
+ * recorded answer OWNS the caret. Choice questions seed to the DISPLAY row
+ * of `answer.value` (displayOptions order — D-R13); `custom: true` seeds to
+ * the ✎ Other row (`options.length` — the trailing synthetic row the
+ * renderers use); text questions to 0 (the affordance IS row 0 — the pin
+ * is inherent). Pinning keys on `q.answer` PRESENCE alone, regardless of
+ * status (moot keeps its dimmed answer and pins too); a stale answer value
+ * (option removed post-upsert) clamps to display row 0 — NEVER a fallback
+ * to the ★ recommendation. UNANSWERED questions keep the R2 ★ preselect:
+ * the DISPLAY index of the recommendation (0 when set under D-R13),
+ * clamped to 0 when unset or when the recommendation references a value no
+ * longer in `options` (post-upsert). Status alone (e.g. `answered` with
+ * the answer reset) does not imply pinning — only answer presence does.
  */
 export function initialCursorIndex(q: Question): number {
-  if (q.type === "text") return 0;
-  if (q.recommendation === undefined) return 0;
-  const idx = displayOptions(q).findIndex((o) => o.value === q.recommendation);
-  return idx >= 0 ? idx : 0;
+  const answer = q.answer;
+  if (answer === undefined) {
+    // ★ preselect — UNANSWERED questions only (ANSWER-PIN-001).
+    if (q.type === "text" || q.recommendation === undefined) return 0;
+    const idx = displayOptions(q).findIndex((o) => o.value === q.recommendation);
+    return idx >= 0 ? idx : 0;
+  }
+  // A recorded answer owns the caret (FR-35) — every status carrying an
+  // answer pins here; no status gate.
+  if (answer.custom === true) return (q.options ?? []).length; // ✎ Other row
+  if (q.type === "text") return 0; // the text affordance IS row 0 — pin inherent
+  const idx = displayOptions(q).findIndex((o) => o.value === answer.value);
+  return idx >= 0 ? idx : 0; // stale value → display row 0, never ★ fallback
 }
 
 /**

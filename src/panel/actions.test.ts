@@ -1681,9 +1681,13 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
     commitWriteIn(panel, "my custom take");
     panel.commitTextDraft("q1", "my custom take"); // kept slot text (R4)
 
-    // Supersede: back to q1 — the currentId setter re-seeds the cursor to
-    // the ★ "a" preselect — and accept the real option.
+    // Supersede: back to q1 — and accept the real option. FR-35 note: the
+    // currentId setter now re-seeds the cursor to the recorded answer's row
+    // (the ✎ write-in row — ANSWER-PIN-001), so the test drives to "a"
+    // explicitly; the ★-reseed premise this test was written against is
+    // that flip's casualty, and the rebind assertions below are the point.
     panel.currentId = "q1";
+    panel.cursorIndex = 0; // display row of option "a" (★ recommendation, D-R13)
     expect(accept(panel)).toBe(true);
     const superseded = state.getQuestion("q1")?.answer;
     expect(superseded?.value).toBe("a");

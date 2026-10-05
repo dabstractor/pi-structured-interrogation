@@ -4,52 +4,81 @@
       "type": "Phase",
       "id": "P1",
       "title": "Phase D1 — Answer pinning (ANSWER-PIN-001 / FR-35, spec M9)",
-      "status": "Ready",
+      "status": "Planned",
       "description": "A recorded answer owns the caret in every view and on every entry path; same-value commits are inert no-ops that only advance; FR-18 confirm fires only on an explicit different choice; ★ answered marker on the short-view question line. Only the unshipped remainder of the spec (de633b0) — everything else in the PRD diff already shipped through c7d44c0 (cite, don't rebuild). Non-goals: no config surface, no auto-submit/gate changes, no state-machine/rev/epoch/persistence changes.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "D1.M1 — The caret follows the recorded answer",
-          "status": "Ready",
+          "status": "Planned",
           "description": "Single milestone delivering FR-D8 (cursor seeding pins to the recorded answer), FR-D9 (inert same-value commits on all accept paths), FR-D10 (★ answered marker), the status-agnostic-preselect comment purge, test flips, AC-16, and changeset-level docs.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "FR-D8 — Cursor seeding pins to the recorded answer",
-              "status": "Planned",
+              "status": "Ready",
               "description": "initialCursorIndex returns the recorded answer's position instead of the status-agnostic ★ preselect; the three seed sites inherit automatically (comments only); tool-schema recommendation description becomes spec-verbatim.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T1.S1",
                   "title": "Rewrite initialCursorIndex: the recorded answer owns the caret",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h2.0", "h2.8", "h2.8/h3.5", "h2.10", "h2.29", "h2.37", "h2.40", "h2.42", "h2.65"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Cursor-seeding — src/panel/short-view.ts:119 `initialCursorIndex(q: Question): number` today returns the DISPLAY row of the ★ recommendation regardless of q.answer; `displayOptions` (same file) implements the D-R13 recommended-first DISPLAY order; the ✎ Other row sits at index options.length; accent highlight on the recorded row already exists (commit 32a1f6e) — only caret placement is missing.\n2. INPUT: the question record q with `answer?: { value, custom?: true, at }` (shape per architecture/answer-pinning-contract.md) and status ∈ {answered, submitted, closed, moot, withdrawn, re-asked}; displayOptions(q) ordering.\n3. LOGIC: Implement FR-D8/FR-35 (spec h2.8/h3.5): when q.answer present (any status carrying an answer, moot keeps its dimmed answer): custom:true → options.length (✎ row); choice + option value → DISPLAY row of answer.value mapped through displayOptions order; value no longer in options → clamp to row 0 (NEVER the recommendation); type:\"text\" → 0. No answer → today's ★ preselect unchanged (display row of recommendation, clamp 0). R2 intact: ★ stays visible on its own row but never owns the caret when an answer exists. Tests: flip the ★-preselect-on-revisit rows in src/panel/short-view.test.ts; add the stale-value-clamps-to-row-0 test (★ recommendation present, answer.value absent from options). Mock nothing external — scripted vitest only (plan/001 AUTOMATION-POLICY).\n4. OUTPUT: new initialCursorIndex(q): number, signature unchanged — consumed automatically by the three seed sites (P1.M1.T1.S2 touches their comments only) and by the no-op tests in P1.M1.T2.S4.\n5. DOCS: [Mode A] JSDoc on initialCursorIndex + rewrite the \"WHY ★ AND PRESELECT COEXIST\" comment block (short-view.ts ~22-28 and ~117-123) to state the pinning contract — rides with this work, no separate docs subtask."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Cursor-seeding — src/panel/short-view.ts:119 `initialCursorIndex(q: Question): number` today returns the DISPLAY row of the ★ recommendation regardless of q.answer; `displayOptions` (same file) implements the D-R13 recommended-first DISPLAY order; the ✎ Other row sits at index options.length; accent highlight on the recorded row already exists (commit 32a1f6e) — only caret placement is missing.\n2. INPUT: the question record q with `answer?: { value, custom?: true, at }` (shape per architecture/answer-pinning-contract.md) and status ∈ {answered, submitted, closed, moot, withdrawn, re-asked}; displayOptions(q) ordering.\n3. LOGIC: Implement FR-D8/FR-35 (spec h2.8/h3.5): when q.answer present (any status carrying an answer, moot keeps its dimmed answer): custom:true → options.length (✎ row); choice + option value → DISPLAY row of answer.value mapped through displayOptions order; value no longer in options → clamp to row 0 (NEVER the recommendation); type:\"text\" → 0. No answer → today's ★ preselect unchanged (display row of recommendation, clamp 0). R2 intact: ★ stays visible on its own row but never owns the caret when an answer exists. Tests: flip the ★-preselect-on-revisit rows in src/panel/short-view.test.ts; add the stale-value-clamps-to-row-0 test (★ recommendation present, answer.value absent from options). Mock nothing external — scripted vitest only (plan/001 AUTOMATION-POLICY).\n4. OUTPUT: new initialCursorIndex(q): number, signature unchanged — consumed automatically by the three seed sites (P1.M1.T1.S2 touches their comments only) and by the no-op tests in P1.M1.T2.S4.\n5. DOCS: [Mode A] JSDoc on initialCursorIndex + rewrite the \"WHY ★ AND PRESELECT COEXIST\" comment block (short-view.ts ~22-28 and ~117-123) to state the pinning contract — rides with this work, no separate docs subtask.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.10",
+                    "h2.29",
+                    "h2.37",
+                    "h2.40",
+                    "h2.42",
+                    "h2.65"
+                  ]
                 },
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Purge seed-site JSDoc/comments; flip seed assertions",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S1"],
-                  "prd_selectors": ["h2.0", "h2.8", "h2.8/h3.5", "h2.29", "h2.64", "h2.65"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — the three seed sites call initialCursorIndex and inherit the new pinning behavior automatically: src/panel/panel.ts:354 `set currentId(id)`; src/panel/panel.ts:~888-896 editor-close re-seed (EXPLAIN-003 site); src/panel/deep-view.ts:568 `deepSeedCursorIndex` (clamp bound `count` already tolerates the ✎ index).\n2. INPUT: the new initialCursorIndex contract from P1.M1.T1.S1 (recorded answer pins; ★ only when unanswered).\n3. LOGIC: Edit ONLY comments/JSDoc at the three sites — purge every \"answers never pin the cursor\" / \"next enter should ACCEPT the recommendation\" claim; the editor-close comment now states it re-seeds to the RECORDED answer when one exists. NO logic changes. Flip tests: src/panel/actions.test.ts ~:995 (EXPLAIN-003 re-seed now expects the recorded answer) and src/panel/panel.test.ts ~:618 (currentId seed on revisit). Mock: none — scripted vitest.\n4. OUTPUT: comment-purged seed sites; green seed tests — confirms inheritance for downstream subtasks.\n5. DOCS: [Mode A] JSDoc at the three seed sites states the pinning inheritance; rides with this work."
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — the three seed sites call initialCursorIndex and inherit the new pinning behavior automatically: src/panel/panel.ts:354 `set currentId(id)`; src/panel/panel.ts:~888-896 editor-close re-seed (EXPLAIN-003 site); src/panel/deep-view.ts:568 `deepSeedCursorIndex` (clamp bound `count` already tolerates the ✎ index).\n2. INPUT: the new initialCursorIndex contract from P1.M1.T1.S1 (recorded answer pins; ★ only when unanswered).\n3. LOGIC: Edit ONLY comments/JSDoc at the three sites — purge every \"answers never pin the cursor\" / \"next enter should ACCEPT the recommendation\" claim; the editor-close comment now states it re-seeds to the RECORDED answer when one exists. NO logic changes. Flip tests: src/panel/actions.test.ts ~:995 (EXPLAIN-003 re-seed now expects the recorded answer) and src/panel/panel.test.ts ~:618 (currentId seed on revisit). Mock: none — scripted vitest.\n4. OUTPUT: comment-purged seed sites; green seed tests — confirms inheritance for downstream subtasks.\n5. DOCS: [Mode A] JSDoc at the three seed sites states the pinning inheritance; rides with this work.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.29",
+                    "h2.64",
+                    "h2.65"
+                  ]
                 },
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "tool-schema recommendation description → spec-verbatim string",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S1"],
-                  "prd_selectors": ["h2.0", "h2.8", "h2.8/h3.5", "h2.3", "h2.19", "h2.24", "h2.65"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Agent-facing-schema — src/tool-schema.ts:62 today reads `description: \"Recommended option value; marked ★ and preselected\"` — the status-agnostic claim.\n2. INPUT: the pinning contract from P1.M1.T1.S1 (preselect only while unanswered).\n3. LOGIC: Replace the description with the spec-verbatim sentence: \"Recommended option value; marked ★; preselected only while unanswered — a recorded answer always owns the cursor\". Byte-exact match against spec h2.19/h2.24 is mandatory — if the spec text differs from this string, SPEC WINS; quote the spec, do not paraphrase. Update src/tool-schema.test.ts string assertions; keep the ≤120-word resident agent-facing-text constraints green. Mock: none.\n4. OUTPUT: updated schema string + green tool-schema tests; this string is agent-visible documentation of the behavior shipped by P1.M1.T1.S1.\n5. DOCS: [Mode A] the description string IS the agent-facing doc — no further docs work."
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Agent-facing-schema — src/tool-schema.ts:62 today reads `description: \"Recommended option value; marked ★ and preselected\"` — the status-agnostic claim.\n2. INPUT: the pinning contract from P1.M1.T1.S1 (preselect only while unanswered).\n3. LOGIC: Replace the description with the spec-verbatim sentence: \"Recommended option value; marked ★; preselected only while unanswered — a recorded answer always owns the cursor\". Byte-exact match against spec h2.19/h2.24 is mandatory — if the spec text differs from this string, SPEC WINS; quote the spec, do not paraphrase. Update src/tool-schema.test.ts string assertions; keep the ≤120-word resident agent-facing-text constraints green. Mock: none.\n4. OUTPUT: updated schema string + green tool-schema tests; this string is agent-visible documentation of the behavior shipped by P1.M1.T1.S1.\n5. DOCS: [Mode A] the description string IS the agent-facing doc — no further docs work.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.3",
+                    "h2.19",
+                    "h2.24",
+                    "h2.65"
+                  ]
                 }
               ]
             },
@@ -66,9 +95,27 @@
                   "title": "acceptOptionIndex: same-value commit is an inert NO-OP (digit inherits)",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T1.S1"],
-                  "prd_selectors": ["h2.0", "h2.8", "h2.8/h3.1", "h2.8/h3.2", "h2.8/h3.5", "h2.10", "h2.14", "h2.14/h3.7", "h2.32", "h2.34", "h2.40", "h2.42", "h2.47", "h2.60", "h2.65"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Accept-paths — src/panel/actions.ts:244 `acceptOptionIndex(panel, q, optionIndex): boolean`; ripple seam at :255 `if (!panel.confirmRippleEdit(q.id, proposed)) return true; // seam vetoed`; maybeAutoSubmit at :265 (AUTOSUBMIT-001/003 transition-gated); digit path at :196 routes through acceptOptionIndex (`return acceptOptionIndex(panel, q, n - 1)`).\n2. INPUT: question record with `answer: { value, custom?, at }` from state; the pinned caret from P1.M1.T1.S1 means enter lands on the recorded row by default.\n3. LOGIC: Implement FR-D9: BEFORE the ripple seam at :255, if q.answer exists && !answer.custom && answer.value === proposed option value → state NO-OP: skip confirmRippleEdit, applyAnswer, evaluateDependsOn, maybeAutoSubmit entirely; NO fresh answer.at; advance to next unanswered per the Q14 rhythm only. FR-18 confirm fires only on an explicit DIFFERENT choice. digit inherits via :196 — add an explicit digit-on-recorded-value no-op test (consumed, advance, zero state change: no modal, no epoch bump, no answer.at rewrite). Add maybeAutoSubmit-never-fires-from-no-op test. Mock: none — scripted vitest; the ripple confirm renders through the existing panel test harness.\n4. OUTPUT: acceptOptionIndex exposing a THREE-OUTCOME result (NO-OP | ACCEPT | VETO — e.g. return flag/enum) consumed by P1.M1.T2.S6 (acceptFromDeep) and covered by P1.M1.T5.S10's AC-16 test.\n5. DOCS: [Mode A] JSDoc on acceptOptionIndex and the digit path stating the no-op contract, citing ANSWER-PIN-001/FR-35; purge the actions.ts ~:278 status-agnostic comment as touched."
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Accept-paths — src/panel/actions.ts:244 `acceptOptionIndex(panel, q, optionIndex): boolean`; ripple seam at :255 `if (!panel.confirmRippleEdit(q.id, proposed)) return true; // seam vetoed`; maybeAutoSubmit at :265 (AUTOSUBMIT-001/003 transition-gated); digit path at :196 routes through acceptOptionIndex (`return acceptOptionIndex(panel, q, n - 1)`).\n2. INPUT: question record with `answer: { value, custom?, at }` from state; the pinned caret from P1.M1.T1.S1 means enter lands on the recorded row by default.\n3. LOGIC: Implement FR-D9: BEFORE the ripple seam at :255, if q.answer exists && !answer.custom && answer.value === proposed option value → state NO-OP: skip confirmRippleEdit, applyAnswer, evaluateDependsOn, maybeAutoSubmit entirely; NO fresh answer.at; advance to next unanswered per the Q14 rhythm only. FR-18 confirm fires only on an explicit DIFFERENT choice. digit inherits via :196 — add an explicit digit-on-recorded-value no-op test (consumed, advance, zero state change: no modal, no epoch bump, no answer.at rewrite). Add maybeAutoSubmit-never-fires-from-no-op test. Mock: none — scripted vitest; the ripple confirm renders through the existing panel test harness.\n4. OUTPUT: acceptOptionIndex exposing a THREE-OUTCOME result (NO-OP | ACCEPT | VETO — e.g. return flag/enum) consumed by P1.M1.T2.S6 (acceptFromDeep) and covered by P1.M1.T5.S10's AC-16 test.\n5. DOCS: [Mode A] JSDoc on acceptOptionIndex and the digit path stating the no-op contract, citing ANSWER-PIN-001/FR-35; purge the actions.ts ~:278 status-agnostic comment as touched.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.8",
+                    "h2.8/h3.1",
+                    "h2.8/h3.2",
+                    "h2.8/h3.5",
+                    "h2.10",
+                    "h2.14",
+                    "h2.14/h3.7",
+                    "h2.32",
+                    "h2.34",
+                    "h2.40",
+                    "h2.42",
+                    "h2.47",
+                    "h2.60",
+                    "h2.65"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -76,9 +123,22 @@
                   "title": "writeInEnter: byte-identical re-commit inert + buffer consume",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S4"],
-                  "prd_selectors": ["h2.0", "h2.8", "h2.8/h3.5", "h2.10", "h2.31", "h2.42", "h2.48", "h2.62", "h2.34", "h2.65"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — src/panel/actions.ts:295 `writeInEnter(panel): boolean`; docs ~:273-293 describe the post-commit sequence and the confirmRippleEdit choice seam; the write-in buffer stages into the draft slot on advance (VAL-002 consume pattern per spec h2.62 staging philosophy).\n2. INPUT: the write-in buffer text and the recorded `answer: { value, custom: true, at }` (write-ins) or `{ value }` (text questions); the NO-OP/advance semantics established in P1.M1.T2.S4.\n3. LOGIC: Implement FR-D9: BEFORE the ripple-victims branch — if (answer.custom === true && buffer === answer.value) OR (type:\"text\" && answer.value === buffer) → inert no-op: advance only; consume/neutralize the buffer per the VAL-002 pattern so the advance's draft write-through CANNOT stage committed text into the draft slot. Flip the same-value write-in edit assertions at src/panel/actions.test.ts ~:1684-1685 and ~:1829-1836. Mock: none — scripted vitest.\n4. OUTPUT: inert writeInEnter with consumed buffer; green flipped tests; consumed-buffer guarantee consumed by P1.M1.T5.S10's AC-16 write-in scenario.\n5. DOCS: [Mode A] JSDoc on writeInEnter stating the inert-re-commit + buffer-consume contract; purge actions.ts comments ~:305/329/338-339/353/371 as touched."
+                  "dependencies": [
+                    "P1.M1.T2.S4"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — src/panel/actions.ts:295 `writeInEnter(panel): boolean`; docs ~:273-293 describe the post-commit sequence and the confirmRippleEdit choice seam; the write-in buffer stages into the draft slot on advance (VAL-002 consume pattern per spec h2.62 staging philosophy).\n2. INPUT: the write-in buffer text and the recorded `answer: { value, custom: true, at }` (write-ins) or `{ value }` (text questions); the NO-OP/advance semantics established in P1.M1.T2.S4.\n3. LOGIC: Implement FR-D9: BEFORE the ripple-victims branch — if (answer.custom === true && buffer === answer.value) OR (type:\"text\" && answer.value === buffer) → inert no-op: advance only; consume/neutralize the buffer per the VAL-002 pattern so the advance's draft write-through CANNOT stage committed text into the draft slot. Flip the same-value write-in edit assertions at src/panel/actions.test.ts ~:1684-1685 and ~:1829-1836. Mock: none — scripted vitest.\n4. OUTPUT: inert writeInEnter with consumed buffer; green flipped tests; consumed-buffer guarantee consumed by P1.M1.T5.S10's AC-16 write-in scenario.\n5. DOCS: [Mode A] JSDoc on writeInEnter stating the inert-re-commit + buffer-consume contract; purge actions.ts comments ~:305/329/338-339/353/371 as touched.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.10",
+                    "h2.31",
+                    "h2.42",
+                    "h2.48",
+                    "h2.62",
+                    "h2.34",
+                    "h2.65"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -86,9 +146,20 @@
                   "title": "acceptFromDeep: no-op returns to short + advances; veto stays in deep",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S4"],
-                  "prd_selectors": ["h2.0", "h2.8", "h2.8/h3.5", "h2.29", "h2.34", "h2.38", "h2.64", "h2.65"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — src/panel/deep-view.ts:528 `acceptFromDeep(panel): boolean`; :552 `if (q.answer === before) return true;` reads a same-value no-op as a VETO (user stuck in deep view); comments ~:559-566 carry the old claim.\n2. INPUT: the THREE-OUTCOME signal (NO-OP | ACCEPT | VETO) returned by acceptOptionIndex from P1.M1.T2.S4.\n3. LOGIC: Implement FR-D9: a same-value NO-OP is an ACCEPT, not a veto — return to the short form and advance (Q14 rhythm); only a ripple VETO keeps the user in deep view. Replace/augment the :552 heuristic with the explicit outcome signal. Flip src/panel/deep-view.test.ts ~:420; add both branches: same-value → short + advance; veto → stays in deep. Mock: none — scripted vitest.\n4. OUTPUT: three-outcome acceptFromDeep; green deep-view tests; behavior covered end-to-end by AC-16 in P1.M1.T5.S10.\n5. DOCS: [Mode A] JSDoc on acceptFromDeep stating the no-op-vs-veto distinction; purge deep-view.ts comments ~:559-566."
+                  "dependencies": [
+                    "P1.M1.T2.S4"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — src/panel/deep-view.ts:528 `acceptFromDeep(panel): boolean`; :552 `if (q.answer === before) return true;` reads a same-value no-op as a VETO (user stuck in deep view); comments ~:559-566 carry the old claim.\n2. INPUT: the THREE-OUTCOME signal (NO-OP | ACCEPT | VETO) returned by acceptOptionIndex from P1.M1.T2.S4.\n3. LOGIC: Implement FR-D9: a same-value NO-OP is an ACCEPT, not a veto — return to the short form and advance (Q14 rhythm); only a ripple VETO keeps the user in deep view. Replace/augment the :552 heuristic with the explicit outcome signal. Flip src/panel/deep-view.test.ts ~:420; add both branches: same-value → short + advance; veto → stays in deep. Mock: none — scripted vitest.\n4. OUTPUT: three-outcome acceptFromDeep; green deep-view tests; behavior covered end-to-end by AC-16 in P1.M1.T5.S10.\n5. DOCS: [Mode A] JSDoc on acceptFromDeep stating the no-op-vs-veto distinction; purge deep-view.ts comments ~:559-566.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.29",
+                    "h2.34",
+                    "h2.38",
+                    "h2.64",
+                    "h2.65"
+                  ]
                 }
               ]
             },
@@ -106,8 +177,17 @@
                   "status": "Planned",
                   "story_points": 1,
                   "dependencies": [],
-                  "prd_selectors": ["h2.0", "h2.8", "h2.8/h3.5", "h2.28", "h2.29", "h2.37", "h2.40", "h2.65"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Markers — src/panel/layout.ts:313 `statusMarkers(q: Question, theme: Theme): string`, consumed at :362 for the short-view question line; parity source src/panel/overview.ts:111-112: \"★ answered — any status carrying q.answer EXCEPT moot/withdrawn (answered/submitted/closed)\"; ⟳ re-asked overrides, as in the overview vocabulary.\n2. INPUT: question record with answer + status from state; the existing ✎ text-answer marker in the same function.\n3. LOGIC: Implement FR-D10: emit ★ when answer present && status ∈ {answered, submitted, closed}; exclude moot/withdrawn; ⟳ overrides; must COMPOSE with the existing ✎ marker for write-ins. Tests in src/panel/layout.test.ts: marker present per status, exclusions (moot/withdrawn/⟳), write-in composition (★ + ✎). Check src/panel/overview.test.ts ~:412/452 — flip/extend only if they assert question-line parity; otherwise leave to P1.M1.T5.S9. Mock: none.\n4. OUTPUT: updated statusMarkers vocabulary rendered on the short-view question line; consumed by the AC-16 walk-through in P1.M1.T5.S10.\n5. DOCS: [Mode A] JSDoc on statusMarkers stating marker semantics + the overview-parity rule."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Markers — src/panel/layout.ts:313 `statusMarkers(q: Question, theme: Theme): string`, consumed at :362 for the short-view question line; parity source src/panel/overview.ts:111-112: \"★ answered — any status carrying q.answer EXCEPT moot/withdrawn (answered/submitted/closed)\"; ⟳ re-asked overrides, as in the overview vocabulary.\n2. INPUT: question record with answer + status from state; the existing ✎ text-answer marker in the same function.\n3. LOGIC: Implement FR-D10: emit ★ when answer present && status ∈ {answered, submitted, closed}; exclude moot/withdrawn; ⟳ overrides; must COMPOSE with the existing ✎ marker for write-ins. Tests in src/panel/layout.test.ts: marker present per status, exclusions (moot/withdrawn/⟳), write-in composition (★ + ✎). Check src/panel/overview.test.ts ~:412/452 — flip/extend only if they assert question-line parity; otherwise leave to P1.M1.T5.S9. Mock: none.\n4. OUTPUT: updated statusMarkers vocabulary rendered on the short-view question line; consumed by the AC-16 walk-through in P1.M1.T5.S10.\n5. DOCS: [Mode A] JSDoc on statusMarkers stating marker semantics + the overview-parity rule.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.28",
+                    "h2.29",
+                    "h2.37",
+                    "h2.40",
+                    "h2.65"
+                  ]
                 }
               ]
             },
@@ -124,9 +204,21 @@
                   "title": "Comment sweep: keys.ts, overview.ts, residuals",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S4", "P1.M1.T2.S5", "P1.M1.T2.S6"],
-                  "prd_selectors": ["h2.0", "h2.8", "h2.8/h3.5", "h2.35", "h2.65"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Comment-purge-sites — full list: short-view.ts 22-28 & 117-123 (done in T1.S1), panel.ts ~354-360 & ~888-896 (done in T1.S2), actions.ts ~278/305/329/338-339/353/371 (done across T2.S4/S5), deep-view.ts 559-566 (done in T2.S6); REMAINING here: src/panel/keys.ts ~:440 and src/panel/overview.ts ~:390/405, plus any residual found by grep.\n2. INPUT: the landed pinning/no-op contracts from P1.M1.T1.S1, T1.S2, T2.S4, T2.S5, T2.S6.\n3. LOGIC: Grep the panel tree for the stale claims (\"never pin\", \"star preselect\", \"status-agnostic\", \"preselects it\", \"ACCEPT the recommendation\") and purge/rewrite every remaining one to the new contract. Comments ONLY — zero behavior edits; full suite must stay green. Mock: none.\n4. OUTPUT: grep-clean tree (report the exact greps run + zero stale hits) — the contract now has a single voice for downstream readers.\n5. DOCS: [Mode A] the purge IS the doc fix — in-place comment rewrites, nothing separate."
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T1.S2",
+                    "P1.M1.T2.S4",
+                    "P1.M1.T2.S5",
+                    "P1.M1.T2.S6"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Comment-purge-sites — full list: short-view.ts 22-28 & 117-123 (done in T1.S1), panel.ts ~354-360 & ~888-896 (done in T1.S2), actions.ts ~278/305/329/338-339/353/371 (done across T2.S4/S5), deep-view.ts 559-566 (done in T2.S6); REMAINING here: src/panel/keys.ts ~:440 and src/panel/overview.ts ~:390/405, plus any residual found by grep.\n2. INPUT: the landed pinning/no-op contracts from P1.M1.T1.S1, T1.S2, T2.S4, T2.S5, T2.S6.\n3. LOGIC: Grep the panel tree for the stale claims (\"never pin\", \"star preselect\", \"status-agnostic\", \"preselects it\", \"ACCEPT the recommendation\") and purge/rewrite every remaining one to the new contract. Comments ONLY — zero behavior edits; full suite must stay green. Mock: none.\n4. OUTPUT: grep-clean tree (report the exact greps run + zero stale hits) — the contract now has a single voice for downstream readers.\n5. DOCS: [Mode A] the purge IS the doc fix — in-place comment rewrites, nothing separate.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.35",
+                    "h2.65"
+                  ]
                 }
               ]
             },
@@ -143,9 +235,20 @@
                   "title": "Flip remaining cross-cutting panel suite rows",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T2.S4", "P1.M1.T2.S5", "P1.M1.T2.S6", "P1.M1.T3.S7"],
-                  "prd_selectors": ["h2.8", "h2.8/h3.5", "h2.10", "h2.53"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/testing-verification.md — to-flip map with owner subtasks; anchors (locate by content, lines drift): actions.test.ts:541/1878/1948, short-view.test.ts, two-stage.test.ts, panel.test.ts ~:618 (if not already flipped in T1.S2), ac-panel.test.ts ~:477, overview.test.ts ~:412/452 (if not already handled in T3.S7).\n2. INPUT: the landed contracts from P1.M1.T1.S1 (pin), T2.S4/S5/S6 (no-ops), T3.S7 (marker).\n3. LOGIC: Flip every remaining assertion that pins ★-preselect-on-revisit or same-value-edit behavior — each flip asserts the NEW contract (caret on recorded row / no-op advance), never a deletion. Run src/panel/*.test.ts green. Mock: none — scripted vitest only.\n4. OUTPUT: green src/panel/*.test.ts on the new contract — precondition for P1.M1.T5.S10's full-suite gate.\n5. DOCS: none — no user-facing/config/API surface change."
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T2.S4",
+                    "P1.M1.T2.S5",
+                    "P1.M1.T2.S6",
+                    "P1.M1.T3.S7"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/testing-verification.md — to-flip map with owner subtasks; anchors (locate by content, lines drift): actions.test.ts:541/1878/1948, short-view.test.ts, two-stage.test.ts, panel.test.ts ~:618 (if not already flipped in T1.S2), ac-panel.test.ts ~:477, overview.test.ts ~:412/452 (if not already handled in T3.S7).\n2. INPUT: the landed contracts from P1.M1.T1.S1 (pin), T2.S4/S5/S6 (no-ops), T3.S7 (marker).\n3. LOGIC: Flip every remaining assertion that pins ★-preselect-on-revisit or same-value-edit behavior — each flip asserts the NEW contract (caret on recorded row / no-op advance), never a deletion. Run src/panel/*.test.ts green. Mock: none — scripted vitest only.\n4. OUTPUT: green src/panel/*.test.ts on the new contract — precondition for P1.M1.T5.S10's full-suite gate.\n5. DOCS: none — no user-facing/config/API surface change.",
+                  "prd_selectors": [
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.10",
+                    "h2.53"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -153,9 +256,27 @@
                   "title": "AC-16 scripted test + binding green gates",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T1.S3", "P1.M1.T2.S4", "P1.M1.T2.S5", "P1.M1.T2.S6", "P1.M1.T3.S7", "P1.M1.T4.S8", "P1.M1.T5.S9"],
-                  "prd_selectors": ["h2.0", "h2.8", "h2.8/h3.5", "h2.10", "h2.18", "h2.53", "h2.11"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/answer-pinning-contract.md §AC-16 + architecture/testing-verification.md §Green-gates; src/ac-scripted.test.ts and src/regression-phantom-submissions.test.ts hold scripted flows sensitive to no-op semantics (no phantom submissions from no-op paths).\n2. INPUT: all landed contracts — pin (T1.S1), seed inheritance (T1.S2), schema string (T1.S3), no-ops (T2.S4/S5/S6), marker (T3.S7), purged tree (T4.S8), green panel suites (T5.S9).\n3. LOGIC: Add the AC-16 end-to-end scripted test (cite FR-35): answer q1 with a NON-recommended option → advance → ← back → caret + accent highlight on the chosen option (★ visible on its own row, caret NOT on it); enter advances to next unanswered with ZERO state change (no modal, no epoch bump, no answer.at rewrite); write-in pins the ✎ row with dim preview; byte-identical write-in re-commit inert; a DIFFERENT choice still raises the FR-18 confirm. Stabilize src/ac-scripted.test.ts and src/regression-phantom-submissions.test.ts to the no-op semantics. Gates (binding): npm test full suite green; npm run typecheck green; src/no-hardcoded-keys.test.ts + src/keymap-guard.test.ts green — NO new key labels.\n4. OUTPUT: AC-16 resident in the suite + all gates green — the delta's acceptance evidence.\n5. DOCS: none — test work only; README handled by P1.M1.T6.S11."
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T1.S2",
+                    "P1.M1.T1.S3",
+                    "P1.M1.T2.S4",
+                    "P1.M1.T2.S5",
+                    "P1.M1.T2.S6",
+                    "P1.M1.T3.S7",
+                    "P1.M1.T4.S8",
+                    "P1.M1.T5.S9"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/answer-pinning-contract.md §AC-16 + architecture/testing-verification.md §Green-gates; src/ac-scripted.test.ts and src/regression-phantom-submissions.test.ts hold scripted flows sensitive to no-op semantics (no phantom submissions from no-op paths).\n2. INPUT: all landed contracts — pin (T1.S1), seed inheritance (T1.S2), schema string (T1.S3), no-ops (T2.S4/S5/S6), marker (T3.S7), purged tree (T4.S8), green panel suites (T5.S9).\n3. LOGIC: Add the AC-16 end-to-end scripted test (cite FR-35): answer q1 with a NON-recommended option → advance → ← back → caret + accent highlight on the chosen option (★ visible on its own row, caret NOT on it); enter advances to next unanswered with ZERO state change (no modal, no epoch bump, no answer.at rewrite); write-in pins the ✎ row with dim preview; byte-identical write-in re-commit inert; a DIFFERENT choice still raises the FR-18 confirm. Stabilize src/ac-scripted.test.ts and src/regression-phantom-submissions.test.ts to the no-op semantics. Gates (binding): npm test full suite green; npm run typecheck green; src/no-hardcoded-keys.test.ts + src/keymap-guard.test.ts green — NO new key labels.\n4. OUTPUT: AC-16 resident in the suite + all gates green — the delta's acceptance evidence.\n5. DOCS: none — test work only; README handled by P1.M1.T6.S11.",
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.10",
+                    "h2.18",
+                    "h2.53",
+                    "h2.11"
+                  ]
                 }
               ]
             },
@@ -172,9 +293,26 @@
                   "title": "README.md: revisit usage + AC-16 in acceptance list",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T1.S3", "P1.M1.T2.S4", "P1.M1.T2.S5", "P1.M1.T2.S6", "P1.M1.T3.S7", "P1.M1.T4.S8", "P1.M1.T5.S9", "P1.M1.T5.S10"],
-                  "prd_selectors": ["h2.1", "h2.6", "h2.8", "h2.8/h3.5", "h2.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/system_context.md — README.md (~29KB) holds the Usage section and the acceptance-criteria summary list (currently ends at AC-15; verify in place).\n2. INPUT: the complete landed changeset — pin + inert no-ops + ★ answered marker + spec-verbatim schema string + AC-16 (all of P1.M1.T1–T5).\n3. LOGIC: README.md edits ONLY, two spots: (1) Usage — one sentence/step covering revisits: the caret sits on the recorded answer in every view, enter on it just advances, and changing an answer requires an explicit different choice (which raises the invalidation confirm); (2) the acceptance-criteria summary list gains AC-16 (match the list's existing entry format). Do NOT touch config keys, hotkey tables, or limitations — nothing else in this delta changes them.\n4. OUTPUT: updated README.md reflecting the whole changeset coherently.\n5. DOCS: [Mode B] this IS the changeset-level documentation task — final item of the breakdown, depends on every implementing subtask."
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T1.S2",
+                    "P1.M1.T1.S3",
+                    "P1.M1.T2.S4",
+                    "P1.M1.T2.S5",
+                    "P1.M1.T2.S6",
+                    "P1.M1.T3.S7",
+                    "P1.M1.T4.S8",
+                    "P1.M1.T5.S9",
+                    "P1.M1.T5.S10"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/system_context.md — README.md (~29KB) holds the Usage section and the acceptance-criteria summary list (currently ends at AC-15; verify in place).\n2. INPUT: the complete landed changeset — pin + inert no-ops + ★ answered marker + spec-verbatim schema string + AC-16 (all of P1.M1.T1–T5).\n3. LOGIC: README.md edits ONLY, two spots: (1) Usage — one sentence/step covering revisits: the caret sits on the recorded answer in every view, enter on it just advances, and changing an answer requires an explicit different choice (which raises the invalidation confirm); (2) the acceptance-criteria summary list gains AC-16 (match the list's existing entry format). Do NOT touch config keys, hotkey tables, or limitations — nothing else in this delta changes them.\n4. OUTPUT: updated README.md reflecting the whole changeset coherently.\n5. DOCS: [Mode B] this IS the changeset-level documentation task — final item of the breakdown, depends on every implementing subtask.",
+                  "prd_selectors": [
+                    "h2.1",
+                    "h2.6",
+                    "h2.8",
+                    "h2.8/h3.5",
+                    "h2.10"
+                  ]
                 }
               ]
             }

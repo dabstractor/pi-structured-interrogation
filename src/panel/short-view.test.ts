@@ -74,7 +74,9 @@ function render(q: Question, cursorIndex: number, th: Theme = theme, width = 80)
 
 // ------------------------------------------------- cursor domain + preselect
 
-describe("initialCursorIndex (R2 preselect)", () => {
+const AT = "2025-01-01T00:00:00.000Z";
+
+describe("initialCursorIndex (R2 preselect / FR-35 answer pinning)", () => {
   test("points at the recommended option — always display 0 under D-R13 order", () => {
     expect(initialCursorIndex(choiceQ())).toBe(0);
     // D-R13: recommended-first display order — postgres leads, so the
@@ -87,8 +89,77 @@ describe("initialCursorIndex (R2 preselect)", () => {
     expect(initialCursorIndex(choiceQ({ recommendation: "ghost" }))).toBe(0);
   });
 
-  test("text questions → 0; answers never pin the cursor (revisited answered)", () => {
+  test("text questions → 0 (unanswered primary affordance)", () => {
     expect(initialCursorIndex(textQ())).toBe(0);
+  });
+
+  test("ANSWER PIN — answered non-recommended value pins to its DISPLAY row", () => {
+    // FR-35: postgres was chosen; sqlite is the ★ recommendation. D-R13
+    // shows sqlite first, so the caret seeds to postgres's display row 1 —
+    // never back to the ★.
+    expect(
+      initialCursorIndex(
+        choiceQ({ status: "answered", answer: { value: "postgres", at: AT } }),
+      ),
+    ).toBe(1);
+  });
+
+  test("ANSWER PIN — answer IS the recommendation → display row 0", () => {
+    expect(
+      initialCursorIndex(
+        choiceQ({ status: "answered", answer: { value: "sqlite", at: AT } }),
+      ),
+    ).toBe(0);
+  });
+
+  test("ANSWER PIN — custom write-in seeds to the ✎ Other row (options.length)", () => {
+    const q = choiceQ({
+      status: "answered",
+      answer: { value: "my own take", custom: true, at: AT },
+    });
+    expect(initialCursorIndex(q)).toBe((q.options ?? []).length); // 2 = ✎ row
+  });
+
+  test("ANSWER PIN — stale answer value clamps to display row 0, never ★ fallback", () => {
+    // 'ghost' is gone from options; the clamp means display row 0. Here row
+    // 0 IS the ★ row (D-R13) — coincidence, not fallback.
+    expect(
+      initialCursorIndex(
+        choiceQ({ status: "answered", answer: { value: "ghost", at: AT } }),
+      ),
+    ).toBe(0);
+    // Discriminator: with NO recommendation there is no ★ row at all, and
+    // state order puts sqlite at 0 — the result is still 0, proving a plain
+    // clamp rather than a recommendation seek.
+    expect(
+      initialCursorIndex(
+        choiceQ({
+          status: "answered",
+          recommendation: undefined,
+          answer: { value: "ghost", at: AT },
+        }),
+      ),
+    ).toBe(0);
+  });
+
+  test("ANSWER PIN — text question with a recorded answer → 0 (affordance IS row 0)", () => {
+    expect(
+      initialCursorIndex(textQ({ status: "answered", answer: { value: "notes", at: AT } })),
+    ).toBe(0);
+  });
+
+  test("ANSWER PIN — moot keeps its dimmed answer and pins to the answer row", () => {
+    expect(
+      initialCursorIndex(
+        choiceQ({ status: "moot", answer: { value: "postgres", at: AT } }),
+      ),
+    ).toBe(1);
+  });
+
+  test("answered STATUS without a recorded answer still preselects the ★ (status ≠ answer)", () => {
+    // Flipped :92 row: pinning keys on q.answer presence alone — a status
+    // flip without an answer is still an UNANSWERED question for cursor
+    // purposes (ANSWER-PIN-001).
     expect(initialCursorIndex(choiceQ({ status: "answered" }))).toBe(0);
   });
 });

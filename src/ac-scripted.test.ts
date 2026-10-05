@@ -23,6 +23,7 @@
  * | AC-13| PASS   | FR-2/Q24=B| AC-13_editing_archived_answer_re_pends_and_flags_changed    |
  * | AC-14| PASS*  | FR-5      | AC-14_completion_record_fires_exactly_once                  |
  * | AC-15| PASS   | FR-28/SURFACE-001 | AC-15_read_with_live_open_questions_panel_stays_closed_editor_untouched (+ all-answered / completed variants) |
+ * | AC-16| PASS   | FR-35    | AC-16_answer_pinning_end_to_end_noop_advance_and_ripple_guard |
  *
  * * PASS only after the P1.M7.T6.S1 defect fix: the ctrl+s submit flush
  *   (panel `submit()` + `/interrogate-debug-submit`) never performed the
@@ -725,7 +726,7 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
     //    open/reasked) so completeness holds, and ONE full submission runs
     //    (reconcile → ring baseline → diff → markSubmitted → buildSubmission
     //    → deliverSubmission).
-    panel.currentId = "q1"; // setter re-seeds cursorIndex to the ★ preselect
+    panel.currentId = "q1"; // unanswered path — ★ preselect survives ANSWER-PIN-001 while no answer exists
     panel.cursorIndex = 1; // option "b" — keeps q2's equals-"a" dependency unmet
     expect(accept(panel)).toBe(true);
     expect(sendMessage).toHaveBeenCalledTimes(1); // auto-submit #1 — real tail
@@ -767,7 +768,8 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
       config: DEFAULT_CONFIG,
       delivery: deps,
     });
-    panel2.currentId = "q1"; // setter re-seeds cursorIndex to the ★ preselect
+    panel2.currentId = "q1"; // ANSWER-PIN-001 (FR-35): closed WITH a recorded answer — the setter seeds the recorded "b" (display row 1; rec "a" is ★ row 0)
+    expect(panel2.cursorIndex).toBe(1); // discriminating: ★ row 0 exists and is NOT seeded
     panel2.cursorIndex = 2; // past both options = the ✎ Other write-in row
     expect(accept(panel2)).toBe(true);
     expect(panel2.focus).toBe("text");
@@ -1058,5 +1060,235 @@ describe("AC-15 — reads never surface (FR-28, SURFACE-001 / R6)", () => {
     // surfaces nothing (gates (1)+(3) each block independently).
     expect(surface.customCalls.length).toBe(1);
     expect(surface.editorText).toBe("old prompt"); // editor untouched
+  });
+});
+
+// ---------------- AC-16 — answer pinning: recorded answer owns the caret
+
+/**
+ * ANSWER-PIN-001 (FR-35, spec h2.10 AC-16 / decision ledger R7): the live
+ * bug — revisiting an ANSWERED question re-proposed the recommendation by
+ * re-seeding the caret to the ★ row — is closed at the acceptance level.
+ * One end-to-end flow drives the REAL panel action paths (the currentId
+ * setter's cursor seeding, accept/writeInEnter, the fixed ← key, the FR-18
+ * seam) and asserts every AC-16 clause:
+ *
+ *   1. A NON-recommended answer pins the caret + accent highlight to its
+ *      display row on revisit (★ visible on its own row, caret NOT on it).
+ *   2. Enter on the recorded value is a ZERO-STATE-CHANGE no-op: advance
+ *      only — no modal, no epoch bump, no answer.at rewrite, no
+ *      auto-submit (the phantom-submission guard, mirrored additively in
+ *      regression-phantom-submissions.test.ts).
+ *   3. A write-in answer pins the caret to the ✎ Other row with its dim
+ *      preview; a byte-identical write-in re-commit is inert.
+ *   4. An explicit DIFFERENT choice still raises the FR-18 confirm; esc
+ *      cancels byte-identical; enter applies exactly once.
+ *
+ * Discriminating fixture (coincidental-pass purge): every recorded answer
+ * sits at a display row ≠ ★ row ≠ 0 — q1 records the NON-recommended "b"
+ * (D-R13 rows: rec "a" is ★ row 0, "b" row 1, ✎ row 2); q2 records a
+ * write-in (✎ row 2 while ★ "Ex" sits row 0). q3 stays permanently OPEN so
+ * completeness never holds and sendMessage must record ZERO calls across
+ * the whole flow — that silence IS an assertion. q4 (dependsOn q1 equals
+ * "b") is the FR-18 ripple victim.
+ */
+describe("AC-16 — answer pinning: recorded answer owns the caret (FR-35, ANSWER-PIN-001/R7)", () => {
+  /** Recording theme (text-field.test.ts convention): fg prefixes its channel name so accent/dim are assertable. */
+  const recordingTheme = {
+    fg: (name: string, s: string) => `${name}:${s}`,
+    bold: (s: string) => s,
+  } as unknown as Theme;
+
+  /** Idle pi transport with a captured mock (AC-13 e2e makeSubmitDeps convention) — arms the auto-submit tail. */
+  function makeDeps(): { deps: SubmitDeps; sendMessage: ReturnType<typeof vi.fn> } {
+    const sendMessage = vi.fn();
+    return { deps: { sendMessage, isIdle: () => true }, sendMessage };
+  }
+
+  const LEFT = "\u001b[D";
+  const ENTER = "\r";
+  const ESCAPE = "\u001b";
+  /** Caps-engine minimum (~120 chars) — the exact string the AC-13 e2e fixture uses. */
+  const RAM =
+    "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates.";
+
+  test("AC-16_answer_pinning_end_to_end_noop_advance_and_ripple_guard", () => {
+    // 1. REAL executor upsert (executor caps engine + FR-17 instant-local
+    //    dependency evaluation: q4 arrives MOOT — q1 is unanswered).
+    const { deps, sendMessage } = makeDeps();
+    executeInterrogate(
+      {
+        goal: "Pin the answers",
+        epoch: 1,
+        questions: [
+          {
+            id: "q1",
+            title: "Database",
+            prompt: "Which database?",
+            type: "choice",
+            recommendation: "a",
+            options: [
+              { value: "a", label: "Alpha", ramification: RAM },
+              { value: "b", label: "Beta", ramification: RAM },
+            ],
+          },
+          {
+            id: "q2",
+            title: "Framework",
+            prompt: "Which framework?",
+            type: "choice",
+            recommendation: "x",
+            options: [
+              { value: "x", label: "Ex", ramification: RAM },
+              { value: "y", label: "Why", ramification: RAM },
+            ],
+          },
+          {
+            id: "q3",
+            title: "Process",
+            prompt: "Which process?",
+            type: "choice",
+            options: [
+              { value: "a", label: "Alpha", ramification: RAM },
+              { value: "b", label: "Beta", ramification: RAM },
+            ],
+          },
+          {
+            id: "q4",
+            title: "Migration",
+            prompt: "Migrate how?",
+            type: "choice",
+            options: [
+              { value: "x", label: "Ex", ramification: RAM },
+              { value: "y", label: "Why", ramification: RAM },
+            ],
+            dependsOn: [{ id: "q1", equals: "b" }],
+          },
+        ],
+      },
+      tuiCtx(),
+      DEFAULT_CONFIG,
+    );
+    const state = getState()!;
+    expect(state.getQuestion("q4")!.status).toBe("moot"); // arrives moot — q1 unanswered at upsert (FR-17 instant-local)
+
+    // 2. ONE panel instance for every phase, RECORDING theme so accent/dim
+    //    renders are assertable (identity stubTheme would hide them).
+    const panel = new InterrogationPanel({
+      tui: { requestRender: vi.fn() } as unknown as TUI,
+      theme: recordingTheme,
+      done: () => {},
+      state: getState()!,
+      config: DEFAULT_CONFIG,
+      delivery: deps,
+    });
+
+    // PHASE A — answer q1 with the NON-recommended option (real accept path).
+    panel.currentId = "q1"; // unanswered → seeds the ★ preselect (row 0 — ANSWER-PIN-001 keeps ★ while unanswered)
+    expect(panel.cursorIndex).toBe(0);
+    panel.cursorIndex = 1; // Beta — the non-recommended option (D-R13 display row 1)
+    expect(accept(panel)).toBe(true); // real commit (open question → no ripple seam)
+    expect(state.getQuestion("q1")!.answer!.value).toBe("b");
+    expect(state.getQuestion("q4")!.status).toBe("open"); // moot → open re-met instantly (evaluateDependsOn after every applyAnswer)
+    expect(panel.currentId).toBe("q2"); // advance → next unanswered (Q14)
+    expect(sendMessage).toHaveBeenCalledTimes(0); // q3 open → completeness never holds → no auto-submit
+
+    // PHASE B — establish the FR-18 ripple victim: travel to q4 (travel is
+    // not under test) and answer it so the phase-F edit has an
+    // answered/submitted victim. No recommendation → row 0 is "Ex".
+    panel.currentId = "q4";
+    expect(panel.cursorIndex).toBe(0); // open (no recorded answer) → ★ preselect seeds row 0
+    expect(accept(panel)).toBe(true);
+    expect(state.getQuestion("q4")!.answer!.value).toBe("x");
+    expect(panel.currentId).toBe("q2"); // advance wrapped to the next unanswered
+
+    // PHASE C — ← back to q1: the recorded answer owns the caret (THE AC
+    // CORE). Real keypress — fixed ←/→ question navigation (full list).
+    panel.handleInput(LEFT);
+    expect(panel.currentId).toBe("q1");
+    expect(panel.cursorIndex).toBe(1); // caret on RECORDED "b" — NOT the ★ row (the discriminating pin)
+    panel.invalidate();
+    const lines = panel.render(120);
+    const betaRow = lines.find((l) => l.includes("Beta"))!;
+    const alphaRow = lines.find((l) => l.includes("Alpha"))!;
+    expect(betaRow).toContain("▸"); // caret prefix on the chosen row
+    expect(betaRow).toContain("accent:Beta"); // accent highlight on the recorded answer (recording theme)
+    expect(alphaRow).toContain("★"); // ★ visible on its own row…
+    expect(alphaRow).not.toContain("▸"); // …and the caret is NOT on it
+
+    // PHASE D — enter on the recorded value: ZERO state change, advance only.
+    const before = JSON.stringify(state.serialize());
+    const atBefore = state.getQuestion("q1")!.answer!.at;
+    expect(panel.handleInput(ENTER)).toBe(true); // same-value re-commit → inert no-op (checked BEFORE the ripple seam)
+    expect(panel.currentId).toBe("q2"); // advance only (Q14 rhythm)
+    expect(panel.confirmMode).toBeNull(); // no FR-18 modal
+    expect(JSON.stringify(state.serialize())).toBe(before); // byte-identical
+    expect(state.getQuestion("q1")!.answer!.at).toBe(atBefore); // answer.at never rewritten
+    expect(state.epoch).toBe(1); // epoch bumps only inside buildSubmission
+    expect(sendMessage).toHaveBeenCalledTimes(0); // no auto-submit from a no-op path
+
+    // PHASE E1 — a write-in answer pins the ✎ row with its dim preview.
+    panel.currentId = "q2"; // travel (advance already landed here); q2 still unanswered
+    expect(panel.cursorIndex).toBe(0); // ★ "Ex" sits row 0 while unanswered
+    panel.cursorIndex = 2; // ✎ Other row (2 options → index options.length)
+    expect(accept(panel)).toBe(true); // ✎ row → WRITE-IN duty
+    expect(panel.focus).toBe("text");
+    expect(panel.textDuty).toBe("writein");
+    panel.textField.setText("hand-written answer");
+    expect(panel.handleInput(ENTER)).toBe(true); // write-in enter COMMITS
+    expect(state.getQuestion("q2")!.answer).toMatchObject({ value: "hand-written answer", custom: true });
+    expect(panel.currentId).toBe("q3"); // advance → next unanswered
+    panel.handleInput(LEFT); // ← back to q2 — the custom answer must own the caret
+    expect(panel.currentId).toBe("q2");
+    expect(panel.cursorIndex).toBe(2); // custom answer pins the ✎ row (★ "Ex" is row 0)
+    panel.invalidate();
+    const q2Lines = panel.render(120);
+    expect(q2Lines.some((l) => l.includes("✎ Other"))).toBe(true);
+    expect(q2Lines.some((l) => l.includes("dim:") && l.includes("hand-written answer"))).toBe(true); // dim preview
+
+    // PHASE E2 — a byte-identical write-in re-commit is inert.
+    const beforeE2 = JSON.stringify(state.serialize());
+    expect(accept(panel)).toBe(true); // caret already on the ✎ row → write-in duty again
+    expect(panel.focus).toBe("text");
+    panel.textField.setText("hand-written answer"); // byte-identical buffer
+    expect(panel.handleInput(ENTER)).toBe(true); // byte-identical re-commit → no-op
+    expect(panel.currentId).toBe("q3"); // advance only
+    expect(panel.confirmMode).toBeNull();
+    expect(JSON.stringify(state.serialize())).toBe(beforeE2);
+    expect(sendMessage).toHaveBeenCalledTimes(0);
+
+    // PHASE F — a DIFFERENT choice still raises the FR-18 confirm (the seam
+    // guards edits only; the same-value paths above skipped it entirely).
+    panel.currentId = "q1";
+    expect(panel.cursorIndex).toBe(1); // seeds recorded "b" again — the pin holds across every travel
+    panel.cursorIndex = 0; // ★ Alpha — an explicit DIFFERENT choice
+    panel.handleInput(ENTER);
+    expect(panel.confirmMode).not.toBeNull(); // the modal — no silent overwrite
+    expect(panel.confirmMode?.kind).toBe("choice");
+    expect(panel.confirmMode?.victims).toEqual(["q4"]); // dependsOn q1 equals "b" → 1 answered victim
+    panel.invalidate();
+    const confirmFooter = panel.render(120).at(-1)!;
+    expect(confirmFooter).toContain("accent:⚠"); // ⚠ in accent (recording theme)
+    expect(confirmFooter).toContain("Invalidates 1 answered questions (q4)"); // layout.ts confirm copy
+    expect(confirmFooter).toContain("enter=keep, esc=cancel");
+    // The modal swallows a stray key; ESC cancels byte-identical.
+    const beforeF = JSON.stringify(state.serialize());
+    expect(panel.handleInput("x")).toBe(true); // consumed no-op inside the modal
+    expect(panel.confirmMode).not.toBeNull();
+    expect(panel.handleInput(ESCAPE)).toBe(true);
+    expect(panel.confirmMode).toBeNull();
+    expect(JSON.stringify(state.serialize())).toBe(beforeF);
+    expect(panel.cursorIndex).toBe(1); // restored to the recorded answer
+    // Re-enter the edit → confirm → ENTER = keep (applied EXACTLY once).
+    panel.cursorIndex = 0;
+    panel.handleInput(ENTER); // modal again
+    expect(panel.confirmMode?.victims).toEqual(["q4"]);
+    panel.handleInput(ENTER); // keep
+    expect(state.getQuestion("q1")!.answer!.value).toBe("a");
+    expect(state.getQuestion("q4")!.status).toBe("moot"); // instant-local moot (FR-17)
+    expect(state.getQuestion("q4")!.answer?.value).toBe("x"); // answer KEPT (audit trail, FR-19)
+    expect(state.epoch).toBe(1);
+    expect(sendMessage).toHaveBeenCalledTimes(0); // still zero — q3 open blocks completeness
+    panel.dispose(); // footer-flash timers (AC-13 e2e precedent)
   });
 });

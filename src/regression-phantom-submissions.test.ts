@@ -287,7 +287,7 @@ describe("regression: one genuine answer fabricates nothing", () => {
 
     // The user answers exactly ONE question — the NON-recommended option.
     panel.currentId = "cancel-trigger";
-    expect(panel.cursorIndex).toBe(0); // seeds to ★ recommended
+    expect(panel.cursorIndex).toBe(0); // seeds to ★ recommended (unanswered — FR-35: ★ preselect survives only while no answer exists)
     panel.handleInput(DOWN);
     expect(panel.cursorIndex).toBe(1);
     panel.handleInput(ENTER);
@@ -320,6 +320,26 @@ describe("regression: one genuine answer fabricates nothing", () => {
       .map((c) => c[0] as { customType: string })
       .filter((m) => m.customType === "interrogation-completion");
     expect(completions).toEqual([]);
+
+    // ANSWER-PIN-001 (FR-35) × no-phantom bridge — additive row: the CLOSED
+    // question's recorded answer owns the caret, and a same-value re-commit
+    // on it ships NOTHING (no-op paths skip maybeAutoSubmit entirely).
+    // State above: cancel-trigger CLOSED with the NON-recommended "alt"
+    // (recommendation "rec" → D-R13 rows: 0=rec(★), 1=alt), epoch 2,
+    // sendMessage called exactly once (the ctrl+s submission).
+    const atBefore = getState()!.getQuestion("cancel-trigger")!.answer!.at;
+    const callsBefore = h.sendMessage.mock.calls.length;
+    const revisit = panelOf();
+    revisit.currentId = "cancel-trigger";
+    // The recorded "alt" owns display row 1 — NOT ★ row 0 (a phantom
+    // re-proposal would sit row 0).
+    expect(revisit.cursorIndex).toBe(1);
+    expect(revisit.handleInput(ENTER)).toBe(true); // same-value on a closed answer: inert no-op
+    expect(revisit.currentId).toBe("cancel-semantics"); // no-op ADVANCE (next unanswered in order)
+    expect(h.sendMessage.mock.calls.length).toBe(callsBefore); // no phantom submission from a no-op path
+    expect(getState()!.epoch).toBe(2); // unchanged — commits/edits/no-ops never bump
+    expect(getState()!.getQuestion("cancel-trigger")!.answer!.at).toBe(atBefore); // never rewritten
+    revisit.dispose();
   });
 });
 

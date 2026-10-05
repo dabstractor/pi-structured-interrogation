@@ -226,7 +226,7 @@
               "type": "Task",
               "id": "P1.M1.T5",
               "title": "Stabilize cross-cutting suites to the pinning contract (AC-16)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Flip the remaining cross-cutting assertions that were pinning the bug, add the AC-16 end-to-end scripted test, and hold the binding green gates (full suite, typecheck, keymap guards).",
               "subtasks": [
                 {
@@ -254,7 +254,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S10",
                   "title": "AC-16 scripted test + binding green gates",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

@@ -466,6 +466,23 @@ function reconcileDraftsForSubmit(panel: InterrogationPanel): void {
  *   (h2.32/R3), then deliverSubmission (exactly one sendMessage; idle probe
  *   picks the triggerTurn vs steer branch), then the note is CLEARED
  *   (h2.32 "cleared after shipping") — only a real delivery clears it.
+ * - POST-SUBMIT EXIT (2026-10-04 user directive, FR-3d): after the note
+ *   clearing, the panel SUSPENDS itself (done(null) — the SAME h2.35 esc
+ *   suspend contract: pi restores + refocuses the main editor, state and
+ *   drafts survive, the host's floating .then arms the suspend widget). A
+ *   real submission is a turn-ending gesture: the diff card in the
+ *   transcript is the confirmation, and the ball is in the agent's court —
+ *   the panel must not sit on the same question waiting for esc (the
+ *   stale-focus trap: an upsert while OPEN only invalidates in place and
+ *   never advances focus). The next surfacing is the agent's move: a
+ *   questions-upserted event leaving unanswered questions reopens the
+ *   panel (SURFACE-001 / handleUpserted, focused on the first upserted
+ *   active question), `{reopen:true}` resumes it, `/interrogate` opens it.
+ *   The zero-shipped early return above NEVER suspends — nothing shipped
+ *   means the user keeps working. maybeAutoSubmit's post-submit flash
+ *   still fires (it can only paint pre-restore frames; it is the
+ *   auto-path's test-observable receipt — the card and the widget are the
+ *   real confirmation surfaces).
  */
 export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // NEW-002/NEW-003 (h2.45): typed drafts ship with the submission — text
@@ -575,6 +592,15 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
     panel.drafts?.setNote("");
     panel.batchNote = "";
   }
+  // POST-SUBMIT EXIT (FR-3d, 2026-10-04 user directive): a real delivery
+  // ends the panel session — suspend (done(null), the esc contract) backs
+  // out to the normal prompt instead of parking on the current question.
+  // The host then sits in "suspended", which is exactly what arms the
+  // SURFACE-001 gated reopen when the agent's answering turn upserts more
+  // questions. Suspend also runs the R4 write-through, so a buffer still
+  // in the editor when ctrl+s fired (submit is intercept-before-forward)
+  // survives as a draft rather than being lost to the close.
+  panel.suspend();
   return true;
 }
 

@@ -7,8 +7,10 @@
  * - `openPanel` invokes `pi.ui.custom(...)` FIRE-AND-FORGET — the floating
  *   promise is never awaited anywhere (see the Mode A JSDoc on openPanel).
  * - The panel replaces the bottom editor region (non-overlay default) while
- *   the transcript stays visible above, and persists while the agent is idle;
- *   ONLY `done()` (suspend) or `lifecycle.dismissPanel()` closes it.
+ *   the transcript stays visible above, and persists while the agent is
+ *   idle; `done(null)` closes it — the esc suspend, the post-submit exit
+ *   (actions.ts submit() resolves the panel after every REAL delivery so
+ *   the prompt is back with the agent), and `lifecycle.dismissPanel()`.
  * - `done(null)` is the suspend contract: the editor region is restored, the
  *   host flips to "suspended" (not closed), and nothing user-visible is lost —
  *   state lives in the InterrogationState singleton, drafts in the DraftStore

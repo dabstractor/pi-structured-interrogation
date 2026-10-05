@@ -574,6 +574,28 @@ describe("submit — flush pending answers", () => {
     expect(options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
   });
 
+  test("test_post_submit_exit_real_delivery_suspends_zero_shipped_stays_open", () => {
+    // FR-3d post-submit exit: a REAL delivery ends the panel session
+    // (done(null) — the esc suspend contract) so the prompt is back with
+    // the agent; the zero-shipped early return keeps the panel open.
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    const { panel } = makePanel(state);
+    const { deps } = makeDeps(true);
+
+    // Zero-shipped path (nothing answered, nothing held): flash + open.
+    const fresh = makePanel(seed(BASIC)).panel;
+    expect(submit(fresh, deps)).toBe(true);
+    expect(fresh.footerFlash?.text).toBe("nothing to submit");
+    expect(fresh.isResolved()).toBe(false); // nothing shipped — user keeps working
+
+    // Real delivery: the panel resolves (suspend) — the transcript card is
+    // the confirmation; the host's suspend widget + SURFACE-001 gated
+    // reopen carry the resurfacing.
+    expect(submit(panel, deps)).toBe(true);
+    expect(panel.isResolved()).toBe(true);
+  });
+
   test("test_i_busy_probe_picks_the_steer_branch", () => {
     const state = seed(BASIC);
     state.applyAnswer("q1", { value: "a", at: T0 });

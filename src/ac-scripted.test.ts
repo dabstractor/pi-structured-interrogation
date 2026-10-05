@@ -732,6 +732,7 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
     expect(state.epoch).toBe(2); // buildSubmission bumps exactly once
     expect(state.getQuestion("q1")!.status).toBe("submitted");
     expect(state.getQuestion("q2")!.status).toBe("moot"); // completion blocker, untouched
+    expect(panel.isResolved()).toBe(true); // FR-3d post-submit exit: the real delivery closed the panel
 
     // 4. REAL close pass via the lifecycle event (NO setStatus anywhere):
     //    q1 archived, and — the S2 contract — the ring now holds a
@@ -753,13 +754,26 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
     //    (closed is "not pending", not immutable — FR-2). q1 is closed (not
     //    answered/submitted), so the FR-18 ripple gate does not apply — the
     //    commit lands directly and re-pends q1.
-    panel.currentId = "q1"; // setter re-seeds cursorIndex to the ★ preselect
-    panel.cursorIndex = 2; // past both options = the ✎ Other write-in row
-    expect(accept(panel)).toBe(true);
-    expect(panel.focus).toBe("text");
-    expect(panel.textDuty).toBe("writein");
-    panel.textField.setText("edited archived answer");
-    expect(panel.handleInput("\r")).toBe(true); // write-in enter COMMITS
+    //
+    //    FR-3d post-submit exit: auto-submit #1 RESOLVED the panel above, so
+    //    the archived edit rides a FRESH instance — in production the reopen
+    //    comes from /interrogate, an agent upsert, or {reopen:true}; this
+    //    second panel models that reopened session on the same singleton.
+    const panel2 = new InterrogationPanel({
+      tui: { requestRender: vi.fn() } as unknown as TUI,
+      theme: stubTheme,
+      done: () => {},
+      state,
+      config: DEFAULT_CONFIG,
+      delivery: deps,
+    });
+    panel2.currentId = "q1"; // setter re-seeds cursorIndex to the ★ preselect
+    panel2.cursorIndex = 2; // past both options = the ✎ Other write-in row
+    expect(accept(panel2)).toBe(true);
+    expect(panel2.focus).toBe("text");
+    expect(panel2.textDuty).toBe("writein");
+    panel2.textField.setText("edited archived answer");
+    expect(panel2.handleInput("\r")).toBe(true); // write-in enter COMMITS
     // The commit tail's maybeAutoSubmit fires the SECOND REAL auto-submit:
     // q1 re-pended + q2 moot → completeness holds. submit() diffs against
     // submissionBaselineOf — the CLOSE-PASS snapshot — so the entry's prev
@@ -792,6 +806,7 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
     expect(cardLines.some((l) => l.includes("Database: Beta → ✎ edited archived answer (changed)"))).toBe(true);
 
     panel.dispose(); // the auto-submit flashes arm footer timers
+    panel2.dispose();
   });
 });
 

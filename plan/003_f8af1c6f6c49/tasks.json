@@ -195,7 +195,7 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "Purge residual status-agnostic-preselect claims",
-              "status": "Implementing",
+              "status": "Complete",
               "description": "After the seam work lands, sweep every remaining \"answers never pin the cursor\" / status-agnostic-preselect comment in files not already purged by T1/T2 subtasks.",
               "subtasks": [
                 {

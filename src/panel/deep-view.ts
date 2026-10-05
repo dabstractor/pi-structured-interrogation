@@ -520,10 +520,27 @@ function stepDeepSelection(panel: InterrogationPanel, delta: number): boolean {
  * No-op paths (all consumed, `true`):
  * - no question context;
  * - text questions (the text affordance belongs to the short form);
- * - moot/withdrawn (R1: navigable, not editable);
- * - ripple VETO: `acceptOptionIndex` commits nothing — the user stays in
- *   deep view to re-decide (dropping to short would hide the pane they are
- *   reading); the view only changes on a real commit.
+ * - moot/withdrawn (R1: navigable, not editable).
+ *
+ * Outcome interpretation (Mode A, ANSWER-PIN-001 / FR-D9 — seam doc
+ * panel-ui-seams.md:17): this consumer interprets `acceptOptionIndex`'s
+ * `AcceptOutcome` signal and NEVER re-derives it from state — the old
+ * `q.answer === before` reference comparison WAS the bug (applyAnswer
+ * assigns a FRESH answer object on real commits while the same-value no-op
+ * deliberately leaves the answer object untouched, so an identity check
+ * reads the no-op as a veto and strands the user in the deep pane):
+ * - "noop"   — same-value re-commit: INERT (no applyAnswer, no answer.at
+ *   rewrite, no seam, no moot recompute, no auto-submit) but the Q14
+ *   advance ALREADY RAN inside acceptOptionIndex — NOT a veto; the panel
+ *   returns to the short form exactly like a real ACCEPT.
+ * - "accept" — real commit applied (ripple passed or not applicable);
+ *   advance already ran; return to short.
+ * - "veto"   — the ripple-confirm seam refused the edit; NOTHING applied,
+ *   NO advance; the user STAYS in deep view to re-decide in the pane they
+ *   are reading (dropping to short would hide it).
+ * - false    — out-of-range index (defensive; unreachable here — the
+ *   index is clamped into [0, options.length] and the Other index is
+ *   handled above); propagated honestly (`!== false`).
  */
 export function acceptFromDeep(panel: InterrogationPanel): boolean {
   const { q } = deepInput(panel);
@@ -543,16 +560,18 @@ export function acceptFromDeep(panel: InterrogationPanel): boolean {
     panel.focusTextField();
     return true;
   }
-  const before = q.answer;
-  const accepted = acceptOptionIndex(panel, q, index);
-  // Veto detection without re-invoking the seam: applyAnswer always assigns
-  // a FRESH answer object; a vetoed edit leaves the old one in place. On a
-  // veto the user stays in deep view to re-decide (dropping to short would
-  // hide the pane they are reading).
-  if (q.answer === before) return true;
+  const outcome = acceptOptionIndex(panel, q, index);
+  // ANSWER-PIN-001 / FR-D9: only a ripple VETO keeps the user in deep view
+  // (dropping to short would hide the pane they are reading; nothing was
+  // committed). A same-value NO-OP is NOT a veto — the Q14 advance already
+  // ran inside acceptOptionIndex, so the panel returns to the short form
+  // exactly like a real ACCEPT. Never re-derive the outcome from state
+  // (q.answer before/after identity) — that heuristic is the bug this
+  // signal replaced.
+  if (outcome === "veto") return true;
   panel.setView("short");
   panel.scrollOffset = 0;
-  return accepted;
+  return outcome !== false;
 }
 
 /**

@@ -193,7 +193,9 @@ export function digit(panel: InterrogationPanel, n: number): boolean {
   if (q === undefined || q.type !== "choice") return false;
   if (n - 1 >= (q.options?.length ?? 0)) return false;
   if (q.status === "moot" || q.status === "withdrawn") return true;
-  return acceptOptionIndex(panel, q, n - 1);
+  // Boolean boundary coercion (Mode A): false stays not-consumed (fall-
+  // through), every other outcome is consumed.
+  return acceptOptionIndex(panel, q, n - 1) !== false;
 }
 
 /**
@@ -234,8 +236,28 @@ export function accept(panel: InterrogationPanel): boolean {
     panel.focusTextField();
     return true;
   }
-  return acceptOptionIndex(panel, q, panel.cursorIndex);
+  // Boolean boundary coercion (Mode A): every outcome except false is
+  // consumed — the PanelActions interface stays boolean.
+  return acceptOptionIndex(panel, q, panel.cursorIndex) !== false;
 }
+
+/**
+ * [Mode A] Three-outcome accept signal (ANSWER-PIN-001 / FR-D9, seam doc
+ * panel-ui-seams.md:17) — the deep-view consumer (acceptFromDeep) must
+ * distinguish "nothing happened because the recorded answer was re-entered"
+ * from "nothing happened because the ripple seam vetoed the edit":
+ * - "noop"   — same-value re-commit: INERT (no applyAnswer, no answer.at
+ *   rewrite, no seam, no moot recompute, no auto-submit) but the Q14 advance
+ *   ALREADY RAN inside acceptOptionIndex; deep view returns to short.
+ * - "accept" — real commit applied (ripple passed or not applicable); advance
+ *   already ran; deep view returns to short.
+ * - "veto"   — the ripple-confirm seam refused the edit (answered/submitted
+ *   question, different value); NOTHING applied, NO advance; deep view stays
+ *   open so the user re-decides in the pane they are reading.
+ * - false    — out-of-range index (opt undefined): not consumed; digit falls
+ *   through. Boolean for call-site compatibility (accept/digit return boolean).
+ */
+export type AcceptOutcome = "noop" | "accept" | "veto" | false;
 
 /**
  * Shared commit path for accept + digit + deep view. Same-value re-commit
@@ -246,8 +268,16 @@ export function accept(panel: InterrogationPanel): boolean {
  * route answered/submitted edits through the ripple-confirm seam FIRST
  * (AC-13 — a veto skips everything), applyAnswer (status → answered, the
  * pending state per h2.38), then advance.
+ *
+ * Returns an {@link AcceptOutcome} (Mode A): "noop" (same-value, advance
+ * already ran), "accept" (committed, advance already ran), "veto" (the seam
+ * refused — nothing applied, no advance), or false (opt undefined — digit's
+ * not-consumed fall-through). Only the return SHAPE changed; commit logic,
+ * seam ordering, and advance placement are byte-identical. Boolean
+ * consumers (accept/digit, the PanelActions interface) coerce with
+ * `!== false` — the outcome strings are truthy, never return them raw.
  */
-export function acceptOptionIndex(panel: InterrogationPanel, q: Question, optionIndex: number): boolean {
+export function acceptOptionIndex(panel: InterrogationPanel, q: Question, optionIndex: number): AcceptOutcome {
   // D-R13 (2026-09-30): optionIndex is a DISPLAY position (recommended-first
   // order — displayOptions); the mapping lives HERE, the single seam, so
   // cursor domain, digits, and deep view can all speak display positions.
@@ -263,14 +293,14 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   const recorded = q.answer;
   if (recorded !== undefined && recorded.custom !== true && recorded.value === opt.value) {
     advanceAfterAccept(panel); // Q14 rhythm: advance only, no state write
-    return true;
+    return "noop";
   }
   const proposed = { value: opt.value, at: new Date().toISOString() };
   // AUTOSUBMIT-003 commit context: open/reasked pre-commit = this accept can
   // be the last-unanswered TRANSITION; answered/submitted = an edit.
   const wasUnanswered = q.status === "open" || q.status === "reasked";
   if (q.status === "answered" || q.status === "submitted") {
-    if (!panel.confirmRippleEdit(q.id, proposed)) return true; // seam vetoed
+    if (!panel.confirmRippleEdit(q.id, proposed)) return "veto"; // seam vetoed — nothing applied, no advance
   }
   panel.state.applyAnswer(q.id, proposed);
   // FR-17 / AC-6 (P1.M5.T4.S1): instant-local moot re-derivation after
@@ -281,7 +311,7 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   evaluateDependsOn(panel.state);
   advanceAfterAccept(panel);
   maybeAutoSubmit(panel, undefined, { wasUnanswered, questionId: q.id }); // AUTOSUBMIT-001/003 — transition-gated completeness check
-  return true;
+  return "accept";
 }
 
 /**

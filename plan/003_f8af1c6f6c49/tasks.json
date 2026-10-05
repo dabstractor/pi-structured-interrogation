@@ -86,7 +86,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "FR-D9 — Inert same-value commits on the accept paths",
-              "status": "Planned",
+              "status": "Complete",
               "description": "enter/digit on the already-recorded value is a state NO-OP (advance only): no ripple seam, no applyAnswer, no evaluateDependsOn, no maybeAutoSubmit, no answer.at rewrite; byte-identical write-in re-commits inert with buffer consumed; acceptFromDeep treats no-op as accept; FR-18 modal fires only on an explicit different choice.",
               "subtasks": [
                 {
@@ -144,7 +144,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S6",
                   "title": "acceptFromDeep: no-op returns to short + advances; veto stays in deep",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S4"

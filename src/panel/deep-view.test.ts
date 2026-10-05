@@ -507,10 +507,32 @@ describe("acceptFromDeep", () => {
     panel.setView("deep");
     acceptFromDeep(panel); // first answer commits
     panel.setView("deep"); // re-enter to edit
+    deepSelectionDown(panel); // caret OFF the recorded value (S1 pins it to sqlite) — a real EDIT
     panel.rippleConfirm = () => false; // veto the edit
     expect(acceptFromDeep(panel)).toBe(true); // consumed…
     expect(panel.view).toBe("deep"); // …but the user stays to re-decide
     expect(panel.state.getQuestion("q1")?.answer?.value).toBe("sqlite"); // unchanged
+  });
+
+  test("test_same_value_noop_returns_to_short_and_advances", () => {
+    const panel = setup(
+      [choiceQ("q1", { answer: { value: "postgres", at: "t0" } }), choiceQ("q2")],
+      { q1: "answered" },
+    );
+    panel.currentId = "q1"; // initial focus lands on q2 (first OPEN, FR-1 ladder); the journey navigates to the answered q1 first
+    panel.setView("deep"); // S1/FR-D8: caret seeds to the RECORDED answer's section
+    expect(panel.cursorIndex).toBe(1); // postgres display row (row 0 = ★ sqlite, D-R13)
+    const seam = vi.fn(() => true);
+    panel.rippleConfirm = seam;
+    expect(acceptFromDeep(panel)).toBe(true); // consumed
+    expect(panel.view).toBe("short"); // NO-OP is not a veto — return to short
+    expect(panel.currentId).toBe("q2"); // Q14 advance ran inside the no-op
+    expect(panel.scrollOffset).toBe(0);
+    expect(seam).toHaveBeenCalledTimes(0); // FR-D9: same-value never consults the seam
+    const q1 = panel.state.getQuestion("q1");
+    expect(q1?.answer?.value).toBe("postgres"); // unchanged, same object
+    expect(q1?.answer?.at).toBe("t0"); // no answer.at rewrite
+    expect(q1?.status).toBe("answered"); // not re-marked, not reset
   });
 
   test("test_text_question_consumed_noop", () => {

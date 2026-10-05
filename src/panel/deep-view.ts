@@ -80,21 +80,40 @@ const INSET = "  ";
  * accent + bold on title AND its bars; explanation text RAW full-intensity;
  * bars PRIMARY (theme text) — the amendment-4 state, which read best. The
  * explanation block now indents 1 char (bar col 3, text col 4).
+ *
+ * D-R14 AMENDMENT 9 (2026-10-04, owner ruling): selection must carry a
+ * CHARACTER-level signal, not just accent+bold — on color-broken TTYs the
+ * amendment-4 "bold = no-color fallback" assumption failed outright. The
+ * highlighted section now ALSO renders `▸ ` in place of its header inset
+ * (the short-view cursor vocabulary; labels stay column-aligned) and its
+ * ramification pipes render `┃` (heavy) instead of `│` — same 3 visible
+ * cols, so the amended-6 indent geometry is untouched. Color treatment
+ * unchanged: the glyphs are an ADDITIVE channel, not a replacement.
  */
 /** Recommendation mark inserted before the title label (short-view.ts). */
 const STAR = "★ ";
 /**
- * Explanation-row pipe indent: 1 space + │ + space (3 visible cols; bar at
- * col 3, text col 4 — amended 6: 1-char explanation indent). Bars PRIMARY
- * (theme text); the SELECTED section's bars highlight — accent + bold.
+ * Explanation-row pipe indent: 1 space + │/┃ + space (3 visible cols; bar
+ * at col 3, text col 4 — amended 6 indent). Bars PRIMARY (theme text); the
+ * SELECTED section's bars highlight — accent + bold AND the heavy ┃ glyph
+ * (amendment 9's per-row character signal).
  */
 function ramIndent(theme: Theme, selected: boolean): string {
-  const bar = " │ ";
+  const bar = selected ? " ┃ " : " │ ";
   return selected ? theme.bold(theme.fg("accent", bar)) : theme.fg("text", bar);
 }
-/** Title styling: selected = accent + bold (bold survives colorless terminals); unselected = PRIMARY (theme text). */
+/** Title styling: selected = accent + bold (plus the ▸ prefix / heavy ┃ bars — amendment 9's character channel); unselected = PRIMARY (theme text). */
 function titleStyle(theme: Theme, selected: boolean, body: string): string {
   return selected ? theme.bold(theme.fg("accent", body)) : theme.fg("text", body);
+}
+/**
+ * Header line prefix (2 visible cols either way): `▸ ` on the highlighted
+ * section — the character-level selection signal (D-R14 amendment 9; same
+ * glyph vocabulary as the short-view cursor) — two spaces otherwise.
+ * Replaces INSET on header lines so labels stay column-aligned.
+ */
+function headerPrefix(selected: boolean): string {
+  return selected ? "▸ " : INSET;
 }
 /** Moot reason line head (mirrors short-view.ts). */
 const MOOT_HEAD = "⊘ moot — ";
@@ -148,9 +167,15 @@ export interface DeepContent {
   lines: string[];
   /** Per option: index into {@link lines} of its section header line. */
   sectionHeaderLineIndex: number[];
-  /** Per section: plain header body (`★ sqlite` / `postgres` / the ✎ Other
-   *  label), theme-free. The Other section is always the LAST entry. */
+  /** Per section: plain header body (the label ONLY — the ★ rail lives in
+   *  `sectionStarred`, never inside the body), theme-free. The Other section
+   *  is always the LAST entry. */
   sectionHeaders: string[];
+  /** D-R14 amendment 7 (2026-09-30): per section — true when the option is
+   *  the recommendation; renders the ★ at COLUMN 0 (the left rail) without
+   *  moving the title text (title stays col 2). Parallels sectionHeaders
+   *  (Other = always false). */
+  sectionStarred: boolean[];
   /** True for moot questions — headers re-render dimmed (whole pane dim). */
   dimAll: boolean;
   /** Viewport height cap ({@link DEEP_VIEW_HEIGHT}). */
@@ -216,9 +241,10 @@ export function wrapText(text: string, budget: number): string[] {
  * goal text (dimmed, capped + wrapped), a blank separator, the FULL
  * `question.description` (capped + wrapped), a blank separator, then one
  * section per option in state order (never filtered or reordered — R1):
- * a header line `▸ label` / `▸ ★ label` (★ when the option matches
- * `q.recommendation` — same vocabulary as short-view.ts) followed by its
- * ramification wrapped over indented (4-col) dimmed lines.
+ * a header line — `▸ label ★` when highlighted / `  label ★` otherwise
+ * (TRAILING ★, amendment 8; the highlighted section carries the `▸ `
+ * prefix + heavy `┃` pipes of amendment 9) — followed by its ramification
+ * wrapped over indented (4-col) dimmed lines.
  *
  * Dim hierarchy: the goal and ramification lines render dim ALWAYS (the
  * goal is context, the ramification is the expanded short-view teaser,
@@ -249,6 +275,7 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
       lines: [`${INSET}${theme.fg("dim", WITHDRAWN_LINE)}`],
       sectionHeaderLineIndex: [],
       sectionHeaders: [],
+      sectionStarred: [],
       dimAll: false,
       viewportHeight: DEEP_VIEW_HEIGHT,
     };
@@ -258,6 +285,7 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
   const lines: string[] = [];
   const sectionHeaderLineIndex: number[] = [];
   const sectionHeaders: string[] = [];
+  const sectionStarred: boolean[] = [];
 
   // Moot reason line PREPENDED to the pane (mirrors short-view's reason
   // line ahead of the options list).
@@ -275,14 +303,17 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     const options = displayOptions(q); // D-R13: recommended-first display order (same as short view)
     for (let i = 0; i < options.length; i++) {
       const opt = options[i]!;
-      const star = opt.value === q.recommendation ? STAR : "";
-      const body = `${star}${truncateVisible(opt.label, Math.max(1, budget - visibleWidth(star)))}`;
+      // D-R14 amendment 8 (2026-09-30): the ★ follows the title — TRAILING
+      // `Title ★` — instead of the col-0 rail; the title text stays at
+      // col 2 with the plain inset, and the star's width is reserved so
+      // truncation can never eat it.
+      const starred = opt.value === q.recommendation;
+      const starSuffix = starred ? ` ${theme.fg("text", "★")}` : "";
+      const body = truncateVisible(opt.label, Math.max(1, budget - (starred ? 2 : 0)));
       sectionHeaders.push(body);
+      sectionStarred.push(starred);
       sectionHeaderLineIndex.push(lines.length);
-      // Placeholder title (D-R14: de-indented, color+bold selection, no ▸);
-      // renderDeepWindow re-renders title lines with the CURRENT selection
-      // styling every render.
-      const composed = `${INSET}${titleStyle(theme, i === input.cursorIndex, body)}`;
+      const composed = `${headerPrefix(i === input.cursorIndex)}${titleStyle(theme, i === input.cursorIndex, body)}${starSuffix}`;
       lines.push(dimAll ? theme.fg("dim", composed) : composed);
       // D-R13/D-R14: explanation rows — full intensity, each prefixed by the
       // colored quote-bar pipe. Moot dims the whole pane over it.
@@ -301,12 +332,13 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     // unchanged. Present even with zero options (the Other row is the
     // whole domain there); never on withdrawn/text questions.
     sectionHeaders.push(OTHER_AFFORDANCE);
+    sectionStarred.push(false); // never recommended (h2.29)
     sectionHeaderLineIndex.push(lines.length);
-    const composed = `${INSET}${titleStyle(theme, options.length === input.cursorIndex, OTHER_AFFORDANCE)}`;
+    const composed = `${headerPrefix(options.length === input.cursorIndex)}${titleStyle(theme, options.length === input.cursorIndex, OTHER_AFFORDANCE)}`;
     lines.push(dimAll ? theme.fg("dim", composed) : composed);
     pushBlock(lines, OTHER_RAMIFICATION, theme, budget, maxChars, dimAll, ramIndent(theme, options.length === input.cursorIndex));
   }
-  return { lines, sectionHeaderLineIndex, sectionHeaders, dimAll, viewportHeight: DEEP_VIEW_HEIGHT };
+  return { lines, sectionHeaderLineIndex, sectionHeaders, sectionStarred, dimAll, viewportHeight: DEEP_VIEW_HEIGHT };
 }
 
 /**
@@ -397,9 +429,14 @@ export function renderDeepWindow(
   for (let s = 0; s < content.sectionHeaderLineIndex.length; s++) {
     const lineIdx = content.sectionHeaderLineIndex[s]!;
     if (lineIdx < offset || lineIdx >= end) continue;
-    const body = truncateVisible(content.sectionHeaders[s]!, Math.max(1, budget));
-    // D-R14: de-indented title, selection = accent+bold (no arrow glyph).
-    const composed = `${INSET}${titleStyle(theme, s === cursorIndex, body)}`;
+    const starred = content.sectionStarred[s] === true;
+    const body = truncateVisible(content.sectionHeaders[s]!, Math.max(1, budget - (starred ? 2 : 0)));
+    // D-R14 amendment 8: TRAILING `Title ★` — no rail, no leading star; the
+    // star's width is reserved so truncation never eats it. Selection =
+    // accent+bold title/bars PLUS the ▸ header prefix (amendment 9); the
+    // star stays primary text.
+    const starSuffix = starred ? ` ${theme.fg("text", "★")}` : "";
+    const composed = `${headerPrefix(s === cursorIndex)}${titleStyle(theme, s === cursorIndex, body)}${starSuffix}`;
     window[lineIdx - offset] = content.dimAll ? theme.fg("dim", composed) : composed;
   }
   return window;

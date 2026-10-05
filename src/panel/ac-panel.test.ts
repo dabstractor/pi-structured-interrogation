@@ -402,7 +402,7 @@ describe("AC-1 — render proof at panel level (FR-1/FR-9)", () => {
     expect(dimPanel.currentId).toBe("q30"); // process group — NOT the gate group
     const idx = ordered.findIndex((q) => q.id === "q30");
     const dimLines = dimPanel.render(80);
-    expect(dimLines[1]).toBe(renderQuestionLine(ordered[idx]!, idx + 1, ansiTheme, 80, true));
+    expect(dimLines[1]).toBe(renderQuestionLine(ordered[idx]!, idx + 1, ordered.length, ansiTheme, 80, true));
     expect(dimLines[2]).toBe(renderHintLine(ordered[idx]!, ansiTheme, 80, true)[0]);
     expect(dimLines.join("\n")).toContain("\u001b[2m"); // dim wrap observable
     dimPanel.handleInput(ENTER); // dimmed is display-only: the answer applies
@@ -414,7 +414,7 @@ describe("AC-1 — render proof at panel level (FR-1/FR-9)", () => {
     const gateLines = gatePanel.render(80);
     const gateIdx = fresh.orderedQuestions().findIndex((q) => q.id === "q09");
     expect(gateLines[1]).toBe(
-      renderQuestionLine(fresh.orderedQuestions()[gateIdx]!, gateIdx + 1, ansiTheme, 80, false),
+      renderQuestionLine(fresh.orderedQuestions()[gateIdx]!, gateIdx + 1, fresh.orderedQuestions().length, ansiTheme, 80, false),
     );
     expect(gateLines[2]).toBe(renderHintLine(fresh.orderedQuestions()[gateIdx]!, ansiTheme, 80, false)[0]);
   });

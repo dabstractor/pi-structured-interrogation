@@ -219,33 +219,30 @@ function hasTextAnswer(q: Question): boolean {
  * @param width  total render width budget for the line
  */
 export function renderHeader(state: SerializedState, theme: Theme, width: number): HeaderRender {
-  const { answered, reasked, total } = statusCounts(state);
-  const counts = `${answered}/${total} answered · ${reasked} re-asked`;
+  // 2026-09-30 wayfinding restructure (user direction): the header no
+  // longer carries the answered/re-asked counts — the footer's progress
+  // segment is their single home (the old duplication read awkwardly next
+  // to the position indicator). statusCounts stays only for shape parity.
+  void state;
   const title = "interrogation";
   const goalFull = state.goal;
 
   // Visible widths of the fixed segments (measured UNWRAPPED, then wrapped —
   // compose truncation before theme-wrapping, per module contract).
   const prefixW = "┌ interrogation · ".length; // ┌ + sp + title + sp + · + sp
-  const suffixW = " ──  ┐".length + counts.length; // sp + ── + sp + counts + sp + ┐
 
-  if (width >= prefixW + suffixW + 1) {
-    // Counts fit whole — goal takes whatever remains (≥ 1 col).
-    const goalBudget = width - prefixW - suffixW;
+  if (width >= prefixW + 2) {
+    const goalBudget = width - prefixW - 2; // trailing " ┐"
     if (goalFull === "") {
-      return {
-        line: `┌ ${theme.fg("dim", title)} ── ${theme.fg("muted", counts)} ┐`,
-        goalFull,
-      };
+      return { line: `┌ ${theme.fg("dim", title)} ┐`, goalFull };
     }
     const goalTxt = truncateVisible(goalFull, goalBudget);
     return {
-      line: `┌ ${theme.fg("dim", title)} · ${goalTxt} ── ${theme.fg("muted", counts)} ┐`,
+      line: `┌ ${theme.fg("dim", title)} · ${goalTxt} ┐`,
       goalFull,
     };
   }
   if (width >= "┌ interrogation ┐".length) {
-    // Degrade: drop counts + goal whole (they never truncate).
     return { line: `┌ ${theme.fg("dim", title)} ┐`, goalFull };
   }
   // Below ~19 columns: 1-line, non-crashing minimal border (M7.T5 owns real
@@ -349,13 +346,17 @@ const MARKER_REASON_CAP = 24;
 export function renderQuestionLine(
   q: Question,
   position: number,
+  total: number,
   theme: Theme,
   width: number,
   dim = false,
 ): string {
   const groupLabel = q.group ?? UNGROUPED_LABEL;
   const titleTxt = q.title ?? q.prompt;
-  const plain = `${groupLabel} · Q${position}/${q.id} ${titleTxt}`;
+  // 2026-09-30 wayfinding restructure: {n}/{total} next to the question
+  // (was Q{n}/{q.id} — position/id mash-up); the header's counts segment is
+  // gone, so this is the top-line position home.
+  const plain = `${groupLabel} · ${position}/${total} ${titleTxt}`;
 
   const budget = Math.max(1, width - 2); // inset 2
   let markers = statusMarkers(q, theme);
@@ -454,6 +455,10 @@ export interface FooterEditorExit {
  * @param narrow  h2.30 narrow fallback (cols < 60): key hints collapse to
  *                submit + deep. Default false.
  * @param editorExit ESC-002 editor-affordance hints; omit for standard hints.
+ * @param position Wayfinding (2026-09-30): 1-based position of the focused
+ *        question + total, rendered inside the progress segment as
+ *        `q{n}/{total}` — the status line carries WHERE you are (computed
+ *        from state; never agent-supplied). Omit to render progress only.
  */
 export function renderFooter(
   state: SerializedState,
@@ -463,9 +468,17 @@ export function renderFooter(
   width: number,
   narrow = false,
   editorExit?: FooterEditorExit,
+  position?: { n: number; total: number },
 ): string {
   const { answered, reasked, total } = statusCounts(state);
-  const progress = `${answered}/${total} answered · ${reasked} re-asked`;
+  // Wayfinding (2026-09-30): `q{n}/{total}` rides IN the progress segment
+  // (never dropped). To pay for it, the re-asked segment is omitted when
+  // zero — "0 re-asked" carried no information, and dropping it keeps the
+  // hint budget intact at standard widths.
+  const progress =
+    `${answered}/${total} answered` +
+    (reasked > 0 ? ` · ${reasked} re-asked` : "") +
+    (position !== undefined ? ` · q${position.n}/${position.total}` : "");
 
   const keyActions = narrow ? NARROW_FOOTER_ACTIONS : SCREEN_KEYS[screen];
   const hints: string[] = keyActions.map((action) => `${labels[action]} ${ACTION_WORDS[action]}`);

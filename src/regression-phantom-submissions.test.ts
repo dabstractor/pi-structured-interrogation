@@ -372,9 +372,12 @@ describe("regression: record-derived counters (symptom 3)", () => {
     // Group summary line carries the same count.
     expect(read.content).toContain("Plan: 2/6 answered");
 
-    // Panel header counts agree.
+    // Panel header no longer carries counts (2026-09-30 restructure — the
+    // footer's progress segment is their single home); the rebuild read
+    // carries them instead.
     const header = renderHeader(state.serialize(), stubTheme, 120);
-    expect(header.line).toContain("2/6 answered · 1 re-asked");
+    expect(header.line).not.toContain("answered");
+    expect(read.content).toContain("2/6 answered");
 
     // Suspend widget counts agree (3 open · 2 answered).
     expect(buildSuspendWidgetLine(state)).toBe("3 open · 2 answered — /interrogate to resume");

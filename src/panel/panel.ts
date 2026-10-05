@@ -1353,9 +1353,22 @@ export class InterrogationPanel implements Component {
     // submit + deep (labels from this.labels, resolved at construction —
     // h2.52); renderFooter's right-to-left fit loop stays the width net.
     const editorExit = this.focus === "text" || this.focus === "note";
+    // Wayfinding (2026-09-30 restructure): the DEEP footer alone carries the
+    // position (on {n}/{total}) — the short view's question line owns it
+    // ({n}/{total} next to the question), and the overview's cursor row IS
+    // its own position display. Computed from state; never agent-supplied.
+    let position: { n: number; total: number } | undefined;
+    if (this.view === "deep") {
+      const ordered = this.state.orderedQuestions();
+      const idx =
+        this.currentId !== undefined
+          ? ordered.findIndex((entry) => entry.id === this.currentId)
+          : -1;
+      if (idx >= 0) position = { n: idx + 1, total: ordered.length };
+    }
     return renderFooter(snapshot, this.view, this.labels, this.theme, width, narrow, editorExit
       ? { mode: this.focus === "note" ? "note" : "text", escEscHint: this.config.escExitWindowMs > 0 }
-      : undefined);
+      : undefined, position);
   }
 
   /**
@@ -1401,7 +1414,7 @@ export class InterrogationPanel implements Component {
       if (idx >= 0) {
         const current = ordered[idx];
         const dimmed = gateGroups.size > 0 && !gateGroups.has(effectiveGroup(current));
-        lines.push(renderQuestionLine(current, idx + 1, this.theme, width, dimmed));
+        lines.push(renderQuestionLine(current, idx + 1, ordered.length, this.theme, width, dimmed));
         // h2.30 rows < 24 (P1.M7.T5.S1): the hint line is suppressed WHOLE
         // (never truncated into nothing); the deep view stays untouched —
         // the always-available full replacement. Unknown height keeps the

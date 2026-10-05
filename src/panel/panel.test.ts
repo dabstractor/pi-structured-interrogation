@@ -475,7 +475,7 @@ describe("view switching (built-in S1 bindings)", () => {
 
     const short = panel.render(80);
     expect(short[0]).toMatch(/^┌ interrogation ·?/); // S2 header
-    expect(short[0]).toContain("0/1 answered · 0 re-asked");
+    expect(short[0]).not.toContain("answered"); // counts moved to the footer (2026-09-30)
     expect(short.some((l) => l.includes("prompt:q1"))).toBe(true); // question line
     expect(short.some((l) => l.includes("▸ "))).toBe(true); // options region cursor (P1.M3.T2.S1)
     expect(short.some((l) => l.includes("✎ Other — write your own"))).toBe(true); // real options region
@@ -949,20 +949,20 @@ describe("terminal fallbacks (h2.30, P1.M7.T5.S1)", () => {
       tui: tuiWithRows(30),
     });
 
-    // 59 cols → narrow: key hints collapse to {submit, deep}; the fit loop
-    // drops deep first, leaving submit (the list hint can NEVER appear).
+    // 59 cols → narrow: key hints collapse to {submit, deep}; both fit
+    // alongside enter accept (zero-re-asked omission freed the budget);
+    // list is excluded by the 2-key cap, never by width.
     const narrowFooter = panel.render(59)[panel.render(59).length - 1]!;
     expect(narrowFooter).toContain("S submit");
-    expect(narrowFooter).not.toContain("D deep");
+    expect(narrowFooter).toContain("D deep");
     expect(narrowFooter).not.toContain("list");
 
-    // 60 cols → NOT narrow: the per-screen short keys return; the same fit
-    // loop now drops submit first and keeps deep — the boundary is visible.
+    // 60 cols → NOT narrow: the full per-screen set returns; the fit loop
+    // drops submit first and keeps deep + list — the boundary is visible.
     const wideLines = panel.render(60);
     const wideFooter = wideLines[wideLines.length - 1]!;
     expect(wideFooter).toContain("D deep");
     expect(wideFooter).not.toContain("S submit");
-    expect(wideFooter).not.toContain("list");
   });
 });
 
@@ -2134,8 +2134,8 @@ describe("deep view (P1.M5.T1.S1)", () => {
     // FR-30: FULL goal text rendered (not the header's truncated form).
     expect(lines.join("\n")).toContain("Ship the widget");
     expect(lines.join("\n")).toContain("Context you should read before choosing.");
-    // ★ header + all options in state order (R1).
-    expect(lines.join("\n")).toContain("★ sqlite");
+    // ★ TRAILS the recommended title (amendment 8) + all options in state order (R1).
+    expect(lines.join("\n")).toContain("sqlite ★");
     expect(lines.join("\n")).toContain("postgres");
     expect(lines.join("\n")).toContain("Fast, embedded, single-writer.");
     // h2.51 row 2: header(1) + pane(≤ DEEP_VIEW_HEIGHT) + footer(1).
@@ -2289,7 +2289,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
     const lines = panel.render(80);
     // Current question IS in the gate group → rendering completely unchanged
     // (h2.29): identical to the explicit dim=false renderer call.
-    expect(lines[1]).toBe(renderQuestionLine(state.getQuestion("g1")!, 1, ansiTheme, 80, false));
+    expect(lines[1]).toBe(renderQuestionLine(state.getQuestion("g1")!, 1, state.orderedQuestions().length, ansiTheme, 80, false));
     expect(lines[2]).toBe(renderHintLine(state.getQuestion("g1")!, ansiTheme, 80, false)[0]);
   });
 
@@ -2304,7 +2304,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
     const n1 = state.getQuestion("n1")!;
     const n1Index = state.orderedQuestions().findIndex((q) => q.id === "n1");
     // Question line, hint line, and option lines all carry the dim wrap.
-    expect(lines[1]).toBe(renderQuestionLine(n1, n1Index + 1, ansiTheme, 80, true));
+    expect(lines[1]).toBe(renderQuestionLine(n1, n1Index + 1, state.orderedQuestions().length, ansiTheme, 80, true));
     expect(lines[2]).toBe(renderHintLine(n1, ansiTheme, 80, true)[0]);
     expect(lines[3]).toBe(
       renderShortViewOptions({
@@ -2333,7 +2333,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
     // dim flag, header + question + hint + options + footer.
     const expected = [
       renderHeader(snapshot, stubTheme, 80).line,
-      renderQuestionLine(current, idx + 1, stubTheme, 80),
+      renderQuestionLine(current, idx + 1, ordered.length, stubTheme, 80),
       ...renderHintLine(current, stubTheme, 80),
       ...renderShortViewOptions({
         question: current,

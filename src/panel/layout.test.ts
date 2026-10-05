@@ -114,7 +114,7 @@ describe("truncateVisible", () => {
 describe("renderHeader", () => {
   test("renders goal + counts inside the border at comfortable width", () => {
     const { line } = renderHeader(mkState(), theme, 80);
-    expect(line).toContain("┌ interrogation · Ship the thing ── 0/1 answered · 0 re-asked ┐");
+    expect(line).toContain("┌ interrogation · Ship the thing ┐"); // counts moved to the footer (2026-09-30)
     expect(line).not.toContain("…");
     expect(line).not.toContain("\n");
     expect(visibleWidth(line)).toBeLessThanOrEqual(80);
@@ -129,16 +129,16 @@ describe("renderHeader", () => {
     expect(visibleWidth(line)).toBeLessThanOrEqual(80);
   });
 
-  test("counts never truncate: narrow width drops them whole, keeping 1 line", () => {
+  test("below the goal-fit threshold the header degrades to the bare title", () => {
     const state = mkState();
-    const { line } = renderHeader(state, theme, 24); // counts can no longer fit
+    const { line } = renderHeader(state, theme, 19); // goal prefix can no longer fit
     expect(line).toBe("┌ interrogation ┐");
     expect(line).not.toContain("\n");
   });
 
   test("empty goal renders without a dangling separator", () => {
     const { line } = renderHeader(mkState({ goal: "" }), theme, 80);
-    expect(line).toContain("┌ interrogation ── 0/1 answered · 0 re-asked ┐");
+    expect(line).toContain("┌ interrogation ┐");
   });
 });
 
@@ -216,15 +216,15 @@ describe("statusMarkers", () => {
 describe("renderQuestionLine", () => {
   test("shows group label, position, id, and title", () => {
     const q = mkQuestion("q1", { group: "Storage" });
-    const line = renderQuestionLine(q, 3, theme, 80);
-    expect(line).toContain("Storage · Q3/q1 Title q1");
+    const line = renderQuestionLine(q, 3, 7, theme, 80);
+    expect(line).toContain("Storage · 3/7 Title q1");
     expect(visibleWidth(line)).toBeLessThanOrEqual(80);
   });
 
   test("group falls back to (none) and title falls back to prompt", () => {
     const q = mkQuestion("q1", { title: undefined });
-    const line = renderQuestionLine(q, 1, theme, 80);
-    expect(line).toContain("(none) · Q1/q1 prompt:q1");
+    const line = renderQuestionLine(q, 1, 1, theme, 80);
+    expect(line).toContain("(none) · 1/1 prompt:q1");
   });
 
   test("writein answer renders the ✎ marker on the composed question line (BUG-005)", () => {
@@ -232,7 +232,7 @@ describe("renderQuestionLine", () => {
       status: "answered",
       answer: { value: "my write-in", custom: true, at: "2026-01-01T00:00:00Z" },
     });
-    const line = renderQuestionLine(q, 1, theme, 100);
+    const line = renderQuestionLine(q, 1, 2, theme, 100);
     expect(line).toContain("✎ text answer");
     expect(visibleWidth(line)).toBeLessThanOrEqual(100);
   });
@@ -240,7 +240,7 @@ describe("renderQuestionLine", () => {
   test("markers render per status and sit at the end of the line", () => {
     for (const status of ["reasked", "moot", "withdrawn"] as QuestionStatus[]) {
       const q = mkQuestion("q1", { status });
-      const line = renderQuestionLine(q, 1, theme, 80);
+      const line = renderQuestionLine(q, 1, 2, theme, 80);
       expect(line.trimEnd().endsWith(statusMarkers(q, theme).trimStart())).toBe(true);
       expect(visibleWidth(line)).toBeLessThanOrEqual(80);
     }
@@ -248,7 +248,7 @@ describe("renderQuestionLine", () => {
 
   test("long titles truncate (never wrap to 2 lines), markers still fit", () => {
     const q = mkQuestion("q1", { title: "T".repeat(200), status: "reasked" });
-    const line = renderQuestionLine(q, 1, theme, 60);
+    const line = renderQuestionLine(q, 1, 2, theme, 60);
     expect(line).not.toContain("\n");
     expect(line.endsWith("⟳ re-asked")).toBe(true);
     expect(visibleWidth(line)).toBeLessThanOrEqual(60);
@@ -289,7 +289,7 @@ describe("renderFooter", () => {
   test("renders progress + config-driven key hints for the short screen", () => {
     const labels = resolveKeyLabels(mkConfig());
     const line = renderFooter(mkState(), "short", labels, theme, 120);
-    expect(line).toContain("0/1 answered · 0 re-asked ·");
+    expect(line).toContain("0/1 answered ·"); // re-asked segment omitted at zero (2026-09-30)
     expect(line).toContain("enter accept");
     expect(line).toContain("Ctrl+D deep");
     expect(line).toContain("Ctrl+L list");
@@ -334,8 +334,11 @@ describe("renderFooter", () => {
     expect(visibleWidth(wide)).toBeLessThanOrEqual(60);
 
     const narrow = renderFooter(state, "short", labels, theme, 45);
-    expect(narrow).not.toContain("accept");
-    expect(narrow).toContain("0/1 answered · 0 re-asked"); // progress sacred
+    // Shorter progress (zero re-asks omitted) admits enter accept at 45 —
+    // key hints still yield first (S submit gone).
+    expect(narrow).toContain("enter accept");
+    expect(narrow).not.toContain("S submit");
+    expect(narrow).toContain("0/1 answered"); // progress sacred
     expect(narrow.trimEnd().endsWith("⏎ ┘")).toBe(true);
     expect(visibleWidth(narrow)).toBeLessThanOrEqual(45);
   });
@@ -343,7 +346,7 @@ describe("renderFooter", () => {
   test("empty state renders 0/0 counts", () => {
     const labels = resolveKeyLabels(mkConfig());
     const line = renderFooter(mkState({ order: [], questions: {} }), "short", labels, theme, 120);
-    expect(line).toContain("0/0 answered · 0 re-asked");
+    expect(line).toContain("0/0 answered");
   });
 
   test("editor-exit hints: enter save, esc-esc back, toggle close (ESC-002)", () => {
@@ -422,7 +425,7 @@ describe("width invariants (40/60/80/120)", () => {
       expect(header.goalFull).toBe(state.goal);
 
       for (const q of [qOpen, qMoot, qHinted]) {
-        const qLine = renderQuestionLine(q, 1, theme, width);
+        const qLine = renderQuestionLine(q, 1, 2, theme, width);
         expect(qLine).not.toContain("\n");
         expect(visibleWidth(qLine)).toBeLessThanOrEqual(width);
         for (const hint of renderHintLine(q, theme, width)) {
@@ -435,7 +438,7 @@ describe("width invariants (40/60/80/120)", () => {
         const footer = renderFooter(state, screen, labels, theme, width);
         expect(footer).not.toContain("\n");
         expect(visibleWidth(footer)).toBeLessThanOrEqual(width);
-        expect(footer).toContain("1/3 answered · 0 re-asked"); // progress never dropped
+        expect(footer).toContain("1/3 answered"); // progress never dropped (re-asked omitted at zero)
       }
     }
   });
@@ -446,7 +449,7 @@ describe("width invariants (40/60/80/120)", () => {
       questions: { q1: mkQuestion("q1", { status: "answered", answer: { value: "a", at: "t" } }) },
     });
     const { line } = renderHeader(state, theme, 120);
-    expect(line).toContain("1/2 answered · 0 re-asked"); // total = order.length
+    expect(line).not.toContain("answered"); // counts live in the footer now; header never shows them
   });
 });
 
@@ -523,8 +526,8 @@ const DIM_END = "\u001b[0m";
 describe("renderQuestionLine dim param", () => {
   test("dim=false output is byte-identical to the pre-gate renderer", () => {
     const question = mkQuestion("q1", { group: "storage" });
-    expect(renderQuestionLine(question, 1, theme, 80, false)).toBe(
-      renderQuestionLine(question, 1, theme, 80),
+    expect(renderQuestionLine(question, 1, 2, theme, 80, false)).toBe(
+      renderQuestionLine(question, 1, 2, theme, 80),
     );
   });
 
@@ -533,25 +536,25 @@ describe("renderQuestionLine dim param", () => {
     // Invariant: with the SAME theme, dim=true is exactly the undimmed
     // finished line wrapped once — no content, truncation, or inner-styling
     // difference (inner dim/bold wraps compose unchanged inside the outer).
-    const undimmed = renderQuestionLine(question, 1, ansiDimTheme, 80, false);
-    const dimmed = renderQuestionLine(question, 1, ansiDimTheme, 80, true);
+    const undimmed = renderQuestionLine(question, 1, 2, ansiDimTheme, 80, false);
+    const dimmed = renderQuestionLine(question, 1, 2, ansiDimTheme, 80, true);
     expect(dimmed).toBe(`${DIM_START}${undimmed}${DIM_END}`);
     // Status markers survive inside the wrap.
     const marked = mkQuestion("q1", { status: "reasked" });
-    expect(renderQuestionLine(marked, 1, ansiDimTheme, 80, true)).toBe(
-      `${DIM_START}${renderQuestionLine(marked, 1, ansiDimTheme, 80, false)}${DIM_END}`,
+    expect(renderQuestionLine(marked, 1, 2, ansiDimTheme, 80, true)).toBe(
+      `${DIM_START}${renderQuestionLine(marked, 1, 2, ansiDimTheme, 80, false)}${DIM_END}`,
     );
     // With the identity theme the wrap is transparent: dim=true output is
     // byte-identical to dim=false (and to the pre-gate 4-arg call).
-    expect(renderQuestionLine(question, 1, theme, 80, true)).toBe(
-      renderQuestionLine(question, 1, theme, 80, false),
+    expect(renderQuestionLine(question, 1, 2, theme, 80, true)).toBe(
+      renderQuestionLine(question, 1, 2, theme, 80, false),
     );
   });
 
   test("dim=true never breaks width accounting (ANSI-transparent wrap)", () => {
     const question = mkQuestion("q1", { group: "g" });
     for (const w of WIDTHS) {
-      const line = renderQuestionLine(question, 1, ansiDimTheme, w, true);
+      const line = renderQuestionLine(question, 1, 2, ansiDimTheme, w, true);
       expect(visibleWidth(line)).toBeLessThanOrEqual(w);
     }
   });
@@ -627,13 +630,12 @@ describe("renderFooter narrow mode (h2.30, P1.M7.T5.S1)", () => {
   });
 
   test("width 59 keeps exactly the submit + deep key hints — statics drop first", () => {
-    // Overview narrow: appended statics (enter jump / esc back) are the
-    // rightmost hints, so the fit loop sheds them before the two key hints.
+    // Overview narrow: with the zero-re-asked segment omitted, the two key
+    // hints AND the statics fit at 59 — the ladder only sheds statics when
+    // width demands it.
     const line = renderFooter(mkState(), "overview", shortLabels, theme, 59, true);
     expect(line).toContain("S submit");
     expect(line).toContain("D deep");
-    expect(line).not.toContain("enter jump");
-    expect(line).not.toContain("esc back");
     expect(visibleWidth(line)).toBeLessThanOrEqual(59);
   });
 
@@ -641,7 +643,7 @@ describe("renderFooter narrow mode (h2.30, P1.M7.T5.S1)", () => {
     // Far below 59 every hint yields; the progress-only footer is still
     // exactly 1 line (progress + ⏎ never drop — module contract).
     const line = renderFooter(mkState(), "overview", shortLabels, theme, 31, true);
-    expect(line).toBe("└ 0/1 answered · 0 re-asked ⏎ ┘");
+    expect(line).toBe("└ 0/1 answered · S submit ⏎ ┘"); // enter jump/esc back/deep yielded; submit (leftmost key hint) survives
     expect(line.includes("\n")).toBe(false);
   });
 });

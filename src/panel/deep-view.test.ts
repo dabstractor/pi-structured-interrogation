@@ -194,7 +194,9 @@ describe("buildDeepContent", () => {
 
   test("test_build_star_header_marks_recommendation", () => {
     const content = buildDeepContent(deepInputFor(choiceQ("db")));
-    expect(content.sectionHeaders[0]).toBe("★ sqlite");
+    expect(content.sectionHeaders[0]).toBe("sqlite"); // label ONLY — the ★ lives in the rail now
+    expect(content.sectionStarred[0]).toBe(true);
+    expect(content.sectionStarred[1]).toBe(false);
     expect(content.sectionHeaders[1]).toBe("postgres");
     // Header line indexes point at actual header lines in `lines`.
     expect(content.lines[content.sectionHeaderLineIndex[0]!]).toContain("sqlite");
@@ -210,9 +212,12 @@ describe("buildDeepContent", () => {
     expect(content.sectionHeaders).toHaveLength(3);
     expect(content.sectionHeaders[2]).toBe("✎ Other — write your own");
     // Ramification rows: 1-char explanation indent (amended 6) — bar at
-    // col 3, text col 4.
+    // col 3, text col 4. Amendment 9: the SELECTED section's bars (cursor 0
+    // → sqlite) render heavy ┃; unselected sections keep │.
     const ramLine = content.lines[content.sectionHeaderLineIndex[0]! + 1]!;
-    expect(ramLine.startsWith("   │")).toBe(true);
+    expect(ramLine.startsWith("   ┃")).toBe(true);
+    const unselectedRam = content.lines[content.sectionHeaderLineIndex[1]! + 1]!;
+    expect(unselectedRam.startsWith("   │")).toBe(true);
   });
 
   test("test_cap_verbose_text_ellipsized_bounded_lines", () => {
@@ -224,7 +229,7 @@ describe("buildDeepContent", () => {
     const ramText = content.lines
       .slice(content.sectionHeaderLineIndex[0]! + 1, content.sectionHeaderLineIndex[1])
       .filter((l) => l !== "") // variation B section separators are not text
-      .map((l) => l.replace(/^\s*│\s?/, "")) // D-R14 pipe + indent are not text
+      .map((l) => l.replace(/^\s*[│┃]\s?/, "")) // D-R14 pipes (│ light, ┃ heavy) + indent are not text
       .join(" ");
     // 600-char cap + single `…` ellipsis, wrapped — bounded total.
     expect(ramText.startsWith("word0")).toBe(true);
@@ -274,7 +279,8 @@ function fixedContent(): DeepContent {
   return {
     lines: Array.from({ length: 30 }, (_, i) => `L${i}`),
     sectionHeaderLineIndex: [5, 12, 20],
-    sectionHeaders: ["★ a", "b", "c"],
+    sectionHeaders: ["a", "b", "c"],
+    sectionStarred: [true, false, false],
     dimAll: false,
     viewportHeight: 10,
   };
@@ -340,8 +346,34 @@ describe("renderDeepWindow", () => {
     const window = renderDeepWindow(content, 1, 0, theme, 80);
     const h0 = window[content.sectionHeaderLineIndex[0]!];
     const h1 = window[content.sectionHeaderLineIndex[1]!];
-    expect(h0).toBe("  ★ sqlite"); // de-indented title, unselected (stub passthrough)
-    expect(h1).toBe("  postgres"); // selected — accent+bold (invisible in stub)
+    expect(h0).toBe("  sqlite ★"); // trailing star after the title (amendment 8)
+    expect(h1).toBe("▸ postgres"); // selected — ▸ prefix (amendment 9) + accent+bold
+  });
+
+  test("test_selected_section_glyph_markers_prefix_and_heavy_bars", () => {
+    // D-R14 amendment 9: the highlighted section carries BOTH character
+    // signals — `▸ ` header prefix (2 visible cols, labels stay aligned)
+    // and heavy ┃ pipes on every ramification row — while every other
+    // section (and the Other section) keeps `  ` + │. Color-independent:
+    // the stub theme styles nothing, so these assertions prove the glyph
+    // channel survives a color-broken TTY.
+    const content = buildDeepContent(deepInputFor(choiceQ("db"), { cursorIndex: 1 }));
+    const between = (from: number, to: number) =>
+      content.lines.slice(from + 1, to).filter((l) => l !== "");
+    const postgresRams = between(
+      content.sectionHeaderLineIndex[1]!,
+      content.sectionHeaderLineIndex[2]!,
+    );
+    expect(postgresRams.length).toBeGreaterThan(0);
+    for (const ln of postgresRams) expect(ln.startsWith("   ┃")).toBe(true);
+    const sqliteRams = between(
+      content.sectionHeaderLineIndex[0]!,
+      content.sectionHeaderLineIndex[1]!,
+    );
+    for (const ln of sqliteRams) expect(ln.startsWith("   │")).toBe(true);
+    // Header prefixes: selected ▸, others two spaces, titles all at col 2.
+    expect(content.lines[content.sectionHeaderLineIndex[1]!].startsWith("▸ postgres")).toBe(true);
+    expect(content.lines[content.sectionHeaderLineIndex[0]!].startsWith("  sqlite")).toBe(true);
   });
 
   test("test_header_labels_stay_column_aligned_across_cursor_moves", () => {
@@ -587,7 +619,7 @@ describe("Other section (P1.M2.T6.S1)", () => {
     const header = window[headerIdx - offset];
     expect(header).toBeDefined();
     expect(header).toContain("✎ Other — write your own");
-    expect(header!.startsWith("  ✎")).toBe(true); // de-indented title (no arrow glyph)
+    expect(header!.startsWith("▸ ✎")).toBe(true); // selected → ▸ prefix (amendment 9)
   });
 
   test("test_zero_option_choice_renders_other_as_the_only_section", () => {

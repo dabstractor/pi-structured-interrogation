@@ -616,6 +616,7 @@ describe("view switching (built-in S1 bindings)", () => {
     expect(panel.currentId).toBe("q2");
     expect(panel.focus).toBe("options");
     expect(panel.cursorIndex).toBe(0); // ★ preselect — display 0 under D-R13 order
+    // unanswered path — ★ survives ANSWER-PIN-001 (q2 OPEN, rec "b")
     const short = panel.render(80);
     expect(short.some((l) => l.includes("▸ ★ ") && l.includes("Beta"))).toBe(true);
   });
@@ -826,6 +827,7 @@ describe("upsert + state integration", () => {
     });
 
     expect(panel.cursorIndex).toBe(0); // ★ preselect — display 0 under D-R13 order
+    // unanswered path — ★ survives ANSWER-PIN-001 (all questions OPEN)
     panel.cursorIndex = 0; // simulated navigation — real movement is P1.M3.T2.S2
     panel.currentId = "q2";
     expect(panel.cursorIndex).toBe(0); // question change re-seeds the cursor
@@ -2173,7 +2175,7 @@ describe("deep view (P1.M5.T1.S1)", () => {
     expect(panel.view).toBe("short");
 
     panel.handleInput(CTRL_D); // entering deep seeds once
-    expect(panel.cursorIndex).toBe(0); // ★ preselect, display 0 under D-R13 order
+    expect(panel.cursorIndex).toBe(0); // ★ preselect, display 0 under D-R13 order — unanswered path, ★ survives ANSWER-PIN-001
     expect(panel.scrollOffset).toBe(0);
 
     panel.handleInput(UP); // move selection — NOT a re-seed
@@ -2737,7 +2739,7 @@ describe("navigation duty re-derivation — BUG-004 (WRITEIN-001 cursor-follow)"
 
     panel.handleInput(PREV_Q); // back to q1: cursor RESEEDS to ★ (index 0)
     expect(panel.currentId).toBe("q1");
-    expect(panel.cursorIndex).toBe(0); // ★ preselect — a REAL option
+    expect(panel.cursorIndex).toBe(0); // ★ preselect — a REAL option — unanswered path (answer asserted undefined below), ★ survives ANSWER-PIN-001
     expect(panel.textDuty).toBe("elaboration"); // stale writein gone
 
     panel.textField.setText("note for q1");

@@ -409,7 +409,7 @@ describe("overviewUp/overviewDown — cursor + scroll actions", () => {
     expect(panel.overviewCursor).toBe(2); // clamped at the last question
     // NEVER touches the question pointer or the option cursor (h2.29).
     expect(panel.currentId).toBe("q1");
-    expect(panel.cursorIndex).toBe(0); // ★ preselect of q1 (recommendation)
+    expect(panel.cursorIndex).toBe(0); // ★ preselect of q1 (recommendation) — unanswered path, ★ survives ANSWER-PIN-001
   });
 
   test("test_down_recomputes_scroll_to_keep_cursor_visible", () => {
@@ -450,6 +450,7 @@ describe("overviewJump — enter jumps to the short form", () => {
     expect(panel.view).toBe("short");
     expect(panel.currentId).toBe("q2");
     // R2 preselect: the currentId setter re-seeded the ★ recommendation.
+    // unanswered path — ★ survives ANSWER-PIN-001 (q2 OPEN, rec postgres)
     expect(panel.cursorIndex).toBe(0); // display 0 under D-R13 order
     expect(panel.overviewScroll).toBe(0);
   });

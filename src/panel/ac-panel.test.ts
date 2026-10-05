@@ -474,7 +474,7 @@ describe("AC-6 — instant moot + ⊘ on contrary gate answer (FR-17)", () => {
     expect(state.getQuestion("q10")?.status).toBe("open");
 
     const before = JSON.stringify(state.serialize());
-    expect(panel.cursorIndex).toBe(0); // alpha preselected (no recommendation)
+    expect(panel.cursorIndex).toBe(0); // q09 unanswered, no recommendation → seed clamps to row 0 (no ★ exists yet — ANSWER-PIN-001 leaves unanswered seeding unchanged)
     panel.handleInput(DOWN); // → beta (the contrary option)
     expect(panel.cursorIndex).toBe(1);
     panel.handleInput(ENTER); // accept beta

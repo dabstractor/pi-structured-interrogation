@@ -242,7 +242,7 @@ describe("accept — commit + advance (Q14=A)", () => {
     expect(q1?.status).toBe("answered"); // the pending state (h2.38)
     expect(q1?.answer?.value).toBe("a");
     expect(panel.currentId).toBe("q2"); // advanced to the next open question
-    expect(panel.cursorIndex).toBe(0); // cursor reset to ★ preselect
+    expect(panel.cursorIndex).toBe(0); // q2 open + no recommendation → no-answer seed path clamps to row 0
   });
 
   test("test_b_accept_wraps_to_first_open_at_top", () => {
@@ -793,15 +793,37 @@ describe("prevQuestion / nextQuestion — R1 free navigation", () => {
     }
   });
 
-  test("test_d_cursor_resets_to_star_preselect_on_every_change", () => {
-    const state = seed(ALL_STATUSES);
+  test("test_d_cursor_seeds_to_recorded_answer_on_answered_star_on_open", () => {
+    // ANSWER-PIN-001 (FR-35): landing on an ANSWERED question seeds the
+    // caret to the recorded answer's DISPLAY row — never the ★ row, never
+    // 0-by-default. The ★ preselect survives only on UNANSWERED questions.
+    // Discriminating fixture: q2 rec "b" + answered "a" puts the recorded
+    // answer at display row 1 while the ★ sits at row 0 — the superseded
+    // ★-reseed contract would expect 0 here and fail.
+    const state = seed([
+      { id: "q1", overrides: { recommendation: "a" } }, // open → ★ path still applies
+      {
+        id: "q2",
+        overrides: {
+          recommendation: "b",
+          status: "answered",
+          answer: { value: "a", at: T0 },
+        },
+      },
+    ]);
     const { panel } = makePanel(state);
     panel.cursorIndex = 3; // stray cursor position on q1
-    nextQuestion(panel);
-    expect(panel.cursorIndex).toBe(0); // q2 ★ preselect (recommendation "a")
-    panel.cursorIndex = 2;
-    prevQuestion(panel);
-    expect(panel.cursorIndex).toBe(0); // q1 recommendation preselect again
+    nextQuestion(panel); // → q2 (answered "a")
+    // D-R13 recommended-first: display [b(★), a, ✎] — the recorded "a" owns
+    // row 1; row 0 is the ★ Beta row and must NOT hold the caret.
+    expect(panel.cursorIndex).toBe(1);
+    // The rendered ▸ cursor sits on the recorded answer's row, not the ★ row.
+    const short = panel.render(80);
+    expect(short.some((l) => l.includes("▸") && l.includes("Alpha"))).toBe(true);
+    expect(short.some((l) => l.includes("▸ ★ "))).toBe(false); // ▸ never shares the ★ row
+    panel.cursorIndex = 2; // ✎ Other row — legal cursor-domain position on q2
+    prevQuestion(panel); // → q1 (open, recommendation "a")
+    expect(panel.cursorIndex).toBe(0); // ★ preselect on an UNANSWERED question (the surviving path)
   });
 });
 
@@ -2115,14 +2137,14 @@ describe("maybeAutoSubmit — completeness hook", () => {
     expect(panel.footerFlash?.text).toBe("submitted — 2 answer(s)");
 
     // Edit q1 (NOT last — q2 follows): applies, set stays complete → NO firing.
-    panel.currentId = "q1"; // setter re-seeds the cursor to the ★ "a" preselect
+    panel.currentId = "q1"; // setter re-seeds to the RECORDED answer's row (ANSWER-PIN-001) — "a" is display row 0 here, coinciding with the retired ★ preseed; the proposal is driven explicitly below
     panel.cursorIndex = 1; // propose "b"
     accept(panel);
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(state.epoch).toBe(2); // no bump — nothing shipped
 
     // Edit q2 (LAST sequential, set complete) → fires with q1+q2 pending.
-    panel.currentId = "q2"; // setter re-seeds the cursor to the ★ "a" preselect
+    panel.currentId = "q2"; // setter re-seeds to the RECORDED answer's row (ANSWER-PIN-001) — "a" is display row 0 (no ★: q2 has no recommendation); the proposal is driven explicitly below
     panel.cursorIndex = 1; // propose "b"
     accept(panel);
     expect(sendMessage).toHaveBeenCalledTimes(2);
@@ -2164,7 +2186,7 @@ describe("maybeAutoSubmit — completeness hook", () => {
     ];
     let fired = 1; // the completeness firing above
     for (const edit of edits) {
-      panel.currentId = edit.id; // setter re-seeds the cursor to the ★ preselect
+      panel.currentId = edit.id; // setter re-seeds to the RECORDED answer's row (ANSWER-PIN-001) — loop questions are answered, so the caret follows their recorded answers, not any ★; the proposal is driven explicitly below
       panel.cursorIndex = edit.index;
       accept(panel);
       if (edit.fires) fired++;
@@ -2234,7 +2256,7 @@ describe("maybeAutoSubmit — completeness hook", () => {
     };
     state.on("epoch-bumped", onBumped);
 
-    panel.currentId = "q2"; // setter re-seeds the cursor to the ★ "a" preselect
+    panel.currentId = "q2"; // setter re-seeds to the RECORDED answer's row (ANSWER-PIN-001) — q2 is answered-pending "a" at display row 0 (no ★: no recommendation); the proposal is driven explicitly below
     panel.cursorIndex = 1; // edit the pending LAST-sequential answer → "b"
     // (AUTOSUBMIT-003 rule (b): all answered pre-commit + last sequential —
     // the commit tail fires once and ships the WHOLE pending set)

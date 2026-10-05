@@ -233,7 +233,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S9",
                   "title": "Flip remaining cross-cutting panel suite rows",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

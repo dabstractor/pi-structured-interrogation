@@ -30,7 +30,7 @@ In default pi, when a model asks dozens of planning questions, the question list
 - FR-6 The agent may reopen the panel at its judgment via `interrogate({reopen:true})`. No deterministic guard. The suspend widget is always visible while suspended so the user is never stranded.
 
 ### Panel UX (details in ui-spec.md)
-- FR-7 Short form by default: question one-liner, first sentence of the description dimmed beneath, options with unmistakable recommendation marks (★ + preselect).
+- FR-7 Short form by default: question one-liner, first sentence of the description dimmed beneath, options with unmistakable recommendation marks (★ + preselect — preselect applies only while the question is unanswered; once answered, the recorded answer owns the caret, FR-35).
 - FR-8 One toggle (default `ctrl+d`) opens the deep view: full replacement of the Q&A section with the full description plus every option's ramification text, each option as a sticky header, scrollable, options selectable, `enter` selects and returns to short form advancing to the next unanswered question. Toggle is sticky while the panel is open.
 - FR-9 Navigation freedom (hard requirement R1): forward/back among questions at all times; nothing locks the user onto a question. The `←` / `→` arrow keys navigate the FULL question list (every status — open, answered, re-asked, moot, withdrawn, closed — clamped at the ends, no wrap), view-aware like the config prev/next keys (overview: cursor row); they are fixed keys and are not intercepted in text/note focus (the editor caret owns them there). Soft gate only: all groups visible and answerable; gate group focused first, later groups dimmed; submitting with gate unanswered shows a dismissible warning line.
 - FR-10 Progress footer: `3/12 answered · 2 re-asked ·` plus the 3–4 keys relevant to the current screen, reflecting actual configuration.
@@ -43,7 +43,7 @@ In default pi, when a model asks dozens of planning questions, the question list
 
 ### Dependency and ripple semantics
 - FR-17 Questions may declare `dependsOn: [{id, equals?, notEquals?}]`. Conditions are evaluated locally and instantly: unmet questions grey out as moot with reason (`moot: storage=sqlite`), kept in the map (audit trail), never silently removed.
-- FR-18 When the user changes an answer to an *answered* question and the change invalidates other answered/submitted questions via `dependsOn`, the panel shows an inline confirm before applying: `⚠ Invalidates 3 answered questions (Q7, Q12, Q19) — enter=keep, esc=cancel`. No drill-down in v1.
+- FR-18 When the user changes an answer to an *answered* question and the change invalidates other answered/submitted questions via `dependsOn`, the panel shows an inline confirm before applying: `⚠ Invalidates 3 answered questions (Q7, Q12, Q19) — enter=keep, esc=cancel`. No drill-down in v1. A same-value re-commit is not a change — no confirm, no state write (ANSWER-PIN-001).
 - FR-19 The agent still prunes semantically between submissions (upsert with omissions = withdrawals); `dependsOn` covers instant, local effects only.
 
 ### Agent protocol (details in tool-protocol.md)
@@ -70,8 +70,11 @@ In default pi, when a model asks dozens of planning questions, the question list
   bridge surface removed). No usable remote experience existed; removed
   entirely rather than gated.
 
+### Answer pinning (ANSWER-PIN-001, 2026-10-04 interrogation)
+- FR-35 **A recorded answer owns the cursor; the recommendation never displaces or re-proposes it.** Whenever a question carrying an answer is rendered or entered — any status with `answer` present (answered, submitted, closed; moot keeps its dimmed answer too) — the caret/highlight sits on the recorded answer: the option row whose value equals `answer.value`, the `✎ Other` row for write-ins (`custom: true`; its dim preview shows the text), the text affordance for `type:"text"`. Every entry path: `←`/`→` and prev/next navigation, resume/reopen rehydration, deep view, editor close. `enter` (and digit quick-select) on the already-recorded value is a state NO-OP that may advance (Q14 rhythm): no `applyAnswer`, no fresh `answer.at`, no ripple modal, no auto-submit trigger; a byte-identical write-in re-commit is equally inert. The ★ recommendation stays visible on its own row but may never own the caret, preselect, or re-propose once an answer exists; ★ preselect survives only on unanswered questions. Editing an answered question requires an explicit, DIFFERENT choice (caret moved to another row, different digit, changed write-in text) — the FR-18 confirm guards exactly that. Defensive edge: an answer value no longer in `options` clamps the caret to display row 0 — never to the recommendation. The short-view question line carries the answered marker (★, per the glyph vocabulary — parity with the overview's answered rows).
+
 ## Hard requirements (from user tooling evaluations)
-- R1 navigation freedom (FR-9) · R2 unmistakable recommendation marks (FR-7) · R3 batch note (FR-13) · R4 draft preservation (commitment 6) · R5 all hotkeys configurable (commitment 7) · R6 no surprise surfacing (goal 7 / FR-28, SURFACE-001/002).
+- R1 navigation freedom (FR-9) · R2 unmistakable recommendation marks (FR-7) · R3 batch note (FR-13) · R4 draft preservation (commitment 6) · R5 all hotkeys configurable (commitment 7) · R6 no surprise surfacing (goal 7 / FR-28, SURFACE-001/002) · R7 recorded answers own the cursor; nothing re-proposes them (FR-35, ANSWER-PIN-001, commitment 8).
 
 ## Acceptance criteria (all must pass; scripted where possible)
 
@@ -94,6 +97,7 @@ In default pi, when a model asks dozens of planning questions, the question list
 13. Editing an archived answer re-marks it pending; next submission diff card highlights the change (`Q3: sqlite → postgres (changed)`).
 14. All questions closed → completion record injected once; panel dismissed; recap card in transcript.
 15. **Reads never surface (SURFACE-001)**: with a live interrogation (panel suspended, questions open), a model `interrogate({})` read completes → panel stays closed, editor untouched; the same holds for all-answered and completed states (src/tree-nav-repro.test.ts characterizations flip to fixed).
+16. **Answer pinning (ANSWER-PIN-001)**: answer q1 with a NON-recommended option, advance, `←` back → caret + accent highlight sit on the chosen option (★ visible on its own row, caret NOT on it); `enter` advances to the next unanswered with zero state change (no modal, no epoch bump, no `answer.at` rewrite). A write-in answer pins the caret to the `✎ Other` row with its dim preview; a byte-identical write-in re-commit is inert. Choosing a DIFFERENT option on the answered question still raises the FR-18 confirm.
 
 ## Non-goals
 See SPEC.md. Additionally: no multi-select questions in v1 (schema reserves `type` for growth); no conditional question *generation* (agent composes sets); no analytics.

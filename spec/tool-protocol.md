@@ -18,7 +18,7 @@ const QuestionSchema = Type.Object({
   description: Type.Optional(Type.String({ description: "Deep-view context, fully standalone: assume the reader has NOT seen the conversation. Take the explanation you would normally give and EXPAND it — define terms/acronyms, state concrete facts, lay out the decision space — never compress to shorthand. First sentence doubles as the short-view hint" })),
   type: StringEnum(["choice", "text"]),
   options: Type.Optional(Type.Array(OptionSchema, { description: "Required for type=choice" })),
-  recommendation: Type.Optional(Type.String({ description: "Recommended option value; marked ★ and preselected" })),
+  recommendation: Type.Optional(Type.String({ description: "Recommended option value; marked ★; preselected only while unanswered — a recorded answer always owns the cursor" })),
   group: Type.Optional(Type.String({ description: "Grouping label; groups render as sections" })),
   gate: Type.Optional(Type.Boolean({ description: "Mark this question's group as the foundational gate group" })),
   dependsOn: Type.Optional(Type.Array(Type.Object({

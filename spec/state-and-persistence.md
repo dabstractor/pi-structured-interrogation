@@ -24,7 +24,7 @@
 
 - `moot`/`withdrawn` are terminal-until-re-upsert; both stay visible (dimmed, with reason) — the audit trail (Q34=A).
 - Editing a closed answer re-marks it `answered(pending)`; next submission diff marks it `(changed)` (Q24=B).
-- Answer edits apply through the ripple confirm (ui-spec.md) before entering `answered(pending)`.
+- Answer edits apply through the ripple confirm (ui-spec.md) before entering `answered(pending)`. A same-value re-commit is not an edit — no confirm, no state write (ANSWER-PIN-001).
 
 ## rev and epoch semantics
 

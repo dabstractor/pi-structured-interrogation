@@ -1,1 +1,8 @@
-c604c7c319e1 plan/003_f8af1c6f6c49/bugfix/001_64331ded9ddb/TEST_RESULTS.md
+c6f5aab76312 spec/SPEC.md
+cbf3bb85a82c spec/product-requirements.md
+93640af2a1d6 spec/architecture.md
+33fb3f874482 spec/tool-protocol.md
+aeab71f2ff19 spec/ui-spec.md
+1f17978f860e spec/state-and-persistence.md
+a62d86177b97 spec/implementation-plan.md
+0852224de8fc spec/decisions.md

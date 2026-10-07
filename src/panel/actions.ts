@@ -29,7 +29,7 @@ import {
   submissionBaselineOf,
   UNANSWERED_SUMMARY,
 } from "../snapshots.js";
-import type { Question, SerializedState } from "../state.js";
+import type { Question, QuestionAnswer, SerializedState } from "../state.js";
 import { countUnansweredGate, gateGroupNames } from "./gate.js";
 import type { InterrogationPanel } from "./panel.js";
 import { beginWriteInConfirm, rippleVictims } from "./ripple-confirm.js";
@@ -394,8 +394,28 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
   // syncBufferToQuestion write-through stages the identical text into q's
   // draft slot, where a later option accept would ship it as bogus
   // elaboration (answer.text).
+  //
+  // REASKED EXCEPTION (BUG-001 editor twin, PRD h2.1/h3.0 — parity with
+  // acceptOptionIndex above): a rule-1 re-ask flips status to "reasked"
+  // while KEEPING the answer — the lifecycle marker, not the user, created
+  // that hybrid — so a byte-identical enter there is a RE-CONFIRMATION
+  // commit, not a no-op: it falls past this branch to the direct-commit
+  // exit (the FR-18 gate below already skips reasked — seam-free),
+  // re-marking answered(pending) with a fresh answer.at (diff-invisible:
+  // the answer signature in snapshots.ts is value+text only, never at),
+  // letting the re-ask → re-confirm → settle → completion loop close.
+  // Without the exclusion the question is stuck reasked forever: it counts
+  // unanswered everywhere, ctrl+s says "nothing to submit", and completion
+  // (FR-5) is permanently blocked unless the user retypes a different
+  // answer. Settled statuses (answered/submitted/closed carrying the
+  // identical write-in/text) stay inert — the no-op remains their contract.
   const recorded = q.answer;
-  if (recorded !== undefined && recorded.value === text && (recorded.custom === true || q.type === "text")) {
+  if (
+    recorded !== undefined &&
+    recorded.value === text &&
+    (recorded.custom === true || q.type === "text") &&
+    q.status !== "reasked" // BUG-001: reasked + kept answer → re-confirmation, never inert
+  ) {
     panel.consumeCommittedBuffer(q.id); // BEFORE advance: kill the write-through source
     advanceAfterAccept(panel); // Q14 rhythm: advance only, no state write
     panel.blurTextField(); // AFTER advance (commit-tail parity): editor closes, duty resets
@@ -411,7 +431,23 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
     beginWriteInConfirm(panel, text);
     return true; // consumed — nothing applied yet
   }
-  panel.state.applyAnswer(q.id, { value: text, custom: true, at: new Date().toISOString() });
+  // KIND PRESERVATION (BUG-001 editor twin): a byte-identical reasked
+  // re-confirm keeps the RECORDED answer's kind — a choice write-in
+  // re-commits custom:true; a fallback-shaped plain text answer re-commits
+  // plain with the custom key ABSENT (never custom:false — downstream
+  // checks are === true), which the unconditional custom:true below would
+  // silently flip into a write-in. Every other commit (fresh answers,
+  // different-text edits, option→write-in flips) keeps custom:true: a
+  // panel-typed text answer IS a write-in (WRITEIN-001).
+  const isReconfirm = status === "reasked" && recorded !== undefined && recorded.value === text;
+  const answer: QuestionAnswer = { value: text, at: new Date().toISOString() };
+  if (!isReconfirm) {
+    answer.custom = true; // panel-typed text is a write-in (WRITEIN-001)
+  } else if (recorded.custom === true) {
+    answer.custom = true; // re-confirm keeps the recorded write-in kind
+  }
+  // else: plain re-commit — custom stays absent.
+  panel.state.applyAnswer(q.id, answer);
   // FR-17: same once-per-commit placement as acceptOptionIndex — AFTER the
   // apply, BEFORE the advance (fresh moots must not be advance targets).
   evaluateDependsOn(panel.state);

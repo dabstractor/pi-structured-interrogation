@@ -703,6 +703,72 @@ describe("write-in same-value — inert no-op + buffer consume (ANSWER-PIN-001 /
     expect(panel.footerFlash).toBeUndefined(); // no "submitted — " flash
     expect(state.getQuestion("q3")?.answer?.at).toBe(T0);
   });
+
+  test("test_wi_same_value_on_reasked_reconfirms_kind_preserved_and_consumes", () => {
+    // BUG-001 editor path: a rule-1 re-ask flips status to "reasked" while
+    // KEEPING the write-in — the lifecycle marker, not the user, created
+    // that hybrid. A byte-identical enter is a RE-CONFIRMATION commit, not
+    // an inert no-op: without the exclusion the question is stuck reasked
+    // forever (unanswered everywhere, completion blocked).
+    const state = writeInSeed([{ id: "q2" }]);
+    state.setStatus("q1", "reasked"); // rule-1 shape: answer kept, status flipped
+    const { panel } = makePanel(state, { drafts: new DraftStore() });
+    panel.currentId = "q1";
+    panel.focusTextField("writein");
+    panel.textField.setText("alpha"); // byte-identical to the KEPT write-in
+    expect(writeInEnter(panel)).toBe(true);
+    const q1 = state.getQuestion("q1");
+    expect(q1?.status).toBe("answered"); // re-marked pending
+    expect(q1?.answer?.value).toBe("alpha");
+    expect(q1?.answer?.custom).toBe(true); // KIND preserved — recorded was a write-in
+    expect(q1?.answer?.at).not.toBe(T0); // fresh at — a real re-confirmation
+    expect(panel.confirmMode).toBeNull(); // reasked skips the FR-18 gate — seam-free
+    expect(panel.currentId).toBe("q2"); // advance
+    expect(panel.focus).toBe("options"); // blur after advance
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // VAL-002 consume on the fall-through
+  });
+
+  test("test_wi_same_value_on_reasked_text_question_recommits_plain", () => {
+    // Kind preservation: a fallback-recorded PLAIN text answer (no custom
+    // flag) re-committed byte-identical on a reasked text question must NOT
+    // be flipped into a write-in — writeInEnter's commit otherwise always
+    // stamps custom:true. The custom key stays ABSENT (never custom:false —
+    // downstream checks are === true).
+    const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
+    state.applyAnswer("t1", { value: "my answer", at: T0 }); // NO custom flag
+    state.setStatus("t1", "reasked"); // rule-1 shape
+    const { panel } = makePanel(state);
+    panel.currentId = "t1";
+    panel.focusTextField("writein");
+    panel.textField.setText("my answer"); // byte-identical to the kept plain answer
+    expect(writeInEnter(panel)).toBe(true);
+    const t1 = state.getQuestion("t1");
+    expect(t1?.status).toBe("answered"); // re-marked pending
+    expect(t1?.answer?.value).toBe("my answer");
+    expect(t1?.answer?.custom).toBeUndefined(); // stays plain — NOT flipped
+    expect(t1?.answer?.at).not.toBe(T0); // fresh at
+  });
+
+  test("test_wi_reasked_reconfirm_completing_set_auto_submits_and_delivers", () => {
+    // The completing transition: the sole reasked question re-confirmed is
+    // the last-unanswered TRANSITION → maybeAutoSubmit fires and DELIVERS
+    // through the fixed submit() pipeline, closing the re-ask → re-confirm
+    // → settle → completion loop. Pre-fix this never fired (stuck reasked).
+    const state = writeInSeed(); // sole question q1, custom write-in "alpha"
+    state.setStatus("q1", "reasked");
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch;
+    panel.currentId = "q1";
+    panel.focusTextField("writein");
+    panel.textField.setText("alpha");
+    expect(writeInEnter(panel)).toBe(true);
+    expect(state.getQuestion("q1")?.status).toBe("submitted"); // re-marked → flushed
+    expect(sendMessage).toHaveBeenCalledTimes(1); // delivered exactly once
+    expect(state.epoch).toBe(epochBefore + 1); // one bump
+    const msg = sendMessage.mock.calls[0]?.[0] as SubmissionMessage;
+    expect(msg.content).toContain("✎ alpha"); // the write-in renders in the submission list
+  });
 });
 
 describe("digit — quick-select (R5)", () => {

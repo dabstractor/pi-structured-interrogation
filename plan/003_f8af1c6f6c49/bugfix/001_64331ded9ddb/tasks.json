@@ -59,7 +59,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Rule-1 re-ask re-confirmation: same-value commits re-mark `reasked` → `answered` (PRD BUG-001)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "The ANSWER-PIN-001 same-value no-ops in acceptOptionIndex (src/panel/actions.ts:293-297) and writeInEnter (:379-385) check answer presence with NO status exclusion. A rule-1 re-ask (lifecycle.ts:198 flips submitted→reasked KEEPING the answer) therefore leaves the question permanently reasked: same-value enter/digit/write-in is inert, the question counts as unanswered everywhere, ctrl+s reports 'nothing to submit', the close pass only archives submitted, and completion (whose BLOCKING set includes reasked — completion.ts) can never fire. Exclude `reasked` from both no-op guards so the existing fall-through re-commits the kept value (applyAnswer → evaluateDependsOn → advance → maybeAutoSubmit with wasUnanswered=true). Scope is TIGHT: closed and answered same-value no-ops stay inert.",
               "subtasks": [
                 {
@@ -83,7 +83,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "writeInEnter byte-identical no-op exclusion for `reasked` (choice write-ins and text questions)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

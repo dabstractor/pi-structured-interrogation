@@ -2368,6 +2368,120 @@ describe("maybeAutoSubmit — completeness hook", () => {
     expect(state.epoch).toBe(1);
   });
 
+  test("test_auto_transition_same_value_reanswer_after_rule2_reask_delivers_and_flashes", () => {
+    // AUTOSUBMIT-001/003 — PRD BUG-002 repro step 4 through the AUTO path
+    // (accept tail): after a rule-2 re-ask, re-accepting the SAME
+    // still-present value on the last remaining question is a TRANSITION
+    // commit (wasUnanswered), so the tail fires maybeAutoSubmit — and with
+    // S1's pendingIds-keyed submit() the empty-diff path DELIVERS for real:
+    // exactly one new message, epoch bump, submitted flush, truthful flash.
+    const OPTS_ABC = [
+      { value: "a", label: "Alpha" },
+      { value: "b", label: "Beta" },
+      { value: "c", label: "Gamma" },
+    ];
+    const OPTS_ABD = [
+      { value: "a", label: "Alpha" },
+      { value: "b", label: "Beta" },
+      { value: "d", label: "Delta" },
+    ];
+    const state = seed([{ id: "q1", overrides: { options: OPTS_ABC } }]);
+    const { deps, sendMessage } = makeDeps(true);
+    // Delivery WIRED via panel args — the accept tail calls
+    // maybeAutoSubmit(panel) with no deps, which reads panel.delivery. A
+    // headless panel would no-op the firing (false green for the wrong reason).
+    const { panel } = makePanel(state, { delivery: deps });
+
+    // 1. First cycle: answer a, submit — snapshot baseline holds a, epoch 2.
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    expect(submit(panel, deps)).toBe(true);
+    expect(state.epoch).toBe(2);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    // 2. Agent rule-2 re-ask: options [a,b,c] → [a,b,d], answer DELETED,
+    // status reasked (the wholesale-replace shape merge.ts hands upsert).
+    state.upsertQuestion({ ...choiceQ("q1", { options: OPTS_ABD }), rev: 2, status: "reasked" });
+
+    // 3. Re-accept the same value via the PUBLIC seam: cursor on a's display
+    // row (no recommendation → display = raw order → row 0).
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true); // commit tail → maybeAutoSubmit({wasUnanswered: true})
+
+    // The transition firing delivered TRUTHFULLY on the empty diff:
+    expect(sendMessage).toHaveBeenCalledTimes(2); // exactly ONE new delivery
+    expect(state.epoch).toBe(3); // the firing IS a full submission (h2.41)
+    expect(state.snapshots).toHaveLength(2); // post-firing snapshot taken
+    expect(state.getQuestion("q1")!.status).toBe("submitted"); // pending flush ran
+    expect(panel.footerFlash?.text).toBe("submitted — 1 answer(s)"); // verbatim, pre-commit pending count
+    const second = sendMessage.mock.calls[1][0] as { content: string };
+    expect(second.content).toContain("q1");
+    expect(second.content).toContain("(state epoch 3)");
+    panel.dispose(); // flash timers armed → dispose per harness convention
+  });
+
+  test("test_auto_transition_same_value_reanswer_direct_call_delivers_and_flashes", () => {
+    // Cheap sibling of the test above: the SAME empty-diff transition via a
+    // DIRECT maybeAutoSubmit call with the commit contract object — pins the
+    // seam independently of accept()'s tail plumbing. (A direct call WITHOUT
+    // the commit object would return at the commit === undefined guard.)
+    const OPTS_ABC = [
+      { value: "a", label: "Alpha" },
+      { value: "b", label: "Beta" },
+      { value: "c", label: "Gamma" },
+    ];
+    const OPTS_ABD = [
+      { value: "a", label: "Alpha" },
+      { value: "b", label: "Beta" },
+      { value: "d", label: "Delta" },
+    ];
+    const state = seed([{ id: "q1", overrides: { options: OPTS_ABC } }]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    expect(submit(panel, deps)).toBe(true); // epoch 2, baseline snapshot holds a
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    state.upsertQuestion({ ...choiceQ("q1", { options: OPTS_ABD }), rev: 2, status: "reasked" });
+    state.applyAnswer("q1", { value: "a", at: T0 }); // same-value re-answer → answered, empty diff
+
+    maybeAutoSubmit(panel, deps, { wasUnanswered: true, questionId: "q1" });
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(state.epoch).toBe(3);
+    expect(state.snapshots).toHaveLength(2);
+    expect(state.getQuestion("q1")!.status).toBe("submitted");
+    expect(panel.footerFlash?.text).toBe("submitted — 1 answer(s)");
+    const second = sendMessage.mock.calls[1][0] as { content: string };
+    expect(second.content).toContain("q1");
+    expect(second.content).toContain("(state epoch 3)");
+    panel.dispose(); // flash timers armed → dispose per harness convention
+  });
+
+  test("test_auto_gate_hold_withholds_before_transition_firing", () => {
+    // AUTOSUBMIT-002 precedence over AUTOSUBMIT-003: even a TRANSITION
+    // commit (this accept answered the last remaining question) is withheld
+    // while a gate-group question is unanswered — the hold arms BEFORE the
+    // completeness return and the commit gating, so nothing ships, no flash.
+    const state = seed([
+      { id: "g1", overrides: { group: "foundation", gate: true } }, // OPEN gate
+      { id: "n1", overrides: { group: "later", recommendation: "a" } }, // the transition commit below
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch;
+
+    panel.currentId = "n1";
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true); // wasUnanswered transition — but the gate is open
+
+    expect(panel.gateWarning).toEqual({ count: 1, kind: "hold", submitLabel: "Ctrl+S" });
+    expect(sendMessage).not.toHaveBeenCalled(); // withheld
+    expect(panel.footerFlash?.text).toBeUndefined(); // no flash on the hold path
+    expect(state.epoch).toBe(epochBefore); // no submission
+  });
+
   test("test_auto_zero_pending_complete_set_noops_silently", () => {
     // All submitted, nothing answered: complete AND zero pending — the
     // zero-pending guard no-ops BEFORE submit: no flash, no pipeline.

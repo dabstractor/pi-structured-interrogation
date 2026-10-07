@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "submit() ships pending answers despite an empty answer-signature diff (PRD BUG-002, D-R6 panel parity)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "In src/panel/actions.ts submit(), the early return `if (diff.changed.length === 0 || userChanged.length === 0)` (line 595) fires even when pendingIds (status === \"answered\") is non-empty, because computeDiff is answer-signature-only and status-blind (snapshots.ts:229). After a rule-2 re-ask answered with the identical value the last snapshot already holds, ctrl+s flashes 'nothing to submit', never flushes answered→submitted, never bumps the epoch, never delivers — and maybeAutoSubmit's transition call into the same pipeline is equally dead. Fix per the PRD recommendation and decision D-R6 ('bridge submissions flush answered→submitted even when the diff is empty'): treat non-empty pendingIds as user shipments even when the diff is empty.",
               "subtasks": [
                 {
@@ -40,7 +40,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "maybeAutoSubmit empty-diff transition delivers and flashes truthfully (AUTOSUBMIT-001/003, AC-2c)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

@@ -87,5 +87,9 @@ h1.7 Decision Ledger — extracted from the structured interrogation session
  h2.63 Defaulted (user may veto)
  h2.64 2026-09-30 interrogation — explain-any-answer
  h2.65 2026-10-04 interrogation — answer pinning (ANSWER-PIN-001)
+ h2.66 2026-10-05 interrogation — pinned deep-view question (DEEP-PIN-001)
+ h2.67 2026-10-05 interrogation — answer pinning re-ask amendment (ANSWER-PIN-001)
+ h2.68 2026-10-06 interrogation — FR-18 closed-edit ripple (BUG-003)
+ h2.69 2026-10-06 interrogation — moot reason persistence (BUG-004, Option A)
 ---
-code:16 para:54 list:45 table:6 quote:3
+code:16 para:54 list:49 table:6 quote:3

@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bugfix wave 001_64331ded9ddb — re-ask confirmation loop, closed-edit invalidation, moot reasons, epoch-echo friction",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Fix the five PRD-validated defects in pi-interrogator: the two re-ask wedges that silently block the FR-5 completion injection (PRD BUG-001 critical, BUG-002 major), the FR-18 confirm bypass on closed-question edits (BUG-003), the FR-17 moot reason never rendered in panel views (BUG-004), and the spurious STALE on an honest epoch echo after completion (BUG-005). Baseline: 46 files / 1265 tests + typecheck green; both gates must stay green. Research is complete and stored in plan/003_f8af1c6f6c49/bugfix/001_64331ded9ddb/architecture/ (system_context.md + four verified seam maps).",
       "milestones": [
         {
@@ -229,7 +229,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Guard friction (PRD BUG-005) and changeset-level documentation sync (Mode B)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "BUG-005: after completion, executeInterrogate swaps in a fresh receiver state (epoch 1) and then runs assertFresh against it, so an honest epoch echo (the behavior tool-schema.ts:114 itself instructs) throws a spurious epoch-only STALE with a '(none)' digest — one wasted round trip per new interrogation for conforming models. Then the final Mode B task sweeps the changeset-level docs (README) once every implementing subtask has landed.",
           "tasks": [
             {
@@ -260,14 +260,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Mode B catch-all: once all implementing subtasks have landed, sweep the changeset-level docs so the coherent delta ships with an accurate README. Per-subtask docblock/JSDoc/decisions.md updates already rode with the work (Mode A); this task covers the README surfaces that summarize the whole changeset: re-ask confirmation semantics, 'nothing to submit' behavior after a same-value re-answer, closed-edit FR-18 confirmation, moot reason rendering, and epoch-echo behavior on a new interrogation after completion.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "README.md changeset sweep: re-ask loop, closed-edit confirm, moot reasons, epoch echo",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

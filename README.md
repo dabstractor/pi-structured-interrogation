@@ -50,9 +50,16 @@ materialize; runtime loads via jiti against pi's tree.
    ★ recommendation stays visible on its own row but never owns the caret
    once an answer exists — and `enter` or a digit on the recorded value
    just moves you along — no state change, no resubmission, no confirm.
+   Re-asks are the exception: when the agent re-asks a question, re-selecting
+   your answer re-confirms it — the same value (`enter`, a digit, or a
+   byte-identical write-in) on an unchanged option list, or a re-answer
+   after the options changed — and the re-confirmed answer ships; a
+   re-asked question never strands.
    Changing an answer takes an explicit different choice (another row, a
    different digit, edited write-in text), which raises the invalidation
-   confirm when it would moot dependent questions. A write-in answer pins
+   confirm when it would moot dependent questions — any edited question
+   with a recorded answer counts, archived (closed) ones included. A
+   write-in answer pins
    the caret to its `✎ Other` row (with a dimmed preview of the text), and
    answered questions carry the ★ answered marker on the question line.
 3. Submitting is mostly automatic: answering the last open question — by
@@ -104,8 +111,9 @@ completion record when the interrogation completes. Between submissions it
 reconciles contradictions and re-asks only the questions materially affected. The goal
 statement may be updated on any upsert — it is capped at 400 characters and
 truncated with a warning beyond that — and an upsert sent after completion
-starts a fresh interrogation (the epoch restarts at 1) that completes
-normally. You answer in the panel; you never invoke the tool.
+starts a fresh interrogation (the epoch restarts at 1; its first upsert may
+echo the previous epoch — accepted) that completes normally. You answer in
+the panel; you never invoke the tool.
 
 With `editorMode: "composed"` (the default) the panel composes its own editor
 experience around your draft; `"stock"` defers to pi's stock editor behavior
@@ -268,20 +276,20 @@ the spec for the full text and the scripted tests proving each):
 2b. **Elaboration (WRITEIN-001/002)**: `ctrl+t`, type, `enter` → draft saved, still unanswered; option accept attaches it as `answer.text`; a real option after a committed write-in re-binds the slot as elaboration.
 2c. **Auto-submit (AUTOSUBMIT-001)**: answering the LAST question ships with no keypress beyond the answer (`submitted — {n} answer(s)`); editing while complete ships the edit immediately.
 2d. **Gate hold (AUTOSUBMIT-002)**: with a gate question unanswered, commits show `⚠ … foundational unanswered` and do NOT auto-submit; answering it releases the next commit; `ctrl+s` submits anyway.
-3. Agent reply closes answered questions / re-asks preserve drafts.
+3. Agent reply closes answered questions / re-asks preserve drafts; a re-asked question re-confirms on same-value `enter`.
 4. Break out → widget with counts → side chat → agent `{reopen:true}` → panel returns, drafts intact.
 5. Deep view: scroll ramifications (incl. the Other section), select from deep view → returns to short form.
-6. Contradicting a `dependsOn` → dependent greys as moot instantly; overview shows ⊘.
+6. Contradicting a `dependsOn` → dependent greys as moot instantly, with the real reason (`moot: {dep}={value}`); overview shows ⊘.
 7. Edit invalidating dependents → confirm dialog; esc cancels cleanly.
 8. Stale upsert (wrong `rev`/`epoch`) → rejected with current text/rev; re-apply heals.
 9. Restart pi mid-interrogation → NO panel appears (SURFACE-002); the widget line shows live counts; `/interrogate` reopens restored state; drafts gone (documented); pending answers ship on the next commit or submit (AUTOSUBMIT-001).
 10. `/compact` mid-interrogation → preservation flow; state reconstructs from the append-only mirror.
 11. `pi -p` print mode → numbered markdown digest; `answers[]` records chat answers; completion record on settle.
 12. Every default hotkey remappable; footer/widget strings reflect the remap.
-13. Editing an archived answer re-marks it pending; next diff card highlights the change.
+13. Editing an archived answer re-marks it pending; a different choice raises the same invalidation confirm as a live edit; the next diff card highlights the change.
 14. All questions closed → completion record injected once; recap card in transcript.
 15. **Reads never surface (SURFACE-001)**: a model `interrogate({})` read completes → panel stays closed, editor untouched — for live, all-answered, and completed states alike.
-16. **Answer pinning (ANSWER-PIN-001)**: revisit an answered question → caret + highlight sit on the recorded answer (★ visible on its own row, never owning the caret); `enter`/digit on the recorded value is a zero-state-change advance; a byte-identical write-in re-commit is inert; a DIFFERENT choice raises the FR-18 invalidation confirm.
+16. **Answer pinning (ANSWER-PIN-001)**: revisit an answered question → caret + highlight sit on the recorded answer (★ visible on its own row, never owning the caret); `enter`/digit on the recorded value is a zero-state-change advance and a byte-identical write-in re-commit is inert — except on a re-asked question, where same-value `enter`/digit (or a byte-identical write-in) re-confirms and ships; a DIFFERENT choice raises the FR-18 invalidation confirm.
 
 ## Limitations
 

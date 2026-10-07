@@ -37,8 +37,9 @@
  * in v1: the confirm footer is the only surface.
  *
  * The text save (WRITEIN-001 commit-at-enter) shares the same gate:
- * saving a draft on an answered/submitted question with ripple victims
- * defers the save ({@link beginTextConfirm}); enter completes it
+ * saving a draft on an answered/submitted/closed question with ripple
+ * victims defers the save ({@link beginTextConfirm}; BUG-003 — archived
+ * questions carry recorded answers too); enter completes it
  * ({@link applyTextConfirm} — draft slots + DraftStore seam + blur, NEVER
  * an applyAnswer: text saves do not touch state), esc restores the
  * recorded answer's text into the editor and keeps text focus
@@ -48,7 +49,8 @@
  *
  * The write-in commit gate (h2.35, P1.M2.T2.S2) shares the same modal: in
  * write-in duty ({@link writeInEnter}), committing the buffer on an
- * answered/submitted question with ripple victims defers the commit
+ * answered/submitted/closed question with ripple victims defers the commit
+ * (BUG-003: closed edits carry recorded answers too)
  * ({@link beginWriteInConfirm} — kind "writein"); enter applies it
  * ({@link applyWriteInConfirm} — the {value, custom: true, at} answer, then
  * evaluateDependsOn → advance → blur); esc re-seeds the editor from the
@@ -248,7 +250,7 @@ export function cancelTextConfirm(panel: InterrogationPanel): void {
 /**
  * [Mode A] Write-in commit gate entry (FR-18 × WRITEIN-001, h2.35,
  * P1.M2.T2.S2): called by writeInEnter when the current question is
- * answered/submitted AND rippleVictims is non-empty. h2.35 ripple sentence
+ * answered/submitted/closed (BUG-003) AND rippleVictims is non-empty. h2.35 ripple sentence
  * (verbatim): "On committing an answer change to an *answered* question in
  * the panel (the moment `enter` finalizes — option accept, write-in commit,
  * or a text/write-in re-commit on an answered question), if `dependsOn`

@@ -729,6 +729,124 @@ describe("ripple confirm — write-in commit gate (h2.35, P1.M2.T2.S2)", () => {
     expect(handle.panel.confirmMode?.victims).toEqual(["q2", "q3"]);
     expect(state.getQuestion("q1")?.answer?.custom).toBeUndefined(); // deferred
   });
+
+  // ---------------- BUG-003: closed (archived) edits gate too (P1.M2.T1.S2)
+
+  test("test_wi_commit_on_closed_with_victims_defers_into_modal", () => {
+    // Archived q1 still carries its recorded answer (FR-2: editable even
+    // archived); a different-text write-in would moot its answered victims
+    // exactly like an answered/submitted edit — the modal must gate it.
+    const state = seedRippleChain();
+    state.setStatus("q1", "closed"); // archived WITH its recorded answer
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "mysql");
+
+    expect(handle.panel.handleInput("\r")).toBe(true); // write-in enter → GATE
+
+    // Modal stashed with the buffer + FULL victim closure (BFS order).
+    expect(handle.panel.confirmMode?.kind).toBe("writein");
+    expect(handle.panel.confirmMode?.questionId).toBe("q1");
+    expect(handle.panel.confirmMode?.text).toBe("mysql");
+    expect(handle.panel.confirmMode?.victims).toEqual(["q2", "q3"]);
+
+    // NOTHING applied, NOTHING blurred: the recorded option answer is
+    // untouched (no custom marker), the archived status is intact, and the
+    // user stays on the question in write-in duty behind the modal.
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a");
+    expect(state.getQuestion("q1")?.answer?.custom).toBeUndefined();
+    expect(state.getQuestion("q1")?.status).toBe("closed");
+    expect(state.getQuestion("q2")?.status).toBe("answered");
+    expect(state.getQuestion("q3")?.status).toBe("submitted");
+    expect(handle.panel.currentId).toBe("q1");
+    expect(handle.panel.focus).toBe("text");
+    expect(handle.panel.textDuty).toBe("writein");
+    expect(handle.drafts.setDraft).not.toHaveBeenCalled(); // no draft write either
+
+    // Footer REPLACED with the verbatim modal line (kind-agnostic renderer).
+    const lines = handle.panel.render(120);
+    const confirm = lines.filter((l) => l.includes("⚠ Invalidates"));
+    expect(confirm).toHaveLength(1);
+    expect(confirm[0]?.trim()).toBe(
+      "⚠ Invalidates 2 answered questions (q2, q3) — enter=keep, esc=cancel",
+    );
+  });
+
+  test("test_wi_closed_esc_cancels_zero_state_change", () => {
+    const state = seedRippleChain();
+    state.setStatus("q1", "closed");
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "mysql");
+    handle.panel.handleInput("\r"); // → modal
+
+    // Capture EVERYTHING the AC-7 zero-state-change contract protects.
+    const serialized = JSON.stringify(state.serialize());
+    const answerRefs = ["q1", "q2", "q3", "q4"].map((id) => state.getQuestion(id)?.answer);
+    const snapshots = state.snapshots.length;
+    const epoch = state.epoch;
+
+    expect(handle.panel.handleInput("\u001b")).toBe(true); // modal esc = cancel
+
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(JSON.stringify(state.serialize())).toBe(serialized); // byte-identical
+    expect(state.getQuestion("q1")?.answer).toBe(answerRefs[0]); // same object refs
+    expect(state.getQuestion("q2")?.answer).toBe(answerRefs[1]);
+    expect(state.getQuestion("q3")?.answer).toBe(answerRefs[2]);
+    expect(state.snapshots.length).toBe(snapshots);
+    expect(state.epoch).toBe(epoch);
+    expect(handle.drafts.setDraft).not.toHaveBeenCalled(); // no draft write
+    // Prior OPTION answer (no custom, no elaboration text) → seed "" — and
+    // the user STAYS in the write-in editor they were typing in.
+    expect(handle.panel.textField.getText()).toBe("");
+    expect(handle.panel.focus).toBe("text");
+    expect(handle.panel.textDuty).toBe("writein");
+    expect(handle.panel.currentId).toBe("q1"); // still on the question (AC-7)
+  });
+
+  test("test_wi_closed_confirm_enter_applies_and_moots_dependent", () => {
+    const state = seedRippleChain();
+    state.setStatus("q1", "closed");
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "mysql");
+    handle.panel.handleInput("\r"); // → modal
+
+    expect(handle.panel.handleInput("\r")).toBe(true); // modal enter = keep
+
+    expect(handle.panel.confirmMode).toBeNull();
+    const q1 = state.getQuestion("q1");
+    expect(q1?.answer).toEqual({ value: "mysql", custom: true, at: expect.any(String) });
+    expect(q1?.status).toBe("answered"); // FR-2: editing re-marks pending
+    // FR-17/AC-6: victims moot instantly (h2.29 reason strings are P1.M2.T2).
+    expect(state.getQuestion("q2")?.status).toBe("moot");
+    expect(state.getQuestion("q3")?.status).toBe("moot");
+    // Accept-advance past the fresh moots to the open target, THEN blur.
+    expect(handle.panel.currentId).toBe("q4");
+    expect(handle.panel.focus).toBe("options");
+    expect(handle.panel.textDuty).toBe("elaboration");
+  });
+
+  test("test_wi_closed_byte_identical_recommit_stays_inert", () => {
+    // Stay-green pin (ANSWER-PIN-001): the byte-identical no-op runs BEFORE
+    // the gate and treats closed as settled — a same-value re-commit on an
+    // archived custom write-in stays an inert advance-and-blur, never a modal.
+    const state = seedRippleChain();
+    state.applyAnswer("q1", { value: "mysql", custom: true, at: T0 });
+    state.setStatus("q1", "closed");
+    const handle = makePanel(state);
+    enterWriteInDuty(handle, "mysql"); // byte-identical to the recorded write-in
+
+    expect(handle.panel.handleInput("\r")).toBe(true); // consumed…
+
+    // …as the NO-OP: no modal, no answer.at rewrite, no status flip.
+    expect(handle.panel.confirmMode).toBeNull();
+    expect(state.getQuestion("q1")?.answer?.value).toBe("mysql");
+    expect(state.getQuestion("q1")?.answer?.at).toBe(T0); // untouched
+    expect(state.getQuestion("q1")?.status).toBe("closed");
+    expect(state.getQuestion("q2")?.status).toBe("answered"); // no moot recompute
+    // Advance only (to the open target), then blur.
+    expect(handle.panel.currentId).toBe("q4");
+    expect(handle.panel.focus).toBe("options");
+    expect(handle.panel.textDuty).toBe("elaboration");
+  });
 });
 
 // -------- AUTOSUBMIT-001 deferred-commit triggers (P2.M1.T1.S1, h2.35)

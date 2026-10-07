@@ -135,14 +135,14 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Panel correctness: closed-edit FR-18 confirm (PRD BUG-003) and real FR-17 moot reasons (PRD BUG-004)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Two independent panel-view correctness fixes. BUG-003: the FR-18 ripple-confirm seam fires only when the EDITED question's status is answered/submitted; closed (archived) questions are editable per FR-2/AC-13 and carry recorded answers, so their edits bypass the user-worded Q39=B force-accept modal and silently moot answered dependents. BUG-004: no panel view renders the dependency-derived h2.29 reason (`moot: {dep}={value}`); short-view/overview/layout substitute the moot question's own answer text/value or 'dependency changed', and the UI tests are masked by fixtures that pre-bake the literal reason string.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "FR-18 ripple confirm fires for closed-question edits (PRD BUG-003)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Extend the three FR-18 seam gates — acceptOptionIndex (src/panel/actions.ts:302), writeInEnter (:392), stageText (src/panel/panel.ts:863) — from `answered|submitted` to also cover `closed` (any edited question carrying a recorded answer, per the PRD recommendation and state-and-persistence.md's unconditional 'Answer edits apply through the ripple confirm before entering answered(pending)'). RULING from architecture: VICTIM_STATUSES in ripple-confirm.ts:93 stays `answered|submitted` (closed dependents are terminal by design — ripple-confirm.ts:96-102 — and the footer copy 'Invalidates {n} answered questions' stays accurate); only the EDITED question's status gate widens. applyAnswer already re-marks closed→answered (state.ts:363-368), satisfying FR-2's 'editing re-marks pending'.",
               "subtasks": [
                 {
@@ -167,7 +167,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "writeInEnter and stageText elaboration-save gates include closed edits",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1"
@@ -186,14 +186,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "FR-17 dependency-derived moot reason rendered in every panel view (PRD BUG-004)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The h2.29 reason (`moot: {dep}={value}`, computed by dependencyMet/failReason in src/depends-on.ts:83-90,112-145) is consumed only by buildCompletion (delivery.ts:420). short-view mootReason (short-view.ts:149-152) reads the moot question's OWN answer.value or 'dependency changed'; overviewMootReason (overview.ts:166-172) prefers the question's own elaboration answer.text then value; layout statusMarkers (layout.ts:329-333) reads answer.text. ARCHITECTURAL RULING: persist the reason — add an optional `mootReason?: string` field to Question, written where evaluateDependsOn mutes (depends-on.ts:199-200), cleared on reopen/rule-2 reset, revived for round-trip — and have all three renderers prefer it. Rejected alternative (render-time dependencyMet plumbing) changes three pure Question-only renderer contracts; the short-view helper docblock itself anticipates 'a structured reason (if state grows one) refines in exactly one place'.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "Persist h2.29 moot reason on Question; consume in short-view, overview, and layout markers",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/bugfix/001_64331ded9ddb/architecture/ripple-moot-seams.md §B1-B5 + §4 Option A + §5 risks, spec-contracts.md §11 (persistence: reasons are recomputed on reconstruct step 5 — a persisted field self-heals). Verified anchors: Question interface state.ts:68-91 (no reason field); evaluateDependsOn mute at depends-on.ts:170-207 (setStatus 'moot' + mootered.push({id, reason}); SKIP_EVALUATION withdrawn/closed at :77/:173); renderers short-view.ts:149-152 (MOOT_HEAD '⊘ moot — ' :89, rendered :324-332), overview.ts:166-172, layout.ts:329-333 (MARKER_REASON_CAP 24).\n2. INPUT: None from other subtasks (independent). State/delivery fixtures: dep question 'storage' (sqlite/postgres) + dependent q2 dependsOn [{id:'storage', equals:'postgres'}].\n3. LOGIC: (a) state.ts: add optional `mootReason?: string` to Question (+ reviveQuestion round-trip, state.ts:514 area; serialize() structuredClones automatically; persistence.ts has no schema allowlist — safe). (b) depends-on.ts: write q.mootReason = result.reason at the mute site (:199) AND for still-moot entries (keep idempotent: same string, NO changed emit — delivery.test.ts purity pins byte-identical serialize on no-op passes); CLEAR it wherever the question leaves moot (reopen on re-met :175-183, empty-dependsOn reopen :176, and merge.ts rule-2 answer-reset path ~:178-200 per research §5 — a lingering reason must never render on a non-moot question; renderers also guard on status==='moot'). (c) Renderers: mootReason → `q.mootReason ?? q.answer?.value ?? DEFAULT_MOOT_REASON`; overviewMootReason → `q.mootReason ?? answer.text ?? answer.value ?? DEFAULT`; layout statusMarkers → read `q.mootReason` (truncated at the existing cap) instead of answer.text (removes the elaboration-as-reason conflation). (d) TDD failing-first: depends-on.test.ts (reason persisted at mute, cleared on reopen, idempotent on still-moot — zero changed events); short-view/overview/layout tests asserting the true 'moot: storage=sqlite' renders on the moot line/row/marker (≤24-col truncation honored in layout). buildCompletion (delivery.ts:420) keeps its recompute — reasons must agree; add an assertion that they do. No external mocking.\n4. OUTPUT: Question.mootReason?: string field + three renderer upgrades; consumed by P1.M2.T2.S2 (fixture de-masking) and P1.M3.T2.S1 (docs).\n5. DOCS: [Mode A] JSDoc on the new Question field (state.ts), the evaluateDependsOn mute-site comment, the three renderer helpers (short-view.ts:144-152 docblock already says 'if state grows one' — now it has), and a decisions.md pin recording the persist-vs-render-time ruling per repo convention.",
@@ -208,7 +208,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "De-mask fixture-baked moot-reason tests to production-path scenarios",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1"

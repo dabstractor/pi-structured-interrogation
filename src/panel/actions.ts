@@ -433,13 +433,24 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
     panel.blurTextField(); // AFTER advance (commit-tail parity): editor closes, duty resets
     return true;
   }
-  // FR-18 / h2.35: a write-in commit on an answered/submitted question with
-  // ripple victims routes through the SAME keep/cancel modal as option edits
-  // (P1.M2.T2.S2) — the commit is DEFERRED to applyWriteInConfirm; enter
-  // applies, esc reverts. Zero victims → direct commit (createRippleConfirm
-  // semantics; the modal only exists when something would be invalidated).
+  // FR-18 / h2.35 (+ BUG-003): a write-in commit on an answered/submitted/
+  // closed question with ripple victims routes through the SAME keep/cancel
+  // modal as option edits (P1.M2.T2.S2) — the commit is DEFERRED to
+  // applyWriteInConfirm; enter applies, esc reverts. BUG-003 (Q39=B): closed
+  // (archived) questions still carry recorded answers (FR-2: answers
+  // editable even archived), so a different-text write-in commit invalidates
+  // dependents exactly like answered/submitted edits and must never silently
+  // moot them. Ordering is load-bearing: the byte-identical no-op ABOVE
+  // already treats closed as settled, so same-value re-commits on closed
+  // stay inert; the explicit status-list form (never answer-presence) keeps
+  // the reasked re-confirmation seam-free by construction (BUG-001).
+  // Zero victims → direct commit (createRippleConfirm semantics; the modal
+  // only exists when something would be invalidated).
   const status = q.status;
-  if ((status === "answered" || status === "submitted") && rippleVictims(panel, q.id).length > 0) {
+  if (
+    (status === "answered" || status === "submitted" || status === "closed") &&
+    rippleVictims(panel, q.id).length > 0
+  ) {
     beginWriteInConfirm(panel, text);
     return true; // consumed — nothing applied yet
   }

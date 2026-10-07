@@ -849,9 +849,12 @@ export class InterrogationPanel implements Component {
   /**
    * Shared save core for the elaboration-enter and the editor-exit
    * gestures: FR-18 text gate first (re-saving a draft on an
-   * answered/submitted question whose ripple would invalidate
-   * answered/submitted questions defers the save into the modal confirm),
-   * then the unconditional commit tail.
+   * answered/submitted/closed question whose ripple would invalidate
+   * answered/submitted questions defers the save into the modal confirm —
+   * BUG-003: a closed question still carries its recorded answer, so a
+   * draft re-save would moot dependents identically; the `answer !==
+   * undefined` conjunct is kept to document that only an edit-of-record
+   * gates, never a first-time draft), then the unconditional commit tail.
    */
   private stageText(text: string): void {
     const id = this.currentId;
@@ -860,7 +863,7 @@ export class InterrogationPanel implements Component {
       if (
         q !== undefined &&
         q.answer !== undefined &&
-        (q.status === "answered" || q.status === "submitted") &&
+        (q.status === "answered" || q.status === "submitted" || q.status === "closed") && // BUG-003: closed edits gate too
         rippleVictims(this, id).length > 0
       ) {
         beginTextConfirm(this, text);

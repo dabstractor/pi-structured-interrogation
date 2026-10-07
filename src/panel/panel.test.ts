@@ -2631,6 +2631,56 @@ describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
     expect(state.getQuestion("q1")?.answer?.text).toBeUndefined();
   });
 
+  test("elaboration_save_on_closed_with_ripple_victims_routes_through_FR18_modal", () => {
+    // BUG-003 twin (P1.M2.T1.S2): archived q1 still carries its recorded
+    // answer (FR-35) — re-saving its elaboration draft would invalidate the
+    // answered dependent exactly like on an answered question, so the same
+    // keep/cancel modal must gate the save.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2", { dependsOn: [{ id: "q1", equals: "a" }] }));
+    state.applyAnswer("q1", { value: "a", at: "2025-01-01T00:00:00.000Z" });
+    state.applyAnswer("q2", { value: "a", at: "2025-01-01T00:00:00.000Z" });
+    state.setStatus("q1", "closed"); // archived WITH its recorded answer
+    const panel = makeDutyPanel(state);
+
+    panel.handleInput(CTRL_T); // cursor on a real option → elaboration duty
+    expect(panel.textDuty).toBe("elaboration");
+    panel.textField.setText("fresh context");
+    expect(panel.handleInput("\r")).toBe(true); // gated — deferred into the modal
+
+    expect(panel.confirmMode?.kind).toBe("text");
+    expect(panel.confirmMode?.questionId).toBe("q1");
+    expect(panel.confirmMode?.text).toBe("fresh context");
+    expect(panel.confirmMode?.victims).toEqual(["q2"]);
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // nothing written yet
+    expect(state.getQuestion("q1")?.answer?.text).toBeUndefined();
+
+    // esc cancels: no draft, no state change of any kind.
+    expect(panel.handleInput(ESCAPE)).toBe(true);
+    expect(panel.confirmMode).toBeNull();
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // still no draft
+    expect(state.getQuestion("q1")?.answer?.text).toBeUndefined();
+    expect(state.getQuestion("q1")?.status).toBe("closed"); // untouched
+    expect(state.getQuestion("q2")?.status).toBe("answered"); // victim intact
+
+    // Retry → confirm-enter applies the DEFERRED draft save (stage-1
+    // semantics: the draft lands, the answer is never touched, and the
+    // victim stays answered — applyTextConfirm is draft-only; mooting the
+    // dependent is the answer seams' job, not a text save's).
+    panel.textField.setText("fresh context");
+    expect(panel.handleInput("\r")).toBe(true); // gated again
+    expect(panel.confirmMode?.kind).toBe("text");
+    expect(panel.handleInput("\r")).toBe(true); // keep
+    expect(panel.confirmMode).toBeNull();
+    expect(panel.draftTextFor("q1")).toBe("fresh context"); // draft saved
+    expect(panel.focus).toBe("options"); // blurred
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // answer untouched
+    expect(state.getQuestion("q1")?.answer?.text).toBeUndefined();
+    expect(state.getQuestion("q1")?.status).toBe("closed"); // text save ≠ answer gesture
+    expect(state.getQuestion("q2")?.status).toBe("answered"); // draft-only: no moot
+  });
+
   test("ctrl_t_repress_exits_writein_duty_with_draft_write_through_never_commits", () => {
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));

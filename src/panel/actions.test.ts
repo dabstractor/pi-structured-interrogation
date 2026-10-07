@@ -419,6 +419,66 @@ describe("accept same-value — inert no-op (ANSWER-PIN-001 / FR-D9)", () => {
     expect(panel.currentId).toBe("q2");
   });
 
+  test("test_same_value_on_reasked_reconfirms", () => {
+    // BUG-001 (PRD h2.1/h3.0): a rule-1 re-ask flips status to "reasked"
+    // while KEEPING the answer — the lifecycle marker, not the user, created
+    // this hybrid. Enter on the kept value must be a re-confirmation commit
+    // (re-marks answered(pending)), not a swallowed no-op that wedges the
+    // question (and with it completion) forever.
+    const state = seed([{ id: "q1" }, { id: "q2" }]);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    state.setStatus("q1", "reasked"); // rule-1 flip — the answer is KEPT
+    const confirmRipple = seamMock(true);
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1";
+    panel.cursorIndex = 0; // option "a" — the recorded value (caret pins there)
+    expect(accept(panel)).toBe(true);
+    expect(confirmRipple).toHaveBeenCalledTimes(0); // seam-free re-confirm
+    const q1 = state.getQuestion("q1");
+    expect(q1?.status).toBe("answered"); // answered(pending) per h2.38
+    expect(q1?.answer?.value).toBe("a"); // the KEPT value re-committed
+    expect(q1?.answer?.at).not.toBe(T0); // fresh timestamp
+    expect(panel.currentId).toBe("q2"); // Q14 advance
+  });
+
+  test("test_reasked_reconfirm_completing_set_auto_submits_and_delivers", () => {
+    // BUG-001/BUG-002 composition: re-confirming the sole reasked question
+    // is the last-unanswered TRANSITION → auto-submit fires and DELIVERS
+    // (via S1's submit() pipeline). Before the fix this never fired: the
+    // question stayed reasked, ctrl+s said "nothing to submit", completion
+    // was permanently blocked.
+    const state = seed([{ id: "q1" }]);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    state.setStatus("q1", "submitted"); // settled in a prior round…
+    state.setStatus("q1", "reasked"); // …then rule-1 re-asked, answer KEPT
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps });
+    const epochBefore = state.epoch;
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true);
+    expect(state.getQuestion("q1")?.status).toBe("submitted"); // re-marked → flushed
+    expect(sendMessage).toHaveBeenCalledTimes(1); // delivered exactly once
+    expect(state.epoch).toBe(epochBefore + 1);
+    const msg = sendMessage.mock.calls[0]?.[0] as SubmissionMessage;
+    expect(msg.content).toContain("Submitted 1: q1: Alpha");
+  });
+
+  test("test_same_value_digit_on_reasked_reconfirms", () => {
+    // Digit inherits the reasked exclusion for free (same acceptOptionIndex).
+    const state = seed([{ id: "q1" }, { id: "q2" }]);
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    state.setStatus("q1", "reasked");
+    const confirmRipple = seamMock(true);
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1";
+    expect(digit(panel, 1)).toBe(true); // option 1 = "a" — the recorded value
+    expect(confirmRipple).toHaveBeenCalledTimes(0);
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q1")?.answer?.at).not.toBe(T0);
+    expect(panel.currentId).toBe("q2");
+  });
+
   test("test_same_value_on_submitted_is_inert", () => {
     const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
     state.setStatus("q1", "submitted"); // submitted WITH its recorded answer

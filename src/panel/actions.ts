@@ -289,14 +289,27 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   const opt = displayOptions(q)[optionIndex];
   if (opt === undefined) return false;
   // ANSWER-PIN-001 / FR-D9: enter (or digit) on the ALREADY-RECORDED value
-  // is a state no-op that advances — never a re-proposal. Checked BEFORE
-  // the ripple seam: a same-value re-commit is not a change (FR-18), so
-  // no modal, no applyAnswer (no fresh answer.at), no evaluateDependsOn,
-  // no maybeAutoSubmit. Non-custom only: a write-in answer (custom) whose
-  // text byte-equals an option value is a different-KIND commit (it would
-  // flip the custom flag) and routes through the seam like any edit.
+  // on a SETTLED question (answered/submitted/closed — statuses the user's
+  // own commit produced) is an inert no-op that advances — never a
+  // re-proposal. Checked BEFORE the ripple seam: a same-value re-commit is
+  // not a change (FR-18), so no modal, no applyAnswer (no fresh answer.at),
+  // no evaluateDependsOn, no maybeAutoSubmit. REASKED EXCEPTION (BUG-001,
+  // PRD h2.1/h3.0): a rule-1 re-ask flips status to "reasked" while KEEPING
+  // the answer — the lifecycle marker, not the user, created that hybrid —
+  // so a same-value enter there is a RE-CONFIRMATION commit, not a no-op:
+  // it falls through to applyAnswer (re-marks answered(pending) with a
+  // fresh answer.at — diff-invisible: the answer signature in snapshots.ts
+  // is value+text only, never at), evaluateDependsOn, and maybeAutoSubmit,
+  // letting the re-ask → re-confirm → settle → completion loop close.
+  // Without the exclusion the question is stuck reasked forever: it counts
+  // unanswered everywhere, ctrl+s says "nothing to submit", and completion
+  // (FR-5) is permanently blocked unless the user changes their answer.
+  // Still non-custom only: a write-in answer (custom) whose text
+  // byte-equals an option value is a different-KIND commit (it would flip
+  // the custom flag) and routes through the seam like any edit (write-in
+  // reasked parity belongs to writeInEnter, not this path).
   const recorded = q.answer;
-  if (recorded !== undefined && recorded.custom !== true && recorded.value === opt.value) {
+  if (recorded !== undefined && recorded.custom !== true && recorded.value === opt.value && q.status !== "reasked") {
     advanceAfterAccept(panel); // Q14 rhythm: advance only, no state write
     return "noop";
   }

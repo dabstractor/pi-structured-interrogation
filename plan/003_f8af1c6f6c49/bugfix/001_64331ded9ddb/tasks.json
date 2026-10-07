@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Re-ask confirmation loop end-to-end (PRD BUG-002 + BUG-001 — the release blockers)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Make a re-asked question re-confirmable and make every pending (answered) answer deliverable, so the re-ask → re-confirm → submit → close-pass → completion (FR-5) loop closes for BOTH re-ask flavors: rule-1 (same options, answer kept, status reasked) and rule-2 (options changed, answer deleted, user re-picks the same value). Order: fix submit()'s empty-diff early return first (D-R6 panel parity), then exclude `reasked` from the ANSWER-PIN-001 same-value no-ops, then prove the full round trip with an integration regression.",
           "tasks": [
             {
@@ -59,14 +59,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Rule-1 re-ask re-confirmation: same-value commits re-mark `reasked` → `answered` (PRD BUG-001)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The ANSWER-PIN-001 same-value no-ops in acceptOptionIndex (src/panel/actions.ts:293-297) and writeInEnter (:379-385) check answer presence with NO status exclusion. A rule-1 re-ask (lifecycle.ts:198 flips submitted→reasked KEEPING the answer) therefore leaves the question permanently reasked: same-value enter/digit/write-in is inert, the question counts as unanswered everywhere, ctrl+s reports 'nothing to submit', the close pass only archives submitted, and completion (whose BLOCKING set includes reasked — completion.ts) can never fire. Exclude `reasked` from both no-op guards so the existing fall-through re-commits the kept value (applyAnswer → evaluateDependsOn → advance → maybeAutoSubmit with wasUnanswered=true). Scope is TIGHT: closed and answered same-value no-ops stay inert.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "acceptOptionIndex (and digit) no-op exclusion for `reasked` — enter on the kept value re-confirms",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -83,7 +83,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "writeInEnter byte-identical no-op exclusion for `reasked` (choice write-ins and text questions)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -103,14 +103,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Re-ask round-trip regression: both flavors re-confirm, deliver, close, and complete (FR-5 unblocked)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "A permanent integration regression that drives ONLY public seams — executeInterrogate + the lifecycle event bus (tool_execution_start/end, agent_settled) + InterrogationPanel accept/submit — exactly the harness the PRD used to find the bugs. It encodes both PRD repro scripts end-to-end: rule-1 same-value re-confirmation (BUG-001) and rule-2 same-value re-answer (BUG-002), each previously ending in 'flash: nothing to submit' and zero new deliveries. This is the composition proof that the M1.T1+M1.T2 fixes close the loop through the close pass (lifecycle.ts runClosePass archives submitted) into completion (completion.ts BLOCKING set empty → FR-5 record injection).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Public-seam integration test: re-ask → re-confirm → submission → settle → completion injection",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

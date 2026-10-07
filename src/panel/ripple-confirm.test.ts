@@ -193,6 +193,27 @@ describe("ripple confirm — choice gate (FR-18)", () => {
     expect(lines.some((l) => l.includes("⏎"))).toBe(false);
   });
 
+  test("test_closed_edited_question_with_zero_dependents_applies_directly_no_modal", () => {
+    // BUG-003 gate widening must NOT regress dependent-free closed edits:
+    // zero victims → the seam returns true → the accept applies directly
+    // (byte-identical to pre-widening behavior, no spurious modal).
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("solo"));
+    state.upsertQuestion(choiceQ("next")); // open advance target, NO dependsOn
+    state.applyAnswer("solo", { value: "a", at: T0 });
+    state.setStatus("solo", "closed"); // archived WITH its recorded answer
+    const { panel } = makePanel(state);
+
+    panel.currentId = "solo";
+    panel.cursorIndex = 1; // "b" — a different value
+    panel.handleInput("\r");
+
+    expect(panel.confirmMode).toBeNull(); // zero victims → no modal
+    expect(state.getQuestion("solo")?.status).toBe("answered"); // applied
+    expect(state.getQuestion("solo")?.answer?.value).toBe("b");
+    expect(panel.currentId).toBe("next"); // advance ran
+  });
+
   test("test_esc_cancels_with_zero_state_change", () => {
     const state = seedRippleChain();
     const { panel, drafts } = makePanel(state);

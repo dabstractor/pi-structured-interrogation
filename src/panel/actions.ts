@@ -270,9 +270,14 @@ export type AcceptOutcome = "noop" | "accept" | "veto" | false;
  * byte-equals the proposed option is an INERT NO-OP that advances (Q14
  * rhythm) — no ripple seam, no applyAnswer (answer.at is never rewritten),
  * no moot recompute, no auto-submit; digit inherits for free. Otherwise:
- * route answered/submitted edits through the ripple-confirm seam FIRST
- * (AC-13 — a veto skips everything), applyAnswer (status → answered, the
- * pending state per h2.38), then advance.
+ * route answered/submitted/closed edits through the ripple-confirm seam
+ * FIRST (AC-13 — a veto skips everything), applyAnswer (status →
+ * answered, the pending state per h2.38), then advance. BUG-003/FR-18:
+ * closed (archived) questions carry recorded answers too (FR-2 — answers
+ * editable even archived), so their different-value edits invalidate
+ * dependents exactly like answered/submitted edits and route through the
+ * same seam; same-value re-commits remain inert no-ops (ANSWER-PIN-001
+ * runs first, and it already covers closed).
  *
  * Returns an {@link AcceptOutcome} (Mode A): "noop" (same-value, advance
  * already ran), "accept" (committed, advance already ran), "veto" (the seam
@@ -317,7 +322,14 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   // AUTOSUBMIT-003 commit context: open/reasked pre-commit = this accept can
   // be the last-unanswered TRANSITION; answered/submitted = an edit.
   const wasUnanswered = q.status === "open" || q.status === "reasked";
-  if (q.status === "answered" || q.status === "submitted") {
+  // BUG-003 / FR-18 / Q39=B: closed (archived) questions still carry recorded
+  // answers — a different-value edit invalidates dependents exactly like an
+  // answered/submitted edit, so it routes through the same seam. Status-list
+  // form (NOT answer-presence): keeps the reasked re-confirmation
+  // (P1.M1.T2.S1) seam-free by construction — answer-presence would capture
+  // the reasked hybrid and need explicit exemptions. Same-value re-commits
+  // never reach here (the ANSWER-PIN-001 no-op above already covers closed).
+  if (q.status === "answered" || q.status === "submitted" || q.status === "closed") {
     if (!panel.confirmRippleEdit(q.id, proposed)) return "veto"; // seam vetoed — nothing applied, no advance
   }
   panel.state.applyAnswer(q.id, proposed);

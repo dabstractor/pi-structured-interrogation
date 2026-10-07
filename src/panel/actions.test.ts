@@ -388,6 +388,140 @@ describe("accept on answered — ripple-confirm seam (AC-13)", () => {
     accept(panel);
     expect(confirmRipple).toHaveBeenCalledTimes(1);
   });
+
+  test("test_g_seam_also_guards_closed_questions", () => {
+    // BUG-003 / FR-18: closed (archived) questions still carry recorded
+    // answers — a different-value edit must raise the seam like any edit.
+    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
+    state.setStatus("q1", "closed"); // archived WITH its recorded answer (FR-35)
+    const confirmRipple = seamMock(true);
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1";
+    panel.cursorIndex = 1; // "b" — DIFFERENT from the recorded "a"
+    accept(panel);
+    expect(confirmRipple).toHaveBeenCalledTimes(1);
+    const [, id, proposed] = confirmRipple.mock.calls[0];
+    expect(id).toBe("q1");
+    expect(proposed.value).toBe("b");
+    // Post-seam tail: closed → answered (FR-2 re-mark pending), advanced.
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q1")?.answer?.value).toBe("b");
+    expect(panel.currentId).toBe("q2");
+  });
+
+  test("test_bug003_closed_edit_default_seam_raises_modal_nothing_applied", () => {
+    // The PRD repro: archived db=postgres + answered dependent scale
+    // (dependsOn db=postgres). Enter on 'sqlite' must raise the REAL modal
+    // — not silently moot the dependent.
+    const state = seed([
+      {
+        id: "db",
+        overrides: {
+          status: "answered",
+          options: [
+            { value: "sqlite", label: "SQLite" },
+            { value: "postgres", label: "Postgres" },
+          ],
+          answer: { value: "postgres", at: T0 },
+        },
+      },
+      { id: "scale", overrides: { status: "answered", dependsOn: [{ id: "db", equals: "postgres" }] } },
+    ]);
+    state.setStatus("db", "closed");
+    const { panel } = makePanel(state); // default seam = createRippleConfirm
+    panel.currentId = "db";
+    panel.cursorIndex = 0; // sqlite — a DIFFERENT value than the recorded postgres
+
+    expect(accept(panel)).toBe(true); // consumed…
+    expect(panel.confirmMode).not.toBeNull(); // …but the modal is up
+    expect(panel.confirmMode?.kind).toBe("choice");
+    expect(panel.confirmMode?.questionId).toBe("db");
+    expect(panel.confirmMode?.victims).toEqual(["scale"]);
+    expect(panel.confirmMode?.proposed?.value).toBe("sqlite");
+    // NOTHING applied yet — the stored answer and the dependent are intact.
+    expect(state.getQuestion("db")?.answer?.value).toBe("postgres");
+    expect(state.getQuestion("db")?.status).toBe("closed");
+    expect(state.getQuestion("scale")?.status).toBe("answered");
+    expect(panel.currentId).toBe("db"); // no advance
+  });
+
+  test("test_bug003_closed_edit_esc_cancels_zero_state_change", () => {
+    const state = seed([
+      {
+        id: "db",
+        overrides: {
+          status: "answered",
+          options: [
+            { value: "sqlite", label: "SQLite" },
+            { value: "postgres", label: "Postgres" },
+          ],
+          answer: { value: "postgres", at: T0 },
+        },
+      },
+      { id: "scale", overrides: { status: "answered", dependsOn: [{ id: "db", equals: "postgres" }] } },
+    ]);
+    state.setStatus("db", "closed");
+    const { panel } = makePanel(state);
+    panel.currentId = "db";
+    panel.cursorIndex = 0;
+    accept(panel); // modal up
+    expect(panel.confirmMode).not.toBeNull();
+
+    const serialized = JSON.stringify(state.serialize());
+    const dbAnswer = state.getQuestion("db")?.answer;
+    expect(panel.handleInput("\u001b")).toBe(true); // esc = cancel
+
+    expect(panel.confirmMode).toBeNull();
+    expect(JSON.stringify(state.serialize())).toBe(serialized); // byte-identical
+    expect(state.getQuestion("db")?.answer).toBe(dbAnswer); // same object ref
+    expect(state.getQuestion("scale")?.status).toBe("answered");
+    expect(panel.currentId).toBe("db"); // user stays on the question
+  });
+
+  test("test_bug003_closed_edit_confirm_enter_applies_and_moots_dependent", () => {
+    const state = seed([
+      {
+        id: "db",
+        overrides: {
+          status: "answered",
+          options: [
+            { value: "sqlite", label: "SQLite" },
+            { value: "postgres", label: "Postgres" },
+          ],
+          answer: { value: "postgres", at: T0 },
+        },
+      },
+      { id: "scale", overrides: { status: "answered", dependsOn: [{ id: "db", equals: "postgres" }] } },
+      { id: "other" }, // open advance target
+    ]);
+    state.setStatus("db", "closed");
+    const { panel } = makePanel(state);
+    panel.currentId = "db";
+    panel.cursorIndex = 0;
+    accept(panel); // modal up
+
+    expect(panel.handleInput("\r")).toBe(true); // keep = apply the edit
+
+    expect(panel.confirmMode).toBeNull();
+    const db = state.getQuestion("db");
+    expect(db?.status).toBe("answered"); // FR-2: editing re-marks pending
+    expect(db?.answer?.value).toBe("sqlite");
+    expect(state.getQuestion("scale")?.status).toBe("moot"); // dependent invalidated
+    expect(panel.currentId).toBe("other"); // advance happened
+  });
+
+  test("test_digit_on_closed_routes_through_the_ripple_seam", () => {
+    // digit → acceptOptionIndex inherits the widened gate for free.
+    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
+    state.setStatus("q1", "closed");
+    const confirmRipple = seamMock(false); // veto proves BOTH invocation and no-apply
+    const { panel } = makePanel(state, { confirmRipple });
+    panel.currentId = "q1";
+    expect(digit(panel, 2)).toBe(true); // option "b" — different value; veto is consumed
+    expect(confirmRipple).toHaveBeenCalledTimes(1);
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // veto: untouched
+    expect(panel.currentId).toBe("q1"); // no advance on veto
+  });
 });
 
 describe("accept same-value — inert no-op (ANSWER-PIN-001 / FR-D9)", () => {

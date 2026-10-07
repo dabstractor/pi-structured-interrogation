@@ -30,8 +30,11 @@
  * Zero victims (ripple empty, or every ripple id open/moot/withdrawn/
  * closed) → the seam returns true and the accept path applies directly —
  * byte-identical to pre-task behavior. Open/reasked edits never reach the
- * seam (the accept path gates on answered/submitted). No drill-down in
- * v1: the confirm footer is the only surface.
+ * seam. BUG-003 (FR-18, Q39=B): CLOSED edits DO reach the seam when a
+ * recorded answer exists and the proposed value differs — archived
+ * questions carry answers too (FR-2) — while the same-value no-op
+ * (ANSWER-PIN-001) and the reasked re-confirmation never do. No drill-down
+ * in v1: the confirm footer is the only surface.
  *
  * The text save (WRITEIN-001 commit-at-enter) shares the same gate:
  * saving a draft on an answered/submitted question with ripple victims

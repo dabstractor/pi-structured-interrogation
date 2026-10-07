@@ -914,6 +914,68 @@ describe("submit — flush pending answers", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 
+  test("test_bug002_same_value_reanswer_after_rule2_reask_ships_pending", () => {
+    // PRD BUG-002: after a rule-2 re-ask (options changed → answer deleted,
+    // status reasked) the user re-selects the SAME still-present value. The
+    // baseline snapshot holds the identical answer signature, so computeDiff
+    // produces zero entries — the OLD diff-keyed early-return lied "nothing
+    // to submit" forever, blocking delivery, the epoch bump, the submitted
+    // flush, and completion (FR-5). Pending (answered) ids ARE user
+    // shipments: flush + synthesize card entries + deliver even on the
+    // empty diff (D-R6 bridge parity).
+    const OPTS_ABC = [
+      { value: "a", label: "Alpha" },
+      { value: "b", label: "Beta" },
+      { value: "c", label: "Gamma" },
+    ];
+    const OPTS_ABD = [
+      { value: "a", label: "Alpha" },
+      { value: "b", label: "Beta" },
+      { value: "d", label: "Delta" },
+    ];
+    const state = seed([{ id: "q1", overrides: { options: OPTS_ABC } }]);
+    const { panel } = makePanel(state);
+    const { deps, sendMessage } = makeDeps(true);
+
+    // 1. First cycle: answer a, submit — the snapshot baseline holds a.
+    state.applyAnswer("q1", { value: "a", at: T0 });
+    expect(submit(panel, deps)).toBe(true);
+    expect(state.epoch).toBe(2);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    // 2. Agent rule-2 re-ask: options changed [a,b,c] → [a,b,d]; the exact
+    // wholesale-replace shape merge.ts hands upsertQuestion.
+    state.upsertQuestion({
+      ...choiceQ("q1", { options: OPTS_ABD }),
+      rev: 2,
+      status: "reasked",
+    });
+
+    // 3. Same-value re-answer: status answered, answer signature identical
+    // to the baseline → the diff is empty.
+    state.applyAnswer("q1", { value: "a", at: T0 });
+
+    const snapsBefore = state.snapshots.length;
+    const epochBefore = state.epoch;
+    expect(submit(panel, deps)).toBe(true); // the fix: real delivery
+
+    expect(sendMessage).toHaveBeenCalledTimes(2); // real submission message
+    expect(state.getQuestion("q1")!.status).toBe("submitted");
+    expect(state.epoch).toBe(epochBefore + 1); // 2 → 3
+    expect(state.snapshots).toHaveLength(snapsBefore + 1);
+    expect(panel.footerFlash?.text).not.toBe("nothing to submit");
+    const msg = sendMessage.mock.calls[1][0] as {
+      content: string;
+      details: { changed: Array<{ id: string; from: string; to: string }> };
+    };
+    expect(msg.content).toContain("q1");
+    expect(msg.content).toContain("(state epoch 3)");
+    expect(msg.content).toContain("Submitted 1: q1: Alpha (state epoch 3)");
+    expect(msg.details.changed.map((e) => e.id)).toEqual(["q1"]);
+    expect(msg.details.changed[0]?.from).toBe("(unanswered)"); // synthetic shape
+    expect(msg.details.changed[0]?.to).toBe("Alpha"); // answerSummary, label-preferred
+  });
+
   // DEFECT FIX regression (P1.M7.T6.S1): the ctrl+s flush performs the
   // h2.38 answered(pending) → submitted transition (merge.ts: "all pending
   // (answered) ids before the epoch bump") and fires the lifecycle seam

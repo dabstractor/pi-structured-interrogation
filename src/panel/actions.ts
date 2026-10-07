@@ -23,7 +23,12 @@
 import { evaluateDependsOn } from "../depends-on.js";
 import { buildSubmission, deliverSubmission } from "../delivery.js";
 import { markSubmitted } from "../merge.js";
-import { computeDiff, submissionBaselineOf } from "../snapshots.js";
+import {
+  answerSummary,
+  computeDiff,
+  submissionBaselineOf,
+  UNANSWERED_SUMMARY,
+} from "../snapshots.js";
 import type { Question, SerializedState } from "../state.js";
 import { countUnansweredGate, gateGroupNames } from "./gate.js";
 import type { InterrogationPanel } from "./panel.js";
@@ -532,10 +537,16 @@ function reconcileDraftsForSubmit(panel: InterrogationPanel): void {
  * panel submit itself performs NO mutation (answers were already applied by
  * accept).
  *
- * - Zero user-shipped change → footer flash "nothing to submit" (h2.37) and
- *   NOTHING else: no snapshot, no epoch bump, no delivery — and a held batch
- *   note stays held (R3: it ships with the NEXT submission). BUG-008: a diff
- *   consisting solely of agent-caused re-ask resets ships nothing.
+ * - Zero PENDING (nothing answered) → footer flash "nothing to submit"
+ *   (h2.37) and NOTHING else: no snapshot, no epoch bump, no delivery — and
+ *   a held batch note stays held (R3: it ships with the NEXT submission).
+ *   BUG-008: a diff consisting solely of agent-caused re-ask resets ships
+ *   nothing (no pending ids → still the zero path).
+ * - BUG-002 (D-R6 bridge parity): pending (answered) ids ARE user shipments
+ *   even when the answer-signature diff is empty or fully filtered — the
+ *   canonical rule-2 re-ask + same-value re-answer loop. Synthetic card
+ *   entries (computeEntries shape, answerSummary `to`) keep k, the content
+ *   line, and details.changed consistent.
  * - BUG-008 (h2.2 Issue 8): the model-visible delta lists ONLY user
  *   shipments, and text drafts ship ONLY for ids the user actually shipped
  *   (R4/commitment 6). Agent rule-2 re-ask resets (answer → undefined on
@@ -592,7 +603,12 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   const userChanged = diff.changed.filter(
     (e) => pendingIds.includes(e.id) || !(e.to === "(unanswered)"),
   );
-  if (diff.changed.length === 0 || userChanged.length === 0) {
+  // BUG-002 re-key (D-R6 parity): the early return keys on the PENDING set,
+  // not the diff — a rule-2 re-ask followed by a same-value re-answer
+  // produces an empty answer-signature diff while a genuine user shipment
+  // sits pending. Zero pending is the only "nothing to submit" path; the
+  // pending>0 empty-diff case falls through and ships below.
+  if (pendingIds.length === 0) {
     // WRITEIN-002 held-elaboration discoverability: a draft-only choice
     // question is the classic "why won't my partial submission ship" trap —
     // the slot's role binds to the CURRENT selection (WRITEIN-002), and an
@@ -640,17 +656,40 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // submit flush applies this to all pending (answered) ids before the
   // epoch bump"). WITHOUT this, the h2.44 close pass (which archives only
   // status "submitted" ids after agent_settled) would never fire and
-  // completion could never trigger (AC-3 / AC-14). Runs AFTER the early
-  // return: a submit with nothing user-shipped flushes nothing. The
-  // diff above is status-blind (answer signatures only), so the flush
-  // cannot change it. (pendingIds was captured ABOVE the early return —
-  // before this flush mutates statuses.)
+  // completion could never trigger (AC-3 / AC-14). Runs AFTER the
+  // zero-pending early return: with nothing pending there is nothing to
+  // flush, while the pending set ships even when the diff is empty
+  // (BUG-002/D-R6 parity). The diff above is status-blind (answer
+  // signatures only), so the flush cannot change it. (pendingIds was
+  // captured ABOVE the early return — before this flush mutates statuses.)
   if (pendingIds.length > 0) markSubmitted(panel.state, pendingIds);
-  // BUG-008 (b): pass the FILTERED card so both the "Submitted {k}:" line
-  // and details.changed list only user shipments ({ ...diff } spread keeps
-  // epoch and any other card fields). buildSubmission still performs its own
+  // BUG-008 (b) + BUG-002: pass the card listing exactly the shipped ids —
+  // user-diff entries first, then a synthesized entry for every pending id
+  // the empty/filtered diff lacks (dedupe by id) — so buildSubmission's k,
+  // the "Submitted {k}:" line, and details.changed stay consistent
+  // ({ ...diff } spread keeps epoch and any other card fields). Synthesized
+  // entries mirror computeEntries' DiffEntry shape exactly; `from` is the
+  // UNANSWERED sentinel because the baseline contributed no diff-visible
+  // prior for the re-answered value. buildSubmission still performs its own
   // takeSnapshot + bumpEpoch exactly once — never reorder around it.
-  const msg = buildSubmission(panel.state, { ...diff, changed: userChanged }, note || undefined);
+  const shippedIds = new Set(userChanged.map((e) => e.id));
+  const augmented = [
+    ...userChanged,
+    ...pendingIds
+      .filter((id) => !shippedIds.has(id))
+      .map((id) => {
+        const q = panel.state.getQuestion(id)!; // ids came from orderedQuestions
+        return {
+          id,
+          title: q.title ?? q.prompt ?? id,
+          from: UNANSWERED_SUMMARY,
+          to: answerSummary(q),
+          editedArchived: false,
+          value: q.answer?.value,
+        };
+      }),
+  ];
+  const msg = buildSubmission(panel.state, { ...diff, changed: augmented }, note || undefined);
   // BUG-008 (a) / R4-h2.45: text drafts ship ONLY for ids the user actually
   // shipped (pendingIds ∩ hasDraft) — never for diff.changed ids, which can
   // include agent rule-2 resets whose preserved drafts must survive. hasDraft

@@ -163,9 +163,11 @@ const flatten = (s: string): string => s.replace(/[\n\t]+/g, " / ");
  * and {@link answerSignature} keep raw characters, and a newline-free
  * summary is byte-identical (the regex is a no-op without \n/\t). No
  * truncation — display truncation is the renderer's job; per-entry length
- * bounding is P1.M2.T3.S2's cap, NOT this function.
+ * bounding is P1.M2.T3.S2's cap, NOT this function. Exported for the
+ * submit() synthetic-entry seam (BUG-002 pending flush): synthesized card
+ * entries reuse this summary verbatim.
  */
-function answerSummary(q: Question | undefined): string {
+export function answerSummary(q: Question | undefined): string {
   const answer = q?.answer;
   if (q === undefined || answer === undefined) return UNANSWERED_SUMMARY;
   // WRITEIN-001 (h2.42): value holds free text — ✎ prefix, never an option

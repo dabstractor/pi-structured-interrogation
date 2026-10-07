@@ -32,6 +32,14 @@
  *   message embeds the current epoch (BUG-010, h2.22; a sent-but-wrong
  *   epoch throws the epoch-only StaleError) — and a new-id-only batch may
  *   omit the epoch entirely (first-call upserts stay epoch-less-friendly).
+ *   BUG-005 exemption on the equality throw: a FRESH receiver (epoch 1,
+ *   zero live questions — the completed-swap state, or a session-first
+ *   create) accepts ANY sent epoch when the batch is all-new ids, because
+ *   nothing there can be stale (digestSince is empty — the old signal
+ *   rendered "(none)") and honest models echo their last-read epoch per
+ *   the schema guidance. Scoped: all-new-id batches on NON-empty states
+ *   still throw (question-set rotation guard), and the record path is
+ *   untouched (a stale-epoch answers call after the swap is a true heal).
  *
  * Message variants (exact shapes, single spaces after periods):
  * - Combined: `STALE: {id} is at rev {n} (you sent {m}); session epoch is
@@ -246,8 +254,20 @@ export function assertFresh(state: InterrogationState, parsed: ParsedAction): vo
   }
 
   // upsert — epoch guard (every rev passed; caller sent a mismatched epoch).
+  // BUG-005 exemption: a FRESH receiver (epoch 1, zero live questions — the
+  // completed-swap state from tool.ts, or a genuine session-first create)
+  // accepts ANY sent epoch when the batch is all-new ids: nothing on such a
+  // state can be stale (digestSince returns "" — the old signal said
+  // "(none)"), and the schema's own guidance tells models to echo their
+  // last-read epoch. Deliberately NOT a blanket all-new-ids exemption: on a
+  // non-empty state, an epoch mismatch still guards question-set rotations
+  // (guards.test.ts:169 pins this).
   const sentEpoch = parsed.epoch;
-  if (sentEpoch !== undefined && sentEpoch !== state.epoch) throw epochStale(state, sentEpoch);
+  const allNewIds = parsed.questions.every((q) => state.getQuestion(q.id) === undefined);
+  const freshReceiver = state.epoch === 1 && state.orderedQuestions().length === 0;
+  if (sentEpoch !== undefined && sentEpoch !== state.epoch && !(freshReceiver && allNewIds)) {
+    throw epochStale(state, sentEpoch);
+  }
 }
 
 /** Epoch-only StaleError: session epoch mismatch with digestSince delta. */

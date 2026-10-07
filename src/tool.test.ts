@@ -327,6 +327,27 @@ describe("executeInterrogate: upsert (TUI)", () => {
     expect(r.content).toContain("goal truncated at 500 chars");
   });
 
+  test("first upsert after swap accepts an honest epoch echo (BUG-005)", () => {
+    const st = seedState("first goal");
+    seedQ(st, "q1");
+    expect(completeInterrogation(st, ["q1"])).toEqual({ fired: true });
+
+    // The model's last read/result said epoch 2; tool-schema.ts:114 tells it
+    // to echo that epoch. On the fresh swap receiver (epoch 1, zero live
+    // ids) the mismatch is exempt in assertFresh — no spurious STALE
+    // round trip whose own digest says "(none)".
+    const r = executeInterrogate({ goal: "g2", epoch: 2, questions: [qi("n1")] }, tuiCtx());
+
+    const s = getState()!;
+    expect(s.epoch).toBe(1); // fresh receiver keeps epoch 1
+    expect(s.completed).toBe(false);
+    expect(s.getQuestion("n1")!.status).toBe("open");
+    // Envelope self-correction: the result reports epoch 1 so the model's
+    // next echo is correct (the contract P1.M3.T2.S1 documents).
+    expect(r.details.epoch).toBe(1);
+    expect(r.details.state.epoch).toBe(1);
+  });
+
   test("NON-completed existing state is NOT swapped (same instance, q1 intact)", () => {
     const st = seedState("first goal");
     seedQ(st, "q1");

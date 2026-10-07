@@ -182,6 +182,39 @@ describe("assertFresh — h3.8 message shapes", () => {
     );
   });
 
+  test("BUG-005: fresh state (epoch 1, empty) + all-new ids accepts any sent epoch", () => {
+    // The completed-swap receiver (or a genuine session-first create):
+    // nothing on this state can be stale, so an honest echoed last-read
+    // epoch passes instead of paying a meaningless "(none)" STALE round
+    // trip. Deliberately scoped — the non-empty control is the
+    // "epoch-only mismatch with only new ids" test above (live state,
+    // rotation guard intact).
+    const fresh = createInterrogationState("g");
+    expect(() =>
+      assertFresh(fresh, {
+        action: "upsert",
+        epoch: 42,
+        questions: [
+          { id: "n1", prompt: "N1?", type: "text" },
+          { id: "n2", prompt: "N2?", type: "text" },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  test("BUG-005 conjunction: fresh state + one existing id still throws on mismatch", () => {
+    const st = createInterrogationState("g"); // epoch 1, but NOT empty
+    st.upsertQuestion({ id: "e1", prompt: "E?", type: "text", rev: 1, status: "open" });
+    const err = capture(() =>
+      assertFresh(st, {
+        action: "upsert",
+        epoch: 2,
+        questions: [{ id: "n2", prompt: "N2?", type: "text" }],
+      }),
+    );
+    expect(err).toBeInstanceOf(StaleError);
+  });
+
   test("empty digestSince output renders (none)", () => {
     // Caller sent epoch 8: snap8 → live has no answer changes → digest "".
     const err = capture(() =>

@@ -295,8 +295,11 @@ export function executeInterrogate(
       }
 
       // StaleError propagates (h2.22) — BEFORE any mutation. Runs against the
-      // state that will RECEIVE the upsert (guards belong to the receiver): on
-      // a fresh swap state this trivially passes (epoch 1, no existing ids).
+      // state that will RECEIVE the upsert (guards belong to the receiver).
+      // BUG-005: a fresh swap state (epoch 1, no live ids) EXEMPTS an
+      // epoch-mismatched all-new-id batch in assertFresh — an honest echo of
+      // the completed interrogation's last epoch passes; the result envelope
+      // reports epoch 1 so the next echo self-corrects.
       assertFresh(state, parsed.action);
 
       // Fires `questions-upserted` + `changed` — THE panel trigger

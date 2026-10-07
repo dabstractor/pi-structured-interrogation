@@ -156,15 +156,19 @@ export function overviewMarker(q: Question): string {
 }
 
 /**
- * Reason string for a moot overview row. depends-on.ts derives
- * h2.29-format reasons (e.g. `moot: storage=sqlite`); layout.ts
- * statusMarkers reads `q.answer?.text` for the header fragment while
- * short-view's mootReason reads `q.answer?.value` — this overview reader
- * prefers the text (the depends-on contract) and falls back to the value
- * (the short-view contract), then the generic cause. Empty strings count
- * as missing (a "" text must not shadow a real value).
+ * Reason string for a moot overview row (FR-17/BUG-004): the persisted
+ * h2.29 reason ({@link Question.mootReason}, evaluator-owned) wins over
+ * every derived fallback. depends-on.ts derives h2.29-format reasons
+ * (e.g. `moot: storage=sqlite`); before the persisted field existed the
+ * renderers derived causes — layout.ts statusMarkers read `q.answer?.text`
+ * while short-view's mootReason read `q.answer?.value` — this overview
+ * reader preferred the text (the depends-on contract), then the value
+ * (the short-view contract), then the generic cause. Those chains remain
+ * as the LEGACY fallback (field absent / empty). Empty strings count as
+ * missing (a "" field/text must not shadow a real value).
  */
 export function overviewMootReason(q: Question): string {
+  if (q.mootReason !== undefined && q.mootReason !== "") return q.mootReason;
   const text = q.answer?.text;
   if (text !== undefined && text !== "") return text;
   const value = q.answer?.value;

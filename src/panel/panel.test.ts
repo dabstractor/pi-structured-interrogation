@@ -569,8 +569,11 @@ describe("view switching (built-in S1 bindings)", () => {
     state.applyAnswer("answered", { value: "a", text: "elaborated", at: "t" });
     state.applyAnswer("reasked", { value: "a", at: "t" });
     state.setStatus("reasked", "reasked");
-    state.applyAnswer("moot", { value: "a", text: "moot: storage=sqlite", at: "t" });
+    // BUG-004: the moot reason rides the persisted field (production path),
+    // not a baked answer.text elaboration.
+    state.applyAnswer("moot", { value: "a", at: "t" });
     state.setStatus("moot", "moot");
+    state.getQuestion("moot")!.mootReason = "moot: storage=sqlite";
     state.setStatus("gone", "withdrawn");
 
     const panel = new InterrogationPanel(panelArgsFor(state));

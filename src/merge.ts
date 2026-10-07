@@ -203,6 +203,11 @@ export function applyUpsert(state: InterrogationState, incoming: Question[], wit
     }
 
     const merged: Question = { ...structuredClone(incomingQ), rev, status, answer };
+    // Defensive (BUG-004): a lingering mootReason must never render on a
+    // non-moot question — reasons are evaluator-owned (evaluateDependsOn
+    // writes/clears them); rebuilds start clean. (status is never "moot"
+    // from rules 1–3/reopens, so this effectively always clears.)
+    if (status !== "moot") merged.mootReason = undefined;
     // Wholesale replace; upsertQuestion preserves the order[] position.
     state.upsertQuestion(merged);
 

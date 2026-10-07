@@ -501,7 +501,9 @@ describe("AC-6 — instant moot + ⊘ on contrary gate answer (FR-17)", () => {
     panel.invalidate();
     const short = panel.render(120).join("\n");
     expect(short).toContain("⊘ moot —");
-    expect(short).toContain("dependency changed"); // default reason body
+    // BUG-004: the true h2.29 reason (persisted by evaluateDependsOn at the
+    // mute site) replaces the old generic "dependency changed" fallback.
+    expect(short).toContain("⊘ moot — moot: q09=beta");
   });
 });
 

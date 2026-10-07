@@ -148,13 +148,20 @@ export function dependencyMet(
  *   reopens (`setStatus(id, "open")`, id pushed to `reopened` — h2.38
  *   moot→open); all other statuses are skipped unchanged. Such questions are
  *   never listed in `mootered` (no conditions → cannot be unmet).
- * - met && status === "moot"  → `setStatus(id, "open")` (h2.38 re-met edge),
- *   id pushed to `reopened`.
- * - unmet && status not in {"moot","withdrawn","closed"} → `setStatus(id,
- *   "moot")`, `{id, reason}` pushed to `mootered`.
- * - unmet && status === "moot" → listed in `mootered` (reason included) but NO
- *   `setStatus` call — idempotence: no redundant `changed` events, so panels
- *   re-render zero times on no-op passes.
+ * - met && status === "moot"  → the persisted {@link Question.mootReason} is
+ *   cleared FIRST, then `setStatus(id, "open")` (h2.38 re-met edge),
+ *   id pushed to `reopened`. A reason must never outlive moot — and the
+ *   clear must precede the flip so the emitted reopen snapshot already
+ *   shows the field absent.
+ * - unmet && status not in {"moot","withdrawn","closed"} → the h2.29 reason
+ *   is PERSISTED on `q.mootReason` (a silent field write — see below), then
+ *   `setStatus(id, "moot")`, `{id, reason}` pushed to `mootered`.
+ * - unmet && status === "moot" → listed in `mootered` (reason included) but
+ *   NO `setStatus` call — idempotence: no redundant `changed` events, so
+ *   panels re-render zero times on no-op passes. The persisted reason IS
+ *   re-written (still silent): the same string is a no-op (serialize
+ *   byte-identical — the idempotence pin), a CHANGED reason updates the
+ *   field silently (intentional — the next natural emit carries it).
  * - `withdrawn`/`closed` → skipped entirely (terminal until re-upsert; never
  *   un-terminalized from here). `answered`/`submitted`/`reasked` questions DO
  *   go moot when unmet (moot wins; a re-met later returns them to `open`
@@ -162,6 +169,11 @@ export function dependencyMet(
  *   reasked/re-upsert transitions around it).
  *
  * Emits one `changed` event per actual status flip, and nothing otherwise.
+ * The {@link Question.mootReason} persistence is a FIELD WRITE ONLY — never
+ * routed through setStatus/emitChanged (BUG-004 Option A: the reason lives
+ * on the Question so all three renderers stay pure Question-only readers;
+ * serialize() clones live objects, so the field reaches the next emitted
+ * snapshot even when this pass emits nothing).
  * Works identically on freshly `deserialize`d state — no runtime-only
  * bookkeeping is consulted.
  */
@@ -176,6 +188,7 @@ export function evaluateDependsOn(state: InterrogationState): MootEvaluation {
       // case (h2.38 re-met edge). Only a currently-moot question flips; every
       // other status is already "not moot" and stays untouched (zero events).
       if (q.status === "moot") {
+        q.mootReason = undefined; // a reason must never outlive moot
         state.setStatus(q.id, "open");
         reopened.push(q.id);
       }
@@ -185,10 +198,17 @@ export function evaluateDependsOn(state: InterrogationState): MootEvaluation {
     const result = dependencyMet(state, q);
     if (result.met) {
       if (q.status === "moot") {
+        q.mootReason = undefined; // a reason must never outlive moot
         state.setStatus(q.id, "open");
         reopened.push(q.id);
       }
     } else {
+      // Persist the h2.29 reason (FR-17/BUG-004 Option A). Field write only —
+      // NO emitChanged: still-moot passes must stay event-free (idempotence
+      // pins in depends-on.test.ts; delivery.test.ts byte-identical
+      // serialize). serialize() clones the live object, so the field reaches
+      // the next emitted snapshot even when this pass emits nothing.
+      q.mootReason = result.reason; // idempotent for the same reason string
       // Only flip when the status actually changes — setStatus emits
       // 'changed' per call and panels must not re-render on no-op passes.
       if (q.status !== "moot") state.setStatus(q.id, "moot");

@@ -201,9 +201,25 @@ describe("overviewMarker — glyph semantics + precedence", () => {
 // ------------------------------------------------------------ moot reason
 
 describe("overviewMootReason — depends-on reason read", () => {
-  test("test_reason_prefers_answer_text_h229_format", () => {
+  test("test_reason_legacy_answer_text_fallback_h229_format", () => {
+    // BUG-004: the baked-text fixture now represents the LEGACY fallback
+    // (field absent — pre-persistence history).
     const q = choiceQ("q", { status: "moot", answer: answer("sqlite", "moot: storage=sqlite") });
     expect(overviewMootReason(q)).toBe("moot: storage=sqlite");
+  });
+
+  test("test_reason_persisted_field_wins_over_text_and_value", () => {
+    const q = choiceQ("q", {
+      status: "moot",
+      mootReason: "moot: storage=sqlite",
+      answer: answer("sqlite", "stale elaboration"),
+    });
+    expect(overviewMootReason(q)).toBe("moot: storage=sqlite");
+  });
+
+  test("test_reason_empty_field_falls_back_to_text_chain", () => {
+    const q = choiceQ("q", { status: "moot", mootReason: "", answer: answer("sqlite", "why") });
+    expect(overviewMootReason(q)).toBe("why");
   });
 
   test("test_reason_falls_back_to_answer_value", () => {
@@ -267,7 +283,9 @@ describe("buildOverviewContent — rows, headers, gate mark", () => {
   test("test_build_moot_row_dimmed_with_reason_not_filtered", () => {
     const ordered = [
       choiceQ("ok"),
-      choiceQ("m", { status: "moot", answer: answer("sqlite", "moot: storage=sqlite") }),
+      // BUG-004: the reason rides the persisted field (production path),
+      // not a baked answer.text.
+      choiceQ("m", { status: "moot", mootReason: "moot: storage=sqlite" }),
     ];
     const content = buildOverviewContent({ ordered, cursorIndex: 0, theme: dimTheme, width: 80 });
     // Both rows present (R1/Q34=A — never filtered)…

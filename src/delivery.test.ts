@@ -25,6 +25,7 @@ import {
   type SubmissionMessage,
 } from "./delivery";
 import { computeDiff, type SubmissionCardData } from "./snapshots";
+import { evaluateDependsOn } from "./depends-on.js";
 import {
   createInterrogationState,
   type InterrogationState,
@@ -505,6 +506,12 @@ function goldenState(): InterrogationState {
     }),
   );
   s.setStatus("legacy", "moot");
+  // BUG-004 production-path bake: the evaluator persists the h2.29 reason at
+  // mute, so a fixture muted via setStatus carries the field the production
+  // path would have written. buildCompletion's internal still-moot recompute
+  // must then be a same-string no-op — the byte-identical purity pin below
+  // enforces exactly that.
+  s.getQuestion("legacy")!.mootReason = "moot: storage=sqlite";
   s.upsertQuestion(q({ id: "rollout", prompt: "Rollout plan", group: "Delivery" }));
   s.applyAnswer("rollout", ans("Blue-green", "staged over two weeks"));
   s.upsertQuestion(
@@ -760,6 +767,38 @@ describe("buildCompletion (P1.M2.T1.S3 — the one full injection)", () => {
     expect(s.epoch).toBe(epochBefore); // no bumpEpoch
     expect(changedEvents).toBe(0); // no events (incl. none from evaluateDependsOn)
     expect(epochEvents).toEqual([]);
+  });
+
+  test("buildCompletion_moot_reasons_agree_with_persisted_mootReason_fields", () => {
+    // BUG-004 cross-check: buildCompletion keeps its evaluateDependsOn
+    // recompute (evaluator owns truth); its record reasons must equal the
+    // persisted q.mootReason values (prefix-stripped for the record format).
+    const s = createInterrogationState("Plan the migration");
+    s.upsertQuestion(
+      q({
+        id: "storage",
+        type: "choice",
+        options: [
+          { value: "sqlite", label: "SQLite" },
+          { value: "postgres", label: "Postgres" },
+        ],
+      }),
+    );
+    s.applyAnswer("storage", ans("sqlite"));
+    s.upsertQuestion(
+      q({ id: "dep", dependsOn: [{ id: "storage", equals: "postgres" }] }),
+    );
+    const evaluation = evaluateDependsOn(s); // production path — persists the field
+    expect(evaluation.mootered.map((m) => m.id)).toContain("dep");
+    expect(s.getQuestion("dep")?.mootReason).toBe("moot: storage=sqlite");
+
+    const msg = buildCompletion(s);
+    const mootEntries = msg.details.withdrawnMoot.filter((e) => e.status === "moot");
+    expect(mootEntries).toHaveLength(1);
+    for (const entry of mootEntries) {
+      const persisted = s.getQuestion(entry.id)?.mootReason ?? "";
+      expect(entry.reason).toBe(persisted.replace(/^moot:\s*/, "")); // agreement
+    }
   });
 });
 

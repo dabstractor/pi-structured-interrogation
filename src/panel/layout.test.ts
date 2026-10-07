@@ -155,13 +155,24 @@ describe("statusMarkers", () => {
   });
 
   test("moot marker includes the dimmed reason when present", () => {
-    const q = mkQuestion("q1", {
-      status: "moot",
-      answer: { value: "", text: "no longer relevant", at: "2026-01-01T00:00:00Z" },
-    });
+    // BUG-004: the reason comes from the persisted mootReason field — NOT
+    // the answer text (an elaboration is not a moot cause).
+    const q = mkQuestion("q1", { status: "moot", mootReason: "no longer relevant" });
     expect(statusMarkers(q, theme)).toBe(" ⊘ moot no longer relevant");
     const bare = mkQuestion("q1", { status: "moot" });
     expect(statusMarkers(bare, theme)).toBe(" ⊘ moot");
+  });
+
+  test("moot marker reason truncates to MARKER_REASON_CAP (24 cols)", () => {
+    const q = mkQuestion("q1", {
+      status: "moot",
+      mootReason: "moot: aVeryLongDependencyIdentifierThatExceedsTheCap=withValue",
+    });
+    const line = statusMarkers(q, theme);
+    expect(line).toContain("⊘ moot ");
+    expect(line).not.toContain("ExceedsTheCap"); // truncated, never wrapped
+    const bare = mkQuestion("q1", { status: "moot", answer: { value: "v", text: "elaboration", at: "t" } });
+    expect(statusMarkers(bare, theme)).toBe(" ⊘ moot"); // elaboration is NOT a reason
   });
 
   test("text-answer marker for answered text questions and elaborated choices", () => {
@@ -226,7 +237,8 @@ describe("statusMarkers", () => {
       statusMarkers(mkQuestion("q1", { status: "reasked", answer: { value: "a", at } }), theme),
     ).toBe(" ⟳ re-asked"); // ⟳ overrides ★ (status enum — they never co-occur)
     expect(
-      statusMarkers(mkQuestion("q1", { status: "moot", answer: { value: "", text: "reason", at } }), theme),
+      // BUG-004: the moot reason rides the persisted mootReason field.
+      statusMarkers(mkQuestion("q1", { status: "moot", mootReason: "reason" }), theme),
     ).toBe(" ⊘ moot reason");
     expect(
       statusMarkers(mkQuestion("q1", { status: "withdrawn", answer: { value: "a", at } }), theme),

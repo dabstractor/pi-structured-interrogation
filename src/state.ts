@@ -85,6 +85,17 @@ export interface Question {
   rev: number;
   status: QuestionStatus;
   answer?: QuestionAnswer;
+  /**
+   * [Mode A] h2.29 moot reason ("moot: {depId}={actualValue}") persisted at
+   * the moment evaluateDependsOn mutes this question (FR-17). Present ONLY
+   * while status === "moot" — cleared on reopen (re-met / removed dependsOn)
+   * and on merge rebuilt questions; renderers additionally guard on
+   * status === "moot" so a stale value can never display. Reconstruction
+   * re-runs evaluateDependsOn (step 5), so the field self-heals. Optional:
+   * history written before this field has none (legacy tolerance), and the
+   * fallback derivations in the renderers cover it.
+   */
+  mootReason?: string;
 }
 
 /**
@@ -558,6 +569,7 @@ function reviveQuestion(id: string, value: unknown): Question | undefined {
     if (value.answer.custom === true) answer.custom = true; // strict true — corrupt truthy values must not leak into state
     q.answer = answer;
   }
+  if (typeof value.mootReason === "string") q.mootReason = value.mootReason;
   return q;
 }
 

@@ -15,6 +15,7 @@ import {
   type MootEvaluation,
 } from "./depends-on.js";
 import type { DependsOn, Question } from "./state.js";
+import { applyUpsert } from "./merge.js";
 
 // --------------------------------------------------------------- helpers
 
@@ -352,6 +353,89 @@ describe("evaluateDependsOn — removed dependencies (BUG-006b)", () => {
     expect(changes()).toBe(1); // only the reopen flips; still-moot emits nothing
     expect(state.getQuestion("child")?.status).toBe("open");
     expect(state.getQuestion("other")?.status).toBe("moot");
+  });
+});
+
+// --------------------------------------- persisted mootReason (BUG-004)
+
+describe("evaluateDependsOn — persisted mootReason (BUG-004)", () => {
+  /** storage answered `sqlite`; dep dependsOn storage equals postgres → moot. */
+  function seedMootDep(): string {
+    state.upsertQuestion(q("storage"));
+    state.upsertQuestion(q("dep", [{ id: "storage", equals: "postgres" }]));
+    state.applyAnswer("storage", answered("sqlite"));
+    evaluateDependsOn(state); // mutes dep
+    return "dep";
+  }
+
+  test("reason_persisted_at_mute_and_flows_into_snapshot", () => {
+    seedMootDep();
+    expect(state.getQuestion("dep")?.mootReason).toBe("moot: storage=sqlite");
+    // serialize() clones live objects — the field reaches the emitted shape.
+    expect(state.serialize().questions["dep"]?.mootReason).toBe("moot: storage=sqlite");
+  });
+
+  test("still_moot_same_reason_zero_events_byte_identical", () => {
+    seedMootDep();
+    const before = state.serialize();
+    const changes = changeCounter(state);
+
+    const result = evaluateDependsOn(state);
+
+    expect(changes()).toBe(0); // field re-write of the SAME string emits nothing
+    expect(state.serialize()).toEqual(before); // byte-identical on the stable pass
+    expect(result.mootered).toStrictEqual([{ id: "dep", reason: "moot: storage=sqlite" }]);
+  });
+
+  test("changed_reason_on_still_moot_updates_field_silently_no_event", () => {
+    seedMootDep();
+    state.applyAnswer("storage", answered("mysql")); // still ≠ postgres → still moot
+    const changes = changeCounter(state);
+
+    const result = evaluateDependsOn(state);
+
+    expect(changes()).toBe(0); // silent field update — intentional (no status flip)
+    expect(state.getQuestion("dep")?.mootReason).toBe("moot: storage=mysql");
+    expect(result.mootered).toStrictEqual([{ id: "dep", reason: "moot: storage=mysql" }]);
+  });
+
+  test("reopen_remet_clears_field", () => {
+    seedMootDep();
+    expect(state.getQuestion("dep")?.mootReason).toBeDefined();
+
+    state.applyAnswer("storage", answered("postgres")); // re-met
+    const result = evaluateDependsOn(state);
+
+    expect(result.reopened).toStrictEqual(["dep"]);
+    expect(state.getQuestion("dep")?.status).toBe("open");
+    expect(state.getQuestion("dep")?.mootReason).toBeUndefined(); // never outlives moot
+  });
+
+  test("reopen_removed_dependson_clears_field", () => {
+    seedMootDep();
+
+    // dependsOn removed while the question STAYS moot (same repair pattern
+    // as the BUG-006b suite — upsertQuestion keeps caller status); bake the
+    // persisted reason so the clear is actually proven.
+    state.upsertQuestion({ ...q("dep"), status: "moot", mootReason: "moot: storage=sqlite" });
+    expect(state.getQuestion("dep")?.mootReason).toBe("moot: storage=sqlite");
+
+    const result = evaluateDependsOn(state);
+
+    expect(result.reopened).toStrictEqual(["dep"]);
+    expect(state.getQuestion("dep")?.status).toBe("open");
+    expect(state.getQuestion("dep")?.mootReason).toBeUndefined();
+  });
+
+  test("merge_rule2_rebuild_clears_moot_reason_defensively", () => {
+    seedMootDep();
+    expect(state.getQuestion("dep")?.mootReason).toBeDefined();
+
+    // Rule 2 (changed options): wholesale rebuild from the incoming clone.
+    applyUpsert(state, [{ ...q("dep"), options: [{ value: "x", label: "X" }] }]);
+
+    expect(state.getQuestion("dep")?.status).toBe("reasked");
+    expect(state.getQuestion("dep")?.mootReason).toBeUndefined(); // reasons are evaluator-owned
   });
 });
 

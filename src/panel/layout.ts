@@ -306,7 +306,8 @@ export function renderDutyLabel(
  * with overview.ts markerParts, h2.28 record-derived answered; h2.38
  * archived questions still show ★), `✎ text answer` (text questions,
  * elaborations, and write-ins — custom answers), `⊘ moot` (+ reason from
- * the answer text, dimmed), `⊗ withdrawn` — only the applicable ones,
+ * the persisted `mootReason` field — h2.29 format, dimmed, capped below),
+ * `⊗ withdrawn` — only the applicable ones,
  * joined with " · ". `⟳ re-asked` overrides ★ (the re-ask is the freshest
  * fact, same precedence as the overview; structural — status is one enum
  * value, so they never co-occur) and ★ composes with `✎ text answer`
@@ -327,7 +328,9 @@ export function statusMarkers(q: Question, theme: Theme): string {
   }
   if (hasTextAnswer(q)) parts.push("✎ text answer");
   if (q.status === "moot") {
-    const reason = truncateVisible(q.answer?.text ?? "", MARKER_REASON_CAP);
+    // BUG-004: the persisted h2.29 reason (evaluator-owned) replaces the old
+    // answer.text derivation — an elaboration is not a moot cause.
+    const reason = truncateVisible(q.mootReason ?? "", MARKER_REASON_CAP);
     parts.push(reason === "" ? "⊘ moot" : `⊘ moot ${reason}`);
   }
   if (q.status === "withdrawn") parts.push("⊗ withdrawn");

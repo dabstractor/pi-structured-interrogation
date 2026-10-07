@@ -174,6 +174,24 @@ describe("mootReason", () => {
       "dependency changed",
     );
   });
+
+  test("test_moot_reason_persisted_field_wins_over_derived_causes", () => {
+    // BUG-004: the evaluator-owned h2.29 reason (verbatim, "moot: " prefix
+    // kept) beats the stale answer.value derivation.
+    const q = choiceQ({
+      status: "moot",
+      mootReason: "moot: storage=sqlite",
+      answer: { value: "postgres chosen", at: "2026-01-01T00:00:00Z" },
+    });
+    expect(mootReason(q)).toBe("moot: storage=sqlite");
+  });
+
+  test("test_moot_reason_empty_field_falls_back_like_legacy", () => {
+    expect(mootReason(choiceQ({ status: "moot", mootReason: "" }))).toBe("dependency changed");
+    expect(
+      mootReason(choiceQ({ status: "moot", mootReason: "", answer: { value: "v", at: "2026-01-01T00:00:00Z" } })),
+    ).toBe("v");
+  });
 });
 
 // ------------------------------------------------------------ option lines
@@ -401,6 +419,14 @@ describe("moot and withdrawn questions", () => {
 
     const noCause = choiceQ({ status: "moot" });
     expect(render(noCause, 0)[0]).toContain("⊘ moot — dependency changed");
+
+    // BUG-004: the persisted h2.29 reason renders VERBATIM (prefix kept).
+    const persisted = choiceQ({
+      status: "moot",
+      mootReason: "moot: storage=sqlite",
+      answer: { value: "postgres chosen", at: "2026-01-01T00:00:00Z" },
+    });
+    expect(render(persisted, 0, dimTheme)[0]).toBe(`  ${DIM}⊘ moot — moot: storage=sqlite${RESET}`);
   });
 
   test("(h) withdrawn collapses to a single dimmed ⊗ line", () => {

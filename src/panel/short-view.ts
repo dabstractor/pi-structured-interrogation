@@ -141,12 +141,15 @@ export function initialCursorIndex(q: Question): number {
 }
 
 /**
- * Reason string for a moot question. State's moot transition carries no
- * structured reason field, so the cause is derived from `q.answer?.value`
- * when present, else the generic "dependency changed". Kept as a helper so
- * a structured reason (if state grows one) refines in exactly one place.
+ * Reason string for a moot question (FR-17/BUG-004): the persisted h2.29
+ * reason ({@link Question.mootReason}, written by evaluateDependsOn at the
+ * mute/still-moot site) when present — rendered VERBATIM including its
+ * "moot: " prefix. Legacy states written before the field existed fall back
+ * to the derived cause — `q.answer?.value` when present, else the generic
+ * "dependency changed".
  */
 export function mootReason(q: Question): string {
+  if (q.mootReason !== undefined && q.mootReason !== "") return q.mootReason;
   const cause = q.answer?.value;
   return cause !== undefined && cause !== "" ? cause : DEFAULT_MOOT_REASON;
 }

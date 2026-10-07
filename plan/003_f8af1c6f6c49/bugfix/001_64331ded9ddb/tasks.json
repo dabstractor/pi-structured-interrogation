@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Re-ask confirmation loop end-to-end (PRD BUG-002 + BUG-001 — the release blockers)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Make a re-asked question re-confirmable and make every pending (answered) answer deliverable, so the re-ask → re-confirm → submit → close-pass → completion (FR-5) loop closes for BOTH re-ask flavors: rule-1 (same options, answer kept, status reasked) and rule-2 (options changed, answer deleted, user re-picks the same value). Order: fix submit()'s empty-diff early return first (D-R6 panel parity), then exclude `reasked` from the ANSWER-PIN-001 same-value no-ops, then prove the full round trip with an integration regression.",
           "tasks": [
             {
@@ -103,14 +103,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Re-ask round-trip regression: both flavors re-confirm, deliver, close, and complete (FR-5 unblocked)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "A permanent integration regression that drives ONLY public seams — executeInterrogate + the lifecycle event bus (tool_execution_start/end, agent_settled) + InterrogationPanel accept/submit — exactly the harness the PRD used to find the bugs. It encodes both PRD repro scripts end-to-end: rule-1 same-value re-confirmation (BUG-001) and rule-2 same-value re-answer (BUG-002), each previously ending in 'flash: nothing to submit' and zero new deliveries. This is the composition proof that the M1.T1+M1.T2 fixes close the loop through the close pass (lifecycle.ts runClosePass archives submitted) into completion (completion.ts BLOCKING set empty → FR-5 record injection).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Public-seam integration test: re-ask → re-confirm → submission → settle → completion injection",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -142,14 +142,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "FR-18 ripple confirm fires for closed-question edits (PRD BUG-003)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Extend the three FR-18 seam gates — acceptOptionIndex (src/panel/actions.ts:302), writeInEnter (:392), stageText (src/panel/panel.ts:863) — from `answered|submitted` to also cover `closed` (any edited question carrying a recorded answer, per the PRD recommendation and state-and-persistence.md's unconditional 'Answer edits apply through the ripple confirm before entering answered(pending)'). RULING from architecture: VICTIM_STATUSES in ripple-confirm.ts:93 stays `answered|submitted` (closed dependents are terminal by design — ripple-confirm.ts:96-102 — and the footer copy 'Invalidates {n} answered questions' stays accurate); only the EDITED question's status gate widens. applyAnswer already re-marks closed→answered (state.ts:363-368), satisfying FR-2's 'editing re-marks pending'.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "acceptOptionIndex/digit seam gate includes closed edits; same-value re-confirm stays seam-free",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1",
@@ -167,7 +167,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "writeInEnter and stageText elaboration-save gates include closed edits",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1"

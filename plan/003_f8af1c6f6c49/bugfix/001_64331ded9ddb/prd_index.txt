@@ -1,0 +1,14 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+  h3.0 Issue 1: Re-asked question can never be re-confirmed: same-value enter is an inert no-op that leaves the question stuck in reasked forever
+ h2.2 Major Issues (Should Fix)
+  h3.1 Issue 1: Re-answering a rule-2 re-ask with the same value records the answer but ships nothing: 'nothing to submit' despite a pending answer, forever undeliverable
+  h3.2 Issue 2: FR-18 invalidation confirm bypassed when editing a CLOSED (archived) question — answered dependents are silently invalidated
+  h3.3 Issue 3: FR-17 moot reason never rendered in the panel: short view and overview show a generic or actively misleading substitute instead of 'moot: {dep}={value}'
+ h2.3 Minor Issues (Nice to Fix)
+  h3.4 Issue 1: First upsert of a new interrogation after completion always rejects an honest epoch echo with a spurious STALE
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:19 list:7

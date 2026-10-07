@@ -18,7 +18,12 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
-import type { Question } from "../state.js";
+import { evaluateDependsOn } from "../depends-on.js";
+import {
+  createInterrogationState,
+  type InterrogationState,
+  type Question,
+} from "../state.js";
 import { initialCursorIndex, mootReason, renderShortViewOptions } from "./short-view.js";
 
 // ------------------------------------------------------------------ fixtures
@@ -70,6 +75,25 @@ function textQ(overrides: Partial<Question> = {}): Question {
 
 function render(q: Question, cursorIndex: number, th: Theme = theme, width = 80): string[] {
   return renderShortViewOptions({ question: q, cursorIndex, theme: th, width });
+}
+
+/**
+ * BUG-004 de-mask (P1.M2.T2.S2): the PRODUCTION-path moot scenario — real
+ * state, the dependency answered via the raw primitive, then the REAL
+ * evaluator (the mute site: persists `q.mootReason`). Reason literals
+ * asserted via `state.getQuestion("dep")` are DERIVED, never baked.
+ */
+function seedMootScenario(reasonCase: "equals" | "unanswered" | "missing" = "equals"): InterrogationState {
+  const state = createInterrogationState("goal");
+  state.upsertQuestion(choiceQ({ id: "storage" }));
+  if (reasonCase === "missing") {
+    state.upsertQuestion(choiceQ({ id: "dep", dependsOn: [{ id: "ghost", equals: "postgres" }] }));
+  } else {
+    state.upsertQuestion(choiceQ({ id: "dep", dependsOn: [{ id: "storage", equals: "postgres" }] }));
+    if (reasonCase === "equals") state.applyAnswer("storage", { value: "sqlite", at: "t" });
+  }
+  evaluateDependsOn(state); // the mute site — raw state calls never auto-run it
+  return state;
 }
 
 // ------------------------------------------------- cursor domain + preselect
@@ -165,7 +189,10 @@ describe("initialCursorIndex (R2 preselect / FR-35 answer pinning)", () => {
 });
 
 describe("mootReason", () => {
-  test("derives from answer.value when present, else the generic string", () => {
+  test("legacy_derives_from_answer_value_when_field_absent_else_generic", () => {
+    // LEGACY field-absent chain (S1 precedence: field → value → default).
+    // On the production path the field is ALWAYS present after an
+    // evaluateDependsOn mute — these pins cover pre-field history only.
     expect(mootReason(choiceQ({ answer: { value: "postgres chosen", at: "2026-01-01T00:00:00Z" } }))).toBe(
       "postgres chosen",
     );
@@ -175,18 +202,28 @@ describe("mootReason", () => {
     );
   });
 
-  test("test_moot_reason_persisted_field_wins_over_derived_causes", () => {
-    // BUG-004: the evaluator-owned h2.29 reason (verbatim, "moot: " prefix
-    // kept) beats the stale answer.value derivation.
-    const q = choiceQ({
-      status: "moot",
-      mootReason: "moot: storage=sqlite",
-      answer: { value: "postgres chosen", at: "2026-01-01T00:00:00Z" },
-    });
-    expect(mootReason(q)).toBe("moot: storage=sqlite");
+  test("test_moot_reason_production_field_from_evaluateDependsOn_wins_over_value", () => {
+    // BUG-004 de-mask: the field comes from the REAL mute site; a value
+    // recorded after the mute never shadows the freshly persisted reason.
+    const state = seedMootScenario("equals");
+    state.applyAnswer("dep", { value: "postgres chosen", at: "2026-01-01T00:00:00Z" });
+    evaluateDependsOn(state); // re-mute rewrites the field silently
+    expect(state.getQuestion("dep")?.status).toBe("moot");
+    expect(state.getQuestion("dep")?.mootReason).toBe("moot: storage=sqlite");
+    expect(mootReason(state.getQuestion("dep")!)).toBe("moot: storage=sqlite");
   });
 
-  test("test_moot_reason_empty_field_falls_back_like_legacy", () => {
+  test("test_moot_reason_unanswered_and_missing_variants_from_real_derivation", () => {
+    // h2.29 grammar variants, each produced by the real evaluator.
+    const unanswered = seedMootScenario("unanswered").getQuestion("dep")!;
+    expect(unanswered.mootReason).toBe("moot: storage=unanswered");
+    expect(mootReason(unanswered)).toBe("moot: storage=unanswered");
+    const missing = seedMootScenario("missing").getQuestion("dep")!;
+    expect(missing.mootReason).toBe("moot: ghost=missing");
+    expect(mootReason(missing)).toBe("moot: ghost=missing");
+  });
+
+  test("legacy_moot_reason_empty_field_falls_back_like_generic", () => {
     expect(mootReason(choiceQ({ status: "moot", mootReason: "" }))).toBe("dependency changed");
     expect(
       mootReason(choiceQ({ status: "moot", mootReason: "", answer: { value: "v", at: "2026-01-01T00:00:00Z" } })),
@@ -408,6 +445,7 @@ describe("write-in preview (BUG-005 part 2)", () => {
 
 describe("moot and withdrawn questions", () => {
   test("(g) moot renders dimmed region with derived reason line (★ dimmed too)", () => {
+    // LEGACY field-absent render pins (value → generic default chains).
     const withCause = choiceQ({
       status: "moot",
       answer: { value: "postgres chosen", at: "2026-01-01T00:00:00Z" },
@@ -418,15 +456,14 @@ describe("moot and withdrawn questions", () => {
     expect(lines[1]).toContain("★ sqlite"); // still listed — audit trail (Q34=A)
 
     const noCause = choiceQ({ status: "moot" });
-    expect(render(noCause, 0)[0]).toContain("⊘ moot — dependency changed");
+    expect(render(noCause, 0)[0]).toContain("⊘ moot — dependency changed"); // legacy generic
 
-    // BUG-004: the persisted h2.29 reason renders VERBATIM (prefix kept).
-    const persisted = choiceQ({
-      status: "moot",
-      mootReason: "moot: storage=sqlite",
-      answer: { value: "postgres chosen", at: "2026-01-01T00:00:00Z" },
-    });
-    expect(render(persisted, 0, dimTheme)[0]).toBe(`  ${DIM}⊘ moot — moot: storage=sqlite${RESET}`);
+    // BUG-004 de-mask: the persisted h2.29 reason renders VERBATIM (prefix
+    // kept) — and the field itself is production-derived (real
+    // evaluateDependsOn mute site), not hand-set.
+    const dep = seedMootScenario("equals").getQuestion("dep")!;
+    expect(dep.mootReason).toBe("moot: storage=sqlite"); // derived, not baked
+    expect(render(dep, 0, dimTheme)[0]).toBe(`  ${DIM}⊘ moot — moot: storage=sqlite${RESET}`);
   });
 
   test("(h) withdrawn collapses to a single dimmed ⊗ line", () => {

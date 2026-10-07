@@ -16,6 +16,7 @@ import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi
 import type { Component, EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG, resolveKeyLabels, type InterrogatorConfig } from "../config.js";
+import { evaluateDependsOn } from "../depends-on.js";
 import {
   createInterrogationState,
   InterrogationState,
@@ -564,16 +565,23 @@ describe("view switching (built-in S1 bindings)", () => {
     state.upsertQuestion(choiceQ("open"));
     state.upsertQuestion(choiceQ("answered", { title: "Answered Q" }));
     state.upsertQuestion(choiceQ("reasked", { title: "Reasked Q" }));
-    state.upsertQuestion(choiceQ("moot", { title: "Moot Q" }));
+    state.upsertQuestion(choiceQ("storage"));
+    state.upsertQuestion(
+      choiceQ("moot", { title: "Moot Q", dependsOn: [{ id: "storage", equals: "postgres" }] }),
+    );
     state.upsertQuestion(choiceQ("gone", { title: "Withdrawn Q" }));
     state.applyAnswer("answered", { value: "a", text: "elaborated", at: "t" });
     state.applyAnswer("reasked", { value: "a", at: "t" });
     state.setStatus("reasked", "reasked");
-    // BUG-004: the moot reason rides the persisted field (production path),
-    // not a baked answer.text elaboration.
-    state.applyAnswer("moot", { value: "a", at: "t" });
-    state.setStatus("moot", "moot");
-    state.getQuestion("moot")!.mootReason = "moot: storage=sqlite";
+    // BUG-004 de-mask (P1.M2.T2.S2): the reason is DERIVED on the production
+    // path — answer the dependency with the failing value, then run the real
+    // evaluator (the mute site the panel commit tails call; the accept-path
+    // variant is already covered end-to-end by ac-panel.test.ts's q09→q10
+    // case). No hand-set mootReason, no baked answer.text.
+    state.applyAnswer("storage", { value: "sqlite", at: "t" });
+    evaluateDependsOn(state);
+    expect(state.getQuestion("moot")?.status).toBe("moot");
+    expect(state.getQuestion("moot")?.mootReason).toBe("moot: storage=sqlite");
     state.setStatus("gone", "withdrawn");
 
     const panel = new InterrogationPanel(panelArgsFor(state));

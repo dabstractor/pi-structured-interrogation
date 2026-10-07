@@ -23,6 +23,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test, vi } from "vitest";
 import { DEFAULT_CONFIG } from "../config.js";
+import { evaluateDependsOn } from "../depends-on.js";
 import type { InterrogationState, Question } from "../state.js";
 import { createInterrogationState } from "../state.js";
 import {
@@ -80,6 +81,35 @@ function answer(value: string, text?: string, custom?: boolean): Question["answe
     ...(custom !== undefined ? { custom } : {}),
     at: "t",
   };
+}
+
+/**
+ * BUG-004 de-mask (P1.M2.T2.S2): the PRODUCTION-path moot scenario — real
+ * state, the dependency answered via the raw primitive, then the REAL
+ * evaluator (the mute site: persists `q.mootReason`). Every reason literal
+ * asserted downstream is DERIVED here, never typed into a fixture.
+ * Raw state calls do NOT auto-run evaluateDependsOn — panel commit tails
+ * do — so the scenario runs it explicitly, exactly like those tails.
+ */
+function seedMootScenario(
+  reasonCase: "equals" | "unanswered" | "missing" = "equals",
+  depId = "dep",
+): InterrogationState {
+  const state = createInterrogationState("goal");
+  state.upsertQuestion(choiceQ("storage"));
+  if (reasonCase === "missing") {
+    // dependsOn names an id that was never upserted → `moot: ghost=missing`.
+    state.upsertQuestion(choiceQ(depId, { dependsOn: [{ id: "ghost", equals: "postgres" }] }));
+  } else {
+    state.upsertQuestion(choiceQ(depId, { dependsOn: [{ id: "storage", equals: "postgres" }] }));
+    if (reasonCase === "equals") {
+      // Dep answered with the WRONG value → `moot: storage=sqlite`.
+      state.applyAnswer("storage", { value: "sqlite", at: "t" });
+    }
+    // "unanswered": storage present, never answered → `moot: storage=unanswered`.
+  }
+  evaluateDependsOn(state);
+  return state;
 }
 
 /** `count` questions in ONE group — lines = 1 header + count rows. */
@@ -187,7 +217,7 @@ describe("overviewMarker — glyph semantics + precedence", () => {
 
   test("test_marker_suffixes_suppressed_on_moot_and_withdrawn", () => {
     // Their rows already carry the audit-trail text (reason / withdrawn).
-    expect(overviewMarker(choiceQ("q", { status: "moot", answer: answer("v", "moot: x=y") }))).toBe("⊘");
+    expect(overviewMarker(choiceQ("q", { status: "moot", answer: answer("v", "why") }))).toBe("⊘");
     expect(overviewMarker(choiceQ("q", { status: "withdrawn", answer: answer("v", "why") }))).toBe("⊗");
     // Suppression covers BOTH suffixes — write-ins and text answers on
     // moot/withdrawn rows never show ✎, elaborations never show ≡.
@@ -201,33 +231,62 @@ describe("overviewMarker — glyph semantics + precedence", () => {
 // ------------------------------------------------------------ moot reason
 
 describe("overviewMootReason — depends-on reason read", () => {
-  test("test_reason_legacy_answer_text_fallback_h229_format", () => {
-    // BUG-004: the baked-text fixture now represents the LEGACY fallback
-    // (field absent — pre-persistence history).
-    const q = choiceQ("q", { status: "moot", answer: answer("sqlite", "moot: storage=sqlite") });
-    expect(overviewMootReason(q)).toBe("moot: storage=sqlite");
+  test("test_reason_renders_persisted_production_reason_after_evaluateDependsOn", () => {
+    // BUG-004 de-mask: the reason is DERIVED on the production path — seed
+    // state → answer the dep with the failing value → evaluateDependsOn (the
+    // mute site) → the h2.29 string is persisted AND rendered. These tests
+    // would have caught BUG-004 (the old fixtures baked the literal into
+    // answer.text and passed while production rendered "dependency changed").
+    const state = seedMootScenario("equals");
+    const dep = state.getQuestion("dep");
+    expect(dep?.status).toBe("moot");
+    expect(dep?.mootReason).toBe("moot: storage=sqlite"); // persisted by the mute site
+    expect(overviewMootReason(dep!)).toBe("moot: storage=sqlite"); // renderer reads the field
   });
 
-  test("test_reason_persisted_field_wins_over_text_and_value", () => {
-    const q = choiceQ("q", {
-      status: "moot",
-      mootReason: "moot: storage=sqlite",
-      answer: answer("sqlite", "stale elaboration"),
-    });
-    expect(overviewMootReason(q)).toBe("moot: storage=sqlite");
+  test("test_reason_unanswered_variant_from_real_derivation", () => {
+    // h2.29 grammar variant: dep present but never answered (unanswered ≠
+    // "not equal" — depends-on.ts checks the answer BEFORE the condition).
+    const dep = seedMootScenario("unanswered").getQuestion("dep");
+    expect(dep?.mootReason).toBe("moot: storage=unanswered");
+    expect(overviewMootReason(dep!)).toBe("moot: storage=unanswered");
   });
 
-  test("test_reason_empty_field_falls_back_to_text_chain", () => {
+  test("test_reason_missing_variant_from_real_derivation", () => {
+    // h2.29 grammar variant: dependsOn names an id never upserted.
+    const dep = seedMootScenario("missing").getQuestion("dep");
+    expect(dep?.mootReason).toBe("moot: ghost=missing");
+    expect(overviewMootReason(dep!)).toBe("moot: ghost=missing");
+  });
+
+  test("test_reason_persisted_field_wins_over_stale_text_after_reanswer", () => {
+    // Precedence ON the production path: an elaboration recorded after the
+    // mute never shadows the freshly persisted field (still-moot re-runs
+    // rewrite it silently — depends-on.ts idempotence).
+    const state = seedMootScenario("equals");
+    state.applyAnswer("dep", { value: "x", text: "stale elaboration", at: "t" });
+    evaluateDependsOn(state); // re-mute rewrites the field
+    const dep = state.getQuestion("dep");
+    expect(dep?.status).toBe("moot");
+    expect(overviewMootReason(dep!)).toBe("moot: storage=sqlite");
+  });
+
+  test("legacy_reason_empty_field_falls_back_to_text_chain", () => {
+    // LEGACY tolerance pin: the evaluator never writes "", but a hand-built
+    // or historic field-absent/empty question falls down the chain (text).
     const q = choiceQ("q", { status: "moot", mootReason: "", answer: answer("sqlite", "why") });
     expect(overviewMootReason(q)).toBe("why");
   });
 
-  test("test_reason_falls_back_to_answer_value", () => {
+  test("legacy_reason_falls_back_to_answer_value_when_field_absent", () => {
+    // LEGACY field-absent chain: on the production path the field is ALWAYS
+    // present after an evaluateDependsOn mute — these pins cover pre-field
+    // history (optional field, optional revive) only.
     const q = choiceQ("q", { status: "moot", answer: answer("sqlite") });
     expect(overviewMootReason(q)).toBe("sqlite");
   });
 
-  test("test_reason_generic_default_when_nothing_derivable", () => {
+  test("legacy_reason_generic_default_when_nothing_derivable", () => {
     expect(overviewMootReason(choiceQ("q", { status: "moot" }))).toBe("dependency changed");
     // Empty strings count as missing — "" text must not shadow a real value.
     expect(overviewMootReason(choiceQ("q", { status: "moot", answer: answer("v", "") }))).toBe("v");
@@ -281,13 +340,16 @@ describe("buildOverviewContent — rows, headers, gate mark", () => {
   });
 
   test("test_build_moot_row_dimmed_with_reason_not_filtered", () => {
-    const ordered = [
-      choiceQ("ok"),
-      // BUG-004: the reason rides the persisted field (production path),
-      // not a baked answer.text.
-      choiceQ("m", { status: "moot", mootReason: "moot: storage=sqlite" }),
-    ];
-    const content = buildOverviewContent({ ordered, cursorIndex: 0, theme: dimTheme, width: 80 });
+    // BUG-004 de-mask: the reason is production-derived — the row renders
+    // from the scenario state's OWN questions (field written by the real
+    // evaluateDependsOn mute site).
+    const state = seedMootScenario("equals", "m");
+    const content = buildOverviewContent({
+      ordered: state.orderedQuestions(),
+      cursorIndex: 0,
+      theme: dimTheme,
+      width: 80,
+    });
     // Both rows present (R1/Q34=A — never filtered)…
     expect(content.lines).toHaveLength(3); // header + 2 rows
     const mootRow = content.lines[2]!;

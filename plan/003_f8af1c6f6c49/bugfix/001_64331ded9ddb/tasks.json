@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bugfix wave 001_64331ded9ddb — re-ask confirmation loop, closed-edit invalidation, moot reasons, epoch-echo friction",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Fix the five PRD-validated defects in pi-interrogator: the two re-ask wedges that silently block the FR-5 completion injection (PRD BUG-001 critical, BUG-002 major), the FR-18 confirm bypass on closed-question edits (BUG-003), the FR-17 moot reason never rendered in panel views (BUG-004), and the spurious STALE on an honest epoch echo after completion (BUG-005). Baseline: 46 files / 1265 tests + typecheck green; both gates must stay green. Research is complete and stored in plan/003_f8af1c6f6c49/bugfix/001_64331ded9ddb/architecture/ (system_context.md + four verified seam maps).",
       "milestones": [
         {
@@ -135,7 +135,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Panel correctness: closed-edit FR-18 confirm (PRD BUG-003) and real FR-17 moot reasons (PRD BUG-004)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Two independent panel-view correctness fixes. BUG-003: the FR-18 ripple-confirm seam fires only when the EDITED question's status is answered/submitted; closed (archived) questions are editable per FR-2/AC-13 and carry recorded answers, so their edits bypass the user-worded Q39=B force-accept modal and silently moot answered dependents. BUG-004: no panel view renders the dependency-derived h2.29 reason (`moot: {dep}={value}`); short-view/overview/layout substitute the moot question's own answer text/value or 'dependency changed', and the UI tests are masked by fixtures that pre-bake the literal reason string.",
           "tasks": [
             {
@@ -186,7 +186,7 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "FR-17 dependency-derived moot reason rendered in every panel view (PRD BUG-004)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "The h2.29 reason (`moot: {dep}={value}`, computed by dependencyMet/failReason in src/depends-on.ts:83-90,112-145) is consumed only by buildCompletion (delivery.ts:420). short-view mootReason (short-view.ts:149-152) reads the moot question's OWN answer.value or 'dependency changed'; overviewMootReason (overview.ts:166-172) prefers the question's own elaboration answer.text then value; layout statusMarkers (layout.ts:329-333) reads answer.text. ARCHITECTURAL RULING: persist the reason — add an optional `mootReason?: string` field to Question, written where evaluateDependsOn mutes (depends-on.ts:199-200), cleared on reopen/rule-2 reset, revived for round-trip — and have all three renderers prefer it. Rejected alternative (render-time dependencyMet plumbing) changes three pure Question-only renderer contracts; the short-view helper docblock itself anticipates 'a structured reason (if state grows one) refines in exactly one place'.",
               "subtasks": [
                 {
@@ -208,7 +208,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T2.S2",
                   "title": "De-mask fixture-baked moot-reason tests to production-path scenarios",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T2.S1"
@@ -229,21 +229,21 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Guard friction (PRD BUG-005) and changeset-level documentation sync (Mode B)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "BUG-005: after completion, executeInterrogate swaps in a fresh receiver state (epoch 1) and then runs assertFresh against it, so an honest epoch echo (the behavior tool-schema.ts:114 itself instructs) throws a spurious epoch-only STALE with a '(none)' digest — one wasted round trip per new interrogation for conforming models. Then the final Mode B task sweeps the changeset-level docs (README) once every implementing subtask has landed.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Accept honest epoch echoes on the completed-swap first upsert (PRD BUG-005)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Exempt the epoch-equality throw in assertFresh (src/guards.ts:245-246) when the receiver state is fresh (epoch === 1, zero questions) AND every upserted id is new — precisely the completed-swap first-upsert shape. This honors the 2026-09-14 pin's guard-friendly-first-upsert intent and the schema's own epoch guidance, while leaving every genuine staleness rejection (existing ids, rev mismatches, record path) byte-identical.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "guards.ts fresh-receiver + all-new-ids exemption from the epoch-equality throw",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/bugfix/001_64331ded9ddb/architecture/epoch-completed-swap.md (full seam map + recommended patch). Verified: swap at src/tool.ts:282-303 (createInterrogationState keeps ONLY the goal; epoch 1, empty questions, completed=false — no persisted marker distinguishes 'freshly swapped'); assertFresh call tool.ts:300 with a comment claiming 'trivially passes' (false for sent epoch ≥ 2); the throw site guards.ts:245-246; epochStale + digestSince produce 'STALE: session epoch is 1 (you sent 2). Changes since epoch 2: (none). Re-apply against current state.'; guidance text tool-schema.ts:114 tells models to echo the last-read epoch; 2026-09-14 pin at decisions.md:32/64.\n2. INPUT: None (independent). ParsedAction shapes from tool-schema; InterrogationState fixtures.\n3. LOGIC: At guards.ts:245-246 add the exemption: skip the epochStale throw when `state.epoch === 1 && state.orderedQuestions().length === 0` AND `parsed.questions.every(q => state.getQuestion(q.id) === undefined)`. Rev loop and presence guard are no-ops on such a state (verify — research §4); the `record` path stays untouched (a stale-epoch answers call right after the swap still STALEs — a true heal). Do NOT exempt all-new-id batches on NON-empty states (would flip guards.test.ts:169 and weaken rotation guards). Fix the stale comment at tool.ts:297-300. TDD failing-first: src/tool.test.ts (completed-swap describe ~:275-345): after completion, `executeInterrogate({epoch: 2, questions: [new ids]}, tuiCtx())` SUCCEEDS, `getState().epoch === 1`, result envelope reports epoch 1 (self-correcting echo); keep the epoch-less variants (:277, :297) and the NON-completed stale tests (:220, :349) green. src/guards.test.ts: fresh-state exemption test + control (non-empty state, new-id-only, wrong epoch still throws — verify the :169 fixture's state first per research §5.1; if its state is empty, narrow/rename it with rationale). Guards purity pins (:431, :500 — no new imports, no state field) must stay green.\n4. OUTPUT: assertFresh behavior change consumed by P1.M3.T2.S1 (README epoch-guidance note).\n5. DOCS: [Mode A] Update the guards.ts module docblock's upsert epoch-guard description and the tool.ts:297-300 comment; append the BUG-005 companion pin next to the 2026-09-14 line in spec/decisions.md per repo convention ('guard-friendly first upserts' extended to epoch-carrying ones on a freshly swapped state).",
@@ -260,14 +260,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Mode B catch-all: once all implementing subtasks have landed, sweep the changeset-level docs so the coherent delta ships with an accurate README. Per-subtask docblock/JSDoc/decisions.md updates already rode with the work (Mode A); this task covers the README surfaces that summarize the whole changeset: re-ask confirmation semantics, 'nothing to submit' behavior after a same-value re-answer, closed-edit FR-18 confirmation, moot reason rendering, and epoch-echo behavior on a new interrogation after completion.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "README.md changeset sweep: re-ask loop, closed-edit confirm, moot reasons, epoch echo",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

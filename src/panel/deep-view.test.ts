@@ -34,6 +34,7 @@ import {
   deepSelectionDown,
   deepSelectionUp,
   DEEP_VIEW_HEIGHT,
+  MIN_OPTIONS_VIEWPORT,
   OTHER_RAMIFICATION,
   renderDeepWindow,
   wrapText,
@@ -177,19 +178,25 @@ describe("buildDeepContent", () => {
     const q = choiceQ("db", { description: "Long description ".repeat(6).trim() });
     const content = buildDeepContent(deepInputFor(q, { goal }));
     // Wrapped lines carry the 2-col INSET — normalize to reconstruct blocks.
-    const flat = content.lines.map((l) => l.replace(/^\s\s/, "")).join(" ").trim();
+    // DEEP-PIN-001: the question region is its own pinned array above the
+    // scrollable options region.
+    const flat = [...content.questionLines, ...content.lines]
+      .map((l) => l.replace(/^\s\s/, ""))
+      .join(" ")
+      .trim();
     // FR-30: the FULL goal text is present (no header-style truncation).
     expect(flat).toContain(goal);
     expect(flat).toContain("Long description");
-    for (const ln of content.lines) expect(visibleWidth(ln)).toBeLessThanOrEqual(80);
+    for (const ln of [...content.questionLines, ...content.lines])
+      expect(visibleWidth(ln)).toBeLessThanOrEqual(80);
     // Blank separators between the goal and description blocks.
-    expect(content.lines[0]).not.toBe("");
-    expect(content.lines).toContain("");
+    expect(content.questionLines[0]).not.toBe("");
+    expect(content.questionLines).toContain("");
   });
 
   test("test_build_goal_dimmed", () => {
     const content = buildDeepContent(deepInputFor(choiceQ("db"), { theme: dimTheme }));
-    expect(content.lines[0]).toContain(DIM);
+    expect(content.questionLines[0]).toContain(DIM);
   });
 
   test("test_build_star_header_marks_recommendation", () => {
@@ -244,39 +251,44 @@ describe("buildDeepContent", () => {
     const q = choiceQ("db", { status: "moot", answer: { value: "sqlite", at: "t" } });
     const content = buildDeepContent(deepInputFor(q, { theme: dimTheme }));
     expect(content.dimAll).toBe(true);
-    expect(content.lines[0]).toContain("⊘ moot — sqlite");
+    expect(content.questionLines[0]).toContain("⊘ moot — sqlite");
     // Every non-blank line dimmed, options still listed (audit trail, Q34=A).
-    for (const ln of content.lines) if (ln !== "") expect(ln).toContain(DIM);
+    for (const ln of [...content.questionLines, ...content.lines])
+      if (ln !== "") expect(ln).toContain(DIM);
     expect(content.sectionHeaders).toHaveLength(3); // options + Other, dimmed
   });
 
   test("test_moot_reason_falls_back_to_generic", () => {
     const q = choiceQ("db", { status: "moot", answer: { value: "", at: "t" } });
     const content = buildDeepContent(deepInputFor(q));
-    expect(content.lines.join("\n")).toContain("⊘ moot — dependency changed");
+    expect(content.questionLines.join("\n")).toContain("⊘ moot — dependency changed");
   });
 
   test("test_withdrawn_collapses_to_single_dim_line", () => {
     const content = buildDeepContent(
       deepInputFor(choiceQ("db", { status: "withdrawn" }), { theme: dimTheme }),
     );
-    expect(content.lines).toEqual([`${"  "}${DIM}⊗ withdrawn${RESET}`]);
+    expect(content.questionLines).toEqual([`${"  "}${DIM}⊗ withdrawn${RESET}`]);
+    expect(content.lines).toEqual([]);
     expect(content.sectionHeaders).toHaveLength(0);
   });
 
   test("test_text_question_has_no_option_sections", () => {
     const content = buildDeepContent(deepInputFor(textQ("name")));
     expect(content.sectionHeaders).toHaveLength(0);
-    expect(content.lines.join("\n")).toContain("Ship the thing");
-    expect(content.lines.join("\n")).not.toContain("▸");
+    expect(content.lines).toEqual([]); // the whole pane is the pinned question
+    expect(content.questionLines.join("\n")).toContain("Ship the thing");
+    expect(content.questionLines.join("\n")).not.toContain("▸");
   });
 });
 
 // ---------------------------------------------------------------- clampScroll
 
-/** Hand-built content: 30 lines, headers at 5 / 12 / 20, viewport 10. */
+/** Hand-built content: 3 pinned question lines above a 30-line options
+ *  region, headers at 5 / 12 / 20, options viewport 10. */
 function fixedContent(): DeepContent {
   return {
+    questionLines: ["Q0", "Q1", "Q2"],
     lines: Array.from({ length: 30 }, (_, i) => `L${i}`),
     sectionHeaderLineIndex: [5, 12, 20],
     sectionHeaders: ["a", "b", "c"],
@@ -335,8 +347,10 @@ describe("renderDeepWindow", () => {
   test("test_window_slice_respects_offset_and_end", () => {
     const content = fixedContent();
     const window = renderDeepWindow(content, 0, 12, theme, 80);
-    // Header lines (index 12 "b", 20 "c") re-render with selection styling.
+    // Pinned question region rides EVERY window (DEEP-PIN-001); header
+    // lines (index 12 "b", 20 "c") re-render with selection styling.
     expect(window).toEqual([
+      "Q0", "Q1", "Q2",
       "  b", "L13", "L14", "L15", "L16", "L17", "L18", "L19", "  c", "L21",
     ]);
   });
@@ -344,8 +358,9 @@ describe("renderDeepWindow", () => {
   test("test_window_highlights_cursor_header_with_triangle_prefix", () => {
     const content = buildDeepContent(deepInputFor(choiceQ("db"), { cursorIndex: 1 }));
     const window = renderDeepWindow(content, 1, 0, theme, 80);
-    const h0 = window[content.sectionHeaderLineIndex[0]!];
-    const h1 = window[content.sectionHeaderLineIndex[1]!];
+    const base = content.questionLines.length; // window = pinned + options
+    const h0 = window[base + content.sectionHeaderLineIndex[0]!];
+    const h1 = window[base + content.sectionHeaderLineIndex[1]!];
     expect(h0).toBe("  sqlite ★"); // trailing star after the title (amendment 8)
     expect(h1).toBe("▸ postgres"); // selected — ▸ prefix (amendment 9) + accent+bold
   });
@@ -380,8 +395,9 @@ describe("renderDeepWindow", () => {
     const content = buildDeepContent(deepInputFor(choiceQ("db"), { cursorIndex: 0 }));
     const withCursor0 = renderDeepWindow(content, 0, 0, theme, 80);
     const withCursor1 = renderDeepWindow(content, 1, 0, theme, 80);
-    const h0Cursor = withCursor0[content.sectionHeaderLineIndex[0]!];
-    const h0Blank = withCursor1[content.sectionHeaderLineIndex[0]!];
+    const base = content.questionLines.length;
+    const h0Cursor = withCursor0[base + content.sectionHeaderLineIndex[0]!];
+    const h0Blank = withCursor1[base + content.sectionHeaderLineIndex[0]!];
     // "▸ " and "  " are both 2 visible cols → the SAME option's label stays
     // at the same column when the cursor moves on/off it.
     expect(visibleWidth("▸ ")).toBe(2);
@@ -392,16 +408,84 @@ describe("renderDeepWindow", () => {
     const content = fixedContent();
     // Offset 100 (stale after a width change) re-clamps to maxOffset 20.
     const window = renderDeepWindow(content, 0, 100, theme, 80);
-    expect(window).toHaveLength(10);
-    expect(window[0]).toBe("  c"); // line 20 is option 2's header
+    expect(window).toHaveLength(13); // 3 pinned + 10 window
+    expect(window[0]).toBe("Q0"); // pinned region always leads
+    expect(window[3]).toBe("  c"); // line 20 is option 2's header
   });
 
   test("test_moot_window_dims_headers", () => {
     const q = choiceQ("db", { status: "moot", answer: { value: "sqlite", at: "t" } });
     const content = buildDeepContent(deepInputFor(q, { theme }));
     const window = renderDeepWindow(content, 0, 0, dimTheme, 80);
-    const h0 = window[content.sectionHeaderLineIndex[0]!];
+    const base = content.questionLines.length;
+    const h0 = window[base + content.sectionHeaderLineIndex[0]!];
     expect(h0).toContain(DIM);
+  });
+});
+
+// ------------------------------------------- pinned question (DEEP-PIN-001)
+
+describe("pinned question region (DEEP-PIN-001)", () => {
+  test("test_question_stays_visible_while_selection_scrolls_to_late_sections", () => {
+    // Long goal + description + two long-ramification options: pre-pin, the
+    // sticky floor (`offset ≥ headerIdx - vh + 2`) stranded the question
+    // above the window with no way back short of exiting deep view.
+    const ram = "word ".repeat(120).trim();
+    const q = choiceQ("db", {
+      description: "Which database should back the build?".repeat(3),
+      options: [
+        { value: "a", label: "a", ramification: ram },
+        { value: "b", label: "b", ramification: ram },
+      ],
+    });
+    const content = buildDeepContent(
+      deepInputFor(q, { goal: "Ship the thing, carefully and completely" }),
+    );
+    // Walk the selection down to the LAST section (✎ Other).
+    const offset = clampScroll(content, 0, 2);
+    expect(offset).toBeGreaterThan(0); // the options region really scrolled
+    const window = renderDeepWindow(content, 2, offset, theme, 80);
+    expect(window.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
+    const text = window.join("\n");
+    expect(text).toContain("Which database should back the build?"); // description
+    expect(text).toContain("Ship the thing, carefully and completely"); // goal
+    // …and at EVERY intermediate offset the question region leads the pane.
+    for (let o = 0; o <= offset; o++) {
+      const w = renderDeepWindow(content, 1, o, theme, 80);
+      expect(w[0]).toContain("Ship the thing");
+    }
+  });
+
+  test("test_tall_question_region_truncates_bottom_first_with_marker", () => {
+    // Goal + description long enough to overflow DEEP_VIEW_HEIGHT -
+    // MIN_OPTIONS_VIEWPORT: the region is whole-line truncated with a dimmed
+    // `…` marker, the description keeps priority (its tail token survives;
+    // the goal's tail token is cut), and the options window keeps its
+    // minimum height.
+    const goal = `${"gword ".repeat(89)}gend`; // ~540 chars → ~8 wrapped lines
+    const desc = `${"dword ".repeat(89)}dend`;
+    const q = choiceQ("db", { description: desc });
+    const content = buildDeepContent(deepInputFor(q, { theme: dimTheme, goal }));
+    expect(content.questionLines.length).toBeLessThanOrEqual(
+      DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT,
+    );
+    const flat = content.questionLines.join(" ");
+    expect(flat).toContain("dend"); // description owns the space first
+    expect(flat).not.toContain("gend"); // the goal yielded lines
+    expect(content.questionLines).toContain(`${"  "}${DIM}…${RESET}`); // marker
+    expect(content.viewportHeight).toBe(MIN_OPTIONS_VIEWPORT);
+    const window = renderDeepWindow(content, 0, 0, theme, 80);
+    expect(window.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
+    // Options still visible: the first section header renders in-window.
+    expect(window.join("\n")).toContain("sqlite");
+  });
+
+  test("test_text_question_uses_whole_pane_for_the_question", () => {
+    // No options region → the pinned budget is the full pane height.
+    const desc = "dword ".repeat(200).trim();
+    const content = buildDeepContent(deepInputFor(textQ("name", { description: desc })));
+    expect(content.questionLines.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
+    expect(content.lines).toEqual([]);
   });
 });
 
@@ -638,7 +722,8 @@ describe("Other section (P1.M2.T6.S1)", () => {
     // Other header with the `▸ ` prefix.
     const offset = clampScroll(content, 0, 2);
     const window = renderDeepWindow(content, 2, offset, theme, 80);
-    const header = window[headerIdx - offset];
+    const base = content.questionLines.length; // pinned region above window
+    const header = window[base + headerIdx - offset];
     expect(header).toBeDefined();
     expect(header).toContain("✎ Other — write your own");
     expect(header!.startsWith("▸ ✎")).toBe(true); // selected → ▸ prefix (amendment 9)
@@ -651,10 +736,10 @@ describe("Other section (P1.M2.T6.S1)", () => {
   });
 
   test("test_no_other_section_on_text_or_withdrawn", () => {
-    expect(buildDeepContent(deepInputFor(textQ("t"))).lines.join("\n")).not.toContain("✎ Other");
-    expect(
-      buildDeepContent(deepInputFor(choiceQ("w", { status: "withdrawn" }))).lines.join("\n"),
-    ).not.toContain("✎ Other");
+    const text = buildDeepContent(deepInputFor(textQ("t")));
+    expect([...text.questionLines, ...text.lines].join("\n")).not.toContain("✎ Other");
+    const withdrawn = buildDeepContent(deepInputFor(choiceQ("w", { status: "withdrawn" })));
+    expect([...withdrawn.questionLines, ...withdrawn.lines].join("\n")).not.toContain("✎ Other");
   });
 
   test("test_selection_reaches_and_clamps_at_the_other_section", () => {

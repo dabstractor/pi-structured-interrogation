@@ -39,7 +39,7 @@ import { drainBatchNotes } from "./delivery.js";
 import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
 import { createLifecycle, type Lifecycle } from "./lifecycle.js";
-import { createPanelHost, maybeAutoOpen } from "./panel/panel.js";
+import { createPanelHost, maybeAutoOpen, openPanel } from "./panel/panel.js";
 import { hasResumableQuestions, resumePanel } from "./panel/suspend.js";
 import { createStateMirror } from "./persistence.js";
 import { createReconstruction } from "./reconstruct.js";
@@ -173,7 +173,13 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // directly). The dead-panel edge mirrors S2's empty-state rule: dead =
   // NO live questions (post-completion cleared / all terminal — the shared
   // resumable predicate, BUG-005); an answered-pending panel resurfaces so
-  // a ctrl+s can ship the pending answers. Idempotency races are S1's
+  // a ctrl+s can ship the pending answers. A false resumePanel — the panel
+  // never opened this process (SURFACE-002 post-restart: reconstruction
+  // installed live state while lastOpts stayed undefined) — falls through
+  // to command.ts's closed-host fresh-open row: openPanel from the session
+  // singleton with this closure's config/drafts, so {reopen:true} works
+  // identically after a session restart. The outcome is always truthful:
+  // "no-state" only when nothing could open. Idempotency races are S1's
   // concern (resumePanel → openPanel no-ops when already open) — not
   // duplicated here.
   //
@@ -209,8 +215,18 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
           resumeSurface === undefined
         )
           return "no-state";
-        resumePanel(resumeSurface);
-        return "reopened";
+        if (resumePanel(resumeSurface)) return "reopened";
+        // Reload row — the command.ts closed-host ladder's missing tool-path
+        // twin: a false resume means the panel never opened this process
+        // (SURFACE-002 post-restart host: reconstruction installed live
+        // state while lastOpts stayed undefined), so resumeOpenPanel had
+        // nothing to rehydrate. Open a FRESH panel from the session
+        // singleton — config/drafts ride this closure exactly like the
+        // /interrogate command's fresh-open row — instead of silently
+        // doing nothing behind a "Panel reopened." confirmation. openPanel
+        // returns false only when its mode/single-instance guard blocks;
+        // report that honestly rather than claim success (FR-6).
+        return openPanel(resumeSurface, { config, state, drafts }) ? "reopened" : "no-state";
       },
       // AC-11: a non-TUI record re-arms the close pass (re-asked-then-
       // re-answered ids must close at this run's settle — see tool.ts record).

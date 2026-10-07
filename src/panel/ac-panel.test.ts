@@ -628,8 +628,16 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
       width: 80,
       maxChars: DEFAULT_CONFIG.caps.ramification,
     });
-    expect(content.lines.length).toBeGreaterThan(DEEP_VIEW_HEIGHT); // scrolls
-    const maxOffset = content.lines.length - DEEP_VIEW_HEIGHT;
+    expect(content.lines.length).toBeGreaterThan(content.viewportHeight); // scrolls
+    // DEEP-PIN-001: the question region (goal + description) is pinned
+    // above the scroll window — the scroll range spans the OPTIONS region
+    // at its (reduced) viewport height, not the whole pane at 20.
+    const maxOffset = content.lines.length - content.viewportHeight;
+    // The pinned question is visible at EVERY offset — top of range AND
+    // bottom of range (the bug this pins: pre-DEEP-PIN-001 the question
+    // scrolled out and the sticky floor made it unreachable).
+    const questionHead = content.questionLines[0]!;
+    expect(questionHead).toContain("deep goal");
 
     // Drive the SELECTION across every option — at each step the window
     // stays bounded (h2.51: header + pane ≤ 20 + footer) and the selected
@@ -659,6 +667,13 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
     const atBottom = panel.render(80);
     const lastContentLine = content.lines[content.lines.length - 1]!;
     expect(atBottom.slice(1, -1)).toContain(lastContentLine);
+    // …and at the BOTTOM of the scroll range the question is still on
+    // screen (DEEP-PIN-001): the pane leads with the pinned question head,
+    // and the description is present too.
+    expect(atBottom[1]).toBe(questionHead);
+    expect(atBottom.slice(1, -1).join("\n")).toContain(
+      "Context you should read before choosing.",
+    );
 
     // Select the highlighted (last) option FROM the deep view: enter applies
     // with the short-form commit semantics, returns to the short form,

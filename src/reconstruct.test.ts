@@ -463,6 +463,64 @@ describe("reconstructFromBranch — surface decision", () => {
     expect(host.isOpen()).toBe(true);
   });
 
+  test("tree navigation refreshes the suspend widget line to the destination branch (suspended host)", () => {
+    // state-and-persistence.md §Branching: the suspend reminder line must
+    // "reflect the destination branch". A SUSPENDED host gets no suspend
+    // landing (that widget rewrite only exists for an open panel's custom()
+    // resolution — unobservable on this harness's never-resolving custom()),
+    // so reconstruction must refresh the line itself — the retarget alone
+    // leaves the abandoned branch's counts on display forever.
+    const oldState = createInterrogationState("old branch");
+    applyUpsert(oldState, [choiceQ("q1")]);
+    const host = makeHost();
+    openPanel(makeCtx([]), { config: DEFAULT_CONFIG, state: oldState, drafts: new DraftStore() });
+    suspendPanel(host);
+    expect(host.isSuspended()).toBe(true);
+
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+      applyUpsert(s, [choiceQ("q2")]);
+    });
+    const ctx = makeCtx([toolResultEntry(base)]);
+    const result = reconstructFromBranch(ctx, makeOpts(host), "session-tree");
+
+    // Still silent (no surface pops) and still suspended…
+    expect(result.opened).toBe(false);
+    expect(ctx.ui.custom as Mock).not.toHaveBeenCalled();
+    expect(host.isSuspended()).toBe(true);
+    expect(getState()?.getQuestion("q2")).toBeDefined(); // state followed
+    // …but the DISPLAYED line now names the destination branch's workload.
+    const widgetCall = (ctx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(widgetCall?.[0]).toBe("interrogator");
+    expect((widgetCall?.[1] as string[] | undefined)?.[0]).toBe(
+      "2 open · 0 answered — /interrogate to resume",
+    );
+  });
+
+  test("tree navigation onto a live branch arms the ambient widget on a NEVER-OPENED host (post-restart)", () => {
+    // SURFACE-002 names the widget line the ambient indicator: a host whose
+    // panel never opened this process (lastOpts undefined → retargetState
+    // early-returned) still gets the destination branch's cue — previously
+    // no line appeared at all on this path.
+    const host = makeHost();
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+      applyUpsert(s, [choiceQ("q2")]);
+    });
+    const ctx = makeCtx([toolResultEntry(base)]);
+    const result = reconstructFromBranch(ctx, makeOpts(host), "session-tree");
+
+    expect(result.opened).toBe(false);
+    expect(ctx.ui.custom as Mock).not.toHaveBeenCalled();
+    expect(host.isOpen()).toBe(false); // still never opened — silent
+    expect(host.isSuspended()).toBe(false);
+    const widgetCall = (ctx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(widgetCall?.[0]).toBe("interrogator");
+    expect((widgetCall?.[1] as string[] | undefined)?.[0]).toBe(
+      "2 open · 0 answered — /interrogate to resume",
+    );
+  });
+
   test("tree navigation suspends an OPEN panel instead of leaving stale branch content", () => {
     const base = seededState((s) => {
       applyUpsert(s, [choiceQ("q1")]);
@@ -494,6 +552,32 @@ describe("reconstructFromBranch — surface decision", () => {
     // nothing advertises the abandoned branch's interrogation.
     expect(host.isOpen()).toBe(false);
     expect(host.isSuspended()).toBe(false);
+  });
+
+  test("tree navigation to an interrogation-free branch clears a NEVER-OPENED host's widget via the nav ctx", () => {
+    // Post-restart shape: session_start reconstruction set the widget while
+    // the host has no activePi (no panel ever mounted). dispose() clears the
+    // reminder through activePi — undefined here — so the teardown must
+    // clear through the navigation ctx instead, or a stale line advertising
+    // the abandoned branch would survive the branch switch.
+    const host = makeHost();
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const startCtx = makeCtx([toolResultEntry(base)]);
+    reconstructFromBranch(startCtx, makeOpts(host), "session-start");
+    const startWidget = (startCtx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect((startWidget?.[1] as string[] | undefined)?.[0]).toBe(
+      "1 open · 0 answered — /interrogate to resume",
+    );
+
+    const navCtx = makeCtx([userEntry()]);
+    reconstructFromBranch(navCtx, makeOpts(host), "session-tree");
+
+    expect(getState()).toBeUndefined();
+    const clearCall = (navCtx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect(clearCall?.[0]).toBe("interrogator");
+    expect(clearCall?.[1]).toBeUndefined(); // cleared, not stale
   });
 
   test("tree navigation in non-TUI stays silent but arms the digest fallback flag", () => {

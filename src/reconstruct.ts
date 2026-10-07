@@ -92,10 +92,16 @@
  *        host's stored references are retargeted (`retargetState`) onto the
  *        fresh state + current surface so the NEXT deliberate resume
  *        (`/interrogate`, a model upsert while suspended, `{reopen:true}`)
- *        rehydrates branch-correctly. The user's next surfacing action is
- *        theirs to make. A branch with NO interrogation state tears every
- *        residue down (open panel suspended first, then widget + resume
- *        record disposed) — navigating to an interrogation-free branch must
+ *        rehydrates branch-correctly. A SUSPENDED or never-opened host gets
+ *        no suspend landing, so the suspend reminder line is refreshed
+ *        directly onto the destination branch's counts
+ *        (state-and-persistence.md §Branching) — set when the destination
+ *        has resumable questions, cleared otherwise. The user's next
+ *        surfacing action is theirs to make. A branch with NO interrogation
+ *        state tears every residue down (open panel suspended first, then
+ *        widget + resume record disposed; a never-opened host's widget is
+ *        cleared through the nav ctx — it has no activePi for dispose to
+ *        clear through) — navigating to an interrogation-free branch must
  *        not leave a stale reminder advertising a foreign branch's questions.
  *        The non-TUI fallback flag is still recomputed — it is a digest
  *        decision input, not a surface, and the tool executor on the new
@@ -120,7 +126,7 @@ import type { SubmissionMessage } from "./delivery.js";
 import { isNonTui } from "./fallback.js";
 import { evaluateDependsOn } from "./depends-on.js";
 import type { DraftStore, PanelHost, PiUISurface } from "./panel/panel.js";
-import { updateSuspendWidget } from "./panel/suspend.js";
+import { updateSuspendWidget, WIDGET_KEY } from "./panel/suspend.js";
 import {
   INTERROGATION_STATE_ENTRY_TYPE,
   type InterrogationStateEntryData,
@@ -393,8 +399,14 @@ export function reconstructFromBranch(
       // Tree navigation onto an interrogation-free branch is a full
       // teardown: an open panel descends (suspend — it renders a dead
       // branch's questions), then the widget + resume record go too.
-      if (opts.host.isOpen()) opts.host.suspend();
+      const wasOpen = opts.host.isOpen();
+      if (wasOpen) opts.host.suspend();
       opts.host.dispose();
+      // dispose() clears the reminder through activePi — undefined for a
+      // never-opened host (the widget was set by session_start
+      // reconstruction, not by any openPanel). Clear through the nav ctx so
+      // no stale reminder survives onto the interrogation-free branch.
+      if (!wasOpen) ctx.ui.setWidget?.(WIDGET_KEY, undefined);
     } else if (!isNonTui(ctx.mode ?? "tui", ctx.hasUI ?? true) && !opts.host.isOpen()) {
       opts.host.dispose();
     }
@@ -427,8 +439,12 @@ export function reconstructFromBranch(
     if (origin === "session-tree") {
       // Same full teardown as the no-traces branch: a completed interrogation
       // has nothing to resume, so no reminder may linger after navigation.
-      if (opts.host.isOpen()) opts.host.suspend();
+      const wasOpen = opts.host.isOpen();
+      if (wasOpen) opts.host.suspend();
       opts.host.dispose();
+      // Never-opened host: no activePi for dispose to clear through — same
+      // nav-ctx clear as the no-traces branch above.
+      if (!wasOpen) ctx.ui.setWidget?.(WIDGET_KEY, undefined);
     } else if (!isNonTui(ctx.mode ?? "tui", ctx.hasUI ?? true) && !opts.host.isOpen()) {
       opts.host.dispose();
     }
@@ -450,7 +466,18 @@ export function reconstructFromBranch(
     // the CURRENT branch's counts, and a later deliberate resume rehydrates
     // from the fresh state on the CURRENT surface.
     opts.host.retargetState(state, ctx);
-    if (opts.host.isOpen()) opts.host.suspend();
+    if (opts.host.isOpen()) {
+      opts.host.suspend(); // its async landing rewrites the widget from lastOpts.state
+    } else {
+      // Suspended-or-never-opened host: no suspend landing will run, so
+      // nothing else rewrites the reminder line — refresh it HERE so it
+      // reflects the DESTINATION branch (state-and-persistence.md
+      // §Branching). updateSuspendWidget owns the set/clear rule: set with
+      // the destination counts when resumable questions exist (the ambient
+      // SURFACE-002 cue — including the never-opened post-restart host whose
+      // retarget early-returned), cleared for an all-terminal destination.
+      updateSuspendWidget(ctx, state);
+    }
     return { source, replayed, opened: false, fallbackActive: false };
   }
 

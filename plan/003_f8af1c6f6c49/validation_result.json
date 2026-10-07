@@ -1,0 +1,1 @@
+{ "hasIssues": true, "issueCount": 2, "summary": "Core product fully green (1261 tests, typecheck, keymap, no removed-surface residue; ANSWER-PIN-001 delta verified E2E), but {reopen:true} after a session restart reports success while opening no panel (FR-6), and /tree navigation never refreshes the suspend-widget line to the destination branch." }

@@ -3,11 +3,21 @@
  * (P1.M5.T1.S1).
  *
  * The deep view (FR-8 / h2.29 / Q19-Q20) is a FULL replacement of the Q&A
- * region between header and footer: the full goal text (FR-30, dimmed) on
- * top, then the full `question.description`, then one sticky section per
- * option (`▸ ★ sqlite` header + wrapped ramification text), then — on
- * choice questions — the synthetic `✎ Other — write your own` section
- * (P1.M2.T6.S1). `↑/↓` SCROLL the pane / move the selection — they NEVER
+ * region between header and footer, split into TWO regions (owner ruling
+ * 2026-10-05, DEEP-PIN-001): a PINNED question region on top — the full
+ * goal text (FR-30, dimmed), then the full `question.description` (plus a
+ * `⊘ moot` reason line when moot) — and a SCROLLABLE options region under
+ * it with one section per option (`▸ ★ sqlite` header + wrapped
+ * ramification text) and — on choice questions — the synthetic
+ * `✎ Other — write your own` section (P1.M2.T6.S1). The question NEVER
+ * scrolls out of view: `scrollOffset` indexes the options region only, so
+ * scrolling to the last answer choices cannot hide the question being
+ * answered (the pre-pin layout scrolled the whole pane and its sticky
+ * floor `offset ≥ headerIdx - vh + 2` then made the question unreachable
+ * until the view was toggled). When the pinned region alone would
+ * overflow {@link DEEP_VIEW_HEIGHT}, it is line-truncated bottom-first
+ * (goal yields space before the description) with a dimmed `…` marker —
+ * never by stealing the options window's minimum height. `↑/↓` SCROLL the pane / move the selection — they NEVER
  * navigate questions (h2.29: question navigation belongs to the config
  * prev/next keys only); `enter` selects the highlighted option — or, on
  * the Other section, opens the write-in duty back on the short form
@@ -70,6 +80,16 @@ import { OTHER_AFFORDANCE, RIGHT, displayOptions, initialCursorIndex, mootReason
  * M7.T5.S1 (terminal fallback) owns any dynamic sizing.
  */
 export const DEEP_VIEW_HEIGHT = 20;
+
+/**
+ * Minimum scrollable height reserved for the options region (DEEP-PIN-001):
+ * when the pinned question region (moot line + goal + description) alone
+ * would overflow {@link DEEP_VIEW_HEIGHT}, the question is line-truncated
+ * bottom-first with a dimmed `…` marker — the sections' window is never
+ * squeezed below this floor (a pane with no visible options would strand
+ * the selection). Exported for tests.
+ */
+export const MIN_OPTIONS_VIEWPORT = 4;
 
 /** Two-column inset applied to every content line (short-view.ts pattern). */
 const INSET = "  ";
@@ -160,7 +180,17 @@ export interface DeepViewInput {
  */
 export interface DeepContent {
   /**
-   * Flattened content lines, fully styled — EXCEPT section header lines,
+   * PINNED question region (DEEP-PIN-001): moot reason line, full goal
+   * text, and full `question.description` (capped/wrapped, bottom-line
+   * truncated with a dimmed `…` marker when over budget). Rendered ABOVE
+   * the scroll window by {@link renderDeepWindow} on EVERY offset — the
+   * question never scrolls out of view. Withdrawn questions collapse to
+   * the single dim line here.
+   */
+  questionLines: string[];
+  /**
+   * Flattened SCROLLABLE options-region lines (sections + separators),
+   * fully styled — EXCEPT section header lines,
    * which are baked with the build-time cursor prefix and re-rendered by
    * {@link renderDeepWindow} so the highlighted header always carries `▸ `.
    */
@@ -178,7 +208,9 @@ export interface DeepContent {
   sectionStarred: boolean[];
   /** True for moot questions — headers re-render dimmed (whole pane dim). */
   dimAll: boolean;
-  /** Viewport height cap ({@link DEEP_VIEW_HEIGHT}). */
+  /** Scrollable options-region height cap (≤ {@link DEEP_VIEW_HEIGHT}; see
+   *  {@link MIN_OPTIONS_VIEWPORT}). The question region renders ABOVE it,
+   * pinned — `scrollOffset` indexes `lines` only. */
   viewportHeight: number;
 }
 
@@ -272,7 +304,8 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
 
   if (q.status === "withdrawn") {
     return {
-      lines: [`${INSET}${theme.fg("dim", WITHDRAWN_LINE)}`],
+      questionLines: [`${INSET}${theme.fg("dim", WITHDRAWN_LINE)}`],
+      lines: [],
       sectionHeaderLineIndex: [],
       sectionHeaders: [],
       sectionStarred: [],
@@ -282,23 +315,39 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
   }
 
   const dimAll = q.status === "moot";
+  const hasSections = q.type === "choice";
   const lines: string[] = [];
   const sectionHeaderLineIndex: number[] = [];
   const sectionHeaders: string[] = [];
   const sectionStarred: boolean[] = [];
 
-  // Moot reason line PREPENDED to the pane (mirrors short-view's reason
-  // line ahead of the options list).
+  // ---- pinned question region (DEEP-PIN-001): moot line + goal +
+  // description, fitted to the pane budget. The DESCRIPTION owns the
+  // space first (it is the question being answered; the goal is context
+  // already summarized — truncated — in the header, FR-30), so the goal
+  // yields lines first when the region overflows; both blocks cap at
+  // maxChars as before. Whole-line truncation only, via fitBlock.
+  const head: string[] = [];
   if (dimAll) {
-    lines.push(mootLine(q, theme, budget));
-    lines.push("");
+    head.push(mootLine(q, theme, budget), "");
   }
-  pushBlock(lines, goal, theme, budget, maxChars, true);
-  lines.push("");
+  const goalBlock: string[] = [];
+  pushBlock(goalBlock, goal, theme, budget, maxChars, true);
+  const descBlock: string[] = [];
   if (q.description !== undefined && q.description !== "") {
-    pushBlock(lines, q.description, theme, budget, maxChars, dimAll);
-    lines.push("");
+    pushBlock(descBlock, q.description, theme, budget, maxChars, dimAll);
   }
+  const separators = descBlock.length > 0 ? 2 : 1; // blank after goal (+ desc)
+  const questionBudget = hasSections
+    ? DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT
+    : DEEP_VIEW_HEIGHT; // no sections → the question may use the whole pane
+  const avail = questionBudget - head.length - separators;
+  const descKept = fitBlock(descBlock, avail, theme);
+  const goalKept = fitBlock(goalBlock, avail - descKept.length, theme);
+  const questionLines = [...head, ...goalKept, ""];
+  if (descKept.length > 0) questionLines.push(...descKept, "");
+  // ---- scrollable options region (unchanged composition; indexes are
+  // now RELATIVE TO `lines`, offset 0 = first section header's region top).
   if (q.type === "choice") {
     const options = displayOptions(q); // D-R13: recommended-first display order (same as short view)
     for (let i = 0; i < options.length; i++) {
@@ -338,7 +387,11 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     lines.push(dimAll ? theme.fg("dim", composed) : composed);
     pushBlock(lines, OTHER_RAMIFICATION, theme, budget, maxChars, dimAll, ramIndent(theme, options.length === input.cursorIndex));
   }
-  return { lines, sectionHeaderLineIndex, sectionHeaders, sectionStarred, dimAll, viewportHeight: DEEP_VIEW_HEIGHT };
+  const viewportHeight = Math.max(
+    hasSections ? MIN_OPTIONS_VIEWPORT : 1,
+    DEEP_VIEW_HEIGHT - questionLines.length,
+  );
+  return { questionLines, lines, sectionHeaderLineIndex, sectionHeaders, sectionStarred, dimAll, viewportHeight };
 }
 
 /**
@@ -371,15 +424,29 @@ function mootLine(q: Question, theme: Theme, budget: number): string {
   return `${INSET}${theme.fg("dim", `${MOOT_HEAD}${reason}`)}`;
 }
 
+/**
+ * Fit a pinned question block into `max` lines (DEEP-PIN-001): whole-line
+ * truncation from the bottom with a fresh dimmed `…` marker line replacing
+ * the cut tail. Whole lines only — never slices a styled line (ANSI-safe);
+ `max` ≤ 0 yields an empty block. Pure.
+ */
+function fitBlock(block: string[], max: number, theme: Theme): string[] {
+  if (max <= 0) return [];
+  if (block.length <= max) return block;
+  return [...block.slice(0, max - 1), `${INSET}${theme.fg("dim", "…")}`];
+}
+
 // ----------------------------------------------------- scroll + render core
 
 /**
  * [Mode A] Sticky-header scroll budget (contract 5) — the load-bearing
  * algorithm that keeps the highlighted option's header visible while its
- * ramification text scrolls (AC-5):
- *
- * The window is `[offset, offset + viewportHeight - 1]` over
- * `content.lines`. The selected section's header (line `headerIdx`) plus at
+ * ramification text scrolls (AC-5). Operates on the SCROLLABLE options
+ * region only (`content.lines`): the question region above it is pinned
+ * (DEEP-PIN-001) and cannot scroll out of view, so the old failure mode —
+ * the sticky floor stranding the question above the window with no way
+ * back — is structurally gone. The window is `[offset, offset +
+ * viewportHeight - 1]` over `content.lines`. The selected section's header (line `headerIdx`) plus at
  * least its FIRST ramification line must stay inside the window:
  *
  * - header not above the window top:  offset ≤ headerIdx
@@ -407,11 +474,15 @@ export function clampScroll(content: DeepContent, scrollOffset: number, cursorIn
 }
 
 /**
- * Slice the content to the viewport window at `scrollOffset` (defensively
- * re-clamped — renderers never mutate panel state) and re-render every
- * visible section header with the CURRENT cursor prefix (`▸ ` highlighted /
- * two spaces), dimmed when {@link DeepContent.dimAll}. Always returns at
- * most `content.viewportHeight` lines, each within `width`.
+ * Render the deep pane at `scrollOffset`: the PINNED question region
+ * (DEEP-PIN-001 — moot line + goal + description, present on EVERY offset;
+ * the question never scrolls out of view) followed by the options-region
+ * window, defensively re-clamped (renderers never mutate panel state),
+ * every visible section header re-rendered with the CURRENT cursor prefix
+ * (`▸ ` highlighted / two spaces), dimmed when {@link DeepContent.dimAll}.
+ * Always returns at most `content.viewportHeight` options lines under the
+ * pinned question lines (total ≤ {@link DEEP_VIEW_HEIGHT}), each within
+ * `width`.
  */
 export function renderDeepWindow(
   content: DeepContent,
@@ -439,7 +510,7 @@ export function renderDeepWindow(
     const composed = `${headerPrefix(s === cursorIndex)}${titleStyle(theme, s === cursorIndex, body)}${starSuffix}`;
     window[lineIdx - offset] = content.dimAll ? theme.fg("dim", composed) : composed;
   }
-  return window;
+  return [...content.questionLines, ...window];
 }
 
 // ------------------------------------------------------------ panel actions

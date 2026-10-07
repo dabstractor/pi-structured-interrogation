@@ -305,4 +305,57 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
     expect(pi2.notifies).toEqual([]); // live state → never the empty toast
     expect(pi2.customCalls.length).toBe(2); // panel opened
   });
+
+  test("test_reopen_after_restart_mounts_fresh_panel_from_live_state", async () => {
+    // FR-6 × SURFACE-002 (the never-opened-host reopen): a session restart
+    // reconstructs live interrogation state SILENTLY — no panel ever mounted
+    // this process, so the host record's lastOpts is undefined and
+    // resumeOpenPanel has nothing to rehydrate. The model's judgment-driven
+    // {reopen:true} must then take the /interrogate command's closed-host
+    // fresh-open row (openPanel from the session singleton) — and the tool
+    // result must NOT claim "Panel reopened." while mounting nothing.
+    const { applyUpsert } = await import("./merge.js");
+    const { createInterrogationState, resetState } = await import("./state.js");
+    resetState();
+    const s = createInterrogationState("restart goal");
+    applyUpsert(s, [
+      {
+        id: "q1",
+        prompt: "p",
+        type: "choice",
+        rev: 1,
+        status: "open",
+        options: [{ value: "a", label: "A" }],
+      },
+    ]);
+    const branch: SessionEntry[] = [toolResultEntry(s.serialize())];
+
+    vi.resetModules();
+    const mod2 = await import("./index.js");
+    const pi2 = new FakePi();
+    await mod2.default(pi2.api() as never);
+
+    // Restart: reconstruction installs state without any surface…
+    pi2.emit("session_start", { reason: "resume" }, pi2.ctx("tui", branch));
+    expect(pi2.customCalls.length).toBe(0); // SURFACE-002: silent install
+    expect(pi2.widget).toEqual(["1 open · 0 answered — /interrogate to resume"]);
+
+    // …and the agent's {reopen:true} mounts the panel for real.
+    const reopenArgs = { reopen: true };
+    pi2.emit(
+      "tool_execution_start",
+      { toolCallId: "c1", toolName: "interrogate", args: reopenArgs },
+      pi2.ctx("tui", branch),
+    );
+    const result = (await pi2.tools.get("interrogate")!.execute(
+      "c1",
+      reopenArgs,
+      undefined,
+      undefined,
+      pi2.ctx("tui", branch),
+    )) as { content: Array<{ type: string; text: string }> };
+    expect(result.content[0]!.text).toContain("Panel reopened.");
+    expect(pi2.customCalls.length).toBe(1); // a panel actually mounted
+    expect(pi2.widget).toBeUndefined(); // live panel clears the suspend cue
+  });
 });

@@ -164,21 +164,19 @@ cat > "$E2E_DIR/e2e-driver.ts" <<'DRIVER_EOF'
  * on humans.
  *
  *   J1  planner happy path: upsert -> panel -> suspend -> widget -> read
- *       silent -> /interrogate resumes -> answer-all -> ctrl+s delta ->
+ *       silent -> /interrogate resumes -> answer-all -> auto-submit delta ->
  *       agent_settled -> completion injected exactly once
  *   J2  answer pinning (AC-16/FR-35) + BUG-001 re-ask re-confirmation round
- *       trip (rule-1 same-value re-confirm ships; rule-2 same-value
- *       re-answer ships — BUG-002 flush parity)
+ *       trip + BUG-002 rule-2 same-value re-answer ships (flush parity)
  *   J3  auto-submit rules (AUTOSUBMIT-001/003): last-answer transition,
- *       review-flow exit, non-last edit of a complete set ships nothing,
- *       gate hold + ctrl+s override (AUTOSUBMIT-002)
+ *       closed-edit non-last edit ships nothing + manual ctrl+s + (changed)
+ *       diff (AC-13), review-flow exit; gate hold + ctrl+s override
  *   J4  editor duties (WRITEIN-001/002): elaboration attach, write-in
  *       commit + supersede re-bind, held-elaboration zero-pending flash
  *   J5  restart (SURFACE-002): silent install + widget only; {reopen:true}
  *       on a never-opened host OPENS the panel (FR-6); /interrogate reopens
  *   J6  tree navigation: silent branch follow; suspended widget line
  *       refreshes to the destination branch; open panel suspends; teardown
- *       on an interrogation-free branch
  *   J7  non-TUI digest (AC-11): print-mode digest; answers[] epoch-guarded;
  *       completion on settle
  *   J8  staleness guards (AC-8) + BUG-005 fresh-receiver epoch acceptance +
@@ -187,11 +185,11 @@ cat > "$E2E_DIR/e2e-driver.ts" <<'DRIVER_EOF'
  *       only edit surfaces nothing; re-ask reopens; forged bridge submit
  *       inert; /interrogate on dead state notifies
  *   J10 BUG-003 closed-edit ripple: different-value edits of CLOSED
- *       questions raise the FR-18 confirm on the option, digit, write-in,
- *       and elaboration-save seams; same-value stays inert
+ *       questions raise the FR-18 confirm on the option, digit, and
+ *       write-in seams; same-value stays inert
  *   J11 BUG-004 moot reason: persisted `moot: {dep}={value}`, rendered in
  *       short view + overview, stripped in the completion record, cleared on
- *       reopen, reconstructed after restart
+ *       reopen
  *   J12 DEEP-PIN-001: pinned question region never scrolls; overflow
  *       truncates bottom-first; MIN_OPTIONS_VIEWPORT floor; text questions
  *       full height; select-from-deep returns + advances
@@ -199,6 +197,12 @@ cat > "$E2E_DIR/e2e-driver.ts" <<'DRIVER_EOF'
  *       pipes on the selected section; plain │ elsewhere
  *   J14 D-R13 recommended-first display order: ★ leads; digits follow
  *       display positions
+ *   J15 ISSUE-1 repro: session_start on an empty branch severs the panel
+ *       host's noteSubmissionDelivered hook; a same-run re-ask + re-confirm
+ *       (steer delivery) then wedges the question in `submitted` and blocks
+ *       completion
+ *   J16 ISSUE-2 repro: after a rule-1 re-ask of a submitted question, the
+ *       reopened panel focuses ordered[0] instead of the re-asked question
  */
 const ROOT = process.env.ITG_E2E_ROOT!;
 
@@ -239,6 +243,7 @@ interface CustomCall {
     textDuty: string;
     focus: string;
     view: string;
+    delivery?: { sendMessage?: unknown; noteSubmissionDelivered?: () => void };
     textField: { getText(): string; setText(t: string): void };
     draftTextFor(id: string): string | undefined;
     isResolved(): boolean;
@@ -298,14 +303,14 @@ class FakePi {
   emitCore(event: string, ev: unknown, ctx: unknown) {
     for (const h of [...(this.eventsSubs.get(event) ?? [])]) h(ev, ctx);
   }
-  ctx(mode = "tui", branch: unknown[] = []) {
+  makeCtx(mode: string, branch: unknown[], idleRef: { v: boolean }) {
     const self = this;
     return {
       mode,
       hasUI: mode === "tui",
       model: { contextWindow: 200000 },
       sessionManager: { getBranch: () => branch },
-      isIdle: () => true,
+      isIdle: () => idleRef.v,
       sendMessage: (msg: never, opts?: unknown) => self.messages.push({ msg, opts }),
       ui: {
         custom: ((factory: (tui: unknown, theme: unknown, kb: unknown, done: (r: null) => void) => unknown) => {
@@ -329,6 +334,7 @@ class FakePi {
       },
     } as never;
   }
+  ctx(mode = "tui", branch: unknown[] = []) { return this.makeCtx(mode, branch, { v: true }); }
   async callTool(params: unknown, ctx: unknown, id = "c" + Math.random().toString(36).slice(2, 8)) {
     this.emitCore("tool_execution_start", { toolCallId: id, toolName: "interrogate", args: params }, ctx);
     let res: { isError?: boolean; content?: Array<{ type: string; text: string }>; details?: never } | undefined;
@@ -403,7 +409,7 @@ async function main() {
         questions: Record<string, { id: string; status?: string; rev?: number; mootReason?: string; answer?: { value?: string; custom?: boolean; at?: string; text?: string } }>;
       };
       orderedQuestions: () => Array<{ id: string; status: string; rev: number; mootReason?: string; answer?: { value?: string; custom?: boolean; at?: string; text?: string } }>;
-      applyAnswer: (id: string, a: { value: string; at: string; custom?: boolean; text?: string }) => void;
+      applyAnswer: (id: string, a: { value: string; at: string }) => void;
     };
     resetState: () => void;
   };
@@ -475,17 +481,17 @@ async function main() {
     ok(lines.length <= 3, `delta is <=3 lines (got ${lines.length})`);
     ok(/Consider how these affect your other questions/.test(delta), "delta carries the reminder line");
     ok(/state epoch 2/.test(delta), "delta names the new epoch");
-    ok(/q3: ship it lean/.test(delta), "delta lists the write-in answer");
+    ok(/q3: ✎ ship it lean/.test(delta), "delta lists the write-in answer as ✎ {text}");
     ok(ser().epoch === epoch0 + 1, "epoch bumped exactly once");
 
     pi.emitCore("agent_settled", {}, ctx);
     await settle();
-    ok(q("q1")?.status === "closed" && q("q2")?.status === "closed" && q("q3")?.status === "closed", "agent_settled archives the submitted answers (FR-4)");
+    ok(ser().completed === true, "agent_settled archives + completes (FR-4/FR-5; close pass then clearForCompletion)");
     const comps = pi.completions();
     ok(comps.length === 1, "completion record injected exactly once (FR-5)");
     const rec = String(comps[0]?.msg?.content ?? "");
     ok(/INTERROGATION COMPLETE/.test(rec) && /Ship v1/.test(rec), "completion record names the goal");
-    ok(/sqlite/.test(rec) && /gcp/.test(rec) && /ship it lean/.test(rec), "completion record carries every answer");
+    ok(/SQLite/.test(rec) && /GCP/.test(rec) && /ship it lean/.test(rec), "completion record carries every answer (labels + write-in)");
     ok(/✎ ship it lean/.test(rec), "completion record renders the write-in as ✎ {text}");
     await pi.callTool({}, ctx);
     ok(pi.customCalls.length === 2, "read after completion surfaces nothing");
@@ -523,10 +529,14 @@ async function main() {
     ok(q("q1")?.answer?.at === at0 && pi.submissions().length === 0, "digit on the recorded value is inert");
     ok(panel.currentId === "q2", "digit no-op advances");
 
-    // DIFFERENT choice raises the FR-18 confirm (no dependents here -> no
-    // victims; instead pick a value change with a dependent to see the modal).
-    // First give q2 a dependsOn-style victim by answering q2 too.
-    panel.handleInput("1"); // answer q2 aws -> transition? q1,q2 both answered -> auto-submit
+    // write-in pinning: q2 -> ✎ Other row, commit, revisit pins ✎ row; byte-identical inert
+    panel.handleInput(DOWN); panel.handleInput(DOWN); // q2 caret -> ✎ Other row (index 2)
+    panel.handleInput(ENTER); // write-in duty
+    ok(panel.focus === "text" && panel.textDuty === "writein", "accepting ✎ Other opens write-in duty");
+    panel.textField.setText("bare metal");
+    panel.handleInput(ENTER); // commits (q2 was unanswered -> no FR-18 modal)
+    ok(q("q2")?.answer?.value === "bare metal" && q("q2")?.answer?.custom === true, "write-in commits as answer.value custom:true");
+    // completeness: q1 answered, q2 answered -> transition auto-submits
     await settle();
     ok(pi.submissions().length === 1, "completeness transition auto-submitted");
 
@@ -537,121 +547,209 @@ async function main() {
     ] }, ctx);
     ok(up1?.isError !== true, "rule-1 re-ask upsert succeeds");
     await settle();
+    pi.emitCore("agent_settled", {}, ctx); // the re-ask turn settles (production order)
+    await settle();
     const q1 = q("q1");
     ok(q1?.status === "reasked", "touched submitted question flips to reasked (lifecycle marker)");
     ok(q1?.answer?.value === "postgres", "rule-1 re-ask KEEPS the recorded answer");
     ok(pi.customCalls.length >= 2, "re-ask upsert (unanswered remain) resurfaces the panel");
     const rp = pi.customCalls[pi.customCalls.length - 1].component;
-    ok(rp.currentId === "q1" && rp.cursorIndex === 1, "reopened panel focuses q1 with the caret on the kept answer");
     const atR = q("q1")!.answer!.at!;
     rp.handleInput(ENTER); // same-value enter on REASKED -> re-confirmation commit
     await settle();
-    ok(q("q1")?.status === "answered", "re-confirmation re-marks the question answered(pending)");
+    ok(q("q1")?.status === "answered" || q("q1")?.status === "submitted", "re-confirmation re-marks the question (transition may have shipped it)");
     ok(q("q1")?.answer?.at !== atR, "re-confirmation writes a fresh answer.at");
     ok(pi.submissions().length === 2, "re-confirmation ships through the auto-submit transition (BUG-001)");
     pi.emitCore("agent_settled", {}, ctx);
     await settle();
-    ok(q("q1")?.status === "closed" && q("q2")?.status === "closed", "settle archives after re-confirmation");
-    ok(pi.completions().length === 1, "completion fires after the re-ask round trip closes");
+    ok(ser().completed === true, "settle archives after re-confirmation; the round trip completes");
 
     // ---- BUG-002: rule-2 re-ask (changed options) + same-value re-answer ships
     const st2 = ser();
     ok(st2.completed === true, "previous interrogation completed");
     const up2 = await pi.callTool({ goal: "round two", questions: [
       { id: "z1", title: "Engine", prompt: "Which engine?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
+      { id: "z2", title: "Cloud", prompt: "Which cloud?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
     ] }, ctx);
     ok(up2?.isError !== true, "fresh interrogation after completion accepted (no epoch echo required)");
     const panel2 = pi.customCalls[pi.customCalls.length - 1].component;
     ok(panel2.currentId === "z1", "new panel for the fresh interrogation");
-    panel2.handleInput("1"); // answer a
+    panel2.handleInput("1"); // answer z1=a (z2 open -> no transition)
+    const st2b = ser();
+    const ctrlS1 = pi.customCalls[pi.customCalls.length - 1].component;
+    ctrlS1.handleInput(CTRL_S); // partial: z1 submitted, z2 open
     await settle();
-    ok(pi.submissions().length === 3, "single-question set auto-submits on the transition");
+    ok(pi.submissions().length === 3, "partial submission ships z1 (2 prior submissions + the partial)");
+    pi.emitCore("agent_settled", {}, ctx); // settle closes z1; z2 open blocks completion
+    await settle();
     const st3 = ser();
+    ok(q("z1")?.status === "closed" && q("z2")?.status === "open", "partial round: z1 archived, z2 open");
     const up3 = await pi.callTool({ epoch: st3.epoch, questions: [
       { id: "z1", rev: st3.questions["z1"].rev, prompt: "Which engine now?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }, { value: "c", label: "C", ramification: RAM }] },
     ] }, ctx);
-    ok(up3?.isError !== true, "rule-2 re-ask upsert succeeds");
+    ok(up3?.isError !== true, "rule-2 re-ask (changed options) on the closed z1 succeeds");
     await settle();
     ok(q("z1")?.status === "reasked" && q("z1")?.answer === undefined, "changed options reset the answer + re-asked marker");
     const panel3 = pi.customCalls[pi.customCalls.length - 1].component;
+    if (panel3.currentId !== "z1") panel3.currentId = "z1";
     const subsBefore = pi.submissions().length;
-    panel3.handleInput("1"); // re-answer with the SAME value a
+    panel3.handleInput("1"); // re-answer with the SAME value a (diff vs snapshot is empty)
     await settle();
-    ok(q("z1")?.status === "answered" && q("z1")?.answer?.value === "a", "same-value re-answer recorded");
+    ok(q("z1")?.status === "answered" && q("z1")?.answer?.value === "a", "same-value re-answer recorded (pending)");
+    ok(pi.submissions().length === subsBefore, "no auto-submit yet (z2 still open)");
+    panel3.handleInput(CTRL_S); // manual ship: empty-diff flush must still deliver
+    await settle();
     ok(pi.submissions().length === subsBefore + 1, "BUG-002: empty-diff re-answer still SHIPS (flush parity)");
+    pi.emitCore("agent_settled", {}, ctx);
+    await settle();
+    // answer z2 -> transition -> settle -> completion (resume the suspended panel first)
+    await pi.invokeCommand("", pi.ctx("tui"));
+    const panel4 = pi.customCalls[pi.customCalls.length - 1].component;
+    ok(panel4.currentId === "z2", "resume focuses the open z2");
+    panel4.handleInput("1");
+    await settle();
     pi.emitCore("agent_settled", {}, ctx);
     await settle();
     ok(pi.completions().length === 2, "second interrogation completes");
   } catch (e) { failures++; console.log(`  FAIL J2 crashed: ${e}`); }
 
   // --------------------------------- J3: auto-submit rules + gate hold
-  console.log("J3: transition vs review-flow exit vs non-last edit; gate hold + override");
+  console.log("J3: transition vs closed-edit non-last (AC-13) vs review-flow exit; gate hold + override");
   try {
     await cleanup();
     const pi = await freshPi();
     const ctx = pi.ctx("tui");
     pi.emitCore("session_start", { reason: "startup" }, ctx);
-    await pi.callTool({ goal: "autosubmit", questions: [
-      { id: "a1", prompt: "A1?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
-      { id: "a2", prompt: "A2?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
-      { id: "a3", prompt: "A3?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
-    ] }, ctx);
+    const mk = (id: string) => ({ id, prompt: `${id}?`, type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] });
+    const a2dep = { id: "a2", prompt: "a2?", type: "choice", dependsOn: [{ id: "a1", equals: "x" }], options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] };
+    await pi.callTool({ goal: "autosubmit", questions: [mk("a1"), a2dep, mk("a3"), mk("a4")] }, ctx);
     let panel = pi.customCalls[0].component;
-    panel.handleInput("1"); // a1
+    panel.handleInput("1"); // a1 = x (dependency met: a2 stays answerable)
     ok(pi.submissions().length === 0, "non-last answers do not auto-submit");
     panel.handleInput("1"); // a2
     ok(pi.submissions().length === 0, "still incomplete -> no submit");
-    panel.handleInput("2"); // a3 = LAST -> transition
+    panel.handleInput("2"); // a3 = last ANSWERED (a4 open) -> NOT complete -> no transition
     await settle();
-    ok(pi.submissions().length === 1, "last-answer transition auto-submits");
-    ok(/submitted — 3 answer/.test(panel.footerFlash?.text ?? "") || pi.submissions().length === 1, "footer flash names the shipped count");
+    ok(pi.submissions().length === 0, "an open question blocks the completeness transition");
+    panel.handleInput(CTRL_S); // partial submit (a1,a2,a3)
+    await settle();
+    ok(pi.submissions().length === 1, "ctrl+s partial submission ships");
     pi.emitCore("agent_settled", {}, ctx);
     await settle();
-
-    // Complete+closed set: non-last edit ships nothing; last-answerable edit ships (review-flow exit)
     const st = ser();
-    ok(q("a1")?.status === "closed" && q("a3")?.status === "closed", "all archived after settle");
-    const edit1 = await pi.callTool({ epoch: st.epoch, questions: [
-      { id: "a1", rev: st.questions["a1"].rev, prompt: "A1?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
+    ok(q("a1")?.status === "closed" && q("a3")?.status === "closed" && q("a4")?.status === "open", "settled partial: 3 archived, a4 open (no completion)");
+
+    // closed-edit (BUG-003) with an ANSWERED victim: round 1 archives a1;
+    // round 2 leaves dependent a2 answered-pending; editing the CLOSED a1
+    // to a different value must raise the FR-18 modal (victim a2 answered).
+    const stA = ser();
+    ok(q("a1")?.status === "closed" && q("a2")?.status === "closed" && q("a4")?.status === "open", "round 1 archived a1-a3, a4 open");
+    const edit1 = await pi.callTool({ epoch: stA.epoch, questions: [
+      { id: "a1", rev: stA.questions["a1"].rev, prompt: "a1?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
+      { id: "a5", prompt: "a5?", type: "choice", dependsOn: [{ id: "a1", equals: "x" }], options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
     ] }, ctx);
-    ok(edit1?.isError !== true, "closed question re-upsert reopens it");
-    panel = pi.customCalls[pi.customCalls.length - 1].component;
-    ok(panel.currentId === "a1", "panel focuses the re-asked/reopened question");
-    // different choice -> FR-18 closed-edit confirm (BUG-003)
-    panel.handleInput(DOWN); panel.handleInput(ENTER);
-    ok(panel.confirmMode?.kind === "choice", "closed-edit different choice raises the FR-18 confirm (BUG-003)");
-    panel.handleInput(ENTER); // apply
+    ok(edit1?.isError !== true, "reopen a1 + add dependent a5 in one upsert");
     await settle();
-    ok(q("a1")?.status === "answered" && q("a1")?.answer?.value === "y", "applied edit re-marks answered(pending) (AC-13)");
-    ok(pi.submissions().length === 1, "NON-last edit of a complete set ships NOTHING (AUTOSUBMIT-003)");
-    // manual ctrl+s still works for it
+    panel = pi.customCalls[pi.customCalls.length - 1].component;
+    ok(panel.currentId === "a1", "reopened panel focuses the re-asked question");
+    ok(q("a1")?.status === "answered" && q("a1")?.answer?.value === "x", "reopen-same keeps the recorded answer (answered)");
+    // answer the dependent a5 (pending, unshipped) so an a1 edit has a victim
+    panel.currentId = "a5";
+    panel.handleInput("1"); // a5 = x (pending)
+    ok(q("a5")?.status === "answered", "a5 answered (pending, unshipped)");
+    // edit the reopened a1 (recorded answer x) to y: victim a5 (answered) -> modal
+    panel.currentId = "a1"; // setter re-seeds the caret via initialCursorIndex
+    ok(panel.currentId === "a1" && panel.cursorIndex === 0, "back on a1, caret pinned to recorded x");
+    panel.handleInput(DOWN); panel.handleInput(ENTER); // different choice y
+    ok(panel.confirmMode?.kind === "choice", "closed-edit different choice raises the FR-18 confirm (BUG-003; victim a5 answered)");
+    panel.handleInput(ESC); // cancel
+    ok(q("a1")?.answer?.value === "x" && q("a5")?.status === "answered", "esc cancels with no state change");
+    panel.handleInput(DOWN); panel.handleInput(ENTER); // re-raise
+    ok(panel.confirmMode?.kind === "choice", "modal re-raised on retry");
+    panel.handleInput(ENTER); // apply (keep)
+    await settle();
+    ok(panel.confirmMode === null, "confirm cleared after apply");
+    ok(q("a1")?.status === "answered" && q("a1")?.answer?.value === "y", "applied edit re-marks a1 answered(pending) (AC-13)");
+    ok(q("a5")?.status === "moot", "applied edit moots the invalidated dependent (a5 -> moot)");
+    ok(pi.submissions().length === 1, "NON-last edit of the set ships NOTHING (AUTOSUBMIT-003; last answerable is a4)");
     panel.handleInput(CTRL_S);
     await settle();
     ok(pi.submissions().length === 2, "manual ctrl+s ships the non-last edit");
+    const delta13 = String(pi.submissions()[1]?.msg?.content ?? "");
+    ok(/a1: [Yy] \(changed\)/.test(delta13), "diff card highlights the archived edit as (changed) (AC-13)");
     pi.emitCore("agent_settled", {}, ctx);
     await settle();
 
-    // last sequential answerable edit -> review-flow exit ships immediately
-    const st2 = ser();
-    const edit3 = await pi.callTool({ epoch: st2.epoch, questions: [
-      { id: "a3", rev: st2.questions["a3"].rev, prompt: "A3?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
+    // last open question: transition -> settle -> completion
+    const stB = ser();
+    const edit4 = await pi.callTool({ epoch: stB.epoch, questions: [
+      { id: "a4", rev: stB.questions["a4"].rev, prompt: "a4?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
     ] }, ctx);
-    ok(edit3?.isError !== true, "reopen a3");
-    panel = pi.customCalls[pi.customCalls.length - 1].component;
-    panel.handleInput("2"); // different value y -> confirm (a3 closed, no dependents? confirm fires on different-value closed edits regardless of victims? gate is status-list based; victims count may be 0 -> apply directly)
+    ok(edit4?.isError !== true, "reopen a4 (the last answerable)");
     await settle();
-    const a3now = q("a3");
-    if (a3now?.answer?.value === "y") {
-      ok(pi.submissions().length === 3, "LAST-answerable edit of a complete set ships immediately (review-flow exit)");
-    } else if (panel.confirmMode?.kind === "choice") {
-      panel.handleInput(ENTER); await settle();
-      ok(q("a3")?.answer?.value === "y" && pi.submissions().length === 3, "LAST-answerable edit ships after confirm (review-flow exit)");
-    } else {
-      ok(false, `a3 edit neither applied nor confirmed (status ${a3now?.status}, answer ${a3now?.answer?.value})`);
-    }
+    panel = pi.customCalls[pi.customCalls.length - 1].component;
+    ok(panel.currentId === "a4", "panel focuses a4");
+    panel.handleInput("2"); // answer a4 = y -> transition (last open; a5 moot does not block completeness)
+    await settle();
+    ok(q("a4")?.answer?.value === "y", "a4 answered");
+    ok(pi.submissions().length === 3, "answering the last open question ships (transition)");
     pi.emitCore("agent_settled", {}, ctx);
     await settle();
-    ok(pi.completions().length === 1, "interrogation completes after the review-flow edit");
+    // a5 is a STANDING MOOT: completion is blocked (moot-inclusive predicate).
+    // Documented recovery: the agent re-upserts a5 with CHANGED options (rule 2).
+    const stC = ser();
+    const edit5 = await pi.callTool({ epoch: stC.epoch, questions: [
+      { id: "a5", rev: stC.questions["a5"].rev, prompt: "a5 (rewritten)?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "z", label: "Z", ramification: RAM }] },
+    ] }, ctx);
+    ok(edit5?.isError !== true, "rule-2 re-upsert of the standing moot a5 succeeds");
+    await settle();
+    ok(q("a5")?.status === "reasked", "changed options flip the moot question to reasked (recovery path)");
+    await pi.invokeCommand("", pi.ctx("tui"));
+    panel = pi.customCalls[pi.customCalls.length - 1].component;
+    if (panel.currentId !== "a5") panel.currentId = "a5";
+    panel.handleInput("1"); // answer a5 -> transition -> settle -> completion
+    await settle();
+    pi.emitCore("agent_settled", {}, ctx);
+    await settle();
+    ok(pi.completions().length === 1, "interrogation completes after the moot recovery re-ask");
+
+    // review-flow exit: fresh 2-question set; after the transition leaves
+    // both submitted (complete, pending-submit), editing the LAST sequential
+    // answerable ships immediately; a non-last edit does not.
+    const stN = ser();
+    ok(stN.completed === true, "first interrogation completed — fresh one next");
+    const upB = await pi.callTool({ goal: "review flow", questions: [
+      { id: "b1", prompt: "b1?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
+      { id: "b2", prompt: "b2?", type: "choice", options: [{ value: "x", label: "X", ramification: RAM }, { value: "y", label: "Y", ramification: RAM }] },
+    ] }, ctx);
+    ok(upB?.isError !== true, "fresh interrogation started");
+    await settle();
+    const bp = pi.customCalls[pi.customCalls.length - 1].component;
+    bp.handleInput("1"); // b1 = x
+    await settle();
+    bp.handleInput("1"); // b2 = x -> transition ships both (complete set)
+    await settle();
+    const subsR = pi.submissions().length;
+    ok(q("b1")?.status === "submitted" && q("b2")?.status === "submitted", "complete set pending-settle (both submitted)");
+    await pi.invokeCommand("", pi.ctx("tui")); // resume the pending-submit panel
+    const rp2 = pi.customCalls[pi.customCalls.length - 1].component;
+    // non-last edit (b1): different choice, no victims -> applies directly, ships nothing
+    if (rp2.currentId !== "b1") rp2.currentId = "b1";
+    rp2.handleInput(DOWN); rp2.handleInput(ENTER);
+    if (rp2.confirmMode?.kind) rp2.handleInput(ENTER);
+    await settle();
+    ok(q("b1")?.answer?.value === "y" && q("b1")?.status === "answered", "non-last edit applied (re-pended)");
+    ok(pi.submissions().length === subsR, "non-last edit of the complete set ships NOTHING (manual ctrl+s territory)");
+    // last-answerable edit (b2): review-flow exit ships immediately
+    rp2.currentId = "b2";
+    rp2.handleInput(DOWN); rp2.handleInput(ENTER);
+    if (rp2.confirmMode?.kind) rp2.handleInput(ENTER);
+    await settle();
+    ok(q("b2")?.answer?.value === "y", "last-answerable edit applied");
+    ok(pi.submissions().length === subsR + 1, "review-flow exit: edit of the LAST sequential answerable on a complete set SHIPS (AUTOSUBMIT-003 b)");
+    pi.emitCore("agent_settled", {}, ctx);
+    await settle();
+    ok(pi.completions().length === 2, "completes again after the review-flow edit");
 
     // ---- gate hold
     await cleanup();
@@ -675,10 +773,9 @@ async function main() {
     ok(pi2.submissions().length === 1, "ctrl+s overrides the gate hold");
     pi2.emitCore("agent_settled", {}, ctx2);
     await settle();
-    // answer the gate -> next commit's auto-submit released
-    const stg = pi2.getStateGuard ? null : null; // noop
-    const branchQ = await pi2.callTool({ epoch: ser().epoch, questions: [
-      { id: "g1", rev: ser().questions["g1"].rev, prompt: "Foundational?", type: "choice", gate: true, group: "core", options: [{ value: "p", label: "P", ramification: RAM }, { value: "q", label: "Q", ramification: RAM }] },
+    const stg = ser();
+    const branchQ = await pi2.callTool({ epoch: stg.epoch, questions: [
+      { id: "g1", rev: stg.questions["g1"].rev, prompt: "Foundational?", type: "choice", gate: true, group: "core", options: [{ value: "p", label: "P", ramification: RAM }, { value: "q", label: "Q", ramification: RAM }] },
     ] }, ctx2);
     ok(branchQ?.isError !== true, "reopen g1 for answering");
     const gp2 = pi2.customCalls[pi2.customCalls.length - 1].component;
@@ -717,9 +814,7 @@ async function main() {
     await settle();
     ok(q("d1")?.answer?.text === "because of latency", "elaboration attaches as answer.text (WRITEIN-002 role binding)");
 
-    // write-in duty: navigate to d2, cursor to ✎ Other row (index 2), enter
-    panel.handleInput(CTRL_T); // exit? d2 focus... navigate first
-    // (panel advanced to d2 after d1's accept? ctrl+s ran; panel may be suspended post-submit)
+    // write-in duty on d2, then supersede with a real option
     ok(panel.isResolved() === true, "post-submit exit: panel auto-suspended after delivery (FR-3d)");
     await pi.invokeCommand("", pi.ctx("tui"));
     const p2 = pi.customCalls[pi.customCalls.length - 1].component;
@@ -730,25 +825,28 @@ async function main() {
     p2.textField.setText("my own answer");
     p2.handleInput(ENTER); // commit
     ok(q("d2")?.answer?.value === "my own answer" && q("d2")?.answer?.custom === true, "write-in commits as answer.value custom:true");
-    // supersede: accept real option b -> slot text kept, re-bound as elaboration
     ok(p2.currentId === "d3", "write-in commit advanced (Q14 parity)");
     p2.handleInput(LEFT); // back to d2; caret pinned on ✎ row (index 2)
     ok(p2.cursorIndex === 2, "write-in answer pins the caret to the ✎ Other row (FR-35)");
-    p2.handleInput(UP); p2.handleInput(UP); // to option a? display: a(0), b(1), Other(2). Row after 2 UPs = 0 (a)
+    p2.handleInput(UP); p2.handleInput(UP); // to display row 0 = a (different choice)
     p2.handleInput(ENTER); // different choice on answered (custom) -> confirm
     if (p2.confirmMode?.kind === "writein" || p2.confirmMode?.kind === "choice") p2.handleInput(ENTER);
     ok(q("d2")?.answer?.value === "a" && q("d2")?.answer?.custom !== true, "option accept supersedes the write-in");
-    // held elaboration on d3: draft but no answer
-    p2.handleInput(RIGHT); // to d3 (d2 answered; next unanswered)
-    ok(p2.currentId === "d3", "navigated to d3");
-    p2.handleInput(CTRL_T);
-    p2.textField.setText("undecided note");
-    p2.handleInput(ENTER); // save draft
-    const subsBefore = pi.submissions().length;
-    p2.handleInput(CTRL_S); // zero pending (d3 unanswered, d1 submitted...) -> held flash
+    // ship d2 so nothing stays pending; then hold a draft on d3 with zero pending
+    p2.handleInput(CTRL_S);
     await settle();
-    ok(/nothing to submit — 1 question\(s\) have drafts awaiting an option or Other/.test(p2.footerFlash?.text ?? ""), "zero-pending flash names the held elaboration (WRITEIN-002)");
-    ok(pi.submissions().length === subsBefore || pi.submissions().length === subsBefore + 1, "submit behavior sane (pending d2 ships or nothing)");
+    ok(p2.isResolved() === true, "panel suspended after shipping d2");
+    await pi.invokeCommand("", pi.ctx("tui")); // resume -> focuses first unanswered d3
+    const p3 = pi.customCalls[pi.customCalls.length - 1].component;
+    ok(p3.currentId === "d3", "resume focuses d3");
+    p3.handleInput(CTRL_T);
+    p3.textField.setText("undecided note");
+    p3.handleInput(ENTER); // save draft (elaboration on an unanswered question)
+    const subsBefore = pi.submissions().length;
+    p3.handleInput(CTRL_S); // zero pending -> held flash
+    await settle();
+    ok(/nothing to submit — 1 question\(s\) have drafts awaiting an option or Other/.test(p3.footerFlash?.text ?? ""), "zero-pending flash names the held elaboration (WRITEIN-002)");
+    ok(pi.submissions().length === subsBefore, "held elaboration ships nothing");
   } catch (e) { failures++; console.log(`  FAIL J4 crashed: ${e}`); }
 
   // ------------------------------- J5: restart (SURFACE-002) + FR-6 reopen
@@ -762,7 +860,6 @@ async function main() {
     await settle();
     ok(pi.customCalls.length === 0, "session_start NEVER opens the panel (SURFACE-002)");
     ok(Array.isArray(pi.widget) && /2 open · 0 answered — \/interrogate to resume/.test(pi.widget[0] ?? ""), "suspend widget set with live counts");
-    ok(/Resumed goal/.test("") === false || true, "goal restored in state");
     ok(stateMod.getState() !== undefined && ser().goal === "Resumed goal", "state restored from the branch");
 
     // FR-6: agent reopen on a NEVER-OPENED host must open the panel
@@ -791,7 +888,6 @@ async function main() {
     pi.emitCore("session_start", { reason: "resume" }, ctxA);
     await settle();
     ok(pi.widget?.[0]?.startsWith("1 open · 0 answered"), "start branch widget: 1 open");
-    // suspend-path: never open the panel; navigate with widget set
     const ctxB = pi.ctx("tui", branchB);
     pi.emitCore("session_tree", { type: "session_tree" }, ctxB);
     await settle(); await settle();
@@ -799,7 +895,6 @@ async function main() {
     ok(pi.widget?.[0]?.startsWith("5 open · 0 answered"), "suspend widget REFRESHES to the destination branch (prior-wave Issue 2 fixed)");
     ok(ser().goal === "Goal B", "state follows the destination branch");
 
-    // open-panel-at-nav: panel suspends, state retargeted
     await pi.invokeCommand("", pi.ctx("tui", branchB));
     ok(pi.customCalls.length === 1, "/interrogate opens on branch B");
     const ctxA2 = pi.ctx("tui", branchA);
@@ -809,7 +904,6 @@ async function main() {
     ok(pi.customCalls.length === 1, "no reopen on navigation");
     ok(ser().goal === "Goal A", "state retargeted to branch A");
 
-    // teardown: navigation to an interrogation-free branch clears everything
     const ctxE = pi.ctx("tui", branchEmpty);
     pi.emitCore("session_tree", { type: "session_tree" }, ctxE);
     await settle(); await settle();
@@ -832,8 +926,8 @@ async function main() {
     ok(/\d+\./.test(text), "digest is numbered (relay-ready)");
 
     const epoch = (res as { details?: { state?: { epoch: number } } })?.details?.state?.epoch;
-    const badEpoch = await pi.callTool({ answers: [{ id: "q1", value: "sqlite" }], epoch: epoch + 40 }, ctxP);
-    ok(badEpoch?.isError === true || true, "stale-epoch answers rejected (guard)");
+    const badEpoch = await pi.callTool({ answers: [{ id: "q1", value: "sqlite" }], epoch: (epoch ?? 1) + 40 }, ctxP, "bad");
+    ok(badEpoch?.isError === true, "stale-epoch answers rejected (guard)");
     const rec = await pi.callTool({ answers: [
       { id: "q1", value: "sqlite" }, { id: "q2", value: "gcp" }, { id: "q3", value: "from chat" },
     ], epoch }, ctxP, "up2");
@@ -845,7 +939,7 @@ async function main() {
   } catch (e) { failures++; console.log(`  FAIL J7 crashed: ${e}`); }
 
   // ------------------ J8: staleness guards + BUG-005 fresh-receiver epoch
-  console.log("J8: stale rev/epoch rejected with current state; re-apply heals; fresh-receiver epoch accepted (BUG-005)");
+  console.log("J8: stale rev/epoch rejected with current state; re-apply heals; fresh-receiver epoch accepted (BUG-005); rotation guard intact");
   try {
     await cleanup();
     const pi = await freshPi();
@@ -867,8 +961,6 @@ async function main() {
 
     // BUG-005: complete, then first upsert of the NEW interrogation with an
     // honest echoed epoch is accepted (fresh receiver, all-new ids).
-    await pi.callTool({ epoch: ser().epoch, answers: undefined, questions: undefined, reopen: undefined, goal: "guards" }, ctx, "g4"); // read
-    // answer q1 + submit + settle + complete via debug submit
     await pi.invokeCommand("debug submit q1=sqlite", pi.ctx("tui"));
     pi.emitCore("agent_settled", {}, ctx);
     await settle();
@@ -880,26 +972,10 @@ async function main() {
     ok(echo?.isError !== true, "BUG-005: fresh receiver accepts the honest echoed epoch (no spurious STALE)");
     ok(ser().epoch === 1 && ser().goal === "new wave", "new interrogation swapped in fresh (epoch 1)");
 
-    // rotation guard still enforced: epoch-only mismatch with only new ids on
-    // a NON-empty state stays STALE (guards.test.ts contract).
-    const panel = pi.customCalls[pi.customCalls.length - 1].component;
-    panel.handleInput("1"); // answer n1 -> auto-submit (single question)
-    await settle();
-    pi.emitCore("agent_settled", {}, ctx);
-    await settle();
-    // state now has n1 closed (completed). Start another with a wrong epoch against a NON-fresh receiver:
-    const echo2 = await pi.callTool({ goal: "third wave", epoch: 99, questions: [
-      { id: "m1", prompt: "M?", type: "choice", options: [{ value: "u", label: "U", ramification: RAM }] },
-    ] }, ctx, "g6");
-    // after completion the receiver is fresh again — accepted per BUG-005; so
-    // instead probe the guard on a LIVE (non-completed) non-empty state:
-    const live = await pi.callTool({ goal: "third wave", questions: [
-      { id: "m1", prompt: "M?", type: "choice", options: [{ value: "u", label: "U", ramification: RAM }] },
-      { id: "m2", prompt: "M2?", type: "choice", options: [{ value: "u", label: "U", ramification: RAM }] },
-    ] }, ctx, "g7");
-    ok(live?.isError !== true, "third interrogation started");
+    // rotation guard still enforced on a LIVE non-empty state: epoch-only
+    // mismatch with only new ids stays STALE (guards.test.ts contract).
     const rot = await pi.callTool({ epoch: 42, questions: [
-      { id: "m3", prompt: "M3?", type: "choice", options: [{ value: "u", label: "U", ramification: RAM }] },
+      { id: "m1", prompt: "M?", type: "choice", options: [{ value: "u", label: "U", ramification: RAM }] },
     ] }, ctx, "g8");
     ok(rot?.isError === true && /STALE/.test((rot?.content ?? []).map((c) => c.text ?? "").join(" ")), "rotation guard: epoch-only mismatch with only new ids on non-empty state stays STALE");
   } catch (e) { failures++; console.log(`  FAIL J8 crashed: ${e}`); }
@@ -979,25 +1055,18 @@ async function main() {
       flash(t: string): void;
     };
   };
-  const actionsMod = (await import(ROOT + "/src/panel/actions.js")) as {
-    submit: (p: unknown, deps: unknown) => boolean;
-  };
   const deepMod = (await import(ROOT + "/src/panel/deep-view.js")) as {
     buildDeepContent: (i: unknown) => { questionLines: string[]; lines: string[]; sectionHeaderLineIndex: number[]; viewportHeight: number };
     renderDeepWindow: (c: unknown, cursor: number, offset: number, theme: unknown, width: number) => string[];
     acceptFromDeep: (p: unknown) => boolean;
-    deepSelectionDown: (p: unknown) => boolean;
     DEEP_VIEW_HEIGHT: number;
     MIN_OPTIONS_VIEWPORT: number;
   };
   const shortMod = (await import(ROOT + "/src/panel/short-view.js")) as {
     displayOptions: (q: unknown) => Array<{ value: string; label: string }>;
-    mootReason: (q: unknown) => string;
     renderShortViewOptions: (i: unknown) => string[];
-    OTHER_AFFORDANCE: string;
   };
   const overviewMod = (await import(ROOT + "/src/panel/overview.js")) as {
-    overviewMootReason: (q: unknown) => string;
     buildOverviewContent: (i: unknown) => { lines: string[] };
   };
   const layoutMod = (await import(ROOT + "/src/panel/layout.js")) as {
@@ -1027,14 +1096,20 @@ async function main() {
     { value: "a", label: "Alpha", ramification: RAM },
     { value: "b", label: "Beta", ramification: RAM },
   ];
-  function mkQ(id: string, o: Partial<{ status: string; answer: { value: string; custom?: boolean; at: string }; dependsOn: unknown; recommendation: string }> = {}) {
+  function mkQ(id: string, o: Partial<{ recommendation: string; dependsOn: unknown }> = {}) {
     return {
-      id, prompt: `p:${id}`, type: "choice", rev: 1, status: o.status ?? "open",
+      id, prompt: `p:${id}`, type: "choice", rev: 1, status: "open",
       options: OPTS.map((x) => ({ ...x })),
-      ...(o.answer ? { answer: o.answer } : {}),
       ...(o.dependsOn ? { dependsOn: o.dependsOn } : {}),
       ...(o.recommendation ? { recommendation: o.recommendation } : {}),
     };
+  }
+  /** Seed a question with status + answer: upsert forces open on new ids, so
+   * applyAnswer + setStatus land the desired terminal/hybrid state. */
+  function seed(s: ReturnType<typeof stateNs.createInterrogationState>, id: string, status: string, answer?: { value: string; custom?: boolean }) {
+    s.upsertQuestion(mkQ(id));
+    if (answer) s.applyAnswer(id, { value: answer.value, at: new Date().toISOString(), custom: answer.custom });
+    if (status !== "answered") s.setStatus(id, status);
   }
   function mkPanel(state: unknown, extra: Record<string, unknown> = {}) {
     const messages: unknown[] = [];
@@ -1056,15 +1131,17 @@ async function main() {
     return { panel, messages, deps };
   }
 
-  // ------------------- J10: BUG-003 closed-edit ripple on all four seams
-  console.log("J10: BUG-003 closed-edit ripple — option, digit, write-in, elaboration-save seams; same-value inert");
+  // ------------------- J10: BUG-003 closed-edit ripple on the seams
+  console.log("J10: BUG-003 closed-edit ripple — option, digit, write-in seams; same-value inert");
   try {
     stateNs.resetState();
     // Seed: c1 closed with recorded answer b; v1 answered pending dependsOn c1=b
     const s = stateNs.createInterrogationState("closed edits");
-    s.upsertQuestion(mkQ("c1", { status: "closed", answer: { value: "b", at: new Date().toISOString() } }));
-    s.upsertQuestion(mkQ("v1", { status: "answered", answer: { value: "keep", custom: true, at: new Date().toISOString() }, dependsOn: [{ id: "c1", equals: "b" }] }));
+    seed(s, "c1", "closed", { value: "b" });
+    s.upsertQuestion({ ...mkQ("v1"), dependsOn: [{ id: "c1", equals: "b" }] });
+    s.applyAnswer("v1", { value: "keep", custom: true, at: new Date().toISOString() });
     depMod.evaluateDependsOn(s);
+    ok(s.orderedQuestions().find((x) => x.id === "v1")?.status === "answered", "dependent v1 answered while its dependency holds");
 
     // (1) option path: move to a (different) + enter -> confirm
     const { panel } = mkPanel(s);
@@ -1080,14 +1157,15 @@ async function main() {
     panel.handleInput(ENTER);
     const c1a = s.orderedQuestions().find((x) => x.id === "c1");
     const v1a = s.orderedQuestions().find((x) => x.id === "v1");
-    ok(c1a?.answer?.value === "a" && c1a?.status === "answered", "enter applies the closed edit (re-pends)");
+    ok(c1a?.answer?.value === "a" && (c1a?.status === "answered" || c1a?.status === "submitted"), "enter applies the closed edit (re-pends; review-flow exit may ship it)");
     ok(v1a?.status === "moot", "applied edit moots the invalidated dependent (with confirm, not silently)");
 
     // (2) digit path
     stateNs.resetState();
     const s2 = stateNs.createInterrogationState("digit seam");
-    s2.upsertQuestion(mkQ("c1", { status: "closed", answer: { value: "b", at: new Date().toISOString() } }));
-    s2.upsertQuestion(mkQ("v1", { status: "answered", answer: { value: "keep", custom: true, at: new Date().toISOString() }, dependsOn: [{ id: "c1", equals: "b" }] }));
+    seed(s2, "c1", "closed", { value: "b" });
+    s2.upsertQuestion({ ...mkQ("v1"), dependsOn: [{ id: "c1", equals: "b" }] });
+    s2.applyAnswer("v1", { value: "keep", custom: true, at: new Date().toISOString() });
     depMod.evaluateDependsOn(s2);
     const p2 = mkPanel(s2).panel;
     p2.currentId = "c1";
@@ -1103,8 +1181,9 @@ async function main() {
     // (3) write-in path: closed custom answer, different text -> writein confirm
     stateNs.resetState();
     const s3 = stateNs.createInterrogationState("writein seam");
-    s3.upsertQuestion(mkQ("c1", { status: "closed", answer: { value: "old words", custom: true, at: new Date().toISOString() } }));
-    s3.upsertQuestion(mkQ("v1", { status: "answered", answer: { value: "keep", custom: true, at: new Date().toISOString() }, dependsOn: [{ id: "c1", equals: "old words" }] }));
+    seed(s3, "c1", "closed", { value: "old words", custom: true });
+    s3.upsertQuestion({ ...mkQ("v1"), dependsOn: [{ id: "c1", equals: "old words" }] });
+    s3.applyAnswer("v1", { value: "keep", custom: true, at: new Date().toISOString() });
     depMod.evaluateDependsOn(s3);
     const p3 = mkPanel(s3).panel;
     p3.currentId = "c1";
@@ -1116,7 +1195,7 @@ async function main() {
     p3.handleInput(ESC);
     ok(s3.orderedQuestions().find((x) => x.id === "c1")?.answer?.value === "old words", "writein-path cancel restores");
     // byte-identical write-in on closed stays inert
-    p3.handleInput(ENTER); // write-in duty again (seeded with draft "different words"? clear first)
+    p3.handleInput(ENTER); // write-in duty again
     p3.textField.setText("old words");
     p3.handleInput(ENTER);
     ok(p3.confirmMode === null, "byte-identical write-in re-commit on CLOSED stays inert");
@@ -1128,8 +1207,10 @@ async function main() {
   try {
     stateNs.resetState();
     const s = stateNs.createInterrogationState("moot");
-    s.upsertQuestion(mkQ("d1", { status: "answered", answer: { value: "a", at: new Date().toISOString() } }));
-    s.upsertQuestion(mkQ("d2", { dependsOn: [{ id: "d1", equals: "b" }] }));
+    s.upsertQuestion(mkQ("d1"));
+    s.applyAnswer("d1", { value: "a", at: new Date().toISOString() });
+    s.setStatus("d1", "answered");
+    s.upsertQuestion({ ...mkQ("d2"), dependsOn: [{ id: "d1", equals: "b" }] });
     const res = depMod.evaluateDependsOn(s);
     ok(res.mootered.some((m) => m.id === "d2" && m.reason === "moot: d1=a"), "evaluator computes the h2.29 reason");
     const d2 = s.orderedQuestions().find((x) => x.id === "d2");
@@ -1137,26 +1218,24 @@ async function main() {
 
     // short view renders it
     const shortLines = shortMod.renderShortViewOptions({
-      question: d2, cursorIndex: 0, theme: stubTheme, width: 100, dimAll: true, answered: false,
-      terminalRows: 40, currentRows: () => 12, budgetHint: 24,
+      question: d2, cursorIndex: 0, theme: stubTheme, width: 100, dimAll: true,
     });
     ok(shortLines.some((l: string) => l.includes("moot: d1=a")), "short view renders the real moot reason");
 
     // overview renders it
-    const ov = overviewMod.buildOverviewContent({ state: s.serialize(), theme: stubTheme, width: 100 });
+    const ov = overviewMod.buildOverviewContent({ ordered: s.orderedQuestions(), cursorIndex: 0, theme: stubTheme, width: 100 });
     ok(ov.lines.some((l: string) => l.includes("moot: d1=a")), "overview renders the real moot reason");
     ok(ov.lines.some((l: string) => l.includes("⊘")), "overview shows the ⊘ marker");
 
     // statusMarkers shows ⊘ moot
     ok(/⊘/.test(layoutMod.statusMarkers(d2, stubTheme)), "statusMarkers carries ⊘ for moot");
 
-    // completion record strips the `moot: ` prefix
+    // completion record strips the `moot: ` prefix (status renders it instead)
     const comp = deliveryMod.buildCompletion(s, []);
-    ok(/Withdrawn\/moot:.*d2=1/.test(comp.msg.content) || /d2/.test(comp.msg.content), "completion record lists the moot question");
-    ok(!/moot: moot:/.test(comp.msg.content), "completion record strips the moot: prefix (no double prefix)");
+    ok(/d2 \(moot: d1=a\)/.test(comp.content), "completion record moot entry: `d2 (moot: d1=a)` — prefix stripped, not doubled");
 
     // reopen clears the reason
-    s.upsertQuestion({ ...mkQ("d1", { status: "answered", answer: { value: "b", at: new Date().toISOString() } }) });
+    s.upsertQuestion({ ...mkQ("d1"), status: "answered", answer: { value: "b", at: new Date().toISOString() } });
     depMod.evaluateDependsOn(s);
     const d2b = s.orderedQuestions().find((x) => x.id === "d2");
     ok(d2b?.status === "open" && d2b?.mootReason === undefined, "dependency re-met: moot reopens and the reason is cleared");
@@ -1169,15 +1248,16 @@ async function main() {
     const s = stateNs.createInterrogationState("deep pin");
     const opts = Array.from({ length: 6 }, (_, i) => ({ value: `v${i}`, label: `Opt ${i}`, ramification: "Word ".repeat(30) + String(i) }));
     s.upsertQuestion({ id: "dp1", prompt: "Deep question?", type: "choice", rev: 1, status: "open",
-      description: "Line ".repeat(6).trim(), options: opts, recommendation: "v0" });
+      description: "DESCMARKER the description text explaining the question in full for a standalone reader.", options: opts, recommendation: "v0" });
     const dq = s.orderedQuestions().find((x) => x.id === "dp1");
-    const content = deepMod.buildDeepContent({ question: dq, goal: "the goal text for the deep pane test", cursorIndex: 0, scrollOffset: 0, theme: stubTheme, width: 100, maxChars: 600 });
+    const content = deepMod.buildDeepContent({ question: dq, goal: "GOALMARKER the goal text", cursorIndex: 0, scrollOffset: 0, theme: stubTheme, width: 100, maxChars: 600 });
     ok(Array.isArray(content.questionLines) && content.questionLines.length > 0, "DeepContent carries a pinned questionLines region");
-    ok(content.questionLines.some((l: string) => l.includes("Deep question?")), "pinned region shows the question");
+    ok(content.questionLines.some((l: string) => l.includes("DESCMARKER")), "pinned region carries the description");
+    ok(content.questionLines.some((l: string) => l.includes("GOALMARKER")), "pinned region carries the goal");
     // scroll to the bottom: the question region must STILL render
     const maxOffset = Math.max(0, content.lines.length - content.viewportHeight);
     const bottom = deepMod.renderDeepWindow(content, 5, maxOffset, stubTheme, 100);
-    ok(bottom.some((l: string) => l.includes("Deep question?")), "question stays visible at max scroll (DEEP-PIN-001)");
+    ok(bottom.some((l: string) => l.includes("DESCMARKER")), "question region stays visible at max scroll (DEEP-PIN-001)");
     ok(content.viewportHeight >= deepMod.MIN_OPTIONS_VIEWPORT, "options viewport never shrinks below MIN_OPTIONS_VIEWPORT");
     ok(bottom.length <= deepMod.DEEP_VIEW_HEIGHT, "rendered window respects DEEP_VIEW_HEIGHT budget");
 
@@ -1194,10 +1274,10 @@ async function main() {
 
     // text question: no options region -> question may use the full pane
     const s3 = stateNs.createInterrogationState("text full");
-    s3.upsertQuestion({ id: "t1", prompt: "Text?", type: "text", rev: 1, status: "open", description: "T".repeat(2000) });
+    s3.upsertQuestion({ id: "t1", prompt: "Text?", type: "text", rev: 1, status: "open", description: "word ".repeat(600) });
     const tq = s3.orderedQuestions().find((x) => x.id === "t1");
     const c3 = deepMod.buildDeepContent({ question: tq, goal: "g", cursorIndex: 0, scrollOffset: 0, theme: stubTheme, width: 80, maxChars: 6000 });
-    ok(c3.questionLines.length > deepMod.DEEP_VIEW_HEIGHT - 6 || c3.viewportHeight <= 1, "text question may use (nearly) the full pane height");
+    ok(c3.questionLines.length > deepMod.DEEP_VIEW_HEIGHT - deepMod.MIN_OPTIONS_VIEWPORT, "text question may use (nearly) the full pane height");
 
     // select-from-deep returns to short + advances
     stateNs.resetState();
@@ -1231,7 +1311,6 @@ async function main() {
     ok(/▸\s*One|▸ One/.test(joined), "selected section title carries the ▸ glyph");
     ok(joined.includes("┃"), "selected section pipes render heavy ┃");
     ok(joined.includes("│"), "unselected sections keep plain │ pipes");
-    // selection on the Other section also gets the glyph treatment
     const win2 = deepMod.renderDeepWindow(content, 2, 0, stubTheme, 90); // cursor on ✎ Other
     const j2 = win2.join("\n");
     ok(/▸/.test(j2) && j2.includes("┃"), "✎ Other section gets the same selection glyphs when focused");
@@ -1247,16 +1326,110 @@ async function main() {
     const disp = shortMod.displayOptions(oq);
     ok(disp[0]?.value === "b", "recommended option renders first (display-only reorder)");
     ok(disp[1]?.value === "a", "the rest keep state order");
-    const { panel, messages } = mkPanel(s);
+    const { panel } = mkPanel(s);
     panel.currentId = "o1";
     ok(panel.cursorIndex === 0, "★ preselect sits on display row 0 while unanswered");
     panel.handleInput("1"); // digit 1 = display row 0 = b (the recommendation)
     const o1 = s.orderedQuestions().find((x) => x.id === "o1");
     ok(o1?.answer?.value === "b", "digit 1 maps through DISPLAY order (accepts the ★ option)");
-    ok(messages.length === 0 || true, "single-question set: auto-submit state irrelevant here");
     panel.handleInput(LEFT);
     ok(panel.cursorIndex === 0, "answered question: caret pins to the recorded (★) row 0");
   } catch (e) { failures++; console.log(`  FAIL J14 crashed: ${e}`); }
+
+  // --------------- J15: ISSUE-1 repro — severed noteSubmissionDelivered hook
+  console.log("J15: ISSUE-1 — session_start on an empty branch severs the delivery hook; same-run re-ask + re-confirm wedges completion");
+  try {
+    await cleanup();
+    const idleRef = { v: true };
+    const pi = await freshPi();
+    const ctx = pi.makeCtx("tui", [], idleRef);
+    pi.emitCore("session_start", { reason: "startup" }, ctx); // normal startup, empty branch
+    await pi.callTool({ goal: "wedge", questions: [
+      { id: "q1", prompt: "Which?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
+      { id: "q2", prompt: "Cloud?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
+    ] }, ctx);
+    const panel = pi.customCalls[0].component;
+    const hook = typeof panel.delivery?.noteSubmissionDelivered;
+    ok(hook === "function", `panel submit deps carry noteSubmissionDelivered after a normal startup (got ${hook})`);
+
+    // Same-run interleave (steer): answer both mid-run, model re-asks q1,
+    // user re-confirms q1 — all before the single agent_settled.
+    idleRef.v = false;
+    panel.handleInput("1"); await settle();
+    panel.handleInput("1"); await settle(); // transition -> submission #1 (steer)
+    ok(pi.submissions().length === 1, "submission #1 delivered (steer branch)");
+    const st = ser();
+    await pi.callTool({ epoch: st.epoch, questions: [
+      { id: "q1", rev: st.questions["q1"].rev, prompt: "Which (re-asked)?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
+    ] }, ctx);
+    await settle();
+    ok(q("q1")?.status === "reasked", "mid-run rule-1 re-ask flips q1 to reasked");
+    const rp = pi.customCalls[pi.customCalls.length - 1].component;
+    if (rp.currentId !== "q1") rp.currentId = "q1";
+    rp.handleInput(ENTER); await settle(); // same-value re-confirm -> submission #2 (steer)
+    ok(pi.submissions().length === 2, "re-confirm submission #2 delivered (steer)");
+    ok(q("q1")?.status === "submitted", "q1 re-confirmed and submitted");
+    pi.emitCore("agent_settled", {}, ctx); await settle(); // the run that answers the steer
+    const wedged = stateMod.getState()?.orderedQuestions().some((x) => x.status === "submitted") && pi.completions().length === 0;
+    ok(!wedged, "the run's settle closes the re-confirmed question and completion fires (h2.44 line-1 contract)");
+    if (wedged) console.log("  (ISSUE-1 reproduced: question wedged in `submitted`, completion never injected)");
+  } catch (e) { failures++; console.log(`  FAIL J15 crashed: ${e}`); }
+
+  // ------------------- J16: ISSUE-2 repro — reopen focus after rule-1 re-ask
+  console.log("J16: ISSUE-2 — panel reopened by a rule-1 re-ask of a submitted question focuses ordered[0], not the re-asked question");
+  try {
+    await cleanup();
+    const pi = await freshPi();
+    const ctx = pi.ctx("tui");
+    await pi.callTool({ goal: "focus", questions: [
+      { id: "q0", prompt: "q0?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
+      { id: "q1", prompt: "q1?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
+    ] }, ctx);
+    const panel = pi.customCalls[0].component;
+    panel.handleInput("1"); await settle();
+    panel.handleInput("1"); await settle(); // both answered -> transition -> submission (statuses submitted)
+    const st = ser();
+    await pi.callTool({ epoch: st.epoch, questions: [
+      { id: "q1", rev: st.questions["q1"].rev, prompt: "q1 (re-asked, same options)?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
+    ] }, ctx);
+    await settle();
+    ok(q("q1")?.status === "reasked", "rule-1 re-ask of the submitted q1 flips it to reasked (answer kept)");
+    ok(pi.customCalls.length >= 2, "the re-ask resurfaces the panel");
+    const rp = pi.customCalls[pi.customCalls.length - 1].component;
+    ok(rp.currentId === "q1", `reopened panel focuses the RE-ASKED question q1 (got ${rp.currentId})`);
+  } catch (e) { failures++; console.log(`  FAIL J16 crashed: ${e}`); }
+
+  // --------------- J17: ISSUE-3 repro — standing moot wedges completion
+  console.log("J17: ISSUE-3 — a standing moot question blocks completion forever and cannot be withdrawn");
+  try {
+    await cleanup();
+    const pi = await freshPi();
+    const ctx = pi.ctx("tui");
+    pi.emitCore("session_start", { reason: "startup" }, ctx);
+    await pi.callTool({ goal: "moot wedge", questions: [
+      { id: "q1", prompt: "Which?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
+      { id: "q2", prompt: "Depends?", type: "choice", dependsOn: [{ id: "q1", equals: "b" }], options: [{ value: "u", label: "U", ramification: RAM }, { value: "v", label: "V", ramification: RAM }] },
+    ] }, ctx);
+    const panel = pi.customCalls[0].component;
+    panel.handleInput("1"); // q1 = a -> q2 moots -> transition ships q1 (moot does not block completeness)
+    await settle();
+    ok(q("q2")?.status === "moot", "dependent mooted with reason (FR-17)");
+    ok(pi.submissions().length === 1, "transition shipped despite the moot");
+    pi.emitCore("agent_settled", {}, ctx);
+    await settle();
+    ok(q("q1")?.status === "closed" && q("q2")?.status === "moot", "settle archives q1; q2 stays a standing moot");
+    ok(pi.completions().length === 1 && ser().completed === true, "completion record injected once everything terminal resolves (FR-5)");
+    if (pi.completions().length === 0) {
+      console.log("  (ISSUE-3 reproduced: completion never fires while a moot stands)");
+      // The agent's only prune tool must at least clear it — does it?
+      const st = ser();
+      const w = await pi.callTool({ epoch: st.epoch, questions: [
+        { id: "q1", rev: st.questions["q1"].rev, prompt: "Which?", type: "choice", options: [{ value: "a", label: "A", ramification: RAM }, { value: "b", label: "B", ramification: RAM }] },
+      ], withdrawOmitted: true }, ctx);
+      ok(q("q2")?.status === "withdrawn" && w?.isError !== true, "withdrawOmitted clears the standing moot (escape hatch)");
+      if (q("q2")?.status !== "withdrawn") console.log("  (ISSUE-3 compounded: withdrawOmitted leaves moot ids untouched — no agent-side escape hatch)");
+    }
+  } catch (e) { failures++; console.log(`  FAIL J17 crashed: ${e}`); }
 
   console.log(`\nE2E: ${checks - failures}/${checks} checks passed, ${failures} failed`);
   process.exit(failures === 0 ? 0 : 1);

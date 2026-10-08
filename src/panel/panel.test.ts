@@ -257,6 +257,35 @@ describe("openPanel — fire-and-forget host", () => {
     expect(panel.delivery?.isIdle()).toBe(true);
   });
 
+  // REGRESSION (validation Issue 1, 2026-10-07): reconstruction's no-traces
+  // branch (session_start on an empty branch — the normal startup, and every
+  // /tree hop through an interrogation-free branch) calls host.dispose() →
+  // resetHostRecord, which used to clear the captured lifecycle hook. Every
+  // panel opened afterwards then built SubmitDeps WITHOUT
+  // noteSubmissionDelivered, so submissions never reset the auto-close
+  // engine's per-run flags (h2.44 line 1) — a same-run re-ask + re-confirm
+  // wedged the question in `submitted` and completion never fired. The hook
+  // is factory-time wiring and must survive host resets.
+  test("test_panel_deps_keep_noteSubmissionDelivered_after_host_dispose", () => {
+    const { lifecycle } = makeMockLifecycle();
+    const host = createPanelHost(lifecycle, { sendMessage: vi.fn() });
+
+    host.dispose(); // the no-traces reconstruction branch (empty branch)
+
+    const mock = makeMockPi();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    expect(openPanel(mock.pi, optsFor(state))).toBe(true);
+    const panel = firstCall(mock).component;
+    expect(panel.delivery).toBeDefined();
+    expect(panel.delivery?.noteSubmissionDelivered).toBeTypeOf("function");
+
+    // The bound hook routes to the LIFECYCLE's engine reset (never the
+    // dismiss path) — the exact h2.44 line-1 contract the submit tail calls.
+    panel.delivery?.noteSubmissionDelivered?.();
+    expect(lifecycle.noteSubmissionDelivered).toHaveBeenCalledTimes(1);
+  });
+
   test("test_openPanel_does_not_await_custom", () => {
     const host = createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();
@@ -1121,6 +1150,30 @@ describe("maybeAutoOpen — tool-path auto open/reopen", () => {
     stashArgs("call-2", upsertArgs("q2"));
     mock.emit("tool_execution_end", endEvent({ toolCallId: "call-2" }));
     expect(mock.custom).toHaveBeenCalledTimes(1);
+  });
+
+  // REGRESSION (validation Issue 2, 2026-10-07): the auto-reopen after a
+  // rule-1 re-ask of a SUBMITTED question used to open with no focus at all
+  // (the merge keeps the status `submitted` through execute, so nothing was
+  // open/reasked at the upsert event, and the constructor ladder's fallback
+  // was status-blind ordered[0]) — the panel landed on an earlier
+  // submitted-or-CLOSED row instead of the ⟳ question. The reopen focus is
+  // the batch's first currently-active id, and the lifecycle's
+  // tool_execution_end handler (registered first at factory time) has
+  // already flipped the re-asked row to `reasked` by the time this handler
+  // runs — exactly the production ordering.
+  test("re-ask reopen focuses the re-asked question, not an earlier submitted row", () => {
+    arm();
+    state.upsertQuestion(choiceQ("q0"));
+    state.upsertQuestion(choiceQ("q1"));
+    state.applyAnswer("q0", { value: "a", at: "2025-01-01T00:00:00.000Z" });
+    state.applyAnswer("q1", { value: "a", at: "2025-01-01T00:00:00.000Z" });
+    state.setStatus("q0", "submitted"); // shipped, NOT yet settled (no close pass ran)
+    state.setStatus("q1", "reasked"); // the rule-1 re-ask this very upsert performed
+    stashArgs("call-1", upsertArgs("q1")); // the agent re-asked ONLY q1
+    mock.emit("tool_execution_end", endEvent());
+    expect(mock.custom).toHaveBeenCalledTimes(1); // resurfaced
+    expect(mock.calls[0]!.component.currentId).toBe("q1");
   });
 
   test("test_maybe_auto_open_ignores_other_tools_errors_and_missing_state", () => {
@@ -2503,6 +2556,16 @@ describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
     );
   }
 
+  /** Same, with an explicit initial focus question (ladder rung 1). */
+  function makeDutyPanelFocused(
+    state: InterrogationState,
+    focusQuestionId: string,
+  ): InterrogationPanel {
+    return new InterrogationPanel(
+      panelArgsFor(state, { editorFactory: () => fakePanelEditor(), focusQuestionId }),
+    );
+  }
+
   test("desiredTextDuty_prefers_the_type_check_over_the_Other_row_index", () => {
     // On a text question `options` is undefined, so cursorIndex 0 ===
     // length 0 would "coincidentally" fire the index test — the explicit
@@ -2653,7 +2716,11 @@ describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
     state.applyAnswer("q1", { value: "a", at: "2025-01-01T00:00:00.000Z" });
     state.applyAnswer("q2", { value: "a", at: "2025-01-01T00:00:00.000Z" });
     state.setStatus("q1", "closed"); // archived WITH its recorded answer
-    const panel = makeDutyPanel(state);
+    // Explicit focus: the constructor ladder's final fallback skips terminal
+    // statuses (closed/withdrawn/moot), so an unfocused panel would seed on
+    // the answered q2; this test's subject is editing the CLOSED q1's
+    // elaboration (BUG-003), reached here deliberately.
+    const panel = makeDutyPanelFocused(state, "q1");
 
     panel.handleInput(CTRL_T); // cursor on a real option → elaboration duty
     expect(panel.textDuty).toBe("elaboration");
@@ -2723,6 +2790,16 @@ describe("navigation duty re-derivation — BUG-004 (WRITEIN-001 cursor-follow)"
   function makeDutyPanel(state: InterrogationState): InterrogationPanel {
     return new InterrogationPanel(
       panelArgsFor(state, { editorFactory: () => fakePanelEditor() }),
+    );
+  }
+
+  /** Same, with an explicit initial focus question (ladder rung 1). */
+  function makeDutyPanelFocused(
+    state: InterrogationState,
+    focusQuestionId: string,
+  ): InterrogationPanel {
+    return new InterrogationPanel(
+      panelArgsFor(state, { editorFactory: () => fakePanelEditor(), focusQuestionId }),
     );
   }
 

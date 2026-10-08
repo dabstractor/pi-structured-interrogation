@@ -147,9 +147,14 @@ export function gateHoldLine(count: number, submitLabel: string): string {
  *    that is answerable (not `withdrawn`, not `moot`).
  * 3. Gate group declared but every member withdrawn/moot: the gate group's
  *    FIRST question (still focused there; dimming still applies to others).
- * 4. No gate declared (or none reachable): today's ladder verbatim — first
- *    status-"open" question, else the first question — so a no-gate panel
- *    behaves exactly as before {@link pickGateInitialQuestionId} existed.
+ * 4. No gate declared (or none reachable): first `open` OR `reasked`
+ *    question in order, else the first NON-TERMINAL question, else the
+ *    first question — so a no-gate panel keeps the pre-gate behavior for
+ *    every status mix that existed then, while a rule-1/rule-2 re-ask of a
+ *    submitted question (status `reasked`) is a valid fresh-open focus
+ *    target (validation Issue 2, 2026-10-07: the fallback used to be
+ *    status-blind `ordered[0]`, which could land on a merely-submitted or
+ *    long-archived CLOSED row instead of the ⟳ question).
  *
  * Returns undefined only when `ordered` is empty (mirrors the old ladder).
  */
@@ -166,6 +171,17 @@ export function pickGateInitialQuestionId(
     const answerable = gateQs.find((q) => q.status !== "withdrawn" && q.status !== "moot");
     if (answerable !== undefined || gateQs.length > 0) return (answerable ?? gateQs[0]).id;
   }
-  const firstOpen = ordered.find((q) => q.status === "open");
-  return (firstOpen ?? ordered[0])?.id;
+  // Unanswered = open OR reasked (reasked still needs an answer — the same
+  // UNANSWERED_STATUSES set the accept-advance algorithm and the resume
+  // ladder's nextUnanswered rung use).
+  const firstOpen = ordered.find((q) => q.status === "open" || q.status === "reasked");
+  if (firstOpen !== undefined) return firstOpen.id;
+  // Fallback skips terminal statuses (closed/withdrawn/moot — never
+  // answerable, h2.17): a live answered/submitted row beats an archived one.
+  // All-terminal input still falls through to ordered[0] so the panel never
+  // renders header+footer-only against a non-empty state.
+  const firstLive = ordered.find(
+    (q) => q.status !== "closed" && q.status !== "withdrawn" && q.status !== "moot",
+  );
+  return (firstLive ?? ordered[0])?.id;
 }

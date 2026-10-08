@@ -11,6 +11,18 @@
  *       inject interrogation-completion (full record, once) → dismiss panel → clear in-memory state
  * ```
  *
+ * VALIDATION AMENDMENT (2026-10-07, Issue 3): `moot` is EXCLUDED from the
+ * blocking set below, deviating from the quote's letter. A standing moot is
+ * terminal-by-design (FR-17 moots the dependent; only a dependency re-met
+ * or a rule-2 re-ask can leave that state) and — because merge.ts's
+ * WITHDRAWABLE set deliberately excludes moot ("moot is S3's domain") — an
+ * agent has NO escape hatch from one. Keeping moot in the blocking set
+ * therefore wedged FR-5's one-time record forever in the spec's own AC-6
+ * scenario (contradicting a dependsOn moots the dependent), and left the
+ * completion record's `Withdrawn/moot:` section dead for moots. With moot
+ * non-blocking, FR-5's "last open question" letter holds and the record
+ * actually lists the standing moot.
+ *
  * Completion invariant (one-time): this fires EXACTLY once per interrogation
  * instance. The guard is `state.completed`, which only `clearForCompletion()`
  * ever sets — the flag and the clear are one atomic step inside state.ts, so
@@ -22,10 +34,9 @@
  * again — deliberately NO closure-local "fired" state is kept here.
  *
  * Predicate ownership: `ClosePassResult.remainingActive` (S1's report)
- * EXCLUDES `moot` by design (it reports h2.44's active set only), so this
- * module recomputes the predicate locally against the full status set
- * {open, reasked, answered, submitted, moot} — this module owns its
- * decision. The h2.37 edge (0 open questions + pending submissions →
+ * is h2.44's active set only, so this module recomputes the predicate
+ * locally against the BLOCKING set below — this module owns its decision.
+ * The h2.37 edge (0 open questions + pending submissions →
  * completion waits for the close pass after the next agent reply) needs NO
  * special code: "submitted" is in the blocking set, so completion naturally
  * waits. That edge is covered by a test, not logic.
@@ -67,16 +78,19 @@ export interface CompletionResult {
 }
 
 /**
- * Statuses that BLOCK completion — the h3.9 predicate set, computed HERE and
- * never taken from `ClosePassResult.remainingActive` (which excludes moot by
- * design in S1).
+ * Statuses that BLOCK completion — computed HERE and never taken from
+ * `ClosePassResult.remainingActive` (which reports h2.44's active set only).
+ *
+ * `moot` is deliberately NOT in this set (2026-10-07 validation Issue-3
+ * amendment — see the module JSDoc): a standing moot is terminal-by-design
+ * and must not gate FR-5's one-time record. closed/withdrawn were never
+ * blocking (archived/renounced).
  */
 const BLOCKING: ReadonlySet<QuestionStatus> = new Set([
   "open",
   "reasked",
   "answered",
   "submitted",
-  "moot",
 ]);
 
 /**
@@ -109,7 +123,8 @@ export function attemptCompletion(
   //    following) the clear can never re-arm completion on cleared state.
   if (state.completed === true) return { fired: false, reason: "already-completed" };
 
-  // 3. Completion predicate — recomputed locally (moot-inclusive h3.9 set).
+  // 3. Completion predicate — recomputed locally (see BLOCKING: a standing
+  //    moot does NOT block — validation Issue-3 amendment).
   const qs = state.orderedQuestions();
   if (qs.some((q) => BLOCKING.has(q.status))) {
     return { fired: false, reason: "active-questions-remain" };
@@ -141,8 +156,8 @@ export function attemptCompletion(
  * {@link attemptCompletion} — inject the one full interrogation-completion
  * record (h2.46, via buildCompletion), dismiss the panel, then clear
  * in-memory state while retaining the audit trail (goal/epoch/snapshots).
- * See the module JSDoc for the exactly-once invariant and the
- * moot-inclusive predicate rationale.
+ * See the module JSDoc for the exactly-once invariant and the blocking-set
+ * rationale (moot excluded — 2026-10-07 validation Issue-3 amendment).
  */
 export function createCompletionTrigger(
   pi: Pick<ExtensionAPI, "sendMessage">,

@@ -651,17 +651,19 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
  * state.setStatus, hand-built serialize() baselines, direct
  * computeDiff/buildSubmission (the delivery must come out of sendMessage).
  *
- * Fixture shape (the completion wall — why q2 is a never-answered MOOT
- * text question): h3.9 fires the completion flow when NO question is in
- * {open, reasked, answered, submitted, moot}, and that flow CLEARS the
- * state — a fixture where both questions end closed at the settle would
- * erase the archived answer before the edit step. q2's dependsOn
- * ("Timeline" matters only if Database = "a") keeps it MOOT for the whole
- * run: moot blocks completion (h3.9 BLOCKING set) yet never blocks an
- * auto-submit (maybeAutoSubmit counts only open/reasked as unanswered).
- * The user accordingly answers q1 with option "b" — NOT the ★ "a" — so q2
- * stays moot under BOTH the first answer and the later write-in edit
- * (neither value equals "a").
+ * Fixture shape (the completion wall — why q2 stays OPEN until the final
+ * answer): the completion flow fires when NO question is in the BLOCKING
+ * set {open, reasked, answered, submitted} (moot excluded per the
+ * 2026-10-07 validation Issue-3 amendment) and CLEARS the state — a
+ * fixture where both questions end closed at the settle would erase the
+ * archived answer before the edit step. The run therefore keeps q2
+ * ("Timeline", a plain text question) OPEN across the settle that archives
+ * q1: q1 ships through a MANUAL ctrl+s partial (an open question defeats
+ * the completeness transition, so there is no auto-submit yet), the settle
+ * closes q1 while q2 open blocks completion, and the archived edit only
+ * ships when q2 is finally answered (the transition auto-submit). The user
+ * answers q1 with option "b" — NOT the ★ "a" — so the later write-in edit
+ * is a real value change.
  */
 describe("AC-13 (end-to-end) — edited archived answer flags (changed) through the REAL submit pipeline", () => {
   /** Mirror of actions.test.ts makeDeps: idle pi transport with a captured mock. */
@@ -671,9 +673,9 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
   }
 
   test("AC-13_e2e_real_pipeline_close_pass_writein_edit_changed", () => {
-    // 1. Harness + REAL tool upsert (the executor runs the caps engine and
-    //    FR-17 evaluation: q2 arrives moot — an unanswered dependency is
-    //    unmet, even for a condition that would compare values).
+    // 1. Harness + REAL tool upsert. q2 is a PLAIN text question — it stays
+    //    open for the whole first round so the settle that archives q1
+    //    cannot fire completion (BLOCKING set) and erase the state.
     const h = makePiHarness();
     const lifecycle = wireLifecycle(h);
     registerDebugBridge(h, lifecycle);
@@ -698,7 +700,6 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
             title: "Timeline",
             prompt: "When?",
             type: "text",
-            dependsOn: [{ id: "q1", equals: "a" }],
           },
         ],
       },
@@ -706,7 +707,7 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
       DEFAULT_CONFIG,
     );
     const state = getState()!;
-    expect(state.getQuestion("q2")!.status).toBe("moot"); // FR-17 instant-local
+    expect(state.getQuestion("q2")!.status).toBe("open");
 
     // 2. Panel built on the SINGLETON (shares state with the lifecycle and
     //    the close pass) with the auto-submit delivery wired (isIdle → the
@@ -721,28 +722,35 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
       delivery: deps,
     });
 
-    // 3. Answer q1 through the REAL panel commit path. The commit tail's
-    //    maybeAutoSubmit fires the FIRST REAL auto-submit: q2 is moot (not
-    //    open/reasked) so completeness holds, and ONE full submission runs
-    //    (reconcile → ring baseline → diff → markSubmitted → buildSubmission
-    //    → deliverSubmission).
+    // 3. Answer q1 through the REAL panel commit path. q2 is still OPEN, so
+    //    the set is incomplete — maybeAutoSubmit withholds (no transition).
     panel.currentId = "q1"; // unanswered path — ★ preselect survives ANSWER-PIN-001 while no answer exists
-    panel.cursorIndex = 1; // option "b" — keeps q2's equals-"a" dependency unmet
+    panel.cursorIndex = 1; // option "b" — a real value change vs the later write-in edit
     expect(accept(panel)).toBe(true);
-    expect(sendMessage).toHaveBeenCalledTimes(1); // auto-submit #1 — real tail
+    expect(sendMessage).not.toHaveBeenCalled(); // incomplete set — no auto-submit
+    expect(state.epoch).toBe(1); // nothing shipped yet
+    expect(state.getQuestion("q1")!.status).toBe("answered");
+    expect(state.getQuestion("q2")!.status).toBe("open");
+    expect(panel.isResolved()).toBe(false); // no delivery — the panel stays live
+
+    // 3b. MANUAL ctrl+s partial ship (the only exit with an open question
+    //     left): q1 rides the real submit action (reconcile → ring baseline
+    //     → diff → markSubmitted → buildSubmission → deliverSubmission).
+    expect(panel.handleInput("\u0013")).toBe(true); // ctrl+s (config.keys.submit default)
+    expect(sendMessage).toHaveBeenCalledTimes(1); // real submission #1
     expect(state.epoch).toBe(2); // buildSubmission bumps exactly once
     expect(state.getQuestion("q1")!.status).toBe("submitted");
-    expect(state.getQuestion("q2")!.status).toBe("moot"); // completion blocker, untouched
+    expect(state.getQuestion("q2")!.status).toBe("open");
     expect(panel.isResolved()).toBe(true); // FR-3d post-submit exit: the real delivery closed the panel
 
     // 4. REAL close pass via the lifecycle event (NO setStatus anywhere):
     //    q1 archived, and — the S2 contract — the ring now holds a
     //    same-epoch 'closed' snapshot that the NEXT submit will diff
-    //    against. q2's moot status blocks the completion flow (h3.9), so
-    //    the state survives for the archived-edit step.
+    //    against. q2's OPEN status blocks the completion flow (BLOCKING
+    //    set), so the state survives for the archived-edit step.
     h.emit("agent_settled");
     expect(state.getQuestion("q1")!.status).toBe("closed");
-    expect(state.getQuestion("q2")!.status).toBe("moot");
+    expect(state.getQuestion("q2")!.status).toBe("open");
     expect(sendMessage).toHaveBeenCalledTimes(1); // NO completion message fired
     expect(state.epoch).toBe(2); // the close pass NEVER bumps
     expect(state.snapshots).toHaveLength(2); // submit-time + close-pass entries
@@ -776,18 +784,31 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
     expect(panel2.textDuty).toBe("writein");
     panel2.textField.setText("edited archived answer");
     expect(panel2.handleInput("\r")).toBe(true); // write-in enter COMMITS
-    // The commit tail's maybeAutoSubmit fires the SECOND REAL auto-submit:
-    // q1 re-pended + q2 moot → completeness holds. submit() diffs against
-    // submissionBaselineOf — the CLOSE-PASS snapshot — so the entry's prev
-    // status is "closed" → editedArchived (the BUG-003 fix, observable
-    // only through the real ring baseline).
+    // The commit re-pends q1, but q2 is still OPEN — the set is incomplete,
+    // so maybeAutoSubmit withholds: the archived edit is pending, unshipped.
+    expect(sendMessage).toHaveBeenCalledTimes(1); // still just the partial
+    expect(state.getQuestion("q1")!.status).toBe("answered"); // re-pended
+    expect(state.epoch).toBe(2); // nothing shipped since the close pass
+
+    // 5b. Answer q2 (text write-in) — the set completes, and the transition
+    //     tail fires the SECOND REAL auto-submit: q1 re-pended + q2
+    //     answered. submit() diffs against submissionBaselineOf — the
+    //     CLOSE-PASS snapshot — so the entry's prev status is "closed" →
+    //     editedArchived (the BUG-003 fix, observable only through the real
+    //     ring baseline).
+    panel2.currentId = "q2";
+    expect(accept(panel2)).toBe(true); // text question → opens WRITE-IN duty
+    expect(panel2.textDuty).toBe("writein");
+    panel2.textField.setText("next sprint");
+    expect(panel2.handleInput("\r")).toBe(true); // write-in enter COMMITS
     expect(sendMessage).toHaveBeenCalledTimes(2); // auto-submit #2 — real tail
     expect(state.epoch).toBe(3);
+    expect(panel2.isResolved()).toBe(true); // FR-3d post-submit exit
 
     // 6. THE AC-13 VERDICT — read from the DELIVERED message, never from a
     //    hand-built diff object.
     const msg2 = sendMessage.mock.calls[1][0] as SubmissionMessage;
-    expect(msg2.details.changed).toHaveLength(1);
+    expect(msg2.details.changed).toHaveLength(2); // the q1 edit + q2's first answer
     expect(msg2.details.changed[0]).toEqual(
       expect.objectContaining({
         id: "q1",
@@ -797,6 +818,9 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
         editedArchived: true, // AC-13 marker data — the whole point
         value: "edited archived answer",
       }),
+    );
+    expect(msg2.details.changed[1]).toEqual(
+      expect.objectContaining({ id: "q2", from: "(unanswered)", to: "✎ next sprint", editedArchived: false }),
     );
     // Model-visible delta line (delivery.ts renders the " (changed)" suffix).
     expect(msg2.content).toContain("q1: ✎ edited archived answer (changed)");

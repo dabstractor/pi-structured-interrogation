@@ -5,8 +5,9 @@
  * The deep view (FR-8 / h2.29 / Q19-Q20) is a FULL replacement of the Q&A
  * region between header and footer, split into TWO regions (owner ruling
  * 2026-10-05, DEEP-PIN-001): a PINNED question region on top — the full
- * goal text (FR-30, dimmed), then the full `question.description` (plus a
- * `⊘ moot` reason line when moot) — and a SCROLLABLE options region under
+ * `question.description`, then the full goal text under it (FR-30, dimmed;
+ * plus a `⊘ moot` reason line first when moot) — and a SCROLLABLE options
+ * region under
  * it with one section per option (`▸ ★ sqlite` header + wrapped
  * ramification text) and — on choice questions — the synthetic
  * `✎ Other — write your own` section (P1.M2.T6.S1). The question NEVER
@@ -321,8 +322,12 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
   const sectionHeaders: string[] = [];
   const sectionStarred: boolean[] = [];
 
-  // ---- pinned question region (DEEP-PIN-001): moot line + goal +
-  // description, fitted to the pane budget. The DESCRIPTION owns the
+  // ---- pinned question region (DEEP-PIN-001): moot line + description +
+  // goal, fitted to the pane budget. RENDER ORDER per the spec sentence —
+  // "full `description`, full `goal` below it, dimmed" — the description
+  // first, the goal UNDER it (validation Issue 4, 2026-10-07: the blocks
+  // used to render goal-above-description). Truncation PRIORITY is
+  // unchanged and independent of render order: the description owns the
   // space first (it is the question being answered; the goal is context
   // already summarized — truncated — in the header, FR-30), so the goal
   // yields lines first when the region overflows; both blocks cap at
@@ -337,15 +342,19 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
   if (q.description !== undefined && q.description !== "") {
     pushBlock(descBlock, q.description, theme, budget, maxChars, dimAll);
   }
-  const separators = descBlock.length > 0 ? 2 : 1; // blank after goal (+ desc)
+  const separators = descBlock.length > 0 ? 2 : 1; // blank between blocks (+ after the last)
   const questionBudget = hasSections
     ? DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT
     : DEEP_VIEW_HEIGHT; // no sections → the question may use the whole pane
   const avail = questionBudget - head.length - separators;
   const descKept = fitBlock(descBlock, avail, theme);
   const goalKept = fitBlock(goalBlock, avail - descKept.length, theme);
-  const questionLines = [...head, ...goalKept, ""];
+  // DEEP-PIN-001 order: description block ABOVE the goal block (one blank
+  // line between; the trailing blank separates the pinned region from the
+  // options region exactly as before).
+  const questionLines = [...head];
   if (descKept.length > 0) questionLines.push(...descKept, "");
+  questionLines.push(...goalKept, "");
   // ---- scrollable options region (unchanged composition; indexes are
   // now RELATIVE TO `lines`, offset 0 = first section header's region top).
   if (q.type === "choice") {

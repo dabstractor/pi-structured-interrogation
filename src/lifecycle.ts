@@ -138,6 +138,16 @@ function questionIds(questions: unknown[]): string[] {
 }
 
 /**
+ * Tolerant id extraction from an ALREADY-NARROWED upsert-args shape (the
+ * {@link isUpsertArgs} predicate's output) — the shared home so SURFACE-001
+ * gate consumers (panel.ts's maybeAutoOpen focus pick) never re-implement
+ * the malformed-entry-skipping rule.
+ */
+export function upsertQuestionIds(args: { questions: unknown[] }): string[] {
+  return questionIds(args.questions);
+}
+
+/**
  * Build the auto-close engine and subscribe it to the pi event stream
  * (h2.44; wiring lives at the factory per the "Subscribe in index.ts" rule —
  * index.ts calls `createLifecycle(pi)` after tool registration).

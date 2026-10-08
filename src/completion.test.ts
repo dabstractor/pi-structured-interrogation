@@ -164,15 +164,15 @@ describe("attemptCompletion — decision outcomes", () => {
     expect(pi.sendMessage).not.toHaveBeenCalled();
   });
 
-  test("blocks while any question is open/answered/submitted/reasked/moot", () => {
-    const statuses = ["open", "answered", "submitted", "reasked", "moot"] as const;
+  test("blocks while any question is open/answered/submitted/reasked", () => {
+    const statuses = ["open", "answered", "submitted", "reasked"] as const;
     for (const status of statuses) {
       const st = makeState();
       st.upsertQuestion(choiceQ("q1"));
       st.setStatus("q1", status);
       const pi = makeMockPi();
-      // The engine's remainingActive excludes moot — the local predicate must
-      // block anyway (never trust the report for the decision).
+      // The predicate is recomputed locally from state (never trusted from
+      // the engine's report).
       const res = attemptCompletion(pi.pi, makeOpts(st), closePass());
       expect(res).toEqual({ fired: false, reason: "active-questions-remain" });
       expect(pi.sendMessage).not.toHaveBeenCalled();
@@ -264,19 +264,26 @@ describe("attemptCompletion — fires exactly once, in h3.9 order", () => {
     expect(pi.sendMessage).toHaveBeenCalledTimes(1);
   });
 
-  test("moot question blocks until the moot path leaves no moot", () => {
+  test("standing moot does not block — the record injects and lists the moot (Issue-3 amendment)", () => {
     const st = makeState();
-    st.upsertQuestion(choiceQ("q1"));
-    st.setStatus("q1", "moot");
+    st.upsertQuestion(choiceQ("q0"));
+    st.upsertQuestion(choiceQ("q1", { dependsOn: [{ id: "q0", equals: "b" }] }));
+    st.applyAnswer("q0", { value: "a", at: AT }); // the dependency is genuinely unmet
+    st.setStatus("q0", "closed"); // archived — its recorded answer still feeds the evaluator
+    st.setStatus("q1", "moot"); // standing moot: terminal-by-design, no agent-side escape hatch
     const pi = makeMockPi();
 
-    expect(attemptCompletion(pi.pi, makeOpts(st), closePass())).toEqual({
-      fired: false,
-      reason: "active-questions-remain",
-    });
-
-    st.setStatus("q1", "withdrawn"); // moot resolved via withdrawal path
-    expect(attemptCompletion(pi.pi, makeOpts(st), closePass()).fired).toBe(true);
+    // FR-5's one-time record must not be wedged by a terminal-by-design
+    // status (2026-10-07 validation amendment; formerly blocked forever).
+    expect(attemptCompletion(pi.pi, makeOpts(st), closePass())).toEqual({ fired: true });
+    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(st.completed).toBe(true);
+    // The record's Withdrawn/moot section lists the standing moot — the
+    // formerly-dead moot arm of the record is live now (real moots carry a
+    // dependsOn, so the build-time evaluator keeps the status and derives
+    // the h2.29 reason; its `moot: ` prefix is stripped, not doubled).
+    const msg = sentMessage(pi);
+    expect(String(msg.content)).toMatch(/q1 \(moot: q0=a\)/);
   });
 });
 

@@ -56,7 +56,7 @@ import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../co
 // SURFACE-001 gate (1): the single upsert-args predicate (lifecycle.ts is its
 // only other consumer — no duplicate definition; no import cycle: lifecycle
 // imports merge.js + state.js only, never panel.js).
-import { isUpsertArgs } from "../lifecycle.js";
+import { isUpsertArgs, upsertQuestionIds } from "../lifecycle.js";
 import { getState, type InterrogationState, type SerializedState } from "../state.js";
 import { nextUnanswered, writeInEnter, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
 import {
@@ -1686,7 +1686,18 @@ function suspendCurrent(): void {
 function resetHostRecord(): void {
   upsertState?.off("questions-upserted", handleUpserted);
   upsertState = undefined;
-  hostNoteSubmissionDelivered = undefined;
+  // NOTE — `hostNoteSubmissionDelivered` is deliberately NOT cleared here.
+  // It is FACTORY-TIME wiring (createPanelHost captures it from the real
+  // lifecycle once per extension session), not branch/panel state, and every
+  // panel opened later builds its SubmitDeps through it
+  // (surfaceSubmitDeps(pi, hostNoteSubmissionDelivered)). Clearing it made
+  // the first host reset — reconstruction's no-traces dispose on an empty
+  // branch, i.e. EVERY normal startup, and every /tree hop through an
+  // interrogation-free branch — permanently sever the h2.44 line-1 contract:
+  // submissions then never reset the auto-close engine's per-run flags, so a
+  // same-run re-ask + re-confirm wedged the question in `submitted` and
+  // completion never fired (validation Issue 1, 2026-10-07). createPanelHost
+  // re-arms the hook unconditionally, so test/host re-creation stays clean.
   // Full close (h2.0 commitment 3 tail): clear the reminder widget BEFORE
   // dropping the surface — activePi is nulled below, so this is the last
   // chance to leave no stale "…to resume /interrogate" line behind.
@@ -2020,7 +2031,12 @@ export function maybeAutoOpen(
     if (event.toolName !== "interrogate" || event.isError) return;
     // SURFACE-001 gate (1) — upsert-call: consume the start-phase args stash
     // (get + delete, per the wiring). Missing entry / `questions: []` = read.
-    if (!isUpsertArgs(peekArgs(event.toolCallId))) return;
+    // The args stay alive as `args` — the batch ids seed the reopen focus
+    // (validation Issue 2, 2026-10-07: without an explicit focus the
+    // constructor ladder landed on ordered[0] — a merely-submitted or CLOSED
+    // question — instead of the question this very upsert re-asked).
+    const args = peekArgs(event.toolCallId);
+    if (!isUpsertArgs(args)) return;
     if (host.isOpen()) return;
     const state = getState();
     if (state === undefined) return;
@@ -2035,6 +2051,14 @@ export function maybeAutoOpen(
     // handleUpserted reuses it on the suspended-reopen path, so drafts
     // survive suspend/resume (R4, h2.0 commitment 6).
     //
+    // Reopen focus (validation Issue 2): the batch's first currently-active
+    // id. By the time this handler runs, the lifecycle's tool_execution_end
+    // subscription (registered first, at factory time) has already flipped
+    // touched submitted questions to `reasked` — which ACTIVE_STATUSES
+    // counts — so a rule-1/rule-2 re-ask resurfaces the panel ON the
+    // re-asked question, not on an earlier submitted/closed row.
+    const focusId = firstActiveUpsertedId(state, upsertQuestionIds(args));
+    //
     // NEW-001 hardening — the HOST is the openness authority (in production
     // createPanelHost's isOpen() IS the module record, so the two can never
     // disagree). If the host says nothing is live yet openPanel still refuses
@@ -2044,10 +2068,10 @@ export function maybeAutoOpen(
     // swallowing the upsert here would leave the interrogation without its
     // panel forever; dispose the stale panel's residue, re-arm the record,
     // and retry once.
-    if (!openPanel(ctx, { config, state, drafts }) && phase === "open") {
+    if (!openPanel(ctx, { config, state, drafts, focusQuestionId: focusId }) && phase === "open") {
       currentPanel?.dispose();
       resetHostRecord();
-      openPanel(ctx, { config, state, drafts });
+      openPanel(ctx, { config, state, drafts, focusQuestionId: focusId });
     }
   });
 }

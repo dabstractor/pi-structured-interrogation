@@ -227,6 +227,32 @@ describe("pickGateInitialQuestionId — FR-1 ladder", () => {
     expect(pickGateInitialQuestionId([], new Set(), undefined)).toBeUndefined();
   });
 
+  test("test_focus_reasked_question_is_a_first_open_target_no_gate", () => {
+    // Validation Issue 2 (2026-10-07): after a rule-1/rule-2 re-ask of a
+    // submitted question, a fresh open must land on the ⟳ question (reasked
+    // still needs an answer), never on an earlier merely-submitted row.
+    const ordered = [q("s1", { status: "submitted" }), q("r1", { status: "reasked" })];
+    expect(pickGateInitialQuestionId(ordered, new Set(), undefined)).toBe("r1");
+  });
+
+  test("test_focus_final_fallback_skips_terminal_statuses", () => {
+    // Validation Issue 2: the status-blind ordered[0] fallback could land on
+    // a long-archived CLOSED row (prior epochs keep them at order position
+    // 0); the first live (non-terminal) question wins instead. All-terminal
+    // input still falls through to ordered[0] — never undefined for a
+    // non-empty state.
+    const ordered = [
+      q("c1", { status: "closed" }),
+      q("m1", { status: "moot" }),
+      q("w1", { status: "withdrawn" }),
+      q("a1", { status: "answered" }),
+    ];
+    expect(pickGateInitialQuestionId(ordered, new Set(), undefined)).toBe("a1");
+
+    const allTerminal = [q("c1", { status: "closed" }), q("m1", { status: "moot" })];
+    expect(pickGateInitialQuestionId(allTerminal, new Set(), undefined)).toBe("c1");
+  });
+
   test("test_focus_ungrouped_gate_question_focuses_ungrouped_bucket", () => {
     const ordered = [q("g1", { group: "later" }), q("u1", { gate: true })];
     expect(pickGateInitialQuestionId(ordered, gateGroupNames(ordered), undefined)).toBe("u1");

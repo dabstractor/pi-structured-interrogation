@@ -449,10 +449,12 @@ describe("pinned question region (DEEP-PIN-001)", () => {
     const text = window.join("\n");
     expect(text).toContain("Which database should back the build?"); // description
     expect(text).toContain("Ship the thing, carefully and completely"); // goal
-    // …and at EVERY intermediate offset the question region leads the pane.
+    // …and at EVERY intermediate offset the question region leads the pane
+    // (DEEP-PIN-001 order: the DESCRIPTION heads the pinned region, the
+    // goal renders below it).
     for (let o = 0; o <= offset; o++) {
       const w = renderDeepWindow(content, 1, o, theme, 80);
-      expect(w[0]).toContain("Ship the thing");
+      expect(w[0]).toContain("Which database should back the build?");
     }
   });
 

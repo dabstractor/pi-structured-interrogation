@@ -177,11 +177,12 @@ describe("buildDeepContent", () => {
     const goal = "Ship ".repeat(20).trim(); // 100 chars → wraps at width 80
     const q = choiceQ("db", { description: "Long description ".repeat(6).trim() });
     const content = buildDeepContent(deepInputFor(q, { goal }));
-    // Wrapped lines carry the 2-col INSET — normalize to reconstruct blocks.
+    // Wrapped question lines carry the 2-col ▌-rail prefix (DEEP-PIN-002),
+    // option lines the 2-col INSET — normalize both to reconstruct blocks.
     // DEEP-PIN-001: the question region is its own pinned array above the
     // scrollable options region.
     const flat = [...content.questionLines, ...content.lines]
-      .map((l) => l.replace(/^\s\s/, ""))
+      .map((l) => l.replace(/^(?:\s\s|▌ )/, ""))
       .join(" ")
       .trim();
     // FR-30: the FULL goal text is present (no header-style truncation).
@@ -189,14 +190,16 @@ describe("buildDeepContent", () => {
     expect(flat).toContain("Long description");
     for (const ln of [...content.questionLines, ...content.lines])
       expect(visibleWidth(ln)).toBeLessThanOrEqual(80);
-    // Blank separators between the goal and description blocks.
-    expect(content.questionLines[0]).not.toBe("");
+    // Blank separators between the description and goal blocks, plus the
+    // DEEP-PIN-002 air line ABOVE the pinned block.
+    expect(content.questionLines[0]).toBe("");
     expect(content.questionLines).toContain("");
   });
 
   test("test_build_goal_dimmed", () => {
     const content = buildDeepContent(deepInputFor(choiceQ("db"), { theme: dimTheme }));
-    expect(content.questionLines[0]).toContain(DIM);
+    // Line 0 is the DEEP-PIN-002 air line; the goal block follows it.
+    expect(content.questionLines[1]).toContain(DIM);
   });
 
   test("test_build_star_header_marks_recommendation", () => {
@@ -251,7 +254,7 @@ describe("buildDeepContent", () => {
     const q = choiceQ("db", { status: "moot", answer: { value: "sqlite", at: "t" } });
     const content = buildDeepContent(deepInputFor(q, { theme: dimTheme }));
     expect(content.dimAll).toBe(true);
-    expect(content.questionLines[0]).toContain("⊘ moot — sqlite");
+    expect(content.questionLines[1]).toContain("⊘ moot — sqlite"); // after the air line
     // Every non-blank line dimmed, options still listed (audit trail, Q34=A).
     for (const ln of [...content.questionLines, ...content.lines])
       if (ln !== "") expect(ln).toContain(DIM);
@@ -268,7 +271,7 @@ describe("buildDeepContent", () => {
     const content = buildDeepContent(
       deepInputFor(choiceQ("db", { status: "withdrawn" }), { theme: dimTheme }),
     );
-    expect(content.questionLines).toEqual([`${"  "}${DIM}⊗ withdrawn${RESET}`]);
+    expect(content.questionLines).toEqual(["", `▌ ${DIM}⊗ withdrawn${RESET}`]);
     expect(content.lines).toEqual([]);
     expect(content.sectionHeaders).toHaveLength(0);
   });
@@ -293,6 +296,7 @@ function fixedContent(): DeepContent {
     sectionHeaderLineIndex: [5, 12, 20],
     sectionHeaders: ["a", "b", "c"],
     sectionStarred: [true, false, false],
+    sectionAnswered: [false, false, false],
     dimAll: false,
     viewportHeight: 10,
   };
@@ -451,10 +455,13 @@ describe("pinned question region (DEEP-PIN-001)", () => {
     expect(text).toContain("Ship the thing, carefully and completely"); // goal
     // …and at EVERY intermediate offset the question region leads the pane
     // (DEEP-PIN-001 order: the DESCRIPTION heads the pinned region, the
-    // goal renders below it).
+    // goal renders below it; DEEP-PIN-002: an air line precedes the block
+    // and every question text line carries the accent ▌ rail).
     for (let o = 0; o <= offset; o++) {
       const w = renderDeepWindow(content, 1, o, theme, 80);
-      expect(w[0]).toContain("Which database should back the build?");
+      expect(w[0]).toBe(""); // breathing room below the panel header
+      expect(w[1].startsWith("▌ ")).toBe(true); // accent rail (stub theme: uncolored)
+      expect(w[1]).toContain("Which database should back the build?");
     }
   });
 
@@ -474,7 +481,7 @@ describe("pinned question region (DEEP-PIN-001)", () => {
     const flat = content.questionLines.join(" ");
     expect(flat).toContain("dend"); // description owns the space first
     expect(flat).not.toContain("gend"); // the goal yielded lines
-    expect(content.questionLines).toContain(`${"  "}${DIM}…${RESET}`); // marker
+    expect(content.questionLines).toContain(`▌ ${DIM}…${RESET}`); // marker (railed, DEEP-PIN-002)
     expect(content.viewportHeight).toBe(MIN_OPTIONS_VIEWPORT);
     const window = renderDeepWindow(content, 0, 0, theme, 80);
     expect(window.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
@@ -488,6 +495,112 @@ describe("pinned question region (DEEP-PIN-001)", () => {
     const content = buildDeepContent(deepInputFor(textQ("name", { description: desc })));
     expect(content.questionLines.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
     expect(content.lines).toEqual([]);
+  });
+});
+
+// ------------------------------- answered visibility (DEEP-PIN-003)
+
+describe("answered visibility (DEEP-PIN-003)", () => {
+  /** Color-tagging theme: `fg("success", s)` → `<success>s</success>`. */
+  const colorTheme = {
+    fg: (name: string, s: string) => `<${name}>${s}</${name}>`,
+    bold: (s: string) => `<b>${s}</b>`,
+  } as unknown as Theme;
+
+  function answeredQ(overrides: Partial<Question> = {}): Question {
+    return choiceQ("db", {
+      status: "answered",
+      answer: { value: "sqlite", at: "t" },
+      ...overrides,
+    });
+  }
+
+  test("test_answered_question_green_rail_and_head_line", () => {
+    const content = buildDeepContent(deepInputFor(answeredQ(), { theme: colorTheme }));
+    // Head: air line, then the success `✓ answered` line on the success rail.
+    expect(content.questionLines[0]).toBe("");
+    expect(content.questionLines[1]).toContain("✓ answered");
+    expect(content.questionLines[1]).toContain("<success>");
+    // The rail is success on EVERY question text line (dim blocks nest it
+    // inside the dim wrapper — the rail keeps its own color).
+    for (const ln of content.questionLines) {
+      if (ln !== "") expect(ln).toContain("<success>▌");
+    }
+  });
+
+  test("test_unanswered_question_accent_rail_no_checks", () => {
+    const content = buildDeepContent(deepInputFor(choiceQ("db"), { theme: colorTheme }));
+    expect(content.questionLines.join("\n")).not.toContain("✓");
+    expect(content.questionLines.join("\n")).not.toContain("<success>");
+    expect(content.lines.join("\n")).not.toContain("✓");
+    expect(content.sectionAnswered).toEqual([false, false, false]);
+    for (const ln of content.questionLines) {
+      if (ln !== "") expect(ln).toContain("<accent>▌");
+    }
+  });
+
+  test("test_recorded_option_carries_trailing_check_before_star", () => {
+    // The user's exact ambiguity: unanswered preselect vs. answered top
+    // choice rendered identically. The ✓ breaks it — on the ANSWER row,
+    // between title and ★, in both the baked lines and the re-render.
+    const content = buildDeepContent(deepInputFor(answeredQ()));
+    expect(content.sectionAnswered).toEqual([true, false, false]);
+    // cursorIndex 0 === the answer's display row (ANSWER-PIN-001 seeds the
+    // caret there): baked with the ▸ prefix AND the ✓.
+    const header = content.lines[content.sectionHeaderLineIndex[0]!]!;
+    expect(header.startsWith("▸ sqlite")).toBe(true);
+    expect(header.indexOf("✓")).toBeGreaterThan(header.indexOf("sqlite"));
+    expect(header.indexOf("✓")).toBeLessThan(header.indexOf("★")); // check BEFORE star
+    // Re-render with the caret moved OFF the answer row: the ✓ stays.
+    const window = renderDeepWindow(content, 1, 0, theme, 80);
+    const base = content.questionLines.length;
+    const reRendered = window[base + content.sectionHeaderLineIndex[0]!]!;
+    expect(reRendered.startsWith("  sqlite")).toBe(true); // unselected prefix now
+    expect(reRendered).toContain("✓");
+    // And with the caret ON it: ▸ prefix + ✓ coexist.
+    const onRow = renderDeepWindow(content, 0, 0, theme, 80)[base + content.sectionHeaderLineIndex[0]!]!;
+    expect(onRow.startsWith("▸ sqlite")).toBe(true);
+    expect(onRow).toContain("✓");
+  });
+
+  test("test_write_in_answer_checks_the_other_section", () => {
+    const q = answeredQ({ answer: { value: "my own thing", at: "t", custom: true } });
+    const content = buildDeepContent(deepInputFor(q));
+    expect(content.sectionAnswered).toEqual([false, false, true]); // ✎ Other
+    const header = content.lines[content.sectionHeaderLineIndex[2]!]!;
+    expect(header).toContain("✎ Other — write your own");
+    expect(header).toContain("✓");
+  });
+
+  test("test_answer_object_without_answered_status_marks_nothing", () => {
+    // The reset edge (statusMarkers parity): an answer object left on an
+    // OPEN question (answer reset residue) is NOT "answered" — no green
+    // rail, no ✓ marks. Moot keeps its answer for audit: moot owns the ⊘
+    // line and never shows the answered treatment either.
+    const reset = buildDeepContent(
+      deepInputFor(choiceQ("db", { answer: { value: "sqlite", at: "t" } }), {
+        theme: colorTheme,
+      }),
+    );
+    expect(reset.questionLines.join("\n")).not.toContain("✓");
+    expect(reset.sectionAnswered).toEqual([false, false, false]);
+    const moot = buildDeepContent(
+      deepInputFor(answeredQ({ status: "moot" }), { theme: colorTheme }),
+    );
+    expect(moot.questionLines.join("\n")).not.toContain("✓ answered");
+    expect(moot.sectionAnswered).toEqual([false, false, false]);
+    expect(moot.dimAll).toBe(true); // moot treatment owns the pane
+  });
+
+  test("test_answered_head_line_costs_question_budget_not_options", () => {
+    // The head line rides the existing pinned budget: bounds hold.
+    const content = buildDeepContent(deepInputFor(answeredQ()));
+    expect(content.questionLines.length).toBeLessThanOrEqual(
+      DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT,
+    );
+    const window = renderDeepWindow(content, 0, 0, theme, 80);
+    expect(window.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
+    expect(content.viewportHeight).toBeGreaterThanOrEqual(MIN_OPTIONS_VIEWPORT);
   });
 });
 

@@ -634,8 +634,12 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
     // DEEP-PIN-001: the question region (description + goal, description
     // above goal per the spec sentence) is pinned above the scroll window —
     // the scroll range spans the OPTIONS region at its (reduced) viewport
-    // height, not the whole pane at 20.
-    const pinnedHead = content.questionLines[0]!;
+    // height, not the whole pane at 20. DEEP-PIN-002: line 0 is the air
+    // line below the panel header; the description head follows it, on
+    // the accent ▌ rail (uncolored under the stub theme).
+    expect(content.questionLines[0]).toBe("");
+    const pinnedHead = content.questionLines[1]!;
+    expect(pinnedHead.startsWith("▌ ")).toBe(true);
     expect(pinnedHead).toContain("Context you should read before choosing.");
     expect(content.questionLines.join("\n")).toContain("deep goal"); // goal below the description
     const maxOffset = content.lines.length - content.viewportHeight;
@@ -672,9 +676,10 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
     const lastContentLine = content.lines[content.lines.length - 1]!;
     expect(atBottom.slice(1, -1)).toContain(lastContentLine);
     // …and at the BOTTOM of the scroll range the question is still on
-    // screen (DEEP-PIN-001): the pane leads with the pinned question head,
-    // and the description is present too.
-    expect(atBottom[1]).toBe(pinnedHead);
+    // screen (DEEP-PIN-001): the pane leads with the air line, then the
+    // pinned question head, and the description is present too.
+    expect(atBottom[1]).toBe("");
+    expect(atBottom[2]).toBe(pinnedHead);
     expect(atBottom.slice(1, -1).join("\n")).toContain(
       "Context you should read before choosing.",
     );

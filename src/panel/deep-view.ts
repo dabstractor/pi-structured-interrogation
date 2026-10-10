@@ -18,7 +18,17 @@
  * until the view was toggled). When the pinned region alone would
  * overflow {@link DEEP_VIEW_HEIGHT}, it is line-truncated bottom-first
  * (goal yields space before the description) with a dimmed `…` marker —
- * never by stealing the options window's minimum height. `↑/↓` SCROLL the pane / move the selection — they NEVER
+ * never by stealing the options window's minimum height.
+ *
+ * DEEP-PIN-002 (2026-10-05, owner request) — question framing: the pinned
+ * region must read as a distinct block ("hard to see where the question
+ * begins and ends"). It gets breathing room on all sides — a blank line
+ * above (below the panel header), the existing blank below, one extra
+ * column of right padding (question text wraps 1 col narrower than option
+ * rows), and the accent `▌` rail at column 0 on every question text line
+ * (moot line, goal, description, truncation marker). The rail is 2 visible
+ * cols (`▌ `), so question text stays at column 2, column-aligned with
+ * option titles; width-safe like every glyph here (visibleWidth = 1). `↑/↓` SCROLL the pane / move the selection — they NEVER
  * navigate questions (h2.29: question navigation belongs to the config
  * prev/next keys only); `enter` selects the highlighted option — or, on
  * the Other section, opens the write-in duty back on the short form
@@ -91,6 +101,15 @@ export const DEEP_VIEW_HEIGHT = 20;
  * the selection). Exported for tests.
  */
 export const MIN_OPTIONS_VIEWPORT = 4;
+
+/**
+ * DEEP-PIN-002 — the pinned question block's left rail glyph. Accent-
+ * colored, column 0, followed by one space (2 visible cols — question text
+ * stays at column 2, aligned under option titles). Same glyph family the
+ * 2026-10-04 selection demo (scripts/demo-deep-selection.ts, candidate 2)
+ * measured; visibleWidth 1, never assumed elsewhere.
+ */
+const QUESTION_RAIL = "▌ ";
 
 /** Two-column inset applied to every content line (short-view.ts pattern). */
 const INSET = "  ";
@@ -207,6 +226,15 @@ export interface DeepContent {
    *  moving the title text (title stays col 2). Parallels sectionHeaders
    *  (Other = always false). */
   sectionStarred: boolean[];
+  /** DEEP-PIN-003: per section — true on the section carrying the RECORDED
+   *  answer (the option whose value === `answer.value`, or the ✎ Other
+   *  section for `custom: true` write-ins). Renders the success-colored
+   *  trailing ` ✓` after the title (before the ★) and rides the header
+   *  re-render in {@link renderDeepWindow} so the mark survives cursor
+   *  moves. All false while unanswered — the ★ preselect and a pinned
+   *  recorded answer are indistinguishable by caret alone, which is
+   *  exactly the ambiguity this channel exists to break. */
+  sectionAnswered: boolean[];
   /** True for moot questions — headers re-render dimmed (whole pane dim). */
   dimAll: boolean;
   /** Scrollable options-region height cap (≤ {@link DEEP_VIEW_HEIGHT}; see
@@ -305,11 +333,12 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
 
   if (q.status === "withdrawn") {
     return {
-      questionLines: [`${INSET}${theme.fg("dim", WITHDRAWN_LINE)}`],
+      questionLines: ["", `${questionIndent(theme)}${theme.fg("dim", WITHDRAWN_LINE)}`],
       lines: [],
       sectionHeaderLineIndex: [],
       sectionHeaders: [],
       sectionStarred: [],
+      sectionAnswered: [],
       dimAll: false,
       viewportHeight: DEEP_VIEW_HEIGHT,
     };
@@ -317,10 +346,17 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
 
   const dimAll = q.status === "moot";
   const hasSections = q.type === "choice";
+  // DEEP-PIN-003: answered-state visibility — success rail + `✓ answered`
+  // head line + per-section ✓ marks. Gate mirrors statusMarkers (moot
+  // excluded — it owns the pane dim + ⊘ line; ANSWER-PIN-001 pins the
+  // caret, this makes the PIN VISIBLE: pre-003 a recorded answer on the
+  // recommended row rendered pixel-identical to the unanswered ★ preselect).
+  const answered = isAnswered(q);
   const lines: string[] = [];
   const sectionHeaderLineIndex: number[] = [];
   const sectionHeaders: string[] = [];
   const sectionStarred: boolean[] = [];
+  const sectionAnswered: boolean[] = [];
 
   // ---- pinned question region (DEEP-PIN-001): moot line + description +
   // goal, fitted to the pane budget. RENDER ORDER per the spec sentence —
@@ -332,23 +368,32 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
   // already summarized — truncated — in the header, FR-30), so the goal
   // yields lines first when the region overflows; both blocks cap at
   // maxChars as before. Whole-line truncation only, via fitBlock.
-  const head: string[] = [];
-  if (dimAll) {
-    head.push(mootLine(q, theme, budget), "");
+  // DEEP-PIN-002 framing: a blank line ABOVE the block (air below the
+  // panel header), the accent ▌ rail on every text line, and one extra
+  // column of right padding (question text wraps 1 col narrower than the
+  // options rows — breathing room on all sides).
+  const head: string[] = [""];
+  if (answered) {
+    head.push(answeredLine(theme), "");
   }
+  if (dimAll) {
+    head.push(mootLine(q, theme, budget - 1), "");
+  }
+  const qBudget = budget - 1; // extra right-padding col (DEEP-PIN-002)
+  const rail = questionIndent(theme, answered);
   const goalBlock: string[] = [];
-  pushBlock(goalBlock, goal, theme, budget, maxChars, true);
+  pushBlock(goalBlock, goal, theme, qBudget, maxChars, true, "", rail);
   const descBlock: string[] = [];
   if (q.description !== undefined && q.description !== "") {
-    pushBlock(descBlock, q.description, theme, budget, maxChars, dimAll);
+    pushBlock(descBlock, q.description, theme, qBudget, maxChars, dimAll, "", rail);
   }
   const separators = descBlock.length > 0 ? 2 : 1; // blank between blocks (+ after the last)
   const questionBudget = hasSections
     ? DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT
     : DEEP_VIEW_HEIGHT; // no sections → the question may use the whole pane
   const avail = questionBudget - head.length - separators;
-  const descKept = fitBlock(descBlock, avail, theme);
-  const goalKept = fitBlock(goalBlock, avail - descKept.length, theme);
+  const descKept = fitBlock(descBlock, avail, theme, answered);
+  const goalKept = fitBlock(goalBlock, avail - descKept.length, theme, answered);
   // DEEP-PIN-001 order: description block ABOVE the goal block (one blank
   // line between; the trailing blank separates the pinned region from the
   // options region exactly as before).
@@ -364,14 +409,23 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
       // D-R14 amendment 8 (2026-09-30): the ★ follows the title — TRAILING
       // `Title ★` — instead of the col-0 rail; the title text stays at
       // col 2 with the plain inset, and the star's width is reserved so
-      // truncation can never eat it.
+      // truncation can never eat it. DEEP-PIN-003: the recorded answer's
+      // section carries ` ✓` (success) BETWEEN the title and the ★ — the
+      // answer mark sits closest to the label it certifies; its width is
+      // reserved like the star's.
       const starred = opt.value === q.recommendation;
+      const isAnswerRow = answered && q.answer?.custom !== true && opt.value === q.answer?.value;
       const starSuffix = starred ? ` ${theme.fg("text", "★")}` : "";
-      const body = truncateVisible(opt.label, Math.max(1, budget - (starred ? 2 : 0)));
+      const checkSuffix = isAnswerRow ? ` ${theme.fg("success", "✓")}` : "";
+      const body = truncateVisible(
+        opt.label,
+        Math.max(1, budget - (starred ? 2 : 0) - (isAnswerRow ? 2 : 0)),
+      );
       sectionHeaders.push(body);
       sectionStarred.push(starred);
+      sectionAnswered.push(isAnswerRow);
       sectionHeaderLineIndex.push(lines.length);
-      const composed = `${headerPrefix(i === input.cursorIndex)}${titleStyle(theme, i === input.cursorIndex, body)}${starSuffix}`;
+      const composed = `${headerPrefix(i === input.cursorIndex)}${titleStyle(theme, i === input.cursorIndex, body)}${checkSuffix}${starSuffix}`;
       lines.push(dimAll ? theme.fg("dim", composed) : composed);
       // D-R13/D-R14: explanation rows — full intensity, each prefixed by the
       // colored quote-bar pipe. Moot dims the whole pane over it.
@@ -391,8 +445,13 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     // whole domain there); never on withdrawn/text questions.
     sectionHeaders.push(OTHER_AFFORDANCE);
     sectionStarred.push(false); // never recommended (h2.29)
+    // DEEP-PIN-003: a committed write-in (custom: true) certifies the ✎
+    // Other section — trailing ` ✓` like a real option row.
+    const otherIsAnswer = answered && q.answer?.custom === true;
+    sectionAnswered.push(otherIsAnswer);
     sectionHeaderLineIndex.push(lines.length);
-    const composed = `${headerPrefix(options.length === input.cursorIndex)}${titleStyle(theme, options.length === input.cursorIndex, OTHER_AFFORDANCE)}`;
+    const otherCheck = otherIsAnswer ? ` ${theme.fg("success", "✓")}` : "";
+    const composed = `${headerPrefix(options.length === input.cursorIndex)}${titleStyle(theme, options.length === input.cursorIndex, OTHER_AFFORDANCE)}${otherCheck}`;
     lines.push(dimAll ? theme.fg("dim", composed) : composed);
     pushBlock(lines, OTHER_RAMIFICATION, theme, budget, maxChars, dimAll, ramIndent(theme, options.length === input.cursorIndex));
   }
@@ -400,12 +459,13 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     hasSections ? MIN_OPTIONS_VIEWPORT : 1,
     DEEP_VIEW_HEIGHT - questionLines.length,
   );
-  return { questionLines, lines, sectionHeaderLineIndex, sectionHeaders, sectionStarred, dimAll, viewportHeight };
+  return { questionLines, lines, sectionHeaderLineIndex, sectionHeaders, sectionStarred, sectionAnswered, dimAll, viewportHeight };
 }
 
 /**
  * Append one text block: char-capped ({@link capText}), word-wrapped to the
- * post-indent budget ({@link wrapText}), each line INSET-prefixed, optional
+ * post-indent budget ({@link wrapText}), each line prefixed (INSET by
+ * default; the question rail for pinned blocks, DEEP-PIN-002), optional
  * extra indent, and dimmed when `dim`. Pure — appends into the caller's
  * array only.
  */
@@ -417,11 +477,12 @@ function pushBlock(
   maxChars: number,
   dim: boolean,
   indent = "",
+  prefix = INSET,
 ): void {
   const indentW = visibleWidth(indent);
   const wrapped = wrapText(capText(text, maxChars), Math.max(1, budget - indentW));
   for (const ln of wrapped) {
-    const composed = `${INSET}${indent}${ln}`;
+    const composed = `${prefix}${indent}${ln}`;
     lines.push(dim ? theme.fg("dim", composed) : composed);
   }
 }
@@ -430,19 +491,58 @@ function pushBlock(
 function mootLine(q: Question, theme: Theme, budget: number): string {
   const reasonBudget = Math.max(1, budget - visibleWidth(MOOT_HEAD));
   const reason = truncateVisible(mootReason(q), reasonBudget);
-  return `${INSET}${theme.fg("dim", `${MOOT_HEAD}${reason}`)}`;
+  return `${questionIndent(theme)}${theme.fg("dim", `${MOOT_HEAD}${reason}`)}`;
+}
+
+/**
+ * DEEP-PIN-002: the question block's left rail — `▌ ` (2 visible cols),
+ * ACCENT while the question is open and SUCCESS (green) once it carries a
+ * recorded answer (DEEP-PIN-003 — "another color for already-answered
+ * questions": the whole block reads differently at a glance). Replaces the
+ * INSET on every pinned question text line so the block's left edge is a
+ * solid colored rail while its text stays at column 2 (option-title
+ * alignment). The ✓ answered head line + per-section ✓ marks are the
+ * character-level channel (color-broken TTYs — D-R14 amendment 9
+ * philosophy: never color alone).
+ */
+function questionIndent(theme: Theme, answered = false): string {
+  return theme.fg(answered ? "success" : "accent", QUESTION_RAIL);
+}
+
+/** DEEP-PIN-003 — head-line label for questions carrying a recorded answer. */
+const ANSWERED_HEAD = "✓ answered";
+/**
+ * DEEP-PIN-003: the `✓ answered` head line — the deep view's counterpart
+ * of the short view's `★ answered` question-line marker (statusMarkers,
+ * same status gate), success-colored on the success-colored rail.
+ */
+function answeredLine(theme: Theme): string {
+  return `${questionIndent(theme, true)}${theme.fg("success", ANSWERED_HEAD)}`;
+}
+/**
+ * DEEP-PIN-003 gate (mirrors layout.ts statusMarkers exactly): an answer
+ * object PLUS an answered/submitted/closed status. Status alone (answer
+ * reset) is not "answered"; answer presence alone (moot keeps its answer
+ * for the audit trail) is not either — moot owns its own `⊘` line.
+ */
+function isAnswered(q: Question): boolean {
+  return (
+    q.answer !== undefined &&
+    (q.status === "answered" || q.status === "submitted" || q.status === "closed")
+  );
 }
 
 /**
  * Fit a pinned question block into `max` lines (DEEP-PIN-001): whole-line
- * truncation from the bottom with a fresh dimmed `…` marker line replacing
- * the cut tail. Whole lines only — never slices a styled line (ANSI-safe);
- `max` ≤ 0 yields an empty block. Pure.
+ * truncation from the bottom with a fresh dimmed `…` marker line (carrying
+ * the question rail — success-colored when answered, DEEP-PIN-003)
+ * replacing the cut tail. Whole lines only — never slices a styled line
+ * (ANSI-safe); `max` ≤ 0 yields an empty block. Pure.
  */
-function fitBlock(block: string[], max: number, theme: Theme): string[] {
+function fitBlock(block: string[], max: number, theme: Theme, answered = false): string[] {
   if (max <= 0) return [];
   if (block.length <= max) return block;
-  return [...block.slice(0, max - 1), `${INSET}${theme.fg("dim", "…")}`];
+  return [...block.slice(0, max - 1), `${questionIndent(theme, answered)}${theme.fg("dim", "…")}`];
 }
 
 // ----------------------------------------------------- scroll + render core
@@ -510,13 +610,21 @@ export function renderDeepWindow(
     const lineIdx = content.sectionHeaderLineIndex[s]!;
     if (lineIdx < offset || lineIdx >= end) continue;
     const starred = content.sectionStarred[s] === true;
-    const body = truncateVisible(content.sectionHeaders[s]!, Math.max(1, budget - (starred ? 2 : 0)));
+    // DEEP-PIN-003: re-render the recorded answer's ` ✓` (success) with the
+    // header — between title and ★, width reserved — so the mark survives
+    // cursor moves exactly like the star does.
+    const answerMarked = content.sectionAnswered[s] === true;
+    const body = truncateVisible(
+      content.sectionHeaders[s]!,
+      Math.max(1, budget - (starred ? 2 : 0) - (answerMarked ? 2 : 0)),
+    );
     // D-R14 amendment 8: TRAILING `Title ★` — no rail, no leading star; the
     // star's width is reserved so truncation never eats it. Selection =
     // accent+bold title/bars PLUS the ▸ header prefix (amendment 9); the
     // star stays primary text.
     const starSuffix = starred ? ` ${theme.fg("text", "★")}` : "";
-    const composed = `${headerPrefix(s === cursorIndex)}${titleStyle(theme, s === cursorIndex, body)}${starSuffix}`;
+    const checkSuffix = answerMarked ? ` ${theme.fg("success", "✓")}` : "";
+    const composed = `${headerPrefix(s === cursorIndex)}${titleStyle(theme, s === cursorIndex, body)}${checkSuffix}${starSuffix}`;
     window[lineIdx - offset] = content.dimAll ? theme.fg("dim", composed) : composed;
   }
   return [...content.questionLines, ...window];

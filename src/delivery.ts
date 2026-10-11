@@ -57,13 +57,17 @@ export const SUBMISSION_LIST_MAX_CHARS = 240;
 
 /**
  * The pi.sendMessage payload for an interrogation submission. Content is
- * 2 lines without a note, 3 with (≤3-line budget h3.6): the optional third
+ * 2 lines without a note, 3 with (≤3-line budget h3.6), plus one
+ * full-text continuation line under line 1 when the per-entry cap fired:
+ * the optional third
  * `NOTE: {note}` line is MODEL-VISIBLE per h2.32/R3 — the user-only diff
  * card is still rendered from `details` (P1.M7.T3.S1), never from content.
  */
 export interface SubmissionMessage {
   customType: "interrogation-submission";
-  /** 2 lines (+ a third `NOTE: {note}` line only when a note ships, h2.32);
+  /** 2 lines (+ a third `NOTE: {note}` line only when a note ships, h2.32;
+   * + one full-text continuation line under line 1 when the per-entry cap
+   * fired — capped user words are never the model's only view);
    * line 1 ends ` (state epoch {n})` with the POST-bump epoch (BUG-003). */
   content: string;
   display: true;
@@ -88,12 +92,14 @@ export interface SubmissionMessage {
  * h2.32/R3 — the shipped "note intentionally details-only" choice is
  * superseded: h3.6's "≤3-line custom message" headroom is exactly what the
  * optional third line uses, so content stays 2 lines whenever no note
- * ships):
+ * ships — plus ONE full-text continuation line under line 1 whenever the
+ * per-entry cap fired (see below),
  *
  * ```
  * Submitted {k}: {id}: {to}; {id}: {to} (changed)… (state epoch {n})
+ * [  {id}: {full to}]                 ← ONLY when line 1 capped this entry
  * Consider how these affect your other questions.
- * [NOTE: {note}]                      ← third line ONLY when a note ships
+ * [NOTE: {note}]                      ← ONLY when a note ships
  * ```
  *
  * - `{n}` in the line-1 epoch suffix is the POST-bump epoch (BUG-003 fix):
@@ -111,7 +117,12 @@ export interface SubmissionMessage {
  *   overflows with only the first entry kept, that last kept entry is
  *   ellipsis-truncated (`…`) to the remaining budget (BUG-006 cap half —
  *   the old "always ≥1 entry whole" rule let a huge write-in through
- *   unbounded), so line 1 never exceeds the cap for arbitrary text. The id
+ *   unbounded), so line 1 never exceeds the cap for arbitrary text. When
+ *   that per-entry cap fires, the FULL entry ships as an indented
+ *   continuation line between line 1 and the reminder — never truncated,
+ *   newlines collapsed to `" / "` (the note-line rule, extended to
+ *   user-authored answer text: the model must never be told to
+ *   "consider" words it cannot read). The id
  *   prefix, the ` (changed)` suffix, the rollup, and the epoch suffix are
  *   never truncated; `{k}` still reports the true change count; and
  *   `details.changed`/`details.card` keep the UNTRUNCATED `to` (h2.36
@@ -192,6 +203,7 @@ export function buildSubmission(
   const overflows = (candidate: string): boolean =>
     `${header}${candidate}${epochSuffix}`.length > SUBMISSION_LIST_MAX_CHARS;
   const first = diff.changed[0];
+  let capped: DiffEntry | undefined; // set when the per-entry cap mutilates first.to
   if (first !== undefined && overflows(list)) {
     const changedSuffix = first.editedArchived ? " (changed)" : "";
     const rollup = dropped > 0 ? `; +${dropped} more` : "";
@@ -228,8 +240,21 @@ export function buildSubmission(
     // untouched keeps the never-grow invariant (never longer than before).
     if (slice.length < first.to.length) {
       list = `${first.id}: ${slice}…${changedSuffix}${rollup}`;
+      capped = first;
     }
   }
+
+  // FULL-TEXT CONTINUATION (trust fix): the budgeted line 1 may
+  // ellipsis-cap a long write-in mid-sentence — without this line the
+  // model is told to "consider" an answer it cannot read, inviting
+  // speculation about the user's words. A capped entry gets ONE
+  // untruncated continuation line directly under line 1: the note-line
+  // rule (never truncated, newlines collapse to " / ") extended to
+  // user-authored answer text. Dropped entries keep the "+m more" rollup
+  // — absence, not mutilation; their full text is always recoverable from
+  // the read result's `  answer:` detail lines.
+  const continuationLine =
+    capped !== undefined ? `  ${capped.id}: ${capped.to.replace(/\n+/g, " / ")}\n` : "";
 
   // Optional third content line (h2.32/R3): the note is MODEL-VISIBLE, not
   // just details. Newlines collapse to " / "; never truncated (same rule
@@ -240,7 +265,7 @@ export function buildSubmission(
       ? `\nNOTE: ${note.replace(/\n+/g, " / ")}`
       : "";
 
-  const content = `Submitted ${k}: ${k === 0 ? "(no changes)" : list}${epochSuffix}\n${SUBMISSION_REMINDER}${noteLine}`;
+  const content = `Submitted ${k}: ${k === 0 ? "(no changes)" : list}${epochSuffix}\n${continuationLine}${SUBMISSION_REMINDER}${noteLine}`;
 
   // Side-effect tail (order is the contract — h2.39 / snapshots.ts JSDoc):
   // ring snapshot at the pre-bump epoch, then exactly one epoch bump.

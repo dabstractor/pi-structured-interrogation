@@ -1236,7 +1236,8 @@ describe("AC-16 — answer pinning: recorded answer owns the caret (FR-35, ANSWE
     const betaRow = lines.find((l) => l.includes("Beta"))!;
     const alphaRow = lines.find((l) => l.includes("Alpha"))!;
     expect(betaRow).toContain("▸"); // caret prefix on the chosen row
-    expect(betaRow).toContain("accent:Beta"); // accent highlight on the recorded answer (recording theme)
+    expect(betaRow).toContain("success:Beta"); // DEEP-PIN-003: recorded answer's label renders SUCCESS (owner ruling 2026-10-07; was accent)
+    expect(betaRow).not.toContain("accent:Beta"); // accent no longer marks the answered row
     expect(alphaRow).toContain("★"); // ★ visible on its own row…
     expect(alphaRow).not.toContain("▸"); // …and the caret is NOT on it
 

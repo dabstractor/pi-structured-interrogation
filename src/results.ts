@@ -133,7 +133,12 @@ export function isRecordAnswered(q: { status: string; answer?: unknown }): boole
  *    sliced to 60 chars — WRITEIN-001/h2.42; titles are short by contract
  *    and never truncated; a missing `title` falls back to `prompt` sliced
  *    to 60 chars, plain slice, no ellipsis), followed by indented detail lines, only when
- *    the field is present: `  prompt: {full}` (when a title hides it or the
+ *    the field is present: `  answer: {full write-in value}` (when the
+ *    one-liner's 60-char slice cut it — the user's words are NEVER left
+ *    truncated-only; full-fidelity contract), `  elaboration: {full text}`
+ *    (whenever `answer.text` is present and non-blank — elaborations never
+ *    appear in the one-liner, so they always get this line),
+ *    `  prompt: {full}` (when a title hides it or the
  *    60-char slice cut it), `  description: {full}`,
  *    `  - {value} = {label}[ ★][ — {ramification}]` per option, and one
  *    combined `  group: … · gate: true · dependsOn: {id}={v}|{id}≠{v}` line.
@@ -231,6 +236,18 @@ function questionBlock(q: Question): string[] {
   // fallback gets the 60-char plain slice (no ellipsis).
   const label = q.title ?? q.prompt.slice(0, 60);
   const lines = [questionLine(q)];
+  // Full answer fidelity: the one-liner slices write-ins to 60 chars for
+  // scanability, but the user's words must reach the model INTACT — the
+  // same full-content contract as `prompt:` below. Elaborations
+  // (`answer.text`) never appear in the one-liner at all, so they always
+  // get their own line when present and non-blank (trim guard mirrors
+  // snapshots.ts composeSummary).
+  if (q.answer !== undefined && q.answer.custom === true && q.answer.value.length > 60) {
+    lines.push(`  answer: ${q.answer.value}`);
+  }
+  if (typeof q.answer?.text === "string" && q.answer.text.trim() !== "") {
+    lines.push(`  elaboration: ${q.answer.text}`);
+  }
   // Full prompt when the header line does not already show it verbatim.
   if (q.title !== undefined || q.prompt.length > 60) lines.push(`  prompt: ${q.prompt}`);
   if (q.description !== undefined) lines.push(`  description: ${q.description}`);
@@ -259,7 +276,11 @@ function questionBlock(q: Question): string[] {
  * visible. This is model-facing PLAIN text: no ANSI/theme, no
  * truncateToWidth (renderer-side only), and never an option lookup — a
  * write-in's value is free text, not an option value. Non-custom answers
- * render the raw value exactly as before.
+ * render the raw value exactly as before. The 60-char slice is a SCAN
+ * convention only — when it cuts a write-in (or an elaboration exists),
+ * {@link questionBlock} emits the full text as `  answer:` /
+ * `  elaboration:` detail lines; the one-liner is never the only carrier
+ * of user-authored words.
  */
 function questionLine(q: Question): string {
   // Titles are short by contract — never truncated. Only the prompt

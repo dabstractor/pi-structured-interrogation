@@ -41,6 +41,7 @@ import {
   type DeepContent,
 } from "./deep-view.js";
 import { InterrogationPanel, type InterrogationPanelArgs } from "./panel.js";
+import { renderShortViewOptions } from "./short-view.js";
 
 // ------------------------------------------------------------------ fixtures
 
@@ -515,92 +516,139 @@ describe("answered visibility (DEEP-PIN-003)", () => {
     });
   }
 
-  test("test_answered_question_green_rail_and_head_line", () => {
-    const content = buildDeepContent(deepInputFor(answeredQ(), { theme: colorTheme }));
-    // Head: air line, then the success `✓ answered` line on the success rail.
-    expect(content.questionLines[0]).toBe("");
-    expect(content.questionLines[1]).toContain("✓ answered");
-    expect(content.questionLines[1]).toContain("<success>");
-    // The rail is success on EVERY question text line (dim blocks nest it
-    // inside the dim wrapper — the rail keeps its own color).
-    for (const ln of content.questionLines) {
-      if (ln !== "") expect(ln).toContain("<success>▌");
-    }
-  });
-
-  test("test_unanswered_question_accent_rail_no_checks", () => {
-    const content = buildDeepContent(deepInputFor(choiceQ("db"), { theme: colorTheme }));
-    expect(content.questionLines.join("\n")).not.toContain("✓");
-    expect(content.questionLines.join("\n")).not.toContain("<success>");
-    expect(content.lines.join("\n")).not.toContain("✓");
-    expect(content.sectionAnswered).toEqual([false, false, false]);
-    for (const ln of content.questionLines) {
+  test("test_answered_title_renders_success_no_interface_additions", () => {
+    // Owner ruling (DEEP-PIN-003): ONE signal — the recorded answer's
+    // TITLE renders success. No head line, no rail recolor, no ✓ glyphs:
+    // the question region stays byte-identical to an unanswered question's.
+    const answered = buildDeepContent(deepInputFor(answeredQ(), { theme: colorTheme }));
+    const open = buildDeepContent(deepInputFor(choiceQ("db"), { theme: colorTheme }));
+    expect(answered.questionLines).toEqual(open.questionLines); // no new lines
+    expect(answered.questionLines.join("\n")).not.toContain("✓");
+    expect(answered.questionLines.join("\n")).not.toContain("<success>"); // rail stays accent
+    for (const ln of answered.questionLines) {
       if (ln !== "") expect(ln).toContain("<accent>▌");
     }
   });
 
-  test("test_recorded_option_carries_trailing_check_before_star", () => {
+  test("test_unanswered_question_no_success_anywhere", () => {
+    const content = buildDeepContent(deepInputFor(choiceQ("db"), { theme: colorTheme }));
+    expect(content.questionLines.join("\n")).not.toContain("<success>");
+    expect(content.lines.join("\n")).not.toContain("<success>");
+    expect(content.sectionAnswered).toEqual([false, false, false]);
+    // The ★ preselect stays accent (selection hue), never success.
+    expect(content.lines[content.sectionHeaderLineIndex[0]!]!).toContain("<accent>sqlite");
+  });
+
+  test("test_recorded_answer_title_success_selected_or_not", () => {
     // The user's exact ambiguity: unanswered preselect vs. answered top
-    // choice rendered identically. The ✓ breaks it — on the ANSWER row,
-    // between title and ★, in both the baked lines and the re-render.
-    const content = buildDeepContent(deepInputFor(answeredQ()));
+    // choice on the same row. The TITLE COLOR breaks it — success vs.
+    // accent — in the baked lines and every window re-render.
+    const content = buildDeepContent(deepInputFor(answeredQ(), { theme: colorTheme }));
     expect(content.sectionAnswered).toEqual([true, false, false]);
     // cursorIndex 0 === the answer's display row (ANSWER-PIN-001 seeds the
-    // caret there): baked with the ▸ prefix AND the ✓.
+    // caret there): selected answered row = bold + SUCCESS (not accent).
     const header = content.lines[content.sectionHeaderLineIndex[0]!]!;
-    expect(header.startsWith("▸ sqlite")).toBe(true);
-    expect(header.indexOf("✓")).toBeGreaterThan(header.indexOf("sqlite"));
-    expect(header.indexOf("✓")).toBeLessThan(header.indexOf("★")); // check BEFORE star
-    // Re-render with the caret moved OFF the answer row: the ✓ stays.
-    const window = renderDeepWindow(content, 1, 0, theme, 80);
+    expect(header).toContain("<b><success>sqlite</success></b>");
+    // Re-render with the caret moved OFF: still success, now unbolded.
     const base = content.questionLines.length;
-    const reRendered = window[base + content.sectionHeaderLineIndex[0]!]!;
-    expect(reRendered.startsWith("  sqlite")).toBe(true); // unselected prefix now
-    expect(reRendered).toContain("✓");
-    // And with the caret ON it: ▸ prefix + ✓ coexist.
-    const onRow = renderDeepWindow(content, 0, 0, theme, 80)[base + content.sectionHeaderLineIndex[0]!]!;
-    expect(onRow.startsWith("▸ sqlite")).toBe(true);
-    expect(onRow).toContain("✓");
+    const reRendered = renderDeepWindow(content, 1, 0, colorTheme, 80)[
+      base + content.sectionHeaderLineIndex[0]!
+    ]!;
+    expect(reRendered).toContain("<success>sqlite</success>");
+    expect(reRendered).not.toContain("<b>");
+    // The OTHER option's title stays primary; the ★ still trails (amendment 8).
+    expect(content.lines[content.sectionHeaderLineIndex[1]!]!).toContain("<text>postgres</text>");
+    expect(header).toContain("★");
   });
 
-  test("test_write_in_answer_checks_the_other_section", () => {
+  test("test_unanswered_preselect_title_is_accent_not_success", () => {
+    // The discriminating pair, side by side: same row, same caret — only
+    // the hue differs (accent = "not answered yet", success = "recorded").
+    const open = buildDeepContent(deepInputFor(choiceQ("db"), { theme: colorTheme }));
+    const openHeader = open.lines[open.sectionHeaderLineIndex[0]!]!;
+    expect(openHeader).toContain("<b><accent>sqlite</accent></b>");
+    expect(openHeader).not.toContain("<success>");
+  });
+
+  test("test_write_in_answer_colors_other_section_title", () => {
     const q = answeredQ({ answer: { value: "my own thing", at: "t", custom: true } });
-    const content = buildDeepContent(deepInputFor(q));
+    const content = buildDeepContent(deepInputFor(q, { theme: colorTheme }));
     expect(content.sectionAnswered).toEqual([false, false, true]); // ✎ Other
     const header = content.lines[content.sectionHeaderLineIndex[2]!]!;
-    expect(header).toContain("✎ Other — write your own");
-    expect(header).toContain("✓");
+    expect(header).toContain("<success>✎ Other — write your own</success>");
+    expect(header).not.toContain("✓");
   });
 
-  test("test_answer_object_without_answered_status_marks_nothing", () => {
-    // The reset edge (statusMarkers parity): an answer object left on an
-    // OPEN question (answer reset residue) is NOT "answered" — no green
-    // rail, no ✓ marks. Moot keeps its answer for audit: moot owns the ⊘
-    // line and never shows the answered treatment either.
+  test("test_coloring_keys_on_answer_presence_not_status", () => {
+    // Same key as the short view's row coloring and ANSWER-PIN-001's caret
+    // pinning: answer PRESENCE. Reset residue on an open question still
+    // colors (the row IS the recorded value); moot dims the whole pane
+    // over the coloring (dim wrapper wins, audit trail intact).
     const reset = buildDeepContent(
       deepInputFor(choiceQ("db", { answer: { value: "sqlite", at: "t" } }), {
         theme: colorTheme,
       }),
     );
-    expect(reset.questionLines.join("\n")).not.toContain("✓");
-    expect(reset.sectionAnswered).toEqual([false, false, false]);
+    expect(reset.sectionAnswered).toEqual([true, false, false]);
+    expect(reset.lines[reset.sectionHeaderLineIndex[0]!]!).toContain("<success>");
     const moot = buildDeepContent(
       deepInputFor(answeredQ({ status: "moot" }), { theme: colorTheme }),
     );
-    expect(moot.questionLines.join("\n")).not.toContain("✓ answered");
-    expect(moot.sectionAnswered).toEqual([false, false, false]);
-    expect(moot.dimAll).toBe(true); // moot treatment owns the pane
+    expect(moot.sectionAnswered).toEqual([true, false, false]);
+    expect(moot.lines[moot.sectionHeaderLineIndex[0]!]!).toContain("<dim>"); // dimmed over
+    expect(moot.dimAll).toBe(true);
   });
 
-  test("test_answered_head_line_costs_question_budget_not_options", () => {
-    // The head line rides the existing pinned budget: bounds hold.
-    const content = buildDeepContent(deepInputFor(answeredQ()));
-    expect(content.questionLines.length).toBeLessThanOrEqual(
-      DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT,
-    );
-    const window = renderDeepWindow(content, 0, 0, theme, 80);
+  test("test_no_interface_cost_bounds_hold", () => {
+    // Zero lines added: bounds identical to an unanswered question's.
+    const answered = buildDeepContent(deepInputFor(answeredQ()));
+    const open = buildDeepContent(deepInputFor(choiceQ("db")));
+    expect(answered.questionLines).toHaveLength(open.questionLines.length);
+    expect(answered.lines).toHaveLength(open.lines.length);
+    const window = renderDeepWindow(answered, 0, 0, theme, 80);
     expect(window.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
-    expect(content.viewportHeight).toBeGreaterThanOrEqual(MIN_OPTIONS_VIEWPORT);
+    expect(answered.viewportHeight).toBeGreaterThanOrEqual(MIN_OPTIONS_VIEWPORT);
+  });
+});
+
+describe("answered visibility, short view (DEEP-PIN-003)", () => {
+  const colorTheme = {
+    fg: (name: string, s: string) => `<${name}>${s}</${name}>`,
+    bold: (s: string) => `<b>${s}</b>`,
+  } as unknown as Theme;
+
+  test("test_short_view_recorded_option_label_success", () => {
+    const q = choiceQ("db", {
+      status: "answered",
+      answer: { value: "postgres", at: "t" },
+    });
+    const lines = renderShortViewOptions({ question: q, cursorIndex: 0, theme: colorTheme, width: 80 });
+    const postgres = lines.find((l) => l.includes("postgres"))!;
+    expect(postgres).toContain("<success>postgres</success>");
+    expect(postgres).not.toContain("<accent>");
+    // Unanswered options render no success anywhere.
+    const open = renderShortViewOptions({
+      question: choiceQ("db"),
+      cursorIndex: 0,
+      theme: colorTheme,
+      width: 80,
+    });
+    expect(open.join("\n")).not.toContain("<success>");
+  });
+
+  test("test_short_view_write_in_colors_other_row", () => {
+    const q = choiceQ("db", {
+      status: "answered",
+      answer: { value: "hand-written", at: "t", custom: true },
+    });
+    // Caret pinned on the ✎ row (ANSWER-PIN-001): focused + success label.
+    const lines = renderShortViewOptions({ question: q, cursorIndex: 2, theme: colorTheme, width: 80 });
+    const other = lines.find((l) => l.includes("✎ Other"))!;
+    expect(other).toContain("<success>✎ Other — write your own</success>");
+    // …and dimmed (caret elsewhere) still carries the green inside the dim.
+    const away = renderShortViewOptions({ question: q, cursorIndex: 0, theme: colorTheme, width: 80 });
+    const otherAway = away.find((l) => l.includes("✎ Other"))!;
+    expect(otherAway).toContain("<success>");
   });
 });
 

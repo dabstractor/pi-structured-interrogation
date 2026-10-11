@@ -140,7 +140,7 @@ describe("buildSubmission — content", () => {
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
 
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(3); // capped entry → full-text continuation line
     // BUG-006 cap half: the single kept entry is ellipsis-truncated so line 1
     // fits the budget (the old "keep ≥1 entry whole" rule let it through).
     expect(lines[0]!.length).toBeLessThanOrEqual(SUBMISSION_LIST_MAX_CHARS);
@@ -148,7 +148,9 @@ describe("buildSubmission — content", () => {
     expect(lines[0]).toContain("…"); // ellipsis terminator on the capped entry
     expect(lines[0]).toMatch(/\(state epoch 2\)$/); // epoch suffix never dropped
     expect(lines[0]).not.toContain("+1 more"); // single entry is never dropped — it is capped
-    expect(lines[1]).toBe(SUBMISSION_REMINDER);
+    // FULL-TEXT CONTINUATION: the user's words reach the model INTACT.
+    expect(lines[1]).toBe(`  q1: ${"x".repeat(SUBMISSION_LIST_MAX_CHARS * 2)}`);
+    expect(lines[2]).toBe(SUBMISSION_REMINDER);
   });
 
   test("zero_changes_no_changes_line_still_one_snapshot_one_bump", () => {
@@ -929,13 +931,16 @@ describe("BUG-006 cap half — per-entry truncation (P1.M2.T3.S2)", () => {
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
 
-    expect(lines).toHaveLength(2); // ≤3-line budget restored (FR-3/AC-2)
+    expect(lines).toHaveLength(3); // capped write-in → full-text continuation
     expect(lines[0]!.length).toBeLessThanOrEqual(SUBMISSION_LIST_MAX_CHARS);
     expect(lines[0]!.startsWith("Submitted 1: q1: ✎ X")).toBe(true);
     expect(lines[0]).toContain("…"); // ellipsis terminator
     expect(lines[0]).toMatch(/\(state epoch 2\)$/); // suffix never dropped
     expect(lines[0]).not.toContain("+1 more"); // single entry: capped, not dropped
-    expect(lines[1]).toBe(SUBMISSION_REMINDER);
+    // FULL-TEXT CONTINUATION: the write-in reaches the model INTACT — the
+    // model is never left to guess at ellipsis-mutilated user words.
+    expect(lines[1]).toBe(`  q1: ✎ ${"X".repeat(3000)}`);
+    expect(lines[2]).toBe(SUBMISSION_REMINDER);
     // details/card keep the UNTRUNCATED `to` (h2.36 Q2=A) — only content is capped.
     expect(msg.details.changed[0]?.to).toBe(`✎ ${"X".repeat(3000)}`);
   });
@@ -952,12 +957,24 @@ describe("BUG-006 cap half — per-entry truncation (P1.M2.T3.S2)", () => {
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
 
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(3); // capped q1 → continuation; dropped q2-q4 keep the rollup
     expect(lines[0]!.length).toBeLessThanOrEqual(SUBMISSION_LIST_MAX_CHARS);
     expect(lines[0]!.startsWith("Submitted 4: q1: ✎ X")).toBe(true); // first entry KEPT (truncated); k true
     expect(lines[0]).toContain("…");
     expect(lines[0]).toMatch(/\+3 more \(state epoch 2\)$/); // rollup BEFORE the never-dropped suffix
-    expect(lines[1]).toBe(SUBMISSION_REMINDER);
+    expect(lines[1]).toBe(`  q1: ✎ ${"X".repeat(3000)}`); // full text of the capped entry
+    expect(lines[2]).toBe(SUBMISSION_REMINDER);
+  });
+
+  test("bug006_multiline_write_in_continuation_flattens_newlines", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: `line1\nline2\n\nline3 ${"X".repeat(3000)}`, custom: true, at: T0 });
+    const diff = diffFrom(prev);
+
+    const lines = buildSubmission(state, diff).content.split("\n");
+
+    expect(lines[1]).toBe(`  q1: ✎ line1 / line2 / line3 ${"X".repeat(3000)}`); // newlines → " / "
   });
 
   test("bug006_short_entries_byte_identical_to_golden", () => {

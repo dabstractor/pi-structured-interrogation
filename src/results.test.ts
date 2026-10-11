@@ -184,6 +184,47 @@ describe("buildReadResult write-ins (WRITEIN-001, h2.42)", () => {
     expect(line?.includes("…")).toBe(false);
   });
 
+  test("100-char write-in: full value rides an `  answer:` detail line — the slice is never the only carrier", () => {
+    const long = "w".repeat(100);
+    const state = ser([
+      q({
+        id: "w1",
+        title: "Wildcard",
+        status: "answered",
+        answer: { value: long, custom: true, at: "2025-01-01T00:00:00Z" },
+      }),
+    ]);
+    const lines = buildReadResult(state).content.split("\n");
+    expect(lines).toContain(`  answer: ${long}`); // FULL value — user words are never truncated-only
+  });
+
+  test("write-in ≤60 chars gets no `  answer:` line — the one-liner already shows it verbatim", () => {
+    const state = ser([
+      q({
+        id: "db",
+        title: "Database",
+        status: "answered",
+        answer: { value: "my own text", custom: true, at: "2025-01-01T00:00:00Z" },
+      }),
+    ]);
+    expect(buildReadResult(state).content).not.toContain("  answer:");
+  });
+
+  test("answer.text elaboration always gets an `  elaboration:` detail line — full text, custom or not", () => {
+    const text = "because ".repeat(20).trimEnd();
+    const state = ser([
+      q({
+        id: "db",
+        title: "Database",
+        status: "answered",
+        options: [{ value: "pg", label: "Postgres" }],
+        answer: { value: "pg", at: "2025-01-01T00:00:00Z", text },
+      }),
+    ]);
+    const lines = buildReadResult(state).content.split("\n");
+    expect(lines).toContain(`  elaboration: ${text}`); // elaborations are invisible in the one-liner — this line is their only model-visible carrier
+  });
+
   test("non-custom answers render the raw value — byte-identical to the pre-write-in format", () => {
     const state = ser([
       q({

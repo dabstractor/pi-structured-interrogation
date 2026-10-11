@@ -216,7 +216,7 @@ export function renderShortViewOptions(input: ShortViewInput): string[] {
     for (let i = 0; i < options.length; i++) {
       lines.push(optionLine(q, options[i], i, cursorIndex, theme, budget, dimAll));
     }
-    lines.push(otherLine(options.length, cursorIndex, theme, dimAll));
+    lines.push(otherLine(q, options.length, cursorIndex, theme, dimAll));
     // BUG-005 part 2: choice write-ins preview here too — only custom
     // write-ins produce a line (plain option answers return undefined; the
     // option rows already carry the recorded selection).
@@ -263,10 +263,14 @@ function optionLine(
     // Moot dims the whole line — cursor prefix and ★ included (h2.29).
     return `${INSET}${theme.fg("dim", `${prefix}${star}${label}${teaser}`)}`;
   }
-  // D-R13 (2026-09-30): the recorded answer's option row highlights accent —
-  // color is the selection signal; write-in answers keep their dim preview.
+  // D-R13 (2026-09-30), amended 2026-10-07 (DEEP-PIN-003, owner ruling):
+  // the recorded answer's option row renders its label in SUCCESS
+  // (green) — same one-signal rule as the deep view's section title, so
+  // "answered" reads identically in both views and never confuses with
+  // the accent selection/preselect hue; write-in answers keep their dim
+  // preview (the ✎ Other row carries the green, see otherLine).
   const answered = q.answer !== undefined && q.answer.custom !== true && q.answer.value === opt.value;
-  const styledLabel = answered ? theme.fg("accent", label) : label;
+  const styledLabel = answered ? theme.fg("success", label) : label;
   const dimTeaser = teaser === "" ? "" : theme.fg("dim", teaser);
   return `${INSET}${prefix}${star}${styledLabel}${dimTeaser}`;
 }
@@ -277,11 +281,21 @@ function optionLine(
  * At that index it is the focus target: `▸ ` prefix and full (non-dim)
  * intensity; otherwise dimmed with a two-space prefix. Focus BEHAVIOR (the
  * write-in duty) is P1.M2.T2.S1; this module only renders the line inside
- * the cursor range.
+ * the cursor range. DEEP-PIN-003: when the recorded answer is a committed
+ * write-in (custom: true), the label renders SUCCESS (green) — the same
+ * one-signal answered coloring as option rows and deep-view titles.
  */
-function otherLine(optionCount: number, cursorIndex: number, theme: Theme, dimAll: boolean): string {
+function otherLine(
+  q: Question,
+  optionCount: number,
+  cursorIndex: number,
+  theme: Theme,
+  dimAll: boolean,
+): string {
   const prefix = cursorIndex === optionCount ? CURSOR : BLANK;
-  const content = `${prefix}${OTHER_AFFORDANCE}`;
+  const isWriteInAnswer = q.answer?.custom === true;
+  const label = isWriteInAnswer ? theme.fg("success", OTHER_AFFORDANCE) : OTHER_AFFORDANCE;
+  const content = `${prefix}${label}`;
   const focused = cursorIndex === optionCount && !dimAll;
   return `${INSET}${focused ? content : theme.fg("dim", content)}`;
 }

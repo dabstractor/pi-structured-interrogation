@@ -610,7 +610,7 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
     };
   }
 
-  test("AC-5_deep_view_full_scroll_select_returns_short", () => {
+  test("AC-5_deep_view_full_scroll_select_stays_deep_when_sticky", () => {
     const state = createInterrogationState("deep goal");
     state.upsertQuestion(deepQ("d1"));
     state.upsertQuestion(deepQ("d2"));
@@ -684,10 +684,11 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
     );
 
     // Select the highlighted (last) option FROM the deep view: enter applies
-    // with the short-form commit semantics, returns to the short form,
-    // resets the scroll, and advances to the next unanswered question.
+    // with the short-form commit semantics, stays in the deep view on the
+    // advanced-to question (DEEP-STICKY-ADVANCE), resets the scroll, and
+    // advances to the next unanswered question.
     panel.handleInput(ENTER);
-    expect(panel.view).toBe("short");
+    expect(panel.view).toBe("deep"); // sticky landing keeps the pane open
     expect(panel.scrollOffset).toBe(0);
     expect(panel.deepSticky).toBe(true); // toggle stays sticky (FR-8)
     expect(state.getQuestion("d1")?.status).toBe("answered");

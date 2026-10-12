@@ -253,9 +253,10 @@ export function accept(panel: InterrogationPanel): boolean {
  * from "nothing happened because the ripple seam vetoed the edit":
  * - "noop"   — same-value re-commit: INERT (no applyAnswer, no answer.at
  *   rewrite, no seam, no moot recompute, no auto-submit) but the Q14 advance
- *   ALREADY RAN inside acceptOptionIndex; deep view returns to short.
+ *   ALREADY RAN inside acceptOptionIndex; deep view lands per deepSticky
+ *   (DEEP-STICKY-ADVANCE: stays deep while sticky, else short).
  * - "accept" — real commit applied (ripple passed or not applicable); advance
- *   already ran; deep view returns to short.
+ *   already ran; deep view lands per deepSticky (stays deep while sticky).
  * - "veto"   — the ripple-confirm seam refused the edit (answered/submitted
  *   question, different value); NOTHING applied, NO advance; deep view stays
  *   open so the user re-decides in the pane they are reading.

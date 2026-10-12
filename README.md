@@ -263,7 +263,7 @@ the spec for the full text and the scripted tests proving each):
 2d. **Gate hold (AUTOSUBMIT-002)**: with a gate question unanswered, commits show `⚠ … foundational unanswered` and do NOT auto-submit; answering it releases the next commit; `ctrl+s` submits anyway.
 3. Agent reply closes answered questions / re-asks preserve drafts; a re-asked question re-confirms on same-value `enter`.
 4. Break out → widget with counts → side chat → agent `{reopen:true}` → panel returns, drafts intact.
-5. Deep view: scroll ramifications (incl. the Other section), select from deep view → returns to short form.
+5. Deep view: scroll ramifications (incl. the Other section), select from deep view → stays in deep view on the advanced-to question (DEEP-STICKY-ADVANCE).
 6. Contradicting a `dependsOn` → dependent greys as moot instantly, with the real reason (`moot: {dep}={value}`); overview shows ⊘.
 7. Edit invalidating dependents → confirm dialog; esc cancels cleanly.
 8. Stale upsert (wrong `rev`/`epoch`) → rejected with current text/rev; re-apply heals.

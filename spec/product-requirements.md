@@ -31,7 +31,7 @@ In default pi, when a model asks dozens of planning questions, the question list
 
 ### Panel UX (details in ui-spec.md)
 - FR-7 Short form by default: question one-liner, first sentence of the description dimmed beneath, options with unmistakable recommendation marks (★ + preselect — preselect applies only while the question is unanswered; once answered, the recorded answer owns the caret, FR-35).
-- FR-8 One toggle (default `ctrl+d`) opens the deep view: full replacement of the Q&A section with the full description plus every option's ramification text, each option as a sticky header, scrollable, options selectable, `enter` selects and returns to short form advancing to the next unanswered question. Toggle is sticky while the panel is open.
+- FR-8 One toggle (default `ctrl+d`) opens the deep view: full replacement of the Q&A section with the full description plus every option's ramification text, each option as a sticky header, scrollable, options selectable, `enter` selects and advances to the next unanswered question; the pane STAYS in the deep view on the advanced-to question while the toggle is sticky (DEEP-STICKY-ADVANCE, 2026-10-11). Toggle is sticky while the panel is open.
 - FR-9 Navigation freedom (hard requirement R1): forward/back among questions at all times; nothing locks the user onto a question. The `←` / `→` arrow keys navigate the FULL question list (every status — open, answered, re-asked, moot, withdrawn, closed — clamped at the ends, no wrap), view-aware like the config prev/next keys (overview: cursor row); they are fixed keys and are not intercepted in text/note focus (the editor caret owns them there). Soft gate only: all groups visible and answerable; gate group focused first, later groups dimmed; submitting with gate unanswered shows a dismissible warning line.
 - FR-10 Progress footer: `3/12 answered · 2 re-asked ·` plus the 3–4 keys relevant to the current screen, reflecting actual configuration.
 - FR-11 Overview list (`ctrl+l`): all questions with status markers (open/answered★/re-asked⟳/moot⊘/withdrawn⊗/write-in or text answer ✎); `enter` jumps.
@@ -86,7 +86,7 @@ In default pi, when a model asks dozens of planning questions, the question list
 2d. **Gate hold (AUTOSUBMIT-002)**: with a gate question unanswered, commits show `⚠ … foundational unanswered` and do NOT auto-submit; answering the gate question releases the next commit's auto-submit; `ctrl+s` submits anyway.
 3. Agent replies without upsert → the 2 close (archived markers in overview). Agent replies with a re-ask of one → that one shows re-asked, answer reset, draft preserved.
 4. Mid-panel: break out → widget appears with counts → side chat runs a full agent turn → agent `{reopen:true}` → panel returns with drafts intact; main editor draft also intact.
-5. Deep view: toggle, scroll all ramifications (incl. the Other section), select an option from deep view → returns to short form, advances.
+5. Deep view: toggle, scroll all ramifications (incl. the Other section), select an option from deep view → stays in deep view on the advanced-to question (DEEP-STICKY-ADVANCE), advances.
 6. Answer a gate question contrary to a `dependsOn` → dependent greys as moot with reason, instantly; overview shows ⊘.
 7. Edit an answered question that invalidates 3 others → confirm dialog appears; esc cancels with no state change; enter applies.
 8. Stale upsert (wrong `rev`/`epoch`) → rejected; result contains current text/rev and delta digest; model re-applies successfully.

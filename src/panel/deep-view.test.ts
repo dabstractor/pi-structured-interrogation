@@ -16,8 +16,9 @@
  * clampScroll (global bounds, sticky pin above/below, minimal scroll),
  * renderDeepWindow (window ≤ DEEP_VIEW_HEIGHT, highlighted header prefix,
  * column alignment), deepSelectionUp/Down (domain clamp, currentId never
- * touched, offset recompute), acceptFromDeep (apply + setView("short") +
- * advance, Other → write-in duty, ripple veto stays in deep, text/moot
+ * touched, offset recompute), acceptFromDeep (apply + sticky landing
+ * (deepSticky ? deep : short — DEEP-STICKY-ADVANCE) + advance, Other →
+ * write-in duty, ripple veto stays in deep, text/moot
  * no-ops, deepSticky preserved), deepSeedCursorIndex.
  */
 import { visibleWidth } from "@earendil-works/pi-tui";
@@ -728,9 +729,9 @@ describe("acceptFromDeep", () => {
     return new InterrogationPanel(panelArgsFor(state));
   }
 
-  test("test_accept_applies_answer_returns_to_short_and_advances", () => {
+  test("test_accept_applies_answer_stays_in_deep_when_sticky_and_advances", () => {
     const panel = setup([choiceQ("q1"), choiceQ("q2")]);
-    panel.handleInput("\u0004"); // ctrl+d → deep
+    panel.handleInput("\u0004"); // ctrl+d → deep (sets deepSticky)
     expect(panel.view).toBe("deep");
     deepSelectionDown(panel); // highlight "postgres"
     expect(panel.cursorIndex).toBe(1);
@@ -738,10 +739,26 @@ describe("acceptFromDeep", () => {
     expect(acceptFromDeep(panel)).toBe(true);
     expect(panel.state.getQuestion("q1")?.answer?.value).toBe("postgres");
     expect(panel.state.getQuestion("q1")?.status).toBe("answered");
-    expect(panel.view).toBe("short");
+    // DEEP-STICKY-ADVANCE: sticky landing stays in the deep view on the
+    // advanced-to question — answering must not yank the reader out of the
+    // detailed view (owner request 2026-10-11).
+    expect(panel.view).toBe("deep");
     expect(panel.currentId).toBe("q2"); // advanced to next unanswered (Q14)
+    expect(panel.cursorIndex).toBe(0); // re-seeded: q2's ★ preselect (currentId setter)
     expect(panel.scrollOffset).toBe(0);
     expect(panel.deepSticky).toBe(true); // sticky for the panel session
+  });
+
+  test("test_accept_without_sticky_returns_to_short", () => {
+    // Defensive seam contract: deepSticky — not view==="deep" — decides the
+    // landing. Only real entry (ctrl+d) sets it; a direct setView("deep")
+    // without it drops back to short after an accept (mirrors onOverview
+    // and esc-from-overview). Unreachable via the key router.
+    const panel = setup([choiceQ("q1"), choiceQ("q2")]);
+    panel.setView("deep"); // bypasses the router — deepSticky stays false
+    expect(acceptFromDeep(panel)).toBe(true);
+    expect(panel.view).toBe("short");
+    expect(panel.currentId).toBe("q2");
   });
 
   test("test_accept_uses_highlighted_option_not_stale_cursor", () => {
@@ -763,19 +780,20 @@ describe("acceptFromDeep", () => {
     expect(panel.state.getQuestion("q1")?.answer?.value).toBe("sqlite"); // unchanged
   });
 
-  test("test_same_value_noop_returns_to_short_and_advances", () => {
+  test("test_same_value_noop_stays_in_deep_when_sticky_and_advances", () => {
     const panel = setup(
       [choiceQ("q1", { answer: { value: "postgres", at: "t0" } }), choiceQ("q2")],
       { q1: "answered" },
     );
     panel.currentId = "q1"; // initial focus lands on q2 (first OPEN, FR-1 ladder); the journey navigates to the answered q1 first
-    panel.setView("deep"); // S1/FR-D8: caret seeds to the RECORDED answer's section
+    panel.handleInput("\u0004"); // ctrl+d → deep (sets deepSticky) — S1/FR-D8: caret seeds to the RECORDED answer's section
     expect(panel.cursorIndex).toBe(1); // postgres display row (row 0 = ★ sqlite, D-R13)
     const seam = vi.fn(() => true);
     panel.rippleConfirm = seam;
     expect(acceptFromDeep(panel)).toBe(true); // consumed
-    expect(panel.view).toBe("short"); // NO-OP is not a veto — return to short
+    expect(panel.view).toBe("deep"); // NO-OP is not a veto — sticky landing stays deep (DEEP-STICKY-ADVANCE)
     expect(panel.currentId).toBe("q2"); // Q14 advance ran inside the no-op
+    expect(panel.cursorIndex).toBe(0); // re-seeded on q2's ★ preselect
     expect(panel.scrollOffset).toBe(0);
     expect(seam).toHaveBeenCalledTimes(0); // FR-D9: same-value never consults the seam
     const q1 = panel.state.getQuestion("q1");

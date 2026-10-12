@@ -31,8 +31,9 @@
  * navigate questions (h2.29: question navigation belongs to the config
  * prev/next keys only); `enter` selects the highlighted option — or, on
  * the Other section, opens the write-in duty back on the short form
- * (h2.32) — and returns to the short view (advancing to the next
- * unanswered question, Q14); `esc` descends via the existing
+ * (h2.32) — and, while the toggle is sticky (DEEP-STICKY-ADVANCE), STAYS
+ * in the deep view on the advanced-to next unanswered question (Q14);
+ * `esc` descends via the existing
  * router ladder without destroying anything (FR-16).
  *
  * MODE A CONTRACT — MARKER GLYPH VOCABULARY (panel-wide, short-view.ts):
@@ -640,8 +641,17 @@ function stepDeepSelection(panel: InterrogationPanel, delta: number): boolean {
  * `enter` in deep view (Q14/Q19-Q20): accept the highlighted option with
  * the EXACT short-view commit semantics ({@link acceptOptionIndex} —
  * ripple-confirm seam on answered/submitted edits, applyAnswer, advance to
- * the next unanswered question), then return to the short view and reset
- * the scroll offset. On the synthetic `✎ Other` section (index
+ * the next unanswered question), then honor `deepSticky` (DEEP-STICKY-
+ * ADVANCE, 2026-10-11 owner request): while the toggle is sticky — always
+ * the case on real entry, since the router's ctrl+d sets it — the pane
+ * STAYS OPEN on the advanced-to question (the answer flow never yanks the
+ * reader out of the detailed view; one piece of state, the sticky toggle,
+ * decides); otherwise it returns to the short view. Either way the scroll
+ * offset resets — the advance's `currentId` setter has ALREADY re-seeded
+ * `cursorIndex` for the new question (initialCursorIndex's domain
+ * `[0, options.length]` is the deep domain — deepSeedCursorIndex is just
+ * its clamp), so a stay-in-deep needs nothing beyond the scroll reset
+ * (`setView("deep")` is a no-op while already deep, by design). On the synthetic `✎ Other` section (index
  * `options.length`, P1.M2.T6.S1) NOTHING is answered: the panel returns to
  * the short form with the editor focused in write-in duty (h2.32) — the
  * commit happens at writeInEnter when the user presses enter in the
@@ -663,9 +673,9 @@ function stepDeepSelection(panel: InterrogationPanel, delta: number): boolean {
  * - "noop"   — same-value re-commit: INERT (no applyAnswer, no answer.at
  *   rewrite, no seam, no moot recompute, no auto-submit) but the Q14
  *   advance ALREADY RAN inside acceptOptionIndex — NOT a veto; the panel
- *   returns to the short form exactly like a real ACCEPT.
+ *   lands exactly like a real ACCEPT (deep while sticky, else short).
  * - "accept" — real commit applied (ripple passed or not applicable);
- *   advance already ran; return to short.
+ *   advance already ran; land like the ACCEPT row above.
  * - "veto"   — the ripple-confirm seam refused the edit; NOTHING applied,
  *   NO advance; the user STAYS in deep view to re-decide in the pane they
  *   are reading (dropping to short would hide it).
@@ -692,15 +702,23 @@ export function acceptFromDeep(panel: InterrogationPanel): boolean {
     return true;
   }
   const outcome = acceptOptionIndex(panel, q, index);
-  // ANSWER-PIN-001 / FR-D9: only a ripple VETO keeps the user in deep view
-  // (dropping to short would hide the pane they are reading; nothing was
-  // committed). A same-value NO-OP is NOT a veto — the Q14 advance already
-  // ran inside acceptOptionIndex, so the panel returns to the short form
-  // exactly like a real ACCEPT. Never re-derive the outcome from state
-  // (q.answer before/after identity) — that heuristic is the bug this
-  // signal replaced.
+  // ANSWER-PIN-001 / FR-D9: only a ripple VETO keeps the user parked (and
+  // it keeps them in deep view — dropping to short would hide the pane
+  // they are reading; nothing was committed). A same-value NO-OP is NOT a
+  // veto — the Q14 advance already ran inside acceptOptionIndex, so the
+  // panel lands exactly like a real ACCEPT. DEEP-STICKY-ADVANCE
+  // (2026-10-11): the landing HONORS deepSticky — sticky (the only real
+  // entry, ctrl+d) stays in the deep view on the advanced-to question;
+  // non-sticky (defensive/test-only deep entry) drops to short. Mirrors
+  // the router's existing sticky seams (onOverview round-trip, esc from
+  // overview). Never re-derive the outcome from state (q.answer
+  // before/after identity) — that heuristic is the bug this signal
+  // replaced. The advance's currentId setter already re-seeded cursorIndex
+  // (same [0, options.length] domain deepSeedCursorIndex clamps), and
+  // setView("deep") no-ops while already deep — only the scroll reset
+  // below remains either way.
   if (outcome === "veto") return true;
-  panel.setView("short");
+  panel.setView(panel.deepSticky ? "deep" : "short");
   panel.scrollOffset = 0;
   return outcome !== false;
 }

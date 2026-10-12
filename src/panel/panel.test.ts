@@ -2254,7 +2254,7 @@ describe("deep view (P1.M5.T1.S1)", () => {
     expect(panel.scrollOffset).toBe(0);
   });
 
-  test("test_ac5_scroll_select_enter_returns_and_advances", () => {
+  test("test_ac5_scroll_select_enter_stays_deep_when_sticky_and_advances", () => {
     const state = createInterrogationState("goal");
     state.upsertQuestion(deepQ("q1"));
     state.upsertQuestion(deepQ("q2"));
@@ -2268,10 +2268,13 @@ describe("deep view (P1.M5.T1.S1)", () => {
     expect(panel.currentId).toBe(beforeId); // never changes the question
 
     panel.handleInput(ENTER);
-    expect(panel.view).toBe("short"); // returned to the short form
+    // DEEP-STICKY-ADVANCE: sticky toggle keeps the deep view open on the
+    // advanced-to question (owner request 2026-10-11).
+    expect(panel.view).toBe("deep");
     expect(panel.state.getQuestion("q1")?.answer?.value).toBe("postgres");
     expect(panel.state.getQuestion("q1")?.status).toBe("answered");
     expect(panel.currentId).toBe("q2"); // advanced to next unanswered (Q14)
+    expect(panel.cursorIndex).toBe(0); // q2's ★ preselect re-seeded by the advance
     expect(panel.deepSticky).toBe(true);
   });
 

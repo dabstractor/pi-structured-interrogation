@@ -45,7 +45,6 @@ import { createStateMirror } from "./persistence.js";
 import { createReconstruction } from "./reconstruct.js";
 import {
   registerCompletionRecapRenderer,
-  registerStateEntryRenderer,
   registerSubmissionCardRenderer,
 } from "./renderers.js";
 import { getState } from "./state.js";
@@ -240,17 +239,18 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // Display-only — the model keeps reading message.content.
   registerSubmissionCardRenderer(pi);
 
-  // P1.M7.T3.S2 — completion recap card (h2.36/AC-14) + state mirror entry
-  // marker (h2.40 layer 3): renders `interrogation-completion` messages
-  // from details — goal header, every grouped question with its final
-  // answer and ★, completion timestamp; expanded adds withdrawn/moot
-  // reasons, full free-text, NOTES and the epoch line. Debounced
-  // `interrogation-state` mirror entries render as ONE dim, non-
-  // interactive audit line (`· interrogation state @ epoch {n}`), never a
-  // state dump. Display-only — the model keeps reading message.content;
-  // entries never participate in LLM context.
+  // P1.M7.T3.S1/S2 — user-only cards (h2.36): the submission diff card
+  // (`interrogation-submission`) and the completion recap card
+  // (`interrogation-completion`) render from details — goal header, every
+  // grouped question with its final answer and ★, completion timestamp;
+  // expanded adds withdrawn/moot reasons, full free-text, NOTES and the
+  // epoch line. Display-only — the model keeps reading message.content.
+  // The debounced `interrogation-state` mirror entries (h2.40 layer 3) get
+  // NO renderer: pi skips entries without one, so they stay durable (post-
+  // restart reconstruction) but invisible in the transcript (owner ruling
+  // 2026-10-08 — the accumulated `· interrogation state @ epoch {n}` lines
+  // were noise between turns).
   registerCompletionRecapRenderer(pi);
-  registerStateEntryRenderer(pi);
 
   // P1.M6.T1.S2 (as amended by the breakOut removal + CMD-001) — the
   // /interrogate invoke command (h2.15/h2.35/h2.37): ONE seam, invoke-only

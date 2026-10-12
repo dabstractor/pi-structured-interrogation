@@ -10,7 +10,7 @@
  * - P1.M1.T3.S5 (non-TUI digest + answers action) — wraps these builders;
  *   record/reopen call sites own their content text and reuse the envelope
  *   shape via the shared helpers here.
- * - P1.M1.T3.S6 (tool executor) — upsert → applyCaps → merge →
+ * - P1.M1.T3.S6 (tool executor) — upsert → merge →
  *   buildUpsertResult(state.serialize(), warnings); read →
  *   buildReadResult(state.serialize()).
  * - P1.M7.T1.S2 (reconstruction) — scans toolResult.details.state.
@@ -170,7 +170,7 @@ export function buildReadResult(state: SerializedState): InterrogateResult {
  * 2. `Questions visible to the user.` (exact sentence)
  * 3. `End your turn with a one-line note; do not call further tools.`
  *    (exact h3.5 sentence — the resident non-blocking instruction)
- * 4. each caps warning from `warnings[]`, one per line, in order
+ * 4. each notice from `warnings[]` (withdrawals), one per line, in order
  *
  * `warnings` are rendered as received: they always reach the tool result
  * (h2.23's warning is unconditional — no suppression toggle exists), and the

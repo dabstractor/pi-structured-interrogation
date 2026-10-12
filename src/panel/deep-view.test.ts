@@ -10,7 +10,7 @@
  * session.
  *
  * Coverage: wrapText (short/long/unbounded-word/unicode width bounds),
- * buildDeepContent (full goal, description, ★ header, capped text
+ * buildDeepContent (full description, ★ header, capped text
  * ellipsized, moot/withdrawn/text variants, options never filtered, the
  * synthetic ✎ Other section — P1.M2.T6.S1),
  * clampScroll (global bounds, sticky pin above/below, minimal scroll),
@@ -93,12 +93,10 @@ function textQ(id: string, overrides: Partial<Question> = {}): Question {
 function deepInputFor(q: Question, over: Partial<Parameters<typeof buildDeepContent>[0]> = {}) {
   return {
     question: q,
-    goal: "Ship the thing",
     cursorIndex: 0,
     scrollOffset: 0,
     theme,
     width: 80,
-    maxChars: 600,
     ...over,
   };
 }
@@ -174,10 +172,9 @@ describe("wrapText", () => {
 // ----------------------------------------------------------- buildDeepContent
 
 describe("buildDeepContent", () => {
-  test("test_build_full_goal_and_description_wrapped", () => {
-    const goal = "Ship ".repeat(20).trim(); // 100 chars → wraps at width 80
+  test("test_build_full_description_wrapped", () => {
     const q = choiceQ("db", { description: "Long description ".repeat(6).trim() });
-    const content = buildDeepContent(deepInputFor(q, { goal }));
+    const content = buildDeepContent(deepInputFor(q));
     // Wrapped question lines carry the 2-col ▌-rail prefix (DEEP-PIN-002),
     // option lines the 2-col INSET — normalize both to reconstruct blocks.
     // DEEP-PIN-001: the question region is its own pinned array above the
@@ -186,21 +183,25 @@ describe("buildDeepContent", () => {
       .map((l) => l.replace(/^(?:\s\s|▌ )/, ""))
       .join(" ")
       .trim();
-    // FR-30: the FULL goal text is present (no header-style truncation).
-    expect(flat).toContain(goal);
     expect(flat).toContain("Long description");
     for (const ln of [...content.questionLines, ...content.lines])
       expect(visibleWidth(ln)).toBeLessThanOrEqual(80);
-    // Blank separators between the description and goal blocks, plus the
-    // DEEP-PIN-002 air line ABOVE the pinned block.
+    // DEEP-PIN-002: the air line ABOVE the pinned block, plus the blank
+    // separator below it.
     expect(content.questionLines[0]).toBe("");
-    expect(content.questionLines).toContain("");
+    expect(content.questionLines[content.questionLines.length - 1]).toBe("");
   });
 
-  test("test_build_goal_dimmed", () => {
-    const content = buildDeepContent(deepInputFor(choiceQ("db"), { theme: dimTheme }));
-    // Line 0 is the DEEP-PIN-002 air line; the goal block follows it.
-    expect(content.questionLines[1]).toContain(DIM);
+  test("test_build_description_full_intensity", () => {
+    const content = buildDeepContent(
+      deepInputFor(choiceQ("db", { description: "Which database should back the build?" }), {
+        theme: dimTheme,
+      }),
+    );
+    // The pinned question region carries NO dim codes for an open
+    // question — the description renders full intensity (only moot dims
+    // the pane; dim otherwise belongs to ramification rows).
+    for (const ln of content.questionLines) expect(ln).not.toContain(DIM);
   });
 
   test("test_build_star_header_marks_recommendation", () => {
@@ -231,24 +232,30 @@ describe("buildDeepContent", () => {
     expect(unselectedRam.startsWith("   │")).toBe(true);
   });
 
-  test("test_cap_verbose_text_ellipsized_bounded_lines", () => {
+  test("test_verbose_text_wraps_in_full_never_char_truncated", () => {
     const ram = Array.from({ length: 400 }, (_, i) => `word${i}`).join(" ");
     const q = choiceQ("db", { options: [{ value: "a", label: "a", ramification: ram }] });
-    const content = buildDeepContent(deepInputFor(q, { maxChars: 600 }));
-    // Slice ONLY option a's ramification block — the synthetic Other
-    // section (P1.M2.T6.S1) follows it in `lines`.
+    const content = buildDeepContent(deepInputFor(q));
+    // DEEP-FULL-001: the deep view NEVER char-truncates — the whole
+    // ramification wraps into `lines` (scrollable); only the WINDOW slice
+    // renders, so the pane stays bounded.
     const ramText = content.lines
       .slice(content.sectionHeaderLineIndex[0]! + 1, content.sectionHeaderLineIndex[1])
       .filter((l) => l !== "") // variation B section separators are not text
       .map((l) => l.replace(/^\s*[│┃]\s?/, "")) // D-R14 pipes (│ light, ┃ heavy) + indent are not text
       .join(" ");
-    // 600-char cap + single `…` ellipsis, wrapped — bounded total.
     expect(ramText.startsWith("word0")).toBe(true);
-    expect(ramText.endsWith("\u2026")).toBe(true);
-    expect(ramText.replace(/\u2026/g, "").length).toBeLessThanOrEqual(600);
-    // Pane is bounded by the viewport at render time (600-char cap + wrap).
+    expect(ramText.endsWith("word399")).toBe(true); // EVERY word present
+    expect(ramText).not.toContain("\u2026"); // no ellipsis anywhere
+    // The rendered window stays bounded by the viewport at render time.
     const window = renderDeepWindow(content, 0, 0, theme, 80);
     expect(window.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
+    // ...and scrolling reaches the tail: cursor on the LAST section (✎
+    // Other, index 1) with an oversized seed offset — the sticky-header
+    // clamp pins it near the bottom of the pane.
+    const lastOffset = clampScroll(content, content.lines.length, 1);
+    const tailWindow = renderDeepWindow(content, 1, lastOffset, theme, 80);
+    expect(tailWindow.join("\n")).toContain("word399");
   });
 
   test("test_moot_prepends_reason_and_dims_whole_pane", () => {
@@ -278,10 +285,12 @@ describe("buildDeepContent", () => {
   });
 
   test("test_text_question_has_no_option_sections", () => {
-    const content = buildDeepContent(deepInputFor(textQ("name")));
+    const content = buildDeepContent(
+      deepInputFor(textQ("name", { description: "What should we call it?" })),
+    );
     expect(content.sectionHeaders).toHaveLength(0);
     expect(content.lines).toEqual([]); // the whole pane is the pinned question
-    expect(content.questionLines.join("\n")).toContain("Ship the thing");
+    expect(content.questionLines.join("\n")).toContain("What should we call it?");
     expect(content.questionLines.join("\n")).not.toContain("▸");
   });
 });
@@ -432,7 +441,7 @@ describe("renderDeepWindow", () => {
 
 describe("pinned question region (DEEP-PIN-001)", () => {
   test("test_question_stays_visible_while_selection_scrolls_to_late_sections", () => {
-    // Long goal + description + two long-ramification options: pre-pin, the
+    // Long description + two long-ramification options: pre-pin, the
     // sticky floor (`offset ≥ headerIdx - vh + 2`) stranded the question
     // above the window with no way back short of exiting deep view.
     const ram = "word ".repeat(120).trim();
@@ -443,9 +452,7 @@ describe("pinned question region (DEEP-PIN-001)", () => {
         { value: "b", label: "b", ramification: ram },
       ],
     });
-    const content = buildDeepContent(
-      deepInputFor(q, { goal: "Ship the thing, carefully and completely" }),
-    );
+    const content = buildDeepContent(deepInputFor(q));
     // Walk the selection down to the LAST section (✎ Other).
     const offset = clampScroll(content, 0, 2);
     expect(offset).toBeGreaterThan(0); // the options region really scrolled
@@ -453,10 +460,8 @@ describe("pinned question region (DEEP-PIN-001)", () => {
     expect(window.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
     const text = window.join("\n");
     expect(text).toContain("Which database should back the build?"); // description
-    expect(text).toContain("Ship the thing, carefully and completely"); // goal
     // …and at EVERY intermediate offset the question region leads the pane
-    // (DEEP-PIN-001 order: the DESCRIPTION heads the pinned region, the
-    // goal renders below it; DEEP-PIN-002: an air line precedes the block
+    // (DEEP-PIN-001; DEEP-PIN-002: an air line precedes the block
     // and every question text line carries the accent ▌ rail).
     for (let o = 0; o <= offset; o++) {
       const w = renderDeepWindow(content, 1, o, theme, 80);
@@ -467,21 +472,18 @@ describe("pinned question region (DEEP-PIN-001)", () => {
   });
 
   test("test_tall_question_region_truncates_bottom_first_with_marker", () => {
-    // Goal + description long enough to overflow DEEP_VIEW_HEIGHT -
-    // MIN_OPTIONS_VIEWPORT: the region is whole-line truncated with a dimmed
-    // `…` marker, the description keeps priority (its tail token survives;
-    // the goal's tail token is cut), and the options window keeps its
-    // minimum height.
-    const goal = `${"gword ".repeat(89)}gend`; // ~540 chars → ~8 wrapped lines
-    const desc = `${"dword ".repeat(89)}dend`;
+    // A description long enough to overflow DEEP_VIEW_HEIGHT -
+    // MIN_OPTIONS_VIEWPORT on its own: the region is whole-line truncated
+    // with a dimmed `…` marker (bottom-first — the tail token is cut), and
+    // the options window keeps its minimum height.
+    const desc = `${"dword ".repeat(200)}dend`; // ~1200 chars → ~16 wrapped lines
     const q = choiceQ("db", { description: desc });
-    const content = buildDeepContent(deepInputFor(q, { theme: dimTheme, goal }));
+    const content = buildDeepContent(deepInputFor(q, { theme: dimTheme }));
     expect(content.questionLines.length).toBeLessThanOrEqual(
       DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT,
     );
     const flat = content.questionLines.join(" ");
-    expect(flat).toContain("dend"); // description owns the space first
-    expect(flat).not.toContain("gend"); // the goal yielded lines
+    expect(flat).not.toContain("dend"); // bottom-first: the tail was cut
     expect(content.questionLines).toContain(`▌ ${DIM}…${RESET}`); // marker (railed, DEEP-PIN-002)
     expect(content.viewportHeight).toBe(MIN_OPTIONS_VIEWPORT);
     const window = renderDeepWindow(content, 0, 0, theme, 80);

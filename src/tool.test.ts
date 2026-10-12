@@ -56,7 +56,7 @@ const PRD_H2_24_GUIDELINES = [
   "Omission never withdraws: edit surgically by resending only the questions you are changing (with their current revs). Prune deliberately by resending the kept set with withdrawOmitted: true.",
 ];
 
-/** Minimal wire question; overrides win (caps.test.ts pattern). */
+/** Minimal wire question; overrides win. */
 function qi(id: string, overrides: Partial<QuestionInput> = {}): QuestionInput {
   return { id, prompt: `prompt ${id}`, type: "text", ...overrides };
 }
@@ -198,23 +198,23 @@ describe("executeInterrogate: upsert (TUI)", () => {
     expect(getState()!.goal).toBe("first goal");
   });
 
-  test("create upsert stores the CAPPED goal, with truncation warning (BUG-009)", () => {
+  test("create upsert stores the goal VERBATIM — never truncated (CAPS-OUT-001)", () => {
     const r = executeInterrogate({ goal: "x".repeat(500), questions: [qi("q1")] }, tuiCtx());
-    expect(getState()!.goal).toHaveLength(400);
-    expect(r.details.state.goal).toHaveLength(400);
-    expect(r.content).toContain("goal truncated at 500 chars");
+    expect(getState()!.goal).toHaveLength(500);
+    expect(r.details.state.goal).toHaveLength(500);
+    expect(r.content).not.toContain("truncated");
   });
 
-  test("reuse upsert caps an over-budget goal and surfaces the warning", () => {
+  test("reuse upsert stores an over-400-char goal verbatim", () => {
     const st = seedState("first goal");
     seedQ(st, "q1");
     const r = executeInterrogate(
       { goal: "y".repeat(500), epoch: 1, questions: [qi("q1", { rev: 1 })] },
       tuiCtx(),
     );
-    expect(getState()!.goal).toHaveLength(400);
-    expect(r.details.state.goal).toHaveLength(400);
-    expect(r.content).toContain("goal truncated at 500 chars");
+    expect(getState()!.goal).toHaveLength(500);
+    expect(r.details.state.goal).toHaveLength(500);
+    expect(r.content).not.toContain("truncated");
   });
 
   test("stale upsert carrying a goal throws StaleError and leaves goal untouched", () => {
@@ -234,39 +234,25 @@ describe("executeInterrogate: upsert (TUI)", () => {
     expect(getState()!.getQuestion("q1")!.prompt).toBe("revised");
   });
 
-  test("warnings: parse truncation prepended before caps truncation, in order", () => {
-    const cfg: InterrogatorConfig = {
-      ...DEFAULT_CONFIG,
-      caps: { ...DEFAULT_CONFIG.caps, questions: 2, description: 10, contextBudgetPct: 0.0001, minDescription: 0, minRamification: 0 },
-    };
+  test("no caps: a 50-char description and 3 questions pass through with zero warnings", () => {
     const r = executeInterrogate(
       { questions: [qi("q0", { description: "x".repeat(50) }), qi("q1"), qi("q2")] },
       tuiCtx(),
-      cfg,
     );
+    // CAPS-OUT-001: nothing is truncated, dropped, or warned about — the
+    // upsert result carries status + digest lines only.
     const lines = r.content.split("\n");
-    expect(lines[3]).toBe("questions truncated at 2 — restructure if essential");
-    expect(lines[4]).toBe("q0 description truncated at 50 chars — restructure if essential");
-    expect(lines).toHaveLength(5);
+    expect(lines.some((l) => l.includes("truncated"))).toBe(false);
+    expect(lines.some((l) => l.includes("budget"))).toBe(false);
   });
 
-  test("h2.23 warnings are unconditional: gateWarnings=false still warns in the tool result", () => {
-    const cfg: InterrogatorConfig = {
-      ...DEFAULT_CONFIG,
-      gateWarnings: false,
-      caps: { ...DEFAULT_CONFIG.caps, questions: 2, description: 10, contextBudgetPct: 0.0001, minDescription: 0, minRamification: 0 },
-    };
-    createInterrogateTool(cfg); // seam: sets the executor's default config
+  test("withdrawOmitted notices still surface (the surviving warnings channel)", () => {
+    createInterrogateTool(DEFAULT_CONFIG); // seam: sets the executor's default config
     const r = executeInterrogate(
-      { questions: [qi("q0", { description: "x".repeat(50) }), qi("q1"), qi("q2")] },
+      { questions: [qi("q0")], withdrawOmitted: false },
       tuiCtx(),
     );
-    // Truncation warnings always reach the model (h2.23 self-correction path);
-    // gateWarnings only gates the FR-9 panel submit warning.
-    const lines = r.content.split("\n");
-    expect(lines[3]).toBe("questions truncated at 2 — restructure if essential");
-    expect(lines[4]).toBe("q0 description truncated at 50 chars — restructure if essential");
-    expect(lines).toHaveLength(5);
+    expect(r.content).not.toContain("withdrew"); // nothing withdrawn
   });
 
   // BUG-002 / PRD h2.2-h3.1: a NEW-question upsert on a completed singleton
@@ -313,7 +299,7 @@ describe("executeInterrogate: upsert (TUI)", () => {
     expect(getState()!.goal).toBe("first goal");
   });
 
-  test("swap applies the CAPPED goal when the upsert supplies one", () => {
+  test("swap applies the goal VERBATIM when the upsert supplies one", () => {
     const st = seedState("first goal");
     seedQ(st, "q1");
     expect(completeInterrogation(st, ["q1"])).toEqual({ fired: true });
@@ -322,9 +308,9 @@ describe("executeInterrogate: upsert (TUI)", () => {
       { goal: "x".repeat(500), questions: [qi("n1")] },
       tuiCtx(),
     );
-    expect(getState()!.goal).toHaveLength(400);
-    expect(r.details.state.goal).toHaveLength(400);
-    expect(r.content).toContain("goal truncated at 500 chars");
+    expect(getState()!.goal).toHaveLength(500);
+    expect(r.details.state.goal).toHaveLength(500);
+    expect(r.content).not.toContain("truncated");
   });
 
   test("first upsert after swap accepts an honest epoch echo (BUG-005)", () => {
@@ -391,17 +377,24 @@ describe("executeInterrogate: upsert (non-TUI)", () => {
     expect(r.details.state.questions.q1).toBeDefined();
   });
 
-  test("warnings land after the digest in the composite", () => {
-    const cfg: InterrogatorConfig = {
-      ...DEFAULT_CONFIG,
-      caps: { ...DEFAULT_CONFIG.caps, description: 10, contextBudgetPct: 0.0001, minDescription: 0, minRamification: 0 },
-    };
-    const r = executeInterrogate(
-      { goal: "Ship it", questions: [qi("q1", { description: "x".repeat(50) })] },
+  test("withdrawal notices land after the digest in the composite", () => {
+    // The warnings channel survives caps removal (CAPS-OUT-001) — pin it
+    // with the withdrawal notice, the one remaining writer.
+    executeInterrogate(
+      { goal: "Ship it", questions: [qi("q1"), qi("q2")] },
       printCtx(),
-      cfg,
     );
-    expect(r.content.split("\n").at(-1)).toBe("q1 description truncated at 50 chars — restructure if essential");
+    const st = getState()!;
+    const r = executeInterrogate(
+      {
+        goal: "Ship it",
+        epoch: st.serialize().epoch,
+        questions: [qi("q1", { rev: st.getQuestion("q1")!.rev })],
+        withdrawOmitted: true,
+      },
+      printCtx(),
+    );
+    expect(r.content.split("\n").at(-1)).toBe("withdrew (withdrawOmitted): q2");
   });
 });
 
@@ -820,10 +813,12 @@ describe("extension factory wiring (index.ts)", () => {
     expect(commands).toEqual(["interrogate"]);
     expect(shortcuts).toEqual([]);
     // P1.M7.T3.S1+S2 — user-only renderers registered for the EXACT
-    // customTypes the delivery message / persistence entry ship (h2.36);
-    // the interrogation-state mirror lands via registerEntryRenderer.
+    // customTypes the delivery message ships (h2.36). NO entry renderer:
+    // the interrogation-state mirror entries stay durable but invisible
+    // (owner ruling 2026-10-08 — the accumulated `· interrogation state @
+    // epoch {n}` transcript lines were noise).
     expect(renderers).toEqual(["interrogation-submission", "interrogation-completion"]);
-    expect(entries).toEqual(["interrogation-state"]);
+    expect(entries).toEqual([]);
     expect(tools).toHaveLength(1);
     expect((tools[0] as { name: string }).name).toBe("interrogate");
     expect((tools[0] as { description: string }).description).toBe(INTERROGATE_TOOL_DESCRIPTION);

@@ -1491,12 +1491,10 @@ export class InterrogationPanel implements Component {
       if (q !== undefined) {
         const content = buildDeepContent({
           question: q,
-          goal: this.state.goal,
           cursorIndex: this.cursorIndex,
           scrollOffset: this.scrollOffset,
           theme: this.theme,
           width,
-          maxChars: this.config.caps.ramification,
         });
         lines.push(...renderDeepWindow(content, this.cursorIndex, this.scrollOffset, this.theme, width));
       }

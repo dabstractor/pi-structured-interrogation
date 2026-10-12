@@ -15,7 +15,6 @@
  * contribute nothing (the default survives). `loadConfig` NEVER throws.
  *
  * Consumers:
- *   - tool.ts caps engine (P1.M1.T3.S3)      → config.caps
  *   - panel/keys.ts (P1.M3.T3.S1)            → config.keys
  *   - panel footer / widget / dialogs
  *     (P1.M3.T1.S2, P1.M6.T1.S1)             → resolveKeyLabels(config)
@@ -57,38 +56,15 @@ export type KeyAction =
   | "prevQuestion"
   | "nextQuestion";
 
-/** Character limits and result caps enforced by the interrogate tool (P1.M1.T3.S3). */
-export interface CapsConfig {
-  /** Max characters for the free-text description answer. Default 1200. */
-  description: number;
-  /** Max characters for ramification / deep-dive text. Default 600. */
-  ramification: number;
-  /**
-   * Quality floor (2026-09-15 deep-view pin): a PROVIDED description shorter
-   * than this warns in the upsert result (soft lint — never rejects). 0
-   * disables. Default 200.
-   */
-  minDescription: number;
-  /**
-   * Quality floor (2026-09-15 deep-view pin): a PROVIDED option ramification
-   * shorter than this warns in the upsert result. 0 disables. Default 120.
-   */
-  minRamification: number;
-  /** Max number of multiple-choice options per question. Default 7. */
-  options: number;
-  /** Max number of questions in one interrogation. Default 40. */
-  questions: number;
-  /** Max characters for the goal statement. Default 400. */
-  goal: number;
-  /** Max percentage of the context window budgeted for interrogator content. Default 4. */
-  contextBudgetPct: number;
-}
-
 /**
  * The resolved interrogator configuration. Every user-visible string naming a
- * key and every cap/toggle in the extension flows from here (PRD h2.52:
+ * key and every toggle in the extension flows from here (PRD h2.52:
  * display strings must be generated from the resolved config — never
  * hardcoded; see {@link resolveKeyLabels}).
+ *
+ * NO CAPS (CAPS-OUT-001, 2026-10-08 owner ruling): the former
+ * `interrogator.caps` block (description/ramification/options/questions/
+ * goal limits and floors) is DELETED — no limits are imposed on anything.
  */
 export interface InterrogatorConfig {
   /**
@@ -96,8 +72,6 @@ export interface InterrogatorConfig {
    * Display labels are derived via {@link resolveKeyLabels}.
    */
   keys: Record<KeyAction, string>;
-  /** Character limits and result caps — see {@link CapsConfig}. */
-  caps: CapsConfig;
   /** FR-9: warn on panel submit when foundational gate-group questions are unanswered. Default true. */
   gateWarnings: boolean;
   /** Enable detection of interrogation rounds (P1.M7.T4.S1). Default true. */
@@ -128,18 +102,6 @@ const KEY_ACTIONS = [
   "nextQuestion",
 ] as const satisfies readonly KeyAction[];
 
-/** All CapsConfig fields in a stable iteration order (drives coercion). */
-const CAP_KEYS = [
-  "description",
-  "ramification",
-  "minDescription",
-  "minRamification",
-  "options",
-  "questions",
-  "goal",
-  "contextBudgetPct",
-] as const satisfies readonly (keyof CapsConfig)[];
-
 /**
  * Built-in defaults — VERBATIM from PRD h2.52. Any user override merges on
  * top of this (project settings beat global settings beat these defaults).
@@ -155,16 +117,6 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
     externalEditor: "ctrl+g",
     prevQuestion: "tab",
     nextQuestion: "shift+tab",
-  },
-  caps: {
-    description: 1200,
-    ramification: 600,
-    minDescription: 200,
-    minRamification: 120,
-    options: 7,
-    questions: 40,
-    goal: 400,
-    contextBudgetPct: 4,
   },
   gateWarnings: true,
   roundDetection: true,
@@ -191,7 +143,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  * either input). Recursion happens only when BOTH sides are plain objects;
  * any other override value (scalar, array, null) replaces the base value
  * wholesale. Unlike pi-file-injector's shallow spread (PRD h2.18 explicitly
- * requires deep merge), nested objects like `keys` and `caps` merge per-key.
+ * requires deep merge), nested objects like `keys` merge per-key.
  */
 function deepMerge<T>(base: T, override: unknown): T {
   if (!isPlainObject(override)) return base;
@@ -258,19 +210,13 @@ function coerceEditorMode(value: unknown): EditorMode {
 /**
  * Post-merge shape enforcement: walk the merged value and coerce every field
  * to its contractual type, falling back to the h2.52 default for anything
- * ill-typed (string caps, bad booleans, unknown editorMode, non-object
+ * ill-typed (bad booleans, unknown editorMode, non-object
  * sections). Guarantees the returned value always satisfies InterrogatorConfig.
  */
 function coerceConfig(raw: unknown): InterrogatorConfig {
   const src = isPlainObject(raw) ? raw : {};
-  const capsSrc = isPlainObject(src.caps) ? src.caps : {};
-  const caps = {} as CapsConfig;
-  for (const key of CAP_KEYS) {
-    caps[key] = coerceNumber(capsSrc[key], DEFAULT_CONFIG.caps[key]);
-  }
   return {
     keys: coerceKeys(src.keys),
-    caps,
     gateWarnings: coerceBoolean(src.gateWarnings, DEFAULT_CONFIG.gateWarnings),
     roundDetection: coerceBoolean(src.roundDetection, DEFAULT_CONFIG.roundDetection),
     digitQuickSelect: coerceBoolean(src.digitQuickSelect, DEFAULT_CONFIG.digitQuickSelect),
@@ -291,7 +237,7 @@ export interface ConfigPaths {
 /**
  * Testable core of {@link loadConfig}: reads whichever paths are provided,
  * deep-merges project over global over {@link DEFAULT_CONFIG}, and enforces
- * the config shape (numeric coercion for caps — `"2000"` → 2000, NaN-ish →
+ * the config shape (numeric coercion — `"2000"` → 2000, NaN-ish →
  * default; boolean coercion for toggles; strict editorMode). Never throws.
  * Exported so tests can inject explicit paths instead of the real home dir.
  */
@@ -316,7 +262,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  *
  * Set overrides under a top-level `"interrogator"` object in either
  * `~/.pi/agent/settings.json` (global) or `<cwd>/.pi/settings.json` (project).
- * Nested objects merge per-key; scalars replace. 9 keys + 6 caps + 4 toggles
+ * Nested objects merge per-key; scalars replace. 9 keys + 4 toggles
  * + editorMode + escExitWindowMs (defaults = PRD h2.52 as amended by the
  * breakOut removal):
  *
@@ -332,21 +278,6 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * | `externalEditor`| `"ctrl+g"`      | Open the draft in an external editor           | footer, widget  |
  * | `prevQuestion`  | `"tab"`         | Move to the previous question                  | footer          |
  * | `nextQuestion`  | `"shift+tab"`   | Move to the next question                      | footer          |
- *
- * ### caps — limits enforced by the interrogate tool (P1.M1.T3.S3)
- * | field              | default | purpose                                                |
- * |--------------------|---------|--------------------------------------------------------|
- * | `description`      | 1200    | Max characters for the free-text description answer    |
- * | `ramification`     | 600     | Max characters for ramification/deep-dive text         |
- * | `minDescription`   | 200     | Soft floor: warn when a provided description is shorter |
- * | `minRamification`  | 120     | Soft floor: warn when a provided ramification is shorter |
- * | `options`          | 7       | Max multiple-choice options per question               |
- * | `questions`        | 40      | Max questions in one interrogation                     |
- * | `goal`             | 400     | Max characters for the goal statement                  |
- * | `contextBudgetPct` | 4       | Max % of the context window budgeted for this content  |
- *
- * Numeric caps arriving as strings ("2000") are coerced via Number();
- * non-finite results fall back to the default.
  *
  * ### toggles
  * | field              | default | purpose                                              | consumer |

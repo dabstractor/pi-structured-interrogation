@@ -124,13 +124,8 @@ for text entry.
 guidelines instruct the model to *expand* the explanation it would normally
 give — define terms and acronyms, state concrete facts, lay out trade-offs —
 assuming you have not seen the conversation, instead of pasting its working
-shorthand. The tool also *lints* this on every upsert: a provided description
-shorter than `caps.minDescription` (200), a ramification shorter than
-`caps.minRamification` (120), or an option with no ramification at all produces
-a warning in the tool result telling the model to re-upsert the expanded
-text — the same warn-and-self-correct loop used for over-cap content. Floors
-are ordinary caps: set them to `0` in settings to disable, or raise them to
-demand more depth.
+shorthand. Nothing is length-limited or linted — content of any size passes
+through verbatim (CAPS-OUT-001).
 
 ## Configuration
 
@@ -153,17 +148,8 @@ All settings live under a top-level `"interrogator"` key in either
       "prevQuestion": "tab",        // previous question
       "nextQuestion": "shift+tab"   // next question
     },
-    // Limits enforced by the interrogate tool.
-    "caps": {
-      "description": 1200,    // max characters for the free-text description answer
-      "ramification": 600,    // max characters for ramification / deep-dive text
-      "minDescription": 200,  // soft floor: warn when a provided description is thinner than this (0 disables)
-      "minRamification": 120, // soft floor: warn when a provided ramification is thinner than this (0 disables)
-      "options": 7,           // max multiple-choice options per question
-      "questions": 40,        // max questions in one interrogation
-      "goal": 400,            // max characters for the goal statement (enforced on stored state; updates past 400 are truncated with a warning)
-      "contextBudgetPct": 4   // max % of the context window budgeted for interrogator content
-    },
+    // No caps: question count, option count, and text lengths are all
+    // unlimited — nothing is truncated or dropped (CAPS-OUT-001).
     "gateWarnings": true,           // FR-9: gate warnings — the submit-time "later answers may shift" line AND the auto-submit hold line (display-only, never blocks)
     "roundDetection": true,         // detect interrogation rounds from plain chat text (TUI)
     "digitQuickSelect": true,       // allow 1–9 to quick-select an option
@@ -174,13 +160,12 @@ All settings live under a top-level `"interrogator"` key in either
 ```
 
 - **Precedence**: defaults ← global `~/.pi/agent/settings.json` ← project
-  `.pi/settings.json` (project wins). Nested objects (`keys`, `caps`) merge
+  `.pi/settings.json` (project wins). Nested objects (`keys`) merge
   per-key; scalars replace.
 - **Tolerant loading**: missing files, malformed JSON, non-object bodies, and
   ill-typed keys contribute nothing — the default survives and loading never
-  throws. Numeric caps given as strings (`"2000"`) coerce to numbers;
-  `"true"` / `"false"` strings coerce to booleans; unknown `editorMode`
-  values fall back to `"composed"`.
+  throws. `"true"` / `"false"` strings coerce to booleans; unknown
+  `editorMode` values fall back to `"composed"`.
 - **Labels follow config**: every displayed string that names a key — footer,
   widget, dialogs — is generated from the resolved config, so a remap shows up
   consistently everywhere.
@@ -325,7 +310,7 @@ Debug commands (drive the same code paths the tool executor uses):
 | Command                               | Effect                                                            |
 | ------------------------------------- | ----------------------------------------------------------------- |
 | `/interrogate ping`                   | Smoke test — proves the extension loaded                          |
-| `/interrogate debug upsert <json>`    | Run the full upsert path from the keyboard (caps, merge, stale handling) |
+| `/interrogate debug upsert <json>`    | Run the full upsert path from the keyboard (merge, stale handling) |
 | `/interrogate debug submit id=value,…`| Flush answers and run the real submission path; `note=<text>` adds a batch note |
 | `/interrogate debug state`            | Print the status line and one line per question                   |
 
@@ -410,11 +395,10 @@ src/
 ├── index.ts           # extension factory — registers command, tool, renderers, lifecycle, persistence
 ├── config.ts          # DEFAULT_CONFIG, settings loading / deep-merge / coercion, key labels
 ├── state.ts           # the single in-memory interrogation state (source of truth)
-├── tool.ts            # the interrogate tool executor (parse → guards → caps → merge → result)
+├── tool.ts            # the interrogate tool executor (parse → guards → merge → result)
 ├── tool-schema.ts     # typebox tool schema + parameter parsing
 ├── merge.ts           # upsert merge rules (by id) + markSubmitted
 ├── guards.ts          # rev/epoch staleness guards
-├── caps.ts            # cap enforcement
 ├── results.ts         # pure result builders + shared status line
 ├── fallback.ts        # non-TUI markdown digest + chat answer recording
 ├── snapshots.ts       # snapshot ring + submission diff computation

@@ -16,28 +16,25 @@
  * (g) zero-changes card, plus the registerSubmissionCardRenderer shim.
  *
  * P1.M7.T3.S2 appends: buildCompletionRecapCard (completion recap card,
- * AC-14) and buildStateEntryMarker (dim state mirror entry marker) suites
- * + their two registration shims — same stub-theme patterns as above.
+ * AC-14) suite + its registration shim — same stub-theme patterns as
+ * above. (The `interrogation-state` mirror entries have NO renderer —
+ * they stay durable but invisible; see renderers.ts.)
  */
 import { describe, expect, test } from "vitest";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text, visibleWidth } from "@earendil-works/pi-tui";
 import { buildCompletion, type CompletionRecapEntry } from "./delivery.js";
-import { INTERROGATION_STATE_ENTRY_TYPE } from "./persistence.js";
 import { computeDiff } from "./snapshots.js";
 import { createInterrogationState } from "./state.js";
 import {
   buildCompletionRecapCard,
-  buildStateEntryMarker,
   buildSubmissionCard,
   COLLAPSED_ENTRY_CAP,
   COLLAPSED_LINE_BUDGET,
   registerCompletionRecapRenderer,
-  registerStateEntryRenderer,
   registerSubmissionCardRenderer,
   type CardRenderOptions,
   type CompletionRecapDetails,
-  type StateMirrorData,
   type SubmissionCardMessage,
 } from "./renderers.js";
 import type { DiffEntry, SubmissionCardData } from "./snapshots.js";
@@ -454,75 +451,5 @@ describe("registerCompletionRecapRenderer", () => {
     expect(lines(out)[0]).toContain("INTERROGATION COMPLETE");
     const fb = renderer({ content: "RAW", details: undefined }, collapsed, stubTheme) as TextLike;
     expect(lines(fb).join("\n")).toBe("RAW");
-  });
-});
-
-describe("buildStateEntryMarker", () => {
-  test("renders exactly one dimmed `· interrogation state @ epoch {n}` line", () => {
-    const out = buildStateEntryMarker(
-      { epoch: 5, at: "2026-02-14T10:30:00.000Z" },
-      { expanded: false },
-      stubTheme,
-    );
-    const ls = lines(out);
-    expect(ls).toHaveLength(1);
-    expect(ls[0]).toBe("· interrogation state @ epoch 5");
-  });
-
-  test("the whole line passes through theme.fg('dim', …)", () => {
-    const ls = lines(buildStateEntryMarker({ epoch: 5 }, { expanded: false }, tagTheme));
-    expect(ls[0]).toBe("[dim]· interrogation state @ epoch 5[/]");
-  });
-
-  test("expanded adds the flush timestamp as a second dim line; collapsed stays one line", () => {
-    const data: StateMirrorData = { epoch: 5, at: "2026-02-14T10:30:00.000Z" };
-    const exp = lines(buildStateEntryMarker(data, { expanded: true }, stubTheme));
-    expect(exp).toHaveLength(2);
-    expect(exp[1]).toBeTruthy();
-    expect(exp[1]).not.toContain("epoch");
-
-    const noAt = lines(buildStateEntryMarker({ epoch: 5 }, { expanded: true }, stubTheme));
-    expect(noAt).toHaveLength(1);
-  });
-
-  test("defensive: missing data or epoch → `epoch ?`; never renders the state dump", () => {
-    expect(lines(buildStateEntryMarker(undefined, { expanded: false }, stubTheme))[0]).toBe(
-      "· interrogation state @ epoch ?",
-    );
-    expect(lines(buildStateEntryMarker({ at: "2026-02-14T10:30:00.000Z" }, { expanded: false }, stubTheme))[0]).toBe(
-      "· interrogation state @ epoch ?",
-    );
-
-    // A realistic InterrogationStateEntryData payload (with a serialized
-    // state attached) must not leak any of it into the marker.
-    const full = {
-      epoch: 3,
-      at: "2026-02-14T10:30:00.000Z",
-      state: { STATE_DUMP_SENTINEL: true },
-    } as unknown as StateMirrorData;
-    const ls = lines(buildStateEntryMarker(full, { expanded: true }, stubTheme));
-    expect(ls[0]).toBe("· interrogation state @ epoch 3");
-    expect(ls.join("\n")).not.toContain("STATE_DUMP_SENTINEL");
-  });
-});
-
-describe("registerStateEntryRenderer", () => {
-  test("registers the persistence const customType and routes through buildStateEntryMarker", () => {
-    const seen: Array<[string, (e: unknown, o: { expanded: boolean }, t: Theme) => unknown]> = [];
-    const pi = {
-      registerEntryRenderer: (customType: string, renderer: (typeof seen)[0][1]) => {
-        seen.push([customType, renderer]);
-      },
-    } as unknown as Pick<ExtensionAPI, "registerEntryRenderer">;
-
-    registerStateEntryRenderer(pi);
-
-    expect(seen).toHaveLength(1);
-    const [customType, renderer] = seen[0] as [string, (typeof seen)[0][1]];
-    expect(customType).toBe("interrogation-state");
-    expect(customType).toBe(INTERROGATION_STATE_ENTRY_TYPE);
-
-    const out = renderer({ data: { epoch: 9 } }, { expanded: false }, stubTheme) as TextLike;
-    expect(lines(out)[0]).toBe("· interrogation state @ epoch 9");
   });
 });

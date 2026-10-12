@@ -16,7 +16,7 @@
  *    mode-agnostic; completion injection is P1.M2.T2.S2) — nothing here.
  *
  * DIVISION OF LABOR (do NOT grow this module into the executor):
- * - Result assembly (status line + digest + caps warnings; the record
+ * - Result assembly (status line + digest + notices; the record
  *   `InterrogateResult` envelope with `action: "record"`) is S6's job — this
  *   module returns strings and data only.
  * - The TUI "ignore `{answers:[...]}`" decision (h2.20) is the executor's
@@ -120,7 +120,7 @@ const DIGEST_SKIP_STATUSES: ReadonlySet<Question["status"]> = new Set([
  *
  * Pure: input is a `SerializedState` (as produced by `state.serialize()`),
  * nothing is mutated, no events are emitted, and the output is a plain
- * string for the executor (S6) to wrap with the status line + caps warnings.
+ * string for the executor (S6) to wrap with the status line + notices.
  */
 export function buildFallbackDigest(state: SerializedState): string {
   const lines: string[] = [];

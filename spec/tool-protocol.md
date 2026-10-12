@@ -45,7 +45,7 @@ const InterrogateParams = Type.Object({
 
 | Call | Action | Returns |
 |---|---|---|
-| `{questions:[...], goal?}` | Upsert (merge rules below) | Status line + "end your turn" instruction + caps warnings if any |
+| `{questions:[...], goal?}` | Upsert (merge rules below) | Status line + "end your turn" instruction + withdrawal notices if any |
 | `{}` | Read | goal, epoch, group summary, per-question FULL content blocks (one-liner + prompt/description/options/meta — 2026-09-15 pin). NEVER surfaces the panel (SURFACE-001) |
 | `{reopen:true}` | Resurface panel | Confirmation |
 | `{answers:[...]}` | Record user answers (non-TUI only; ignored in TUI) | Status line |
@@ -65,12 +65,13 @@ Answer values in results and deltas may be WRITE-INS (WRITEIN-001): the user's o
 - **epoch**: any `questions`/`answers` call must carry the session `epoch` it was based on (top-level optional `epoch` param; read/submission results always include it); mismatch → `isError` with the delta digest since the model's epoch and current epoch.
 - Read (`{}`) is always allowed — pull refresh is never guarded.
 
-## Caps (Q27=A, configurable + scaled)
+## No caps (CAPS-OUT-001, 2026-10-08 owner ruling)
 
-- Defaults: `description ≤ max(1200, budget/questionCount)` chars; `ramification ≤ 600`; `options ≤ 7`; `questions ≤ 40`; `goal ≤ 400`.
-- Minimums (2026-09-15 deep-view quality pin, warn-only): a provided `description` under `minDescription` (200), an option `ramification` under `minRamification` (120), or an option with NO ramification at all — each produces a warning in the upsert result naming the field and instructing an expanded re-upsert. Never mutates, never rejects; `0` disables each floor.
-- Budget scaling: `totalDescriptionBudget = min(0.04 × ctx.model.contextWindow, 60000)` tokens-equivalent (chars ≈ 4×tokens), divided across the batch.
-- Over-budget content is **truncated with an explicit warning in the tool result** ("q7 description truncated at 2100 chars — restructure if essential"). Never a hard reject; all numbers overridable via config.
+- NOTHING is limited: any number of questions, any number of options, any
+  length of description/ramification/goal text. No truncation, no drops,
+  no warnings about text size — the tool passes everything through
+  verbatim. (The former caps engine — description/ramification/options/
+  questions/goal limits and minimum-floor lints — is deleted.)
 
 ## Agent-facing text (resident; ≤120 words)
 

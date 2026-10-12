@@ -18,15 +18,13 @@
  *    called ONCE from the index.ts factory; matches the EXACT customType
  *    `"interrogation-submission"` (the same literal delivery.ts ships).
  *
- * P1.M7.T3.S2 appends two more display surfaces to this file — same
+ * P1.M7.T3.S2 appends one more display surface to this file — same
  * shape (pure build function + thin registration shim), additive only:
  *
  * 3. {@link buildCompletionRecapCard} — the `interrogation-completion`
  *    recap card (AC-14): goal header, every grouped question with its
  *    final answer and ★, completion timestamp; expanded adds the
  *    withdrawn/moot reasons, full free-text, NOTES and the epoch line.
- * 4. {@link buildStateEntryMarker} — the `interrogation-state` mirror
- *    entry marker: ONE dim, non-interactive audit line (h2.40 layer 3).
  *
  * [Mode A] Display budgets (collapsed):
  * - Header line: `Submitted {k} changed · epoch {n}` (k = change count).
@@ -54,7 +52,6 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import type { CompletionMessage } from "./delivery.js";
-import { INTERROGATION_STATE_ENTRY_TYPE } from "./persistence.js";
 import { UNANSWERED_SUMMARY, type SubmissionCardData } from "./snapshots.js";
 
 /** Visible-column budget for each collapsed card line (h2.36 compact card). */
@@ -249,13 +246,11 @@ export function registerSubmissionCardRenderer(
 }
 
 /* ───────────────────────────────────────────────────────────────────────
- * Completion recap card + state mirror entry marker (P1.M7.T3.S2)
+ * Completion recap card (P1.M7.T3.S2)
  *
- * Consumes two live contracts, read-only:
+ * Consumes one live contract, read-only:
  * - delivery.ts `CompletionMessage.details` (P1.M2.T1.S3) for the recap
  *   card rendered from the one-time completion message (h3.9/AC-14).
- * - persistence.ts `INTERROGATION_STATE_ENTRY_TYPE` (P1.M7.T1.S1) for the
- *   mirror entry marker (h2.40 layer 3 audit trail).
  * ─────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -264,28 +259,14 @@ export function registerSubmissionCardRenderer(
  */
 export type CompletionRecapDetails = CompletionMessage["details"];
 
-/**
- * Renderer options as delivered by pi for ENTRY renderers
- * (extensions.md registerEntryRenderer): `expanded` only — entries get
- * NO `outputPad` (message renderers do).
+/*
+ * The `interrogation-state` mirror ENTRIES (persistence.ts, h2.40 layer 3)
+ * are intentionally NOT rendered: no entry renderer is registered for
+ * them, and pi skips entries without a renderer — the entries stay
+ * durable (post-restart reconstruction, reconstruct.ts) but invisible in
+ * the transcript (owner ruling 2026-10-08: the accumulated
+ * `· interrogation state @ epoch {n}` lines were noise between turns).
  */
-export interface MarkerRenderOptions {
-  expanded: boolean;
-}
-
-/**
- * Structural subset of persistence.ts's {@link InterrogationStateEntryData}
- * ({ state: SerializedState; epoch: number; at: string }) that the mirror
- * marker needs. `state` is deliberately NOT in the type: the mirror is a
- * one-line audit marker, never a state view (h2.36). Both keys are optional
- * so a sparse/foreign payload still renders (`epoch ?`).
- */
-export interface StateMirrorData {
-  /** state.epoch at flush time; absent → "?" in the marker line. */
-  epoch?: number;
-  /** ISO flush timestamp; expanded-only detail line when present. */
-  at?: string;
-}
 
 /**
  * Build the completion recap card component (PURE — a function of its
@@ -426,36 +407,6 @@ export function buildCompletionRecapCard(
 }
 
 /**
- * Build the state mirror marker component (PURE): ONE dim line — the
- * whole audit marker spec (h2.36) — never a dump of `data.state`.
- *
- * Collapsed/expanded: `· interrogation state @ epoch {n}` (theme.fg dim).
- * Expanded adds a second dim line with the flush timestamp
- * (`new Date(at).toLocaleString()`) when `at` shipped — kept minimal per
- * h2.36: the mirror is a marker, not a state view.
- *
- * Defensive: missing data or missing epoch renders `epoch ?`.
- *
- * @param data    structural subset of InterrogationStateEntryData (may be undefined)
- * @param options `{ expanded }` as delivered by pi (entries have NO outputPad)
- * @param theme   active TUI theme (fg/bold helpers)
- * @returns a Box with one (collapsed) or two (expanded) Text children
- */
-export function buildStateEntryMarker(
-  data: StateMirrorData | undefined,
-  options: MarkerRenderOptions,
-  theme: Theme,
-): Text | Box {
-  const epoch = typeof data?.epoch === "number" ? data.epoch : "?";
-  const box = new Box(0, 0);
-  box.addChild(new Text(theme.fg("dim", `· interrogation state @ epoch ${epoch}`), 0, 0));
-  if (options.expanded && data?.at) {
-    box.addChild(new Text(theme.fg("dim", new Date(data.at).toLocaleString()), 0, 0));
-  }
-  return box;
-}
-
-/**
  * Register the user-only completion recap card renderer with pi. Called
  * ONCE from the index.ts factory. Matches the EXACT customType
  * `"interrogation-completion"` (the literal delivery.ts CompletionMessage
@@ -482,26 +433,5 @@ export function registerCompletionRecapRenderer(
         theme,
         typeof message.content === "string" ? message.content : "",
       ),
-  );
-}
-
-/**
- * Register the state mirror entry renderer with pi. Called ONCE from the
- * index.ts factory. Matches the EXACT customType via persistence.ts's
- * exported {@link INTERROGATION_STATE_ENTRY_TYPE} const — never the
- * hardcoded string. Thin shim only — all behavior lives in the pure
- * {@link buildStateEntryMarker}.
- *
- * Entries are durable and NOT in LLM context (extensions.md); the generic
- * types `entry.data` as the narrow {@link StateMirrorData} slice (pi types
- * it `data?: T`, so undefined flows straight into the defensive builder).
- *
- * @param pi narrowest surface — `Pick<ExtensionAPI, "registerEntryRenderer">`
- *           — so tests can pass a one-method stub without a full ExtensionAPI
- */
-export function registerStateEntryRenderer(pi: Pick<ExtensionAPI, "registerEntryRenderer">): void {
-  pi.registerEntryRenderer<StateMirrorData>(
-    INTERROGATION_STATE_ENTRY_TYPE,
-    (entry, options, theme) => buildStateEntryMarker(entry.data, options, theme),
   );
 }

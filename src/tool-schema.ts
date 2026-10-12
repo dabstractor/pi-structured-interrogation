@@ -29,7 +29,7 @@
  */
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { InterrogatorConfig } from "./config.js";
+
 import type { DependsOn, QuestionOption } from "./state.js";
 
 // --------------------------------------------------------------------- schema
@@ -99,18 +99,9 @@ export const QuestionSchema = Type.Object({
  * - **record** — `{answers:[...]}` records the user's chat answers. This is
  *   the NON-TUI fallback only; in a TUI session the executor ignores it
  *   (that decision belongs to P1.M1.T3.S5 — routing still returns `record`).
- *
- * ## Caps (h2.23 — truncate, never reject)
- *
- * Oversized batches are truncated to the configured cap (first N in
- * agent-supplied order) with a warning — NEVER a hard reject. This module
- * enforces the question-count cap (`config.caps.questions`, default 40) via
- * the warning `questions truncated at N — restructure if essential`;
- * remaining caps (description/ramification/options/goal lengths) are the
- * P1.M1.T3.S3 caps engine.
  */
 export const InterrogateParams = Type.Object({
-  goal: Type.Optional(Type.String({ description: "What these questions drive toward; shown in the panel header. Updatable: a goal sent on ANY upsert replaces the current one (capped at config caps.goal, default 400 chars)." })),
+  goal: Type.Optional(Type.String({ description: "What these questions drive toward; shown in the panel header. Updatable: a goal sent on ANY upsert replaces the current one." })),
   epoch: Type.Optional(Type.Integer({ description: "Required when recording answers and when upserting questions that already exist (include the epoch from your last read/result); optional for a first upsert of brand-new questions (guards stale updates)." })),
   questions: Type.Optional(Type.Array(QuestionSchema, { description: "Upsert (surgical): only the ids sent are created or updated — omitted live questions are untouched. To prune by omission, resend the full live set with withdrawOmitted: true" })),
   withdrawOmitted: Type.Optional(Type.Boolean({ description: "Set-replace mode: live ids omitted from this batch withdraw (answers kept). Only meaningful alongside questions[]; omission alone NEVER withdraws" })),
@@ -241,20 +232,17 @@ type ErrorSink = { path: string; message: string }[];
  *   option `value`
  * - `type: "text"` never requires options (present options are ignored)
  *
- * Caps: `questions.length > config.caps.questions` keeps the FIRST
- * `caps.questions` questions (stable agent-supplied order) and appends the
- * warning `questions truncated at N — restructure if essential` — never a
- * hard reject (h2.23).
+ * NO CAPS (CAPS-OUT-001, 2026-10-08 owner ruling): batches of any size,
+ * text of any length — nothing is truncated or dropped here. The
+ * `warnings` channel survives for non-cap notices.
  *
- * Non-goals (owned elsewhere): rev/epoch staleness guards (S2), the full
- * caps engine for description/ramification/options/goal (S3), executor
+ * Non-goals (owned elsewhere): rev/epoch staleness guards (S2), executor
  * isError formatting (S4/S5), and the answers-in-TUI ignore decision (S5 —
  * routing returns `record` regardless of mode).
  *
  * @param args Raw tool-call arguments (untrusted JSON).
- * @param config Resolved interrogator config (only `caps.questions` read).
  */
-export function parseInterrogateParams(args: unknown, config: InterrogatorConfig): ParseResult {
+export function parseInterrogateParams(args: unknown): ParseResult {
   const errors: ErrorSink = [];
   const warnings: string[] = [];
 
@@ -291,19 +279,13 @@ export function parseInterrogateParams(args: unknown, config: InterrogatorConfig
     else errors.push({ path: "withdrawOmitted", message: "withdrawOmitted must be a boolean" });
   }
 
-  // -- questions (truncate FIRST at the cap, then validate what survives —
-  //    errors on dropped entries would be noise)
+  // -- questions (no cap — every entry validated)
   let questions: QuestionInput[] | undefined;
   if (args.questions !== undefined) {
     if (Array.isArray(args.questions)) {
-      let incoming: unknown[] = args.questions;
-      if (incoming.length > config.caps.questions) {
-        warnings.push(`questions truncated at ${config.caps.questions} — restructure if essential`);
-        incoming = incoming.slice(0, config.caps.questions);
-      }
       questions = [];
-      for (let i = 0; i < incoming.length; i++) {
-        const q = narrowQuestion(incoming[i], `questions[${i}]`, errors);
+      for (let i = 0; i < args.questions.length; i++) {
+        const q = narrowQuestion(args.questions[i], `questions[${i}]`, errors);
         if (q !== undefined) questions.push(q);
       }
     } else {

@@ -53,34 +53,13 @@ test("test_global_only_keys_override_changes_only_that_key", async () => {
   expect(cfg).toEqual(expected);
 });
 
-test("test_deep_merge_project_caps_description_only_and_global_keys_survive", async () => {
+test("test_deep_merge_project_keys_override_and_global_sibling_survives", async () => {
   const g = await writeSettings(JSON.stringify({ interrogator: { keys: { deep: "ctrl+e" } } }));
-  const p = await writeSettings(JSON.stringify({ interrogator: { caps: { description: 2000 } } }));
+  const p = await writeSettings(JSON.stringify({ interrogator: { keys: { submit: "ctrl+enter" } } }));
   const cfg = await loadConfigFrom({ global: g, project: p });
-  // project nested override applied…
-  expect(cfg.caps.description).toBe(2000);
-  // …while sibling caps fields keep their defaults (deep, not wholesale replace)…
-  expect(cfg.caps.ramification).toBe(DEFAULT_CONFIG.caps.ramification);
-  expect(cfg.caps.minDescription).toBe(DEFAULT_CONFIG.caps.minDescription);
-  expect(cfg.caps.minRamification).toBe(DEFAULT_CONFIG.caps.minRamification);
-  expect(cfg.caps.options).toBe(DEFAULT_CONFIG.caps.options);
-  expect(cfg.caps.questions).toBe(DEFAULT_CONFIG.caps.questions);
-  expect(cfg.caps.goal).toBe(DEFAULT_CONFIG.caps.goal);
-  expect(cfg.caps.contextBudgetPct).toBe(DEFAULT_CONFIG.caps.contextBudgetPct);
-  // …and the global keys override survives the second merge.
   expect(cfg.keys.deep).toBe("ctrl+e");
-  expect(cfg.keys).toEqual({ ...DEFAULT_CONFIG.keys, deep: "ctrl+e" });
-});
-
-test("test_min_floors_coerce_and_can_be_disabled_via_settings", async () => {
-  // 2026-09-15 deep-view pin: floors are ordinary caps — numeric-string
-  // coercion applies, and 0 disables each lint.
-  const stringForm = await writeSettings(JSON.stringify({ interrogator: { caps: { minDescription: "300" } } }));
-  expect((await loadConfigFrom({ global: stringForm })).caps.minDescription).toBe(300);
-  const disabled = await writeSettings(JSON.stringify({ interrogator: { caps: { minRamification: 0 } } }));
-  const cfg = await loadConfigFrom({ global: disabled });
-  expect(cfg.caps.minRamification).toBe(0);
-  expect(cfg.caps.minDescription).toBe(DEFAULT_CONFIG.caps.minDescription);
+  expect(cfg.keys.submit).toBe("ctrl+enter");
+  expect(cfg.keys).toEqual({ ...DEFAULT_CONFIG.keys, deep: "ctrl+e", submit: "ctrl+enter" });
 });
 
 test("test_project_wins_over_global_on_same_key", async () => {
@@ -116,20 +95,12 @@ test("test_empty_file_yields_defaults", async () => {
   expect(cfg).toEqual(DEFAULT_CONFIG);
 });
 
-test("test_numeric_string_cap_is_coerced_to_number", async () => {
-  const p = await writeSettings(JSON.stringify({ interrogator: { caps: { description: "2000" } } }));
+test("test_numeric_string_toggle_values_still_coerce_via_booleans", async () => {
+  // (the former numeric-string caps coercion tests are gone with caps —
+  // CAPS-OUT-001: no limits, no caps config block)
+  const p = await writeSettings(JSON.stringify({ interrogator: { gateWarnings: "yes" } }));
   const cfg = await loadConfigFrom({ global: p, project: await missingPath() });
-  expect(cfg.caps.description).toBe(2000);
-  expect(typeof cfg.caps.description).toBe("number");
-});
-
-test("test_nan_ish_cap_values_fall_back_to_default", async () => {
-  const p = await writeSettings(
-    JSON.stringify({ interrogator: { caps: { description: "not-a-number", options: {} } } }),
-  );
-  const cfg = await loadConfigFrom({ global: p, project: await missingPath() });
-  expect(cfg.caps.description).toBe(DEFAULT_CONFIG.caps.description);
-  expect(cfg.caps.options).toBe(DEFAULT_CONFIG.caps.options);
+  expect(cfg.gateWarnings).toBe(true);
 });
 
 test("test_toggles_coerce_bad_values_to_defaults_and_keep_false", async () => {
@@ -153,14 +124,6 @@ test("test_editor_mode_accepts_stock_and_rejects_unknown", async () => {
   const bogus = await writeSettings(JSON.stringify({ interrogator: { editorMode: "fancy" } }));
   const cfg2 = await loadConfigFrom({ global: bogus, project: await missingPath() });
   expect(cfg2.editorMode).toBe(DEFAULT_CONFIG.editorMode);
-});
-
-test("test_non_object_section_replaces_then_recovers_via_coercion", async () => {
-  // A non-object caps value replaces the section wholesale during merge;
-  // shape enforcement must recover the defaults instead of crashing.
-  const p = await writeSettings(JSON.stringify({ interrogator: { caps: 5 } }));
-  const cfg = await loadConfigFrom({ global: p, project: await missingPath() });
-  expect(cfg.caps).toEqual(DEFAULT_CONFIG.caps);
 });
 
 test("test_resolve_key_labels_covers_all_actions_with_default_config", async () => {

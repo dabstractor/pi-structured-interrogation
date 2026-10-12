@@ -623,25 +623,24 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
     const q = state.getQuestion("d1")!;
     const content = buildDeepContent({
       question: q,
-      goal: state.goal,
       cursorIndex: panel.cursorIndex,
       scrollOffset: 0,
       theme: stubTheme,
       width: 80,
-      maxChars: DEFAULT_CONFIG.caps.ramification,
     });
     expect(content.lines.length).toBeGreaterThan(content.viewportHeight); // scrolls
-    // DEEP-PIN-001: the question region (description + goal, description
-    // above goal per the spec sentence) is pinned above the scroll window —
-    // the scroll range spans the OPTIONS region at its (reduced) viewport
-    // height, not the whole pane at 20. DEEP-PIN-002: line 0 is the air
-    // line below the panel header; the description head follows it, on
-    // the accent ▌ rail (uncolored under the stub theme).
+    // DEEP-PIN-001: the question region (description only — the goal
+    // never renders in the pane, owner ruling 2026-10-08) is pinned above
+    // the scroll window — the scroll range spans the OPTIONS region at
+    // its (reduced) viewport height, not the whole pane at 20.
+    // DEEP-PIN-002: line 0 is the air line below the panel header; the
+    // description head follows it, on the accent ▌ rail (uncolored under
+    // the stub theme).
     expect(content.questionLines[0]).toBe("");
     const pinnedHead = content.questionLines[1]!;
     expect(pinnedHead.startsWith("▌ ")).toBe(true);
     expect(pinnedHead).toContain("Context you should read before choosing.");
-    expect(content.questionLines.join("\n")).toContain("deep goal"); // goal below the description
+    expect(content.questionLines.join("\n")).not.toContain("deep goal"); // header-only, never the pane
     const maxOffset = content.lines.length - content.viewportHeight;
     // The pinned question is visible at EVERY offset — top of range AND
     // bottom of range (the bug this pins: pre-DEEP-PIN-001 the question

@@ -10,7 +10,7 @@
  * Subcommands (all under `/interrogate debug …`):
  *
  * - `/interrogate debug upsert <json>` — the FULL upsert path via
- *   {@link executeInterrogate} itself (parse → assertFresh → caps → merge →
+ *   {@link executeInterrogate} itself (parse → assertFresh → merge →
  *   result building). Deliberately NOT re-implemented: duplicating it would
  *   defeat the h2.50 same-code-path purpose. Stale upserts notify the
  *   StaleError message verbatim (current rev/text + delta digest) — the
@@ -151,13 +151,12 @@ async function debugUpsert(
     return;
   }
   try {
-    // THE production executor — same parse/guard/caps/merge/result path
+    // THE production executor — same parse/guard/merge/result path
     // a model call takes. Synchronous and side-effect rich (fires
     // questions-upserted/changed consumed by lifecycle) by design.
     const result = executeInterrogate(json, { mode: "tui", hasUI: true }, config);
-    // Warnings ride in the result content rows; the h2.28 status line is
-    // the compact observable (caps/truncation effects stay visible via
-    // /interrogate debug state — deliberately not re-running caps here).
+    // Notices ride in the result content rows; the h2.28 status line is
+    // the compact observable (visible via /interrogate debug state).
     ctx.ui.notify(result.details.statusLine, "info");
   } catch (err) {
     // Single catch for plain Errors (malformed params, no-state) and

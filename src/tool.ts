@@ -3,7 +3,7 @@
  * (P1.M1.T3.S6). This is the single LLM entry point for structured
  * interrogation (h2.15): it composes the S1–S5 modules —
  *
- *   parse (tool-schema) → guards → caps → merge → result builders → fallback
+ *   parse (tool-schema) → guards → merge → result builders → fallback
  *
  * into one routing executor, and registers it via the h2.24 resident text and
  * the h2.25 compact render rows.
@@ -25,7 +25,6 @@
 import { Box, Text } from "@earendil-works/pi-tui";
 import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
-import { applyCaps } from "./caps.js";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import { evaluateDependsOn } from "./depends-on.js";
 import { buildFallbackDigest, isNonTui, recordAnswers } from "./fallback.js";
@@ -83,9 +82,6 @@ export const INTERROGATE_PROMPT_SNIPPET =
   "Ask structured planning questions via the interrogate tool; users answer in a persistent panel.";
 
 // ----------------------------------------------------------------- constants
-
-/** Defensive stand-in when `ctx.model` is absent (documented on ToolContext). */
-export const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 /**
  * The slice of pi's ExtensionContext the executor reads — nothing else.
@@ -178,22 +174,8 @@ function inlineEnvelope(state: SerializedState, action: ResultAction, statusLine
 }
 
 /**
- * Combined upsert warning list: parse warnings (h2.23 truncation from S1)
- * PREPENDED to caps warnings (S3), appended UNCONDITIONALLY — h2.23 requires
- * truncation "with a warning in the tool result (never a hard reject)" and
- * specifies no suppression toggle; the model must see what was cut to
- * self-correct. (`config.gateWarnings` is the FR-9 panel submit warning —
- * unrelated to tool results.)
- */
-function upsertWarnings(parsed: string[], capped: string[]): string[] {
-  return [...parsed, ...capped];
-}
-
-// ------------------------------------------------------------------ executor
-
-/**
  * The testable executor core for the `interrogate` tool. Pure-ish: reads
- * `ctx.mode` / `ctx.hasUI` / `ctx.model.contextWindow` and the module state
+ * `ctx.mode` / `ctx.hasUI` and the module state
  * singleton; mutates state only through S2/S3/S5 entry points; fully
  * synchronous — never blocks on anything user-driven, opens no panel, and
  * has no UI dependency beyond the two mode flags (h2.0 §1).
@@ -210,14 +192,14 @@ function upsertWarnings(parsed: string[], capped: string[]): string[] {
  *   persisted); upsert → create + register the singleton with the parsed
  *   goal; record → plain Error; reopen → plain Error.
  * - a parsed `goal` applies on upsert whenever present: the create path
- *   constructs with the CAPPED goal and later upserts update it via
- *   `state.setGoal(capped.goal)` (FR-30; BUG-001/BUG-009); an omitted goal
- *   leaves the stored one unchanged. Truncation is owned by `applyCaps`
- *   (caps.ts); its `goal truncated at {n} chars` warning surfaces in the
- *   result via `upsertWarnings`.
+ *   constructs with it and later upserts update it via
+ *   `state.setGoal(...)` (FR-30; BUG-001/BUG-009); an omitted goal
+ *   leaves the stored one unchanged. NO CAPS (CAPS-OUT-001, 2026-10-08):
+ *   nothing truncates the goal or any question text — the caps engine is
+ *   deleted.
  * - `assertFresh` runs before upsert/record mutation; StaleError propagates
  *   UNCAUGHT — its message is the model's self-heal signal (h2.22).
- * - upsert: caps → merge (fires `questions-upserted`/`changed` — the panel
+ * - upsert: merge (fires `questions-upserted`/`changed` — the panel
  *   trigger; do NOT open anything here) → TUI compact result or non-TUI
  *   status + digest + warnings composite.
  * - record (h2.20): TUI → IGNORED (ack note only, no state change);
@@ -236,7 +218,7 @@ export function executeInterrogate(
   deps: ToolDeps = {},
 ): InterrogateResult {
   // 1. Parse + route — before ANY state work (malformed input never mutates).
-  const parsed = parseInterrogateParams(args, config);
+  const parsed = parseInterrogateParams(args);
   if (!parsed.ok || parsed.action === undefined) {
     throw new Error(
       "invalid interrogate params:\n" + parsed.errors.map((e) => `- ${e.path}: ${e.message}`).join("\n"),
@@ -260,22 +242,12 @@ export function executeInterrogate(
 
     // ---------------------------------------------------------- upsert
     case "upsert": {
-      // Caps first — applyCaps is PURE (structuredClone, no state mutation),
-      // so hoisting it above singleton creation changes nothing observable.
-      // capped.goal is the single truncation authority (BUG-009): never
-      // truncate the goal here.
-      const capped = applyCaps(
-        parsed.action.questions,
-        parsed.action.goal ?? "",
-        config,
-        ctx.model?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
-      );
       // [Mode A] SINGLETON LIFETIME / BUG-002: a completed singleton is
       // REPLACED, not reused — completion cleared its questions and its
       // `completed` guard is exactly-once by design (deserialize restores it
       // across restart; never weakened). A new-question upsert starts a NEW
       // interrogation: fresh epoch 1, completed=false, empty snapshots.
-      // Goal: the upsert's capped goal when sent, else the prior goal RETAINED
+      // Goal: the upsert's goal when sent, else the prior goal RETAINED
       // (FR-30 — the goal anchors re-asks; a blank header helps nobody).
       // Decision (spec gap pinned; recorded in P1.M5.T2.S2).
       let state: InterrogationState;
@@ -284,13 +256,13 @@ export function executeInterrogate(
         // CONSTRUCTOR-atomic — never setGoal on this path (a follow-up would
         // double-emit `changed` and misrepresent the mutation).
         state = createInterrogationState(
-          parsed.action.goal !== undefined ? capped.goal : existing.serialize().goal,
+          parsed.action.goal !== undefined ? parsed.action.goal : existing.serialize().goal,
         );
         setState(state);
       } else {
-        // Create stores the CAPPED goal; goal-omitted creates still start from
+        // Create stores the goal verbatim; goal-omitted creates still start from
         // "" (explicit ternary keeps that semantic visible).
-        state = existing ?? createInterrogationState(parsed.action.goal !== undefined ? capped.goal : "");
+        state = existing ?? createInterrogationState(parsed.action.goal !== undefined ? parsed.action.goal : "");
         if (!existing) setState(state);
       }
 
@@ -306,7 +278,7 @@ export function executeInterrogate(
       // (P1.M2.T2.S1 lifecycle). This executor must not open anything.
       // withdrawOmitted (2026-09-15 pin): default patch semantics — omitted
       // live ids untouched; true switches rule 4 to set-replace mode.
-      const merged = applyUpsert(state, capped.questions.map(toMergeQuestion), parsed.action.withdrawOmitted);
+      const merged = applyUpsert(state, parsed.action.questions.map(toMergeQuestion), parsed.action.withdrawOmitted);
 
       // BUG-006(a) / FR-17: re-derive moot-ness from the just-merged state —
       // agent edits to dependsOn conditions take effect INSTANTLY, on this
@@ -320,20 +292,20 @@ export function executeInterrogate(
       evaluateDependsOn(state);
 
       // FR-30 (BUG-001): a goal on ANY upsert replaces the stored one —
-      // already capped above. Omitted goal → unchanged (never wipe to "").
+      // verbatim, never truncated. Omitted goal → unchanged (never wipe to "").
       // This emits a second `changed` after applyUpsert's — expected per
       // setGoal's contract (always emits; callers gate). Do NOT coalesce.
       // Swap-excluded (BUG-002): keyed on the ORIGINAL `existing` (pre-swap) —
       // on the completed-swap path the goal was applied at construction.
       if (existing !== undefined && existing.completed !== true && parsed.action.goal !== undefined) {
-        state.setGoal(capped.goal);
+        state.setGoal(parsed.action.goal);
       }
 
       const serialized = state.serialize();
       // Tolerant withdrawal reporting (2026-09-15 pin, warn-don't-refuse):
       // deliberate withdrawals surface as an informational line in the same
       // warnings block — never an error, always visible to the model.
-      const warnings = upsertWarnings(parsed.warnings, capped.warnings);
+      const warnings = [...parsed.warnings];
       if (merged.withdrawn.length > 0) {
         warnings.push(`withdrew (withdrawOmitted): ${merged.withdrawn.map((w) => w.id).join(", ")}`);
       }

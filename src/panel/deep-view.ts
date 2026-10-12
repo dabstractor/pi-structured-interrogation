@@ -5,9 +5,8 @@
  * The deep view (FR-8 / h2.29 / Q19-Q20) is a FULL replacement of the Q&A
  * region between header and footer, split into TWO regions (owner ruling
  * 2026-10-05, DEEP-PIN-001): a PINNED question region on top — the full
- * `question.description`, then the full goal text under it (FR-30, dimmed;
- * plus a `⊘ moot` reason line first when moot) — and a SCROLLABLE options
- * region under
+ * `question.description` (plus a `⊘ moot` reason line first when moot) —
+ * and a SCROLLABLE options region under
  * it with one section per option (`▸ ★ sqlite` header + wrapped
  * ramification text) and — on choice questions — the synthetic
  * `✎ Other — write your own` section (P1.M2.T6.S1). The question NEVER
@@ -17,7 +16,7 @@
  * floor `offset ≥ headerIdx - vh + 2` then made the question unreachable
  * until the view was toggled). When the pinned region alone would
  * overflow {@link DEEP_VIEW_HEIGHT}, it is line-truncated bottom-first
- * (goal yields space before the description) with a dimmed `…` marker —
+ * with a dimmed `…` marker —
  * never by stealing the options window's minimum height.
  *
  * DEEP-PIN-002 (2026-10-05, owner request) — question framing: the pinned
@@ -26,7 +25,7 @@
  * above (below the panel header), the existing blank below, one extra
  * column of right padding (question text wraps 1 col narrower than option
  * rows), and the accent `▌` rail at column 0 on every question text line
- * (moot line, goal, description, truncation marker). The rail is 2 visible
+ * (moot line, description, truncation marker). The rail is 2 visible
  * cols (`▌ `), so question text stays at column 2, column-aligned with
  * option titles; width-safe like every glyph here (visibleWidth = 1). `↑/↓` SCROLL the pane / move the selection — they NEVER
  * navigate questions (h2.29: question navigation belongs to the config
@@ -48,7 +47,7 @@
  *   ramification is the fixed `OTHER_RAMIFICATION` string (h2.29). It is
  *   selectable (same sticky-header machinery as real options) and `enter`
  *   on it enters the write-in duty — short form + editor focused (h2.32).
- *   Text questions still render goal + description only and `enter` is a
+ *   Text questions still render the description only and `enter` is a
  *   consumed no-op (the embedded editor composes on the short form).
  *
  * MODE A CONTRACT — ALIGNMENT (mirrors short-view.ts):
@@ -59,16 +58,19 @@
  *   aligning under the header label.
  * - Glyph widths are NEVER assumed: wrapping and truncation go through
  *   visibleWidth/truncateVisible (ANSI- and wide-char-safe; never
- *   String.prototype.slice on display text — the per-text char cap is the
- *   one exception, capping SOURCE characters before rendering, mirroring
- *   the config caps' char-count semantics).
+ *   String.prototype.slice on display text).
  *
- * MODE A CONTRACT — RENDER BUDGET (h2.51 risk row 2): the pane is capped at
- * {@link DEEP_VIEW_HEIGHT} content lines (a module constant, NOT terminal
- * rows — panel.render(width) has no height parameter; M7.T5.S1 adapts) and
- * every text block is capped at the config ramification char cap with `…`
- * appended when truncated. Huge descriptions/ramifications cannot blow the
- * terminal; the overview list (M5.T2) is the escape hatch.
+ * MODE A CONTRACT — RENDER BUDGET (h2.51 risk row 2, amended DEEP-FULL-001
+ * 2026-10-08): the RENDERED pane is capped at {@link DEEP_VIEW_HEIGHT}
+ * content lines (a module constant, NOT terminal rows — panel.render(width)
+ * has no height parameter; M7.T5.S1 adapts) via the pinned-region line
+ * budget and the options-region WINDOW — but text is NEVER char-truncated:
+ * the deep view is the dedicated see-everything view, so ramifications and
+ * the description wrap in full and the options region SCROLLS (its `lines`
+ * array is unbounded; only the window slice renders). The pinned question
+ * region keeps its structural line budget (bottom-first fold with a dimmed
+ * `…` marker when the description alone overflows the pane — the one
+ * remaining fold, forced by the fixed pane height).
  *
  * Purity: the builders/renderers are pure (no state mutation, no I/O, no
  * key handling — mutations live in the named actions below and on the
@@ -94,7 +96,7 @@ export const DEEP_VIEW_HEIGHT = 20;
 
 /**
  * Minimum scrollable height reserved for the options region (DEEP-PIN-001):
- * when the pinned question region (moot line + goal + description) alone
+ * when the pinned question region (moot line + description) alone
  * would overflow {@link DEEP_VIEW_HEIGHT}, the question is line-truncated
  * bottom-first with a dimmed `…` marker — the sections' window is never
  * squeezed below this floor (a pane with no visible options would strand
@@ -169,7 +171,7 @@ const WITHDRAWN_LINE = "⊗ withdrawn";
 /**
  * The synthetic Other section's ramification (P1.M2.T6.S1, h2.29) — a FIXED
  * extension-supplied string rendered verbatim through the SAME
- * capText → wrapText → dim → RAM_INDENT pipeline as option ramifications.
+ * wrapText → dim → RAM_INDENT pipeline as option ramifications.
  * Deliberately NOT configurable; never starred (the Other row is not an
  * option and is never recommended).
  */
@@ -187,8 +189,6 @@ const FALLBACK_WIDTH = 80;
 /** Inputs to the deep content builder ({@link buildDeepContent}). */
 export interface DeepViewInput {
   question: Question;
-  /** FULL goal text (FR-30) — read from state.goal, never the header's cut. */
-  goal: string;
   /** Highlighted option index (advisory — baked into placeholder headers). */
   cursorIndex: number;
   /** Scroll offset (advisory — clamping happens in {@link clampScroll}). */
@@ -196,8 +196,6 @@ export interface DeepViewInput {
   theme: Theme;
   /** Full panel render width; content budget = width - 2 (INSET). */
   width: number;
-  /** Per-text char cap (config.caps.ramification) — h2.51 row 2. */
-  maxChars: number;
 }
 
 /**
@@ -207,8 +205,8 @@ export interface DeepViewInput {
  */
 export interface DeepContent {
   /**
-   * PINNED question region (DEEP-PIN-001): moot reason line, full goal
-   * text, and full `question.description` (capped/wrapped, bottom-line
+   * PINNED question region (DEEP-PIN-001): moot reason line and full
+   * `question.description` (wrapped, bottom-line
    * truncated with a dimmed `…` marker when over budget). Rendered ABOVE
    * the scroll window by {@link renderDeepWindow} on EVERY offset — the
    * question never scrolls out of view. Withdrawn questions collapse to
@@ -256,17 +254,6 @@ export interface DeepContent {
 // ------------------------------------------------------------------ helpers
 
 /**
- * Cap SOURCE text at `maxChars` characters with `…` appended when truncated
- * (h2.51 row 2 — char-count semantics matching the config caps, applied
- * before wrapping; display-width safety stays with wrapText/truncateVisible).
- */
-function capText(text: string, maxChars: number): string {
-  if (maxChars <= 0) return "";
-  if (text.length <= maxChars) return text;
-  return text.slice(0, maxChars) + "…";
-}
-
-/**
  * Word-wrap `text` to `budget` visible columns (visibleWidth-aware — glyph
  * widths are never assumed): split on spaces and accumulate lines while
  * `visibleWidth(line + " " + word)` fits; a single word longer than the
@@ -308,17 +295,16 @@ export function wrapText(text: string, budget: number): string[] {
 // ---------------------------------------------------------- content builder
 
 /**
- * Pure deep-pane content builder (h2.29 layout, FR-30 / FR-8): the FULL
- * goal text (dimmed, capped + wrapped), a blank separator, the FULL
- * `question.description` (capped + wrapped), a blank separator, then one
+ * Pure deep-pane content builder (h2.29 layout, FR-8): the FULL
+ * `question.description` (wrapped), a blank separator, then one
  * section per option in state order (never filtered or reordered — R1):
  * a header line — `▸ label ★` when highlighted / `  label ★` otherwise
  * (TRAILING ★, amendment 8; the highlighted section carries the `▸ `
  * prefix + heavy `┃` pipes of amendment 9) — followed by its ramification
  * wrapped over indented (4-col) dimmed lines.
  *
- * Dim hierarchy: the goal and ramification lines render dim ALWAYS (the
- * goal is context, the ramification is the expanded short-view teaser,
+ * Dim hierarchy: the ramification lines render dim ALWAYS (the
+ * ramification is the expanded short-view teaser,
  * which renders dim there); the description renders full intensity; moot
  * dims the whole pane (headers included, via {@link DeepContent.dimAll}).
  *
@@ -334,11 +320,11 @@ export function wrapText(text: string, budget: number): string[] {
  *   (`OTHER_AFFORDANCE`), ramification the fixed `OTHER_RAMIFICATION`
  *   (h2.29), never starred. Present even when `options` is undefined or
  *   empty (the Other row is the whole cursor domain there).
- * - Text questions: goal + description only — no option sections and no
+ * - Text questions: description only — no option sections and no
  *   Other section (the embedded editor composes on the short form).
  */
 export function buildDeepContent(input: DeepViewInput): DeepContent {
-  const { question: q, goal, theme, width, maxChars } = input;
+  const { question: q, theme, width } = input;
   const budget = Math.max(1, width - INSET.length - RIGHT.length); // inset 2 + right margin 2 (variation A)
 
   if (q.status === "withdrawn") {
@@ -362,16 +348,9 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
   const sectionStarred: boolean[] = [];
   const sectionAnswered: boolean[] = [];
 
-  // ---- pinned question region (DEEP-PIN-001): moot line + description +
-  // goal, fitted to the pane budget. RENDER ORDER per the spec sentence —
-  // "full `description`, full `goal` below it, dimmed" — the description
-  // first, the goal UNDER it (validation Issue 4, 2026-10-07: the blocks
-  // used to render goal-above-description). Truncation PRIORITY is
-  // unchanged and independent of render order: the description owns the
-  // space first (it is the question being answered; the goal is context
-  // already summarized — truncated — in the header, FR-30), so the goal
-  // yields lines first when the region overflows; both blocks cap at
-  // maxChars as before. Whole-line truncation only, via fitBlock.
+  // ---- pinned question region (DEEP-PIN-001): moot line + description,
+  // fitted to the pane budget. Truncation: whole-line only, via fitBlock —
+  // the description owns the whole question budget.
   // DEEP-PIN-002 framing: a blank line ABOVE the block (air below the
   // panel header), the accent ▌ rail on every text line, and one extra
   // column of right padding (question text wraps 1 col narrower than the
@@ -390,25 +369,18 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
   }
   const qBudget = budget - 1; // extra right-padding col (DEEP-PIN-002)
   const rail = questionIndent(theme);
-  const goalBlock: string[] = [];
-  pushBlock(goalBlock, goal, theme, qBudget, maxChars, true, "", rail);
   const descBlock: string[] = [];
   if (q.description !== undefined && q.description !== "") {
-    pushBlock(descBlock, q.description, theme, qBudget, maxChars, dimAll, "", rail);
+    pushBlock(descBlock, q.description, theme, qBudget, dimAll, "", rail);
   }
-  const separators = descBlock.length > 0 ? 2 : 1; // blank between blocks (+ after the last)
+  const separators = 1; // one blank after the pinned region
   const questionBudget = hasSections
     ? DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT
     : DEEP_VIEW_HEIGHT; // no sections → the question may use the whole pane
   const avail = questionBudget - head.length - separators;
   const descKept = fitBlock(descBlock, avail, theme);
-  const goalKept = fitBlock(goalBlock, avail - descKept.length, theme);
-  // DEEP-PIN-001 order: description block ABOVE the goal block (one blank
-  // line between; the trailing blank separates the pinned region from the
-  // options region exactly as before).
   const questionLines = [...head];
   if (descKept.length > 0) questionLines.push(...descKept, "");
-  questionLines.push(...goalKept, "");
   // ---- scrollable options region (unchanged composition; indexes are
   // now RELATIVE TO `lines`, offset 0 = first section header's region top).
   if (q.type === "choice") {
@@ -434,7 +406,7 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
       // D-R13/D-R14: explanation rows — full intensity, each prefixed by the
       // colored quote-bar pipe. Moot dims the whole pane over it.
       if (opt.ramification !== undefined && opt.ramification !== "") {
-        pushBlock(lines, opt.ramification, theme, budget, maxChars, dimAll, ramIndent(theme, i === input.cursorIndex));
+        pushBlock(lines, opt.ramification, theme, budget, dimAll, ramIndent(theme, i === input.cursorIndex));
       }
       // Variation B (2026-09-30, promoted from live-review to spec): one
       // blank line between each answer section — the separator rides the
@@ -456,7 +428,7 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     sectionHeaderLineIndex.push(lines.length);
     const composed = `${headerPrefix(options.length === input.cursorIndex)}${titleStyle(theme, options.length === input.cursorIndex, otherIsAnswer, OTHER_AFFORDANCE)}`;
     lines.push(dimAll ? theme.fg("dim", composed) : composed);
-    pushBlock(lines, OTHER_RAMIFICATION, theme, budget, maxChars, dimAll, ramIndent(theme, options.length === input.cursorIndex));
+    pushBlock(lines, OTHER_RAMIFICATION, theme, budget, dimAll, ramIndent(theme, options.length === input.cursorIndex));
   }
   const viewportHeight = Math.max(
     hasSections ? MIN_OPTIONS_VIEWPORT : 1,
@@ -466,7 +438,7 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
 }
 
 /**
- * Append one text block: char-capped ({@link capText}), word-wrapped to the
+ * Append one text block: word-wrapped to the
  * post-indent budget ({@link wrapText}), each line prefixed (INSET by
  * default; the question rail for pinned blocks, DEEP-PIN-002), optional
  * extra indent, and dimmed when `dim`. Pure — appends into the caller's
@@ -477,13 +449,12 @@ function pushBlock(
   text: string,
   theme: Theme,
   budget: number,
-  maxChars: number,
   dim: boolean,
   indent = "",
   prefix = INSET,
 ): void {
   const indentW = visibleWidth(indent);
-  const wrapped = wrapText(capText(text, maxChars), Math.max(1, budget - indentW));
+  const wrapped = wrapText(text, Math.max(1, budget - indentW));
   for (const ln of wrapped) {
     const composed = `${prefix}${indent}${ln}`;
     lines.push(dim ? theme.fg("dim", composed) : composed);
@@ -559,7 +530,7 @@ export function clampScroll(content: DeepContent, scrollOffset: number, cursorIn
 
 /**
  * Render the deep pane at `scrollOffset`: the PINNED question region
- * (DEEP-PIN-001 — moot line + goal + description, present on EVERY offset;
+ * (DEEP-PIN-001 — moot line + description, present on EVERY offset;
  * the question never scrolls out of view) followed by the options-region
  * window, defensively re-clamped (renderers never mutate panel state),
  * every visible section header re-rendered with the CURRENT cursor prefix
@@ -620,12 +591,10 @@ function deepInput(panel: InterrogationPanel): { q: Question | undefined; input:
     q,
     input: {
       question: q as Question,
-      goal: panel.state.goal,
       cursorIndex: panel.cursorIndex,
       scrollOffset: panel.scrollOffset,
       theme: panel.theme,
       width,
-      maxChars: panel.config.caps.ramification,
     },
   };
 }

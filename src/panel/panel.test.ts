@@ -518,7 +518,11 @@ describe("view switching (built-in S1 bindings)", () => {
     // Real deep view (P1.M5.T1.S1): header + bounded pane + view-aware footer.
     expect(deep[0]).toMatch(/^┌ interrogation ·?/);
     expect(deep.some((l) => l.includes("│"))).toBe(true); // D-R14 explanation pipes
-    expect(deep.some((l) => l.includes("goal"))).toBe(true); // FR-30 full goal
+    // FR-30: the goal lives in the HEADER ONLY — never in the question
+    // pane between the question and the answer choices (owner ruling
+    // 2026-10-08: the repeated full-goal block was noise on every question).
+    expect(deep[0]).toContain("goal");
+    expect(deep.slice(1).some((l) => l.includes("goal"))).toBe(false);
     expect(deep[deep.length - 1]).toMatch(/^└ .*⏎ ┘$/); // footer (blank is last — variation A)
 
     panel.handleInput(CTRL_L);

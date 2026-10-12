@@ -13,10 +13,6 @@ import {
   type ParseResult,
 } from "./tool-schema.js";
 
-function cfg(overrides: Partial<InterrogatorConfig["caps"]> = {}): InterrogatorConfig {
-  return { ...DEFAULT_CONFIG, caps: { ...DEFAULT_CONFIG.caps, ...overrides } };
-}
-
 function choiceQ(id: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id,
@@ -70,33 +66,32 @@ describe("schema exports", () => {
 
 describe("routing (h2.20 four action shapes)", () => {
   it("{} routes read with ok:true", () => {
-    const r = parseInterrogateParams({}, cfg());
+    const r = parseInterrogateParams({});
     expectShape(r);
     expect(r.ok).toBe(true);
     expect(r.action).toEqual({ action: "read" });
   });
 
   it("{questions: []} routes read (empty batch is not an upsert)", () => {
-    const r = parseInterrogateParams({ questions: [] }, cfg());
+    const r = parseInterrogateParams({ questions: [] });
     expect(r.ok).toBe(true);
     expect(r.action).toEqual({ action: "read" });
   });
 
   it("{reopen: true} routes reopen", () => {
-    const r = parseInterrogateParams({ reopen: true }, cfg());
+    const r = parseInterrogateParams({ reopen: true });
     expect(r.ok).toBe(true);
     expect(r.action).toEqual({ action: "reopen" });
   });
 
   it("{reopen: false} routes read", () => {
-    const r = parseInterrogateParams({ reopen: false }, cfg());
+    const r = parseInterrogateParams({ reopen: false });
     expect(r.action).toEqual({ action: "read" });
   });
 
   it("{answers: [...]} routes record with epoch passthrough", () => {
     const r = parseInterrogateParams(
-      { answers: [{ id: "q1", value: "a" }], epoch: 7 },
-      cfg(),
+      { answers: [{ id: "q1", value: "a" }], epoch: 7 }
     );
     expect(r.ok).toBe(true);
     expect(r.action).toEqual({
@@ -107,14 +102,13 @@ describe("routing (h2.20 four action shapes)", () => {
   });
 
   it("{answers: []} routes read (empty answers is not a record)", () => {
-    const r = parseInterrogateParams({ answers: [] }, cfg());
+    const r = parseInterrogateParams({ answers: [] });
     expect(r.action).toEqual({ action: "read" });
   });
 
   it("{questions: [...], goal, epoch} routes upsert with full passthrough", () => {
     const r = parseInterrogateParams(
-      { questions: [choiceQ("q1", { rev: 3 })], goal: "pick a db", epoch: 2 },
-      cfg(),
+      { questions: [choiceQ("q1", { rev: 3 })], goal: "pick a db", epoch: 2 }
     );
     expect(r.ok).toBe(true);
     expect(r.action).toEqual({
@@ -139,27 +133,25 @@ describe("routing (h2.20 four action shapes)", () => {
 
   it("precedence: questions beat answers", () => {
     const r = parseInterrogateParams(
-      { questions: [choiceQ("q1")], answers: [{ id: "q9", value: "a" }] },
-      cfg(),
+      { questions: [choiceQ("q1")], answers: [{ id: "q9", value: "a" }] }
     );
     expect(r.action?.action).toBe("upsert");
   });
 
   it("precedence: answers beat reopen", () => {
     const r = parseInterrogateParams(
-      { answers: [{ id: "q9", value: "a" }], reopen: true },
-      cfg(),
+      { answers: [{ id: "q9", value: "a" }], reopen: true }
     );
     expect(r.action?.action).toBe("record");
   });
 
   it("precedence: questions beat reopen", () => {
-    const r = parseInterrogateParams({ questions: [choiceQ("q1")], reopen: true }, cfg());
+    const r = parseInterrogateParams({ questions: [choiceQ("q1")], reopen: true });
     expect(r.action?.action).toBe("upsert");
   });
 
   it("goal without questions does not fabricate an upsert", () => {
-    const r = parseInterrogateParams({ goal: "just reading" }, cfg());
+    const r = parseInterrogateParams({ goal: "just reading" });
     expect(r.action).toEqual({ action: "read" });
   });
 });
@@ -178,8 +170,7 @@ describe("question validation", () => {
             ],
           }),
         ],
-      },
-      cfg(),
+      }
     );
     expect(r.ok).toBe(false);
     expect(r.errors).toHaveLength(1);
@@ -190,8 +181,7 @@ describe("question validation", () => {
 
   it("recommendation not matching any option value errors with the question id", () => {
     const r = parseInterrogateParams(
-      { questions: [choiceQ("q1", { recommendation: "zzz" })] },
-      cfg(),
+      { questions: [choiceQ("q1", { recommendation: "zzz" })] }
     );
     expect(r.ok).toBe(false);
     expect(r.errors[0].path).toBe("questions[0].recommendation");
@@ -201,8 +191,7 @@ describe("question validation", () => {
 
   it("recommendation matching an option value passes through", () => {
     const r = parseInterrogateParams(
-      { questions: [choiceQ("q1", { recommendation: "b" })] },
-      cfg(),
+      { questions: [choiceQ("q1", { recommendation: "b" })] }
     );
     expect(r.ok).toBe(true);
     expect(r.action).toMatchObject({ action: "upsert" });
@@ -210,7 +199,7 @@ describe("question validation", () => {
   });
 
   it("empty id errors at the question path", () => {
-    const r = parseInterrogateParams({ questions: [choiceQ("")] }, cfg());
+    const r = parseInterrogateParams({ questions: [choiceQ("")] });
     expect(r.ok).toBe(false);
     expect(r.errors[0].path).toBe("questions[0].id");
     expect(r.errors[0].message).toContain("non-empty");
@@ -218,8 +207,7 @@ describe("question validation", () => {
 
   it("missing prompt errors with the offending id", () => {
     const r = parseInterrogateParams(
-      { questions: [{ id: "q1", type: "choice", options: [{ value: "a", label: "A" }] }] },
-      cfg(),
+      { questions: [{ id: "q1", type: "choice", options: [{ value: "a", label: "A" }] }] }
     );
     expect(r.ok).toBe(false);
     expect(r.errors[0].path).toBe("questions[0].prompt");
@@ -228,8 +216,7 @@ describe("question validation", () => {
 
   it("type=choice without options errors", () => {
     const r = parseInterrogateParams(
-      { questions: [{ id: "q1", prompt: "p", type: "choice" }] },
-      cfg(),
+      { questions: [{ id: "q1", prompt: "p", type: "choice" }] }
     );
     expect(r.ok).toBe(false);
     expect(r.errors[0].path).toBe("questions[0].options");
@@ -238,8 +225,7 @@ describe("question validation", () => {
 
   it("type=text without options is fine", () => {
     const r = parseInterrogateParams(
-      { questions: [{ id: "q1", prompt: "p", type: "text" }] },
-      cfg(),
+      { questions: [{ id: "q1", prompt: "p", type: "text" }] }
     );
     expect(r.ok).toBe(true);
     expect(r.action).toMatchObject({ action: "upsert" });
@@ -256,8 +242,7 @@ describe("question validation", () => {
             options: [{ value: "a", label: "A" }],
           },
         ],
-      },
-      cfg(),
+      }
     );
     expect(r.ok).toBe(true);
     const q = (r.action as { questions: { options?: unknown }[] }).questions[0];
@@ -272,8 +257,7 @@ describe("question validation", () => {
           choiceQ("q2", { recommendation: "nope" }), // bad recommendation
           choiceQ("q3", { type: "choice", options: [] }), // no options
         ],
-      },
-      cfg(),
+      }
     );
     expect(r.ok).toBe(false);
     expect(r.errors.length).toBe(3);
@@ -285,7 +269,7 @@ describe("question validation", () => {
   });
 
   it("non-object question entries error at their index path", () => {
-    const r = parseInterrogateParams({ questions: [null, choiceQ("q2")] }, cfg());
+    const r = parseInterrogateParams({ questions: [null, choiceQ("q2")] });
     expect(r.ok).toBe(false);
     expect(r.errors[0].path).toBe("questions[0]");
     expect(r.action).toMatchObject({ action: "upsert" });
@@ -294,8 +278,7 @@ describe("question validation", () => {
 
   it("wrong-typed optional fields are dropped with structured errors", () => {
     const r = parseInterrogateParams(
-      { questions: [choiceQ("q1", { title: 42, gate: "yes", rev: "3" })] },
-      cfg(),
+      { questions: [choiceQ("q1", { title: 42, gate: "yes", rev: "3" })] }
     );
     expect(r.ok).toBe(false);
     const paths = r.errors.map((e) => e.path);
@@ -305,7 +288,7 @@ describe("question validation", () => {
   });
 
   it("wrong-typed top-level fields error at their own path", () => {
-    const r = parseInterrogateParams({ goal: 42, epoch: "one", reopen: "yes" }, cfg());
+    const r = parseInterrogateParams({ goal: 42, epoch: "one", reopen: "yes" });
     expect(r.ok).toBe(false);
     const paths = r.errors.map((e) => e.path);
     expect(paths).toEqual(["goal", "epoch", "reopen"]);
@@ -313,8 +296,7 @@ describe("question validation", () => {
 
   it("dependsOn entries require a non-empty id", () => {
     const r = parseInterrogateParams(
-      { questions: [choiceQ("q1", { dependsOn: [{ equals: "a" }] })] },
-      cfg(),
+      { questions: [choiceQ("q1", { dependsOn: [{ equals: "a" }] })] }
     );
     expect(r.ok).toBe(false);
     expect(r.errors[0].path).toBe("questions[0].dependsOn[0].id");
@@ -322,8 +304,7 @@ describe("question validation", () => {
 
   it("valid dependsOn passes through", () => {
     const r = parseInterrogateParams(
-      { questions: [choiceQ("q2", { dependsOn: [{ id: "q1", equals: "a" }] })] },
-      cfg(),
+      { questions: [choiceQ("q2", { dependsOn: [{ id: "q1", equals: "a" }] })] }
     );
     expect(r.ok).toBe(true);
     expect((r.action as { questions: { dependsOn?: unknown }[] }).questions[0].dependsOn).toEqual([
@@ -334,7 +315,7 @@ describe("question validation", () => {
 
 describe("answer validation (record action)", () => {
   it("answers require non-empty id and value", () => {
-    const r = parseInterrogateParams({ answers: [{ id: "", value: "" }] }, cfg());
+    const r = parseInterrogateParams({ answers: [{ id: "", value: "" }] });
     expect(r.ok).toBe(false);
     const paths = r.errors.map((e) => e.path);
     expect(paths).toContain("answers[0].id");
@@ -343,8 +324,7 @@ describe("answer validation (record action)", () => {
 
   it("text elaboration passes through on answers", () => {
     const r = parseInterrogateParams(
-      { answers: [{ id: "q1", value: "a", text: "because" }] },
-      cfg(),
+      { answers: [{ id: "q1", value: "a", text: "because" }] }
     );
     expect(r.ok).toBe(true);
     expect(r.action).toEqual({
@@ -355,8 +335,7 @@ describe("answer validation (record action)", () => {
 
   it("custom:true passes through on answers (WRITEIN-001)", () => {
     const r = parseInterrogateParams(
-      { answers: [{ id: "q1", value: "my own text", custom: true }] },
-      cfg(),
+      { answers: [{ id: "q1", value: "my own text", custom: true }] }
     );
     expect(r.ok).toBe(true);
     expect(r.action).toEqual({
@@ -367,8 +346,7 @@ describe("answer validation (record action)", () => {
 
   it("custom:false is preserved as false", () => {
     const r = parseInterrogateParams(
-      { answers: [{ id: "q1", value: "a", custom: false }] },
-      cfg(),
+      { answers: [{ id: "q1", value: "a", custom: false }] }
     );
     expect(r.ok).toBe(true);
     expect(r.action).toEqual({
@@ -378,7 +356,7 @@ describe("answer validation (record action)", () => {
   });
 
   it("custom absent → no custom key on the narrowed answer", () => {
-    const r = parseInterrogateParams({ answers: [{ id: "q1", value: "a" }] }, cfg());
+    const r = parseInterrogateParams({ answers: [{ id: "q1", value: "a" }] });
     expect(r.ok).toBe(true);
     if (!(r.ok && r.action?.action === "record")) throw new Error("expected ok record action");
     const first = r.action.answers[0] as unknown as Record<string, unknown>;
@@ -387,8 +365,7 @@ describe("answer validation (record action)", () => {
 
   it("custom:'yes' → type error at answers[i].custom", () => {
     const r = parseInterrogateParams(
-      { answers: [{ id: "q1", value: "a", custom: "yes" }] },
-      cfg(),
+      { answers: [{ id: "q1", value: "a", custom: "yes" }] }
     );
     expect(r.ok).toBe(false);
     const paths = r.errors.map((e) => e.path);
@@ -399,7 +376,7 @@ describe("answer validation (record action)", () => {
 describe("malformed args (never throws)", () => {
   it("null / string / number / array args → ok:false, no action, structured error", () => {
     for (const bad of [null, "questions", 42, [], true]) {
-      const r = parseInterrogateParams(bad, cfg());
+      const r = parseInterrogateParams(bad);
       expectShape(r);
       expect(r.ok).toBe(false);
       expect(r.action).toBeUndefined();
@@ -408,52 +385,21 @@ describe("malformed args (never throws)", () => {
   });
 
   it("unknown extra keys are tolerated (open schema)", () => {
-    const r = parseInterrogateParams({ questions: [choiceQ("q1")], futureField: { x: 1 } }, cfg());
+    const r = parseInterrogateParams({ questions: [choiceQ("q1")], futureField: { x: 1 } });
     expect(r.ok).toBe(true);
     expect(r.action?.action).toBe("upsert");
   });
 });
 
-// ---------------------------------------------------------------------- caps
+// ----------------------------------------------------------------- no caps
 
-describe("question-count cap (h2.23 truncate, never reject)", () => {
-  function batch(n: number): Record<string, unknown> {
-    return {
-      questions: Array.from({ length: n }, (_, i) => choiceQ(`q${i + 1}`)),
-    };
-  }
-
-  it("50 questions with caps.questions: 40 → 40 kept + warning, still upsert, ok", () => {
-    const r = parseInterrogateParams(batch(50), cfg({ questions: 40 }));
+describe("no caps (CAPS-OUT-001 — nothing is ever limited)", () => {
+  it("a 200-question batch passes through in full, no warnings", () => {
+    const questions = Array.from({ length: 200 }, (_, i) => choiceQ(`q${i + 1}`));
+    const r = parseInterrogateParams({ questions });
     expectShape(r);
     expect(r.ok).toBe(true);
-    expect(r.action?.action).toBe("upsert");
-    const qs = (r.action as { questions: { id: string }[] }).questions;
-    expect(qs).toHaveLength(40);
-    expect(r.warnings).toEqual(["questions truncated at 40 — restructure if essential"]);
-  });
-
-  it("keeps the FIRST N in agent-supplied order", () => {
-    const r = parseInterrogateParams(batch(50), cfg({ questions: 40 }));
-    const qs = (r.action as { questions: { id: string }[] }).questions;
-    expect(qs[0].id).toBe("q1");
-    expect(qs[39].id).toBe("q40");
-  });
-
-  it("exactly at the cap → no truncation, no warning", () => {
-    const r = parseInterrogateParams(batch(40), cfg({ questions: 40 }));
-    expect(r.ok).toBe(true);
     expect(r.warnings).toEqual([]);
-    expect((r.action as { questions: unknown[] }).questions).toHaveLength(40);
-  });
-
-  it("never rejects even when truncated entries are malformed", () => {
-    const questions: unknown[] = Array.from({ length: 50 }, (_, i) => choiceQ(`q${i + 1}`));
-    questions.push(null); // beyond the cap — must not surface as an error
-    const r = parseInterrogateParams({ questions }, cfg({ questions: 40 }));
-    expect(r.ok).toBe(true);
-    expect(r.errors).toEqual([]);
-    expect(r.warnings).toHaveLength(1);
-    expect((r.action as { questions: unknown[] }).questions).toHaveLength(40);
+    expect((r.action as { questions: unknown[] }).questions).toHaveLength(200);
   });
 });

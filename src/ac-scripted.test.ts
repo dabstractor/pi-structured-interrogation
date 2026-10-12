@@ -1132,12 +1132,12 @@ describe("AC-16 — answer pinning: recorded answer owns the caret (FR-35, ANSWE
   const LEFT = "\u001b[D";
   const ENTER = "\r";
   const ESCAPE = "\u001b";
-  /** Caps-engine minimum (~120 chars) — the exact string the AC-13 e2e fixture uses. */
+  /** ~120 chars — the exact string the AC-13 e2e fixture uses. */
   const RAM =
     "Standalone deep-view consequence text: explains what picking this option changes, the effort involved, and the trade-offs it creates.";
 
   test("AC-16_answer_pinning_end_to_end_noop_advance_and_ripple_guard", () => {
-    // 1. REAL executor upsert (executor caps engine + FR-17 instant-local
+    // 1. REAL executor upsert (FR-17 instant-local
     //    dependency evaluation: q4 arrives MOOT — q1 is unanswered).
     const { deps, sendMessage } = makeDeps();
     executeInterrogate(

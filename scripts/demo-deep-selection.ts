@@ -37,7 +37,7 @@
  * This script deliberately imports nothing from src/ (the panel graph is
  * heavy); layout mirrors src/panel/deep-view.ts: 2-col inset, 2-col right
  * margin, `│` bar at col 3 on every ramification row, trailing `Title ★`
- * (amendment 8), blank separator between sections (variation B), goal dim,
+ * (amendment 8), blank separator between sections (variation B),
  * description + ramification text full intensity.
  */
 import { readFileSync } from "node:fs";

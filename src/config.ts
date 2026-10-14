@@ -108,12 +108,12 @@ const KEY_ACTIONS = [
  */
 export const DEFAULT_CONFIG: InterrogatorConfig = {
   keys: {
-    deep: "ctrl+d",
-    overview: "ctrl+l",
-    elaborate: "ctrl+t",
-    batchNote: "ctrl+shift+m",
+    deep: "d",
+    overview: "o",
+    elaborate: "t",
+    batchNote: "m",
     submit: "ctrl+s",
-    discuss: "ctrl+shift+e",
+    discuss: "e",
     externalEditor: "ctrl+g",
     prevQuestion: "tab",
     nextQuestion: "shift+tab",
@@ -281,15 +281,25 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * ### keys — accelerator strings, pi lowercase form
  * | field           | default         | purpose                                        | label consumer |
  * |-----------------|-----------------|------------------------------------------------|----------------|
- * | `deep`          | `"ctrl+d"`      | Open the deep-dive/ramification view           | footer, dialogs |
- * | `overview`      | `"ctrl+l"`      | Open the question overview list                | footer, dialogs |
- * | `elaborate`     | `"ctrl+t"`      | Enter the editor: elaboration on the selection / write-in duty (FR-12) | footer          |
- * | `batchNote`     | `"ctrl+shift+m"`| Attach a batch note                            | footer, dialogs |
+ * | `deep`          | `"d"`           | Open the deep-dive/ramification view           | footer, dialogs |
+ * | `overview`      | `"o"`           | Open the question overview list                | footer, dialogs |
+ * | `elaborate`     | `"t"`           | Enter the editor: elaboration on the selection / write-in duty (FR-12) | footer          |
+ * | `batchNote`     | `"m"`           | Attach a batch note                            | footer, dialogs |
  * | `submit`        | `"ctrl+s"`      | Submit answers / close the panel               | footer, widget  |
- * | `discuss`       | `"ctrl+shift+e"`| Discuss the current question in chat           | footer, dialogs |
+ * | `discuss`       | `"e"`           | Discuss the current question in chat           | footer, dialogs |
  * | `externalEditor`| `"ctrl+g"`      | Open the draft in an external editor           | footer, widget  |
  * | `prevQuestion`  | `"tab"`         | Move to the previous question                  | footer          |
  * | `nextQuestion`  | `"shift+tab"`   | Move to the next question                      | footer          |
+ *
+ * Two-tier intercept (h2.74/BAREKEYS-001, ui-spec:70): bare keys (single
+ * printable char, no modifier) intercept only from non-editor focus and
+ * always forward while the embedded editor holds focus — a bare key must
+ * be typeable. Modifier chords intercept in every focus state. The two
+ * surviving default chords are load-bearing (decisions :113-115): `ctrl+s`
+ * submit — "submit must fire from text focus — a bare `s` could never be
+ * typed" — and `ctrl+g` externalEditor — "its only valid context is editor
+ * focus, where a bare key must type — a bare `g` would be permanently
+ * unpressable".
  *
  * ### toggles
  * | field              | default | purpose                                              | consumer |

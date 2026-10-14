@@ -18,7 +18,7 @@
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi, type Mock } from "vitest";
-import { DEFAULT_CONFIG } from "../config.js";
+import { DEFAULT_CONFIG, type InterrogatorConfig } from "../config.js";
 import { createInterrogationState, type InterrogationState, type Question } from "../state.js";
 import { buildDiscussTemplate, discussInChat } from "./discuss.js";
 import {
@@ -32,7 +32,7 @@ import {
 import { resumePanel } from "./suspend.js";
 
 /** kitty CSI-u ctrl+shift+e (e = 101) — same bytes keys.test.ts routes with. */
-const DISCUSS = "\u001b[101;6u";
+const DISCUSS = "e"; // BAREKEYS-001 bare default (was ctrl+shift+e)
 
 const SQLITE_Q: Question = {
   id: "q3",
@@ -417,7 +417,7 @@ function makeDraftsStore() {
 /** Real InterrogationPanel (panel.test.ts makeSuspendPanel shape) + drafts seam. */
 function makeRealPanel(
   state: InterrogationState,
-  opts: { drafts?: DraftStore; focusQuestionId?: string; pi?: PiUISurface } = {},
+  opts: { drafts?: DraftStore; focusQuestionId?: string; pi?: PiUISurface; config?: InterrogatorConfig } = {},
 ): { panel: InterrogationPanel; done: ReturnType<typeof vi.fn>; drafts?: DraftStore } {
   const done = vi.fn();
   const args: InterrogationPanelArgs = {
@@ -425,7 +425,7 @@ function makeRealPanel(
     theme: stubTheme,
     done,
     state,
-    config: DEFAULT_CONFIG,
+    config: opts.config ?? DEFAULT_CONFIG,
     editorFactory: () => fakeDiscussEditor(),
     ...opts,
   };
@@ -553,6 +553,10 @@ describe("discuss gesture — R4/BUG-002 draft write-through (real panel)", () =
     // editor focus — mid-write-in discuss is the intended UX. This documents
     // WHY the write-through must exist: the gesture fires mid-editing and
     // must carry the buffer along (no behavior change asserted here).
+    // BAREKEYS-001: with the bare default `e` the discuss key FORWARDS from
+    // editor focus (it must type) — mid-write discuss stays reachable via a
+    // CHORD remap, which is what this test binds (tier 1: intercepts
+    // everywhere). The write-through inheritance is the point.
     const state = makeState();
     const drafts = makeDraftsStore();
     const setEditorText = vi.fn();
@@ -560,11 +564,15 @@ describe("discuss gesture — R4/BUG-002 draft write-through (real panel)", () =
       drafts,
       focusQuestionId: "q1",
       pi: fakePi(setEditorText), // the constructor-refined discuss seam needs the carrier
+      config: {
+        ...DEFAULT_CONFIG,
+        keys: { ...DEFAULT_CONFIG.keys, discuss: "ctrl+shift+e" },
+      },
     });
     panel.focusTextField("writein");
     panel.textField.setText("mid-edit discuss");
 
-    expect(panel.handleInput(DISCUSS)).toBe(true); // router dispatches mid-edit
+    expect(panel.handleInput("\u001b[101;6u")).toBe(true); // chord dispatches mid-edit
     expect(done).toHaveBeenCalledWith(null);
     expect(drafts.getDraft("q1")).toBe("mid-edit discuss"); // write-through fired
     expect(panel.draftTextFor("q1")).toBe("mid-edit discuss");

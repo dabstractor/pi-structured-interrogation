@@ -177,9 +177,9 @@ function makePanel(state: InterrogationState, keysSpy = false): Handle {
   return { panel, editor, drafts, keys: extra.keys as Mock | undefined };
 }
 
-/** Focus the embedded editor through the real router seam (ctrl+t). */
+/** Focus the embedded editor through the real router seam (bare `t`, BAREKEYS-001). */
 function elaborate(panel: InterrogationPanel): void {
-  panel.handleInput("\u0014");
+  panel.handleInput("t");
 }
 
 // ------------------------------------------------------------------- tests
@@ -410,7 +410,10 @@ describe("two-stage enter — note mode (R3)", () => {
     panel.enterNoteMode();
     panel.textField.setText("kept");
 
-    panel.handleInput("\u001b[109;6u"); // ctrl+shift+m re-press (kitty CSI-u)
+    // BAREKEYS-001: a second bare `m` would TYPE in the note — the exit is
+    // the double-esc pair (write-through; ESC-002 note ladder).
+    panel.handleInput("\u001b"); // single esc forwards to the note editor
+    panel.handleInput("\u001b"); // pair completes → exitNoteMode
 
     expect(panel.focus).toBe("options");
     expect(panel.batchNote).toBe("kept");
@@ -438,7 +441,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
     expect(panel.focus).toBe("options");
 
     const seedSpy = vi.spyOn(panel.textField, "seed");
-    panel.handleInput("\u0014"); // ctrl+t → focusTextField
+    panel.handleInput("t"); // elaborate → focusTextField
     expect(seedSpy).toHaveBeenCalledWith("the draft");
     expect(panel.textField.getText()).toBe("the draft");
   });
@@ -457,7 +460,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
     panel.handleInput("\t"); // tab = prevQuestion → back to q1
     expect(panel.currentId).toBe("q1");
 
-    panel.handleInput("\u0014"); // refocus → seeded from the q1 slot
+    panel.handleInput("t"); // refocus → seeded from the q1 slot
     expect(panel.textField.getText()).toBe("q1 draft");
   });
 
@@ -472,7 +475,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
     // re-seeds the buffer: q2 has no draft, so the field empties.
     panel.handleInput("\x1b[Z"); // shift+tab = nextQuestion → q2
     expect(panel.currentId).toBe("q2");
-    panel.handleInput("\u0014"); // explicit refocus on q2
+    panel.handleInput("t"); // explicit refocus on q2
     expect(panel.textField.getText()).toBe(""); // never q1's leftover
   });
 });

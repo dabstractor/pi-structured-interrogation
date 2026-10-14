@@ -24,15 +24,15 @@ import type { InterrogationPanel, PanelFocus, PanelView } from "./panel.js";
 
 // ------------------------------------------------------------------ fixtures
 
-/** Raw terminal data for each h2.34 default accelerator. */
+/** Raw terminal data for each h2.35 default accelerator (post-BAREKEYS-001). */
 const DEFAULT_DATA: Record<KeyAction, string> = {
-  deep: "\u0004", // ctrl+d
-  overview: "\u000c", // ctrl+l
-  elaborate: "\u0014", // ctrl+t
-  batchNote: "\u001b[109;6u", // kitty CSI-u ctrl+shift+m (m = 109)
-  submit: "\u0013", // ctrl+s
-  discuss: "\u001b[101;6u", // kitty CSI-u ctrl+shift+e (e = 101)
-  externalEditor: "\u0007", // ctrl+g
+  deep: "d",
+  overview: "o",
+  elaborate: "t",
+  batchNote: "m",
+  submit: "\u0013", // ctrl+s — load-bearing chord (decisions :113-115)
+  discuss: "e",
+  externalEditor: "\u0007", // ctrl+g — load-bearing chord
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
 };
@@ -179,9 +179,10 @@ describe("parseAccelerator — grammar validation", () => {
     for (const action of Object.keys(DEFAULT_CONFIG.keys) as KeyAction[]) {
       expect(bindings[action]).toBeDefined();
     }
-    // Invalid entries fall back to the h2.52 defaults…
+    // Invalid entries fall back to the h2.52 defaults (BAREKEYS-001: the
+    // five panel-action defaults are now bare letters)…
     expect(bindings.submit).toBe("ctrl+s");
-    expect(bindings.deep).toBe("ctrl+d");
+    expect(bindings.deep).toBe("d");
     // …valid remaps survive…
     const remapped = resolveBindings(configWithKeys({ submit: "f9" }));
     expect(remapped.submit).toBe("f9");
@@ -274,26 +275,32 @@ describe("buildKeyRouter — remappability (AC-12 core)", () => {
 
 // ---------------------------------------------------- intercept rule (text)
 
-describe("buildKeyRouter — h2.34 intercept rule with focus === text", () => {
-  test("test_text_focus_still_intercepts_panel_keys", () => {
+describe("buildKeyRouter — two-tier intercept rule with focus === text (BAREKEYS-001)", () => {
+  test("test_text_focus_tiers_chords_intercept_bare_keys_forward", () => {
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
 
-    // Panel-level keys consumed IN text focus — the whole point of the rule.
+    // TIER 1 chords/named bases consumed IN text focus — never typed
+    // characters (h2.34's load-bearing chord: submit must fire mid-answer).
     expect(route(DEFAULT_DATA.submit, makePanel({ focus: "text" }))).toBe(true);
     expect(actions.submit).toHaveBeenCalledTimes(1);
-    expect(route(DEFAULT_DATA.deep, makePanel({ focus: "text" }))).toBe(true);
-    expect(actions.onDeep).toHaveBeenCalledTimes(1);
-    expect(route(DEFAULT_DATA.overview, makePanel({ focus: "text" }))).toBe(true);
-    expect(route(DEFAULT_DATA.elaborate, makePanel({ focus: "text" }))).toBe(true);
-    expect(route(DEFAULT_DATA.batchNote, makePanel({ focus: "text" }))).toBe(true);
-    expect(route(DEFAULT_DATA.discuss, makePanel({ focus: "text" }))).toBe(true);
+    expect(route(DEFAULT_DATA.externalEditor, makePanel({ focus: "text" }))).toBe(true);
     expect(route(DEFAULT_DATA.prevQuestion, makePanel({ focus: "text" }))).toBe(true);
     expect(route(DEFAULT_DATA.nextQuestion, makePanel({ focus: "text" }))).toBe(true);
 
-    // Typing keys FORWARD (return false) — the user is writing an answer.
+    // TIER 2 bare default keys FORWARD (return false) — the user is
+    // writing an answer; the composed editor must receive the byte.
     const fresh = makeActions();
     const freshRouter = makeRouter(DEFAULT_CONFIG, fresh);
+    for (const key of ["deep", "overview", "elaborate", "batchNote", "discuss"] as KeyAction[]) {
+      expect(
+        freshRouter.route(DEFAULT_DATA[key], makePanel({ focus: "text" })),
+        `bare "${DEFAULT_CONFIG.keys[key]}" (${key}) must forward in text focus`,
+      ).toBe(false);
+    }
+    expect(dispatchCount(fresh)).toBe(0); // nothing fired — all forwarded
+
+    // Other typing keys forward as before.
     const textPanel = makePanel({ focus: "text" });
     expect(freshRouter.route("1", textPanel)).toBe(false);
     expect(freshRouter.route("9", textPanel)).toBe(false);
@@ -311,6 +318,68 @@ describe("buildKeyRouter — h2.34 intercept rule with focus === text", () => {
     // Text focus: consumed (its h2.34 context).
     expect(route(DEFAULT_DATA.externalEditor, makePanel({ focus: "text" }))).toBe(true);
     expect(actions.onExternalEditor).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ------------------------------------------- two-tier dispatch (BAREKEYS-001)
+
+describe("two-tier dispatch (BAREKEYS-001, h2.74)", () => {
+  test("test_bare_default_letters_dispatch_from_non_editor_focus", () => {
+    for (const view of ["short", "deep", "overview"] as PanelView[]) {
+      const actions = makeActions();
+      const { route } = makeRouter(DEFAULT_CONFIG, actions);
+      const panel = makePanel({ view, focus: "options" });
+      expect(route(DEFAULT_DATA.deep, panel), `d dispatches in ${view}`).toBe(true);
+      expect(route(DEFAULT_DATA.overview, panel), `o dispatches in ${view}`).toBe(true);
+      expect(route(DEFAULT_DATA.batchNote, panel), `m dispatches in ${view}`).toBe(true);
+      expect(route(DEFAULT_DATA.discuss, panel), `e dispatches in ${view}`).toBe(true);
+      expect(actions.onDeep).toHaveBeenCalledTimes(1);
+      expect(actions.onOverview).toHaveBeenCalledTimes(1);
+      expect(actions.onBatchNote).toHaveBeenCalledTimes(1);
+      expect(actions.onDiscuss).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test("test_bare_default_letters_forward_in_text_and_note_focus", () => {
+    // The tier rule covers BOTH editor duties — the same composed editor
+    // on text or note focus — so every bare default letter must reach it.
+    for (const focus of ["text", "note"] as PanelFocus[]) {
+      const actions = makeActions();
+      const { route } = makeRouter(DEFAULT_CONFIG, actions);
+      const panel = makePanel({ focus });
+      for (const key of ["deep", "overview", "elaborate", "batchNote", "discuss"] as KeyAction[]) {
+        expect(
+          route(DEFAULT_DATA[key], panel),
+          `bare "${DEFAULT_CONFIG.keys[key]}" (${key}) forwards in ${focus} focus`,
+        ).toBe(false);
+      }
+      expect(dispatchCount(actions)).toBe(0);
+    }
+  });
+
+  test("test_remapped_chord_intercepts_in_text_focus_bare_remap_forwards", () => {
+    // Tier keys off the RESOLVED binding: remap deep to a chord → intercepts
+    // in text focus; remap batchNote to a bare key → forwards there (and
+    // still intercepts from options focus).
+    const chordActions = makeActions();
+    const chordRouter = makeRouter(configWithKeys({ deep: "ctrl+alt+d" }), chordActions);
+    expect(chordRouter.route(CTRL_ALT_D, makePanel({ focus: "text" }))).toBe(true);
+    expect(chordActions.onDeep).toHaveBeenCalledTimes(1);
+
+    const bareActions = makeActions();
+    const bareRouter = makeRouter(configWithKeys({ batchNote: "n" }), bareActions);
+    expect(bareRouter.route("n", makePanel({ focus: "text" }))).toBe(false); // must type
+    expect(bareRouter.route("n", makePanel({ focus: "options" }))).toBe(true);
+    expect(bareActions.onBatchNote).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_ctrl_s_still_submits_from_text_focus", () => {
+    // The load-bearing chord (decisions :113-115): "submit must fire from
+    // text focus — a bare `s` could never be typed."
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    expect(route(DEFAULT_DATA.submit, makePanel({ focus: "text" }))).toBe(true);
+    expect(actions.submit).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -443,9 +512,11 @@ describe("buildKeyRouter — fixed keys and gating", () => {
 
 describe("buildKeyRouter — collision + single-dispatch guarantees", () => {
   test("test_collision_first_in_resolution_order_wins", () => {
-    // deep (earlier) vs submit (later) both on ctrl+d → deep wins.
+    // deep (earlier) vs submit (later) both on ctrl+d → deep wins. BOTH are
+    // explicitly remapped: with BAREKEYS-001 the deep default is the bare
+    // `d`, so the collision is constructed on a shared chord.
     const actions = makeActions();
-    const { route } = makeRouter(configWithKeys({ submit: "ctrl+d" }), actions);
+    const { route } = makeRouter(configWithKeys({ deep: "ctrl+d", submit: "ctrl+d" }), actions);
     expect(route("\u0004", makePanel())).toBe(true);
     expect(actions.onDeep).toHaveBeenCalledTimes(1);
     expect(actions.submit).not.toHaveBeenCalled();
@@ -505,17 +576,20 @@ describe("defaultRoutedActions — seam defaults", () => {
 // ------------------------------------------------- batch note (R3) dispatch
 
 describe("batch note (R3, P1.M4.T2.S2) — ctrl+shift+m toggle + esc exit", () => {
-  test("test_ctrl_shift_m_intercept_fires_in_every_focus_incl_note", () => {
-    // The re-press exit depends on the intercept firing while focus is
-    // already "note" (it precedes text-forwarding in the resolution order).
+  test("test_bare_batch_note_tiers_by_focus", () => {
+    // BAREKEYS-001: batchNote's default is now the bare `m` — tier 2
+    // intercepts only from NON-editor focus. (The old ctrl+shift+m
+    // re-press exit fired in every focus; from editor focus `m` must type.)
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
-    for (const focus of ["options", "text", "note"] as PanelFocus[]) {
-      actions.onBatchNote.mockClear();
+    const options = makePanel({ focus: "options" });
+    expect(route(DEFAULT_DATA.batchNote, options)).toBe(true);
+    expect(actions.onBatchNote).toHaveBeenCalledTimes(1);
+    for (const focus of ["text", "note"] as PanelFocus[]) {
       const panel = makePanel({ focus });
-      expect(route(DEFAULT_DATA.batchNote, panel)).toBe(true);
-      expect(actions.onBatchNote).toHaveBeenCalledTimes(1);
+      expect(route(DEFAULT_DATA.batchNote, panel), `m must forward in ${focus} focus`).toBe(false);
     }
+    expect(actions.onBatchNote).toHaveBeenCalledTimes(1); // no editor-focus dispatch
   });
 
   test("test_esc_in_note_focus_single_forwards_double_exits_note_mode", () => {
@@ -944,14 +1018,14 @@ describe("elaborate gated to the short view (BUG-011)", () => {
     expect(dispatchCount(actions)).toBe(0);
   });
 
-  test("test_ctrl_t_in_short_view_still_dispatches_options_and_text_focus", () => {
+  test("test_elaborate_in_short_view_dispatches_from_options_forwards_from_text", () => {
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
     // Options focus (default view short): dispatched as before.
     expect(route(DEFAULT_DATA.elaborate, makePanel())).toBe(true);
     expect(actions.onElaborate).toHaveBeenCalledTimes(1);
-    // Text focus (the line-284 case — default view short): still dispatched.
-    expect(route(DEFAULT_DATA.elaborate, makePanel({ focus: "text" }))).toBe(true);
-    expect(actions.onElaborate).toHaveBeenCalledTimes(2);
+    // Text focus (BAREKEYS-001 tier 2 — the bare `t` must type): forwards.
+    expect(route(DEFAULT_DATA.elaborate, makePanel({ focus: "text" }))).toBe(false);
+    expect(actions.onElaborate).toHaveBeenCalledTimes(1); // unchanged
   });
 });

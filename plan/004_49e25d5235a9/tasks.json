@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "BAREKEYS-001 — bare defaults, elaborate rename, two-tier intercept, gesture removal",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Rename keys.focusText→keys.elaborate everywhere with a silent compat alias; flip the five defaults to bare letters; tier the intercept rule on modifier/printable presence so bare keys type while the embedded editor holds focus; kill the re-press-to-close gestures; footer drops (not swaps) the elaborate hint while editing.",
           "tasks": [
             {
@@ -63,14 +63,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Bare-letter defaults and the two-tier intercept rule",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Flip the five defaults to bare letters, tier config-key interception on printable-vs-modifier presence in buildKeyRouter, remove the re-press-to-close gestures (enter / double-esc only), and make the footer drop the elaborate hint while the editor holds focus.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Flip defaults to d/o/t/m/e and tier intercepts on modifier presence in buildKeyRouter",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -91,7 +91,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Remove re-press-to-close gestures for the elaborate and note prompts",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"
@@ -109,7 +109,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S3",
                   "title": "Footer drops (not swaps) the elaborate hint while the editor holds focus",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S2"

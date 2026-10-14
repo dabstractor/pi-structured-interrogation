@@ -815,7 +815,7 @@ describe("landing scroll (DEEP-LAND-001)", () => {
     // just-accepted late row visible — a bare reset-to-0 dropped it below
     // the window.
     const panel = setup([longChoiceQ("q1")]);
-    panel.handleInput("\u0004"); // ctrl+d → deep (sets deepSticky)
+    panel.handleInput("d"); // deep (bare default, BAREKEYS-001; sets deepSticky)
     for (let i = 0; i < 9; i++) deepSelectionDown(panel); // highlight opt9
     expect(acceptFromDeep(panel)).toBe(true);
     expect(panel.view).toBe("deep"); // sticky landing
@@ -840,7 +840,7 @@ describe("acceptFromDeep", () => {
 
   test("test_accept_applies_answer_stays_in_deep_when_sticky_and_advances", () => {
     const panel = setup([choiceQ("q1"), choiceQ("q2")]);
-    panel.handleInput("\u0004"); // ctrl+d → deep (sets deepSticky)
+    panel.handleInput("d"); // deep (bare default, BAREKEYS-001; sets deepSticky)
     expect(panel.view).toBe("deep");
     deepSelectionDown(panel); // highlight "postgres"
     expect(panel.cursorIndex).toBe(1);
@@ -895,7 +895,7 @@ describe("acceptFromDeep", () => {
       { q1: "answered" },
     );
     panel.currentId = "q1"; // initial focus lands on q2 (first OPEN, FR-1 ladder); the journey navigates to the answered q1 first
-    panel.handleInput("\u0004"); // ctrl+d → deep (sets deepSticky) — S1/FR-D8: caret seeds to the RECORDED answer's section
+    panel.handleInput("d"); // deep (bare default, BAREKEYS-001; sets deepSticky) — S1/FR-D8: caret seeds to the RECORDED answer's section
     expect(panel.cursorIndex).toBe(1); // postgres display row (row 0 = ★ sqlite, D-R13)
     const seam = vi.fn(() => true);
     panel.rippleConfirm = seam;

@@ -130,12 +130,12 @@ test("test_resolve_key_labels_covers_all_actions_with_default_config", async () 
   const labels = resolveKeyLabels(DEFAULT_CONFIG);
   expect(Object.keys(labels).sort()).toEqual(Object.keys(DEFAULT_CONFIG.keys).sort());
   expect(Object.keys(labels)).toHaveLength(9);
-  expect(labels.deep).toBe("Ctrl+D");
-  expect(labels.overview).toBe("Ctrl+L");
-  expect(labels.elaborate).toBe("Ctrl+T");
-  expect(labels.batchNote).toBe("Ctrl+Shift+M");
+  expect(labels.deep).toBe("D");
+  expect(labels.overview).toBe("O");
+  expect(labels.elaborate).toBe("T");
+  expect(labels.batchNote).toBe("M");
   expect(labels.submit).toBe("Ctrl+S");
-  expect(labels.discuss).toBe("Ctrl+Shift+E");
+  expect(labels.discuss).toBe("E");
   expect(labels.externalEditor).toBe("Ctrl+G");
   expect(labels.prevQuestion).toBe("Tab");
   expect(labels.nextQuestion).toBe("Shift+Tab");
@@ -150,7 +150,7 @@ test("test_resolve_key_labels_reflects_rebound_keys", async () => {
   expect(labels.submit).toBe("Ctrl+Enter");
   expect(labels.overview).toBe("Ctrl+Shift+L");
   // untouched actions still labeled from config
-  expect(labels.deep).toBe("Ctrl+D");
+  expect(labels.deep).toBe("D");
 });
 
 test("test_load_config_from_with_no_paths_returns_defaults", async () => {

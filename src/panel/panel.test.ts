@@ -58,8 +58,8 @@ const editMock = vi.mocked(editInExternalEditor);
 
 // ------------------------------------------------------------------ fixtures
 
-const CTRL_D = "\u0004";
-const CTRL_L = "\u000c";
+const CTRL_D = "d"; // BAREKEYS-001: bare defaults (was ctrl+d)
+const CTRL_L = "o"; // BAREKEYS-001: bare defaults (was ctrl+l)
 const ESCAPE = "\u001b";
 
 /** Identity theme so S2 layout renderers run in tests (stub per tool.test.ts). */
@@ -1528,7 +1528,7 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     };
     const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
 
-    panel.handleInput("\u0014"); // ctrl+t = config.keys.elaborate
+    panel.handleInput("t"); // elaborate = config.keys.elaborate (bare default)
     expect(panel.focus).toBe("text");
     expect(panel.textField.focused).toBe(true);
     expect(panel.textField.getText()).toBe("saved draft");
@@ -1567,7 +1567,7 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     const panel = new InterrogationPanel(panelArgsFor(state));
     panel.currentId = "t1";
 
-    panel.handleInput("\u0014"); // ctrl+t — focus the editor on t1
+    panel.handleInput("t"); // elaborate — focus the editor on t1
     panel.textField.setText("half-typed on t1");
     expect(panel.focus).toBe("text");
 
@@ -1677,9 +1677,12 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     };
     const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
 
-    panel.handleInput("\u0014"); // open
+    panel.handleInput("t"); // open (bare default, BAREKEYS-001)
     panel.textField.setText("elaboration");
-    panel.handleInput("\u0014"); // re-press = close
+    // BAREKEYS-001: a second bare `t` would TYPE now — the editor exit is
+    // the double-esc pair (draft write-through + blur), ESC-002.
+    panel.handleInput(ESCAPE); // single esc forwards to the editor
+    panel.handleInput(ESCAPE); // pair completes → exitTextField
     expect(panel.focus).toBe("options");
     expect(panel.textField.focused).toBe(false);
     expect(drafts.setDraft).toHaveBeenCalledWith("q1", "elaboration");
@@ -1919,7 +1922,7 @@ describe("openExternalEditor — ctrl+g handoff (P1.M4.T1.S3)", () => {
 import { DraftStore as RealDraftStore } from "../draft-store.js";
 
 /** kitty CSI-u ctrl+shift+m (keys.test.ts DEFAULT_DATA convention). */
-const BATCH_NOTE = "\u001b[109;6u";
+const BATCH_NOTE = "m"; // BAREKEYS-001: bare default (was ctrl+shift+m)
 
 describe("note mode (R3, P1.M4.T2.S2)", () => {
   function makeDrafts(getNote = "") {
@@ -1968,10 +1971,13 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     const panel = new InterrogationPanel(
       panelArgsFor(state, { drafts: drafts as unknown as DraftStore }),
     );
-    panel.handleInput(BATCH_NOTE);
+    panel.handleInput(BATCH_NOTE); // open (bare default — options focus intercepts)
     (panel.textField.editor as unknown as { setText: Mock }).setText("note body");
 
-    panel.handleInput(BATCH_NOTE); // re-press exits — write-through (FR-16)
+    // BAREKEYS-001: a second bare `m` would TYPE in the note — the exit is
+    // the double-esc pair (write-through, FR-16; ESC-002 note ladder).
+    panel.handleInput(ESCAPE); // single esc forwards to the note editor
+    panel.handleInput(ESCAPE); // pair completes → exitNoteMode
     expect(panel.focus).toBe("options");
     expect(panel.batchNote).toBe("note body");
     expect(drafts.setNote).toHaveBeenCalledWith("note body");
@@ -2152,36 +2158,46 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
   });
 
   test("test_note_mode_round_trip_is_idempotent_latest_text_wins", () => {
-    // Full swap cycle via the ROUTED toggle (ctrl+shift+m both directions):
-    // question draft → note → question → note — every buffer survives and
-    // the question slot carries exactly one entry whose latest text wins.
+    // Full swap cycle via the ROUTED toggle (a ctrl+shift+m CHORD remap:
+    // BAREKEYS-001 makes the bare default `m` forward from editor focus, so
+    // the every-focus routed toggle is chord remap territory — the swap
+    // cycle itself is unchanged): question draft → note → question → note —
+    // every buffer survives and the question slot carries exactly one
+    // entry whose latest text wins.
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
     const drafts = makeDrafts("");
     const panel = new InterrogationPanel(
-      panelArgsFor(state, { drafts: drafts as unknown as DraftStore }),
+      panelArgsFor(state, {
+        drafts: drafts as unknown as DraftStore,
+        config: {
+          ...DEFAULT_CONFIG,
+          keys: { ...DEFAULT_CONFIG.keys, batchNote: "ctrl+shift+m" },
+        },
+      }),
     );
+    const CHORD_NOTE = "\u001b[109;6u"; // kitty CSI-u ctrl+shift+m (m = 109)
 
     panel.focusTextField();
     panel.textField.setText("question draft");
-    panel.handleInput(BATCH_NOTE); // toggle in (routed)
+    panel.handleInput(CHORD_NOTE); // toggle in (routed chord)
     expect(panel.focus).toBe("note");
     panel.textField.setText("the note");
-    panel.handleInput(BATCH_NOTE); // toggle out (routed)
+    panel.handleInput(CHORD_NOTE); // toggle out (routed chord)
     expect(panel.batchNote).toBe("the note");
     expect(panel.textField.getText()).toBe("question draft"); // re-seeded
 
-    panel.handleInput(BATCH_NOTE); // re-enter — note re-seeds idempotently
+    panel.handleInput(CHORD_NOTE); // re-enter — note re-seeds idempotently
     expect(panel.textField.getText()).toBe("the note");
     expect(panel.draftTextFor("q1")).toBe("question draft"); // still intact
-    panel.handleInput(BATCH_NOTE); // out again — question draft re-seeds
+    panel.handleInput(CHORD_NOTE); // out again — question draft re-seeds
     expect(panel.textField.getText()).toBe("question draft");
 
     // Re-focus the question editor and revise the answer; the NEXT swap
     // stages the latest text over the SAME slot entry (latest wins).
     panel.focusTextField();
     panel.textField.setText("question draft v2");
-    panel.handleInput(BATCH_NOTE); // swap in — stages v2
+    panel.handleInput(CHORD_NOTE); // swap in — stages v2
     expect(panel.draftTextFor("q1")).toBe("question draft v2");
     expect(panel.textField.getText()).toBe("the note"); // note survives too
 
@@ -2311,7 +2327,7 @@ describe("deep view (P1.M5.T1.S1)", () => {
     const panel = new InterrogationPanel(panelArgsFor(state));
     panel.handleInput(CTRL_D);
     expect(panel.view).toBe("deep");
-    panel.handleInput("\u001b[109;6u"); // ctrl+shift+m → note mode
+    panel.handleInput("m"); // batchNote → note mode (bare default)
     const lines = panel.render(80);
     expect(lines[0]).toBe("┌ NOTE — ships with next submission ┐");
     expect(lines.join("\n")).not.toContain("Fast, embedded, single-writer.");
@@ -2554,7 +2570,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
 // ------------------------------------------------------------------ ctrl+t duty
 
 describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
-  const CTRL_T = "\u0014"; // DEFAULT_CONFIG.keys.elaborate
+  const CTRL_T = "t"; // DEFAULT_CONFIG.keys.elaborate (BAREKEYS-001 bare default)
 
   /** Panel with the stateful fake composed editor (label/enter assertions). */
   function makeDutyPanel(state: InterrogationState): InterrogationPanel {
@@ -2777,7 +2793,10 @@ describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
     expect(panel.textDuty).toBe("writein");
     panel.textField.setText("half typed");
 
-    panel.handleInput(CTRL_T); // re-press = exit (duty-agnostic, R4)
+    // BAREKEYS-001: a second bare `t` would TYPE — exit via the double-esc
+    // pair instead (draft write-through + blur, duty-agnostic R4; ESC-002).
+    panel.handleInput(ESCAPE); // single esc forwards to the editor
+    panel.handleInput(ESCAPE); // pair completes → exitTextField
 
     expect(panel.focus).toBe("options");
     expect(panel.draftTextFor("q1")).toBe("half typed"); // write-through
@@ -2849,7 +2868,7 @@ describe("navigation duty re-derivation — BUG-004 (WRITEIN-001 cursor-follow)"
     state.upsertQuestion(textQ("t1"));
     const panel = makeDutyPanel(state);
 
-    panel.handleInput("\u0014"); // ctrl+t on c1 → elaboration duty
+    panel.handleInput("t"); // elaborate on c1 → elaboration duty
     expect(panel.textDuty).toBe("elaboration");
 
     panel.handleInput(NEXT_Q); // → t1 (type:text): re-derivation flips to writein

@@ -93,9 +93,9 @@ vi.mock("../external-editor.js", () => ({
 const DOWN = "\u001b[B";
 const ENTER = "\r";
 const ESCAPE = "\u001b";
-const CTRL_D = "\u0004"; // DEFAULT_CONFIG.keys.deep
-const CTRL_L = "\u000c"; // DEFAULT_CONFIG.keys.overview
-const CTRL_T = "\u0014"; // DEFAULT_CONFIG.keys.elaborate
+const CTRL_D = "d"; // DEFAULT_CONFIG.keys.deep (BAREKEYS-001 bare default)
+const CTRL_L = "o"; // DEFAULT_CONFIG.keys.overview (BAREKEYS-001 bare default)
+const CTRL_T = "t"; // DEFAULT_CONFIG.keys.elaborate (BAREKEYS-001 bare default)
 const NEXT_Q = "\u001b[Z"; // shift+tab — DEFAULT_CONFIG.keys.nextQuestion
 
 /** Identity theme (panel.test.ts stubTheme): layout renderers run bare. */
@@ -722,7 +722,10 @@ describe("AC-4 — suspend → widget → reopen: drafts survive (FR-14/R4)", ()
     panel.handleInput(CTRL_T);
     expect(panel.focus).toBe("text");
     (panel.textField.editor as unknown as { setText: Mock }).setText("draft alpha text");
-    panel.handleInput(CTRL_T); // toggle-exit: draft write-through + blur
+    // BAREKEYS-001: a second bare `t` would TYPE — the exit is the
+    // double-esc pair (draft write-through + blur; ESC-002).
+    panel.handleInput("\u001b"); // single esc forwards to the editor
+    panel.handleInput("\u001b"); // pair completes → exitTextField
     expect(panel.focus).toBe("options");
     expect(store.getDraft("t1")).toBe("draft alpha text");
     const storeBefore = JSON.stringify({ t1: store.getDraft("t1"), note: store.getNote() });

@@ -1,0 +1,16 @@
+# Research notes — P1.M1.T2.S1 (bare defaults d/o/t/m/e + two-tier intercepts)
+
+## Verified facts
+- `DEFAULT_CONFIG.keys` (src/config.ts:111-119, read verbatim): deep ctrl+d, overview ctrl+l, focusText ctrl+t, batchNote ctrl+shift+m, discuss ctrl+shift+e, submit ctrl+s, externalEditor ctrl+g, prevQuestion tab, nextQuestion shift+tab. JSDoc keys table :271-280. NOTE: S1/S2 (parallel) rename focusText→elaborate; land on the post-rename shape (`elaborate: "t"`).
+- Config intercepts step 7: keys.ts:455-506 (read verbatim): collision order deep→overview→focusText/elaborate (BUG-011 gate: view==="short" && focus!=="note")→batchNote→submit→discuss→externalEditor (gated focus==="text")→prev/nextQuestion (view-aware). ALL fire regardless of focus today.
+- Module doc Mode A :11-19 ("INCLUDES text focus" one-tier rule) + resolution-order block :60-76 — both to rewrite to two-tier.
+- KeyId parsing: `SINGLE_CHAR_BASES` set + `parseAccelerator` (:133-163); bindings resolved once via `resolveBindings` (:171-188). Bare detection: normalized accelerator whose base is a single printable char and NO modifier tokens — implement helper `isBareBinding(accel)` or inspect resolved KeyId string (e.g. /^.$/ after parseKey). parseKey(data) yields a KeyId string; a bare letter KeyId is the single char itself.
+- Fixed branches (steps 3-6: ↑/↓ :382-391, ←/→ :401-410, esc :419-435, enter :446-450) untouched — hjkl is P1.M2's, digit branch stays until P1.M3.
+- Spec contracts (§8 quotes in keys-and-actions.md): ui-spec:70 two-tier rule verbatim; decisions :113-115 surviving chords + reasons (ctrl+s: "submit must fire from text focus — a bare s could never be typed"; ctrl+g: "only valid context is editor focus, where a bare key must type — a bare g would be permanently unpressable") — quote in JSDoc.
+- Tests that INVERT: keys.test.ts:278 `test_text_focus_still_intercepts_panel_keys`, :508 ctrl_shift_m-every-focus; config-surface.test.ts:348 fire_from_text_focus. Default fixtures to change to letters: keys.test.ts DEFAULT_DATA :39-50 (\u0004,\u000c,\u0014,\u001b[109;6u,\u001b[101;6u → 'd','o','t','m','e'); config-surface.test.ts :88-98. Keep-green: keys.test :760/:910 (config keys fire from deep/overview non-editor focus).
+
+## Design
+- (a) defaults: deep 'd', overview 'o', elaborate 't', batchNote 'm', discuss 'e'; others unchanged.
+- (b) in step 7, per resolved binding: tier-2 (bare = single printable char KeyId, no modifier) intercepts ONLY when `!(panel.focus === "text" || panel.focus === "note")` — else `return false` path (fall through to no-match). Simplest: compute `editorFocused` once (already exists at :367) and guard each bare intercept. Tier-1 (chords/tab/f-keys) unchanged (intercept everywhere). externalEditor keeps its text-focus gate; elaborate keeps BUG-011 short-view gate (bare 't' now also editor-focus-gated by tier rule — from note focus it forwards, consistent).
+- (c) rewrite keys.ts :11-19 and :60-76 doc blocks to two-tier; config.ts JSDoc table default column + chord reasons.
+- Tests: letters dispatch from options/deep/overview; letters forward in text AND note focus (route===false, editor buffer receives byte); ctrl+s submits from text focus; ctrl+g opens mocked $EDITOR (existing external-editor seam); remap-to-chord (deep:'ctrl+alt+d') intercepts in text focus; remap-to-bare forwards.

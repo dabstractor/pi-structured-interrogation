@@ -8,16 +8,31 @@
  * unmatched forwards (`false` → the embedded editor when text-focused, else
  * the panel's default nav / ignore).
  *
- * ## Mode A — the intercept rule (h2.34)
+ * ## Mode A — the intercept rule (h2.34, TWO-TIER per h2.74/BAREKEYS-001)
  *
  * The panel owns raw keyboard focus (via `ctx.ui.custom()` —
  * questionnaire.ts pattern), so pi's own keybinding layer never sees these
  * keystrokes. Panel-level keys are therefore intercepted BEFORE any
- * forwarding, and this INCLUDES text focus: `ctrl+s` submit while the user
- * types in the embedded free-text field must submit, not insert a control
- * char. Concretely, the config-driven intercepts in step 4 of the resolution
- * order are valid whenever the panel is open, `focus === "text"` included.
- * The one fixed-key exception is `enter` (see below).
+ * forwarding — but WHICH keys intercept depends on TIER (ui-spec:70):
+ *
+ * - TIER 1 — modifier chords and named bases (tab, f-keys): a chord is
+ *   never a typed character, so it intercepts in EVERY focus state,
+ *   `focus === "text"` included — `ctrl+s` submit while the user types in
+ *   the embedded free-text field must submit, not insert a control char.
+ * - TIER 2 — bare keys (single printable char, no modifier): they
+ *   "intercept only from non-editor focus and always forward while the
+ *   editor holds focus" (ui-spec:70) — otherwise `t` in an answer could
+ *   never be typed. Forwarding is the no-match fall-through (`return
+ *   false` → panel.ts hands the byte to the composed editor); a bare key
+ *   is never consumed-and-ignored. Tier is classified from the RESOLVED
+ *   binding once per router build, so a remap instantly re-tiers.
+ *
+ * The two surviving default chords are load-bearing (decisions :113-115):
+ * `ctrl+s` submit ("submit must fire from text focus — a bare `s` could
+ * never be typed") and `ctrl+g` external editor ("its only valid context
+ * is editor focus, where a bare key must type — a bare `g` would be
+ * permanently unpressable"). The one fixed-key exception is `enter` (see
+ * below).
  *
  * ## Mode A — fixed keys (never config-driven)
  *
@@ -48,8 +63,10 @@
  * (panel.exitTextField / exitNoteMode). The first esc of the pair still
  * reached the editor, so vim users keep their mode semantics; "twice in a
  * row" is strict (any other key resets the window via `panel.lastEscAt`).
- * The deterministic single-key companion is the ctrl+t toggle (onElaborate
- * seam): press in options focus to enter, press again to close.
+ * The deterministic single-key companion is the elaborate key (onElaborate
+ * seam): with the bare default `t` it enters from options focus only — in
+ * editor focus the two-tier rule FORWARDS it (it must type), so the old
+ * re-press-to-close reachability is chord-remap territory now.
  *
  * ## Mode A — single dispatch + collision ordering
  *
@@ -64,7 +81,8 @@
  *   2. esc                      (fixed — view-descent ladder, then suspend)
  *   3. enter                    (fixed — options focus only → view-aware:
  *      overview jump → deep accept → short accept)
- *   4. config intercepts, in this order:
+ *   4. config intercepts, in this order (TWO-TIER — chords intercept in
+ *      every focus; bare keys only from non-editor focus, else forward):
  *      deep, overview, elaborate, batchNote, submit, discuss,
  *      externalEditor (only when focus === "text"), prevQuestion,
  *      nextQuestion (view-aware: overview cursor movers), then digits 1–9
@@ -190,6 +208,25 @@ export function parseAccelerator(s: string): KeyId | undefined {
     seen.add(m);
   }
   return normalized as KeyId;
+}
+
+/**
+ * BAREKEYS-001 tier classification: is this accelerator a BARE key — a
+ * single printable character with no modifier? Bare keys are TIER 2: they
+ * intercept only from non-editor focus and always forward while the
+ * embedded editor holds focus (ui-spec:70 — a bare key must be typeable).
+ * Chords and named bases (tab, f-keys) are TIER 1: never typed characters,
+ * so they intercept in every focus state. Classified from the RESOLVED
+ * binding (normalize once at router build, not per keystroke), so a remap
+ * instantly changes tier. An invalid accelerator (parseAccelerator
+ * undefined — resolveBindings already fell back to the default) classifies
+ * as tier 1, matching the chord-ish defaults.
+ */
+function isBareBinding(accel: string): boolean {
+  const parsed = parseAccelerator(accel);
+  if (parsed === undefined) return false;
+  const tokens = parsed.split("+");
+  return tokens.length === 1 && SINGLE_CHAR_BASES.has(tokens[0] ?? "");
 }
 
 /** All KeyActions in DEFAULT_CONFIG.keys order (single source of truth). */
@@ -357,6 +394,22 @@ export function buildKeyRouter(
   actions: RoutedActions,
 ): (data: string, panel: InterrogationPanel) => boolean {
   const b = resolveBindings(config);
+  // BAREKEYS-001 tier table — resolved ONCE per binding at router build
+  // (never per keystroke): bare (tier 2) bindings forward while the editor
+  // holds focus; chords/named bases (tier 1) intercept everywhere. A remap
+  // instantly changes tier because classification reads the RESOLVED
+  // binding, not the raw config string.
+  const bare = {
+    deep: isBareBinding(b.deep),
+    overview: isBareBinding(b.overview),
+    elaborate: isBareBinding(b.elaborate),
+    batchNote: isBareBinding(b.batchNote),
+    submit: isBareBinding(b.submit),
+    discuss: isBareBinding(b.discuss),
+    externalEditor: isBareBinding(b.externalEditor),
+    prevQuestion: isBareBinding(b.prevQuestion),
+    nextQuestion: isBareBinding(b.nextQuestion),
+  };
   const escWindow = Math.max(0, config.escExitWindowMs);
   return function route(data: string, panel: InterrogationPanel): boolean {
     if (panel.isResolved()) return false; // defensive; handleInput already guards
@@ -449,56 +502,76 @@ export function buildKeyRouter(
       return actions.accept(panel);
     }
 
-    // 4. Config-driven panel-level intercepts — valid whenever the panel is
-    // open INCLUDING focus === "text" (h2.34 intercept rule). Order here is
-    // the documented collision-winner order.
+    // 4. Config-driven panel-level intercepts — TWO-TIER (h2.74/
+    // BAREKEYS-001, ui-spec:70): modifier chords intercept in every focus
+    // state (a chord is never a typed character); BARE keys intercept only
+    // from non-editor focus and always FORWARD while the editor holds
+    // focus (`return false` → panel.ts hands the byte to the composed
+    // editor — never consume-and-ignore). Tier comes from the resolved
+    // binding (the `bare` table above), so remaps re-tier automatically.
+    // Order here is the documented collision-winner order.
     if (matchesKey(data, b.deep)) {
+      if (bare.deep && editorFocused) return false; // tier 2: must type
       actions.onDeep(panel);
       return true;
     }
     if (matchesKey(data, b.overview)) {
+      if (bare.overview && editorFocused) return false; // tier 2: must type
       actions.onOverview(panel);
       return true;
     }
     // BUG-011: the embedded editor renders only in the short view (and
     // note mode, a separate focus); focusing it from deep/overview would
     // arm an invisible editor (blind typing, silent stage-1 draft saves).
-    // In those views ctrl+t falls through to normal panel handling (arrows
-    // scroll/navigate, enter keeps its view-specific meaning). NOTE focus
-    // (ESC-002): ctrl+t also falls through — the note editor owns it (the
-    // note's own toggle is the batchNote key), so it forwards to the editor
-    // instead of swapping the same TextField to text duty mid-note (which
-    // would strand the un-exited note buffer).
+    // In those views the elaborate key falls through to normal panel
+    // handling (arrows scroll/navigate, enter keeps its view-specific
+    // meaning). NOTE focus (ESC-002): it also falls through — the note
+    // editor owns the buffer. TIER (BAREKEYS-001): with the bare default
+    // `t` (or any bare remap) the key forwards in TEXT focus too — it must
+    // type; a chord remap keeps every-focus reachability.
     if (
       panel.view === "short" &&
       panel.focus !== "note" &&
       matchesKey(data, b.elaborate)
     ) {
+      if (bare.elaborate && editorFocused) return false; // tier 2: must type
       actions.onElaborate(panel);
       return true;
     }
     if (matchesKey(data, b.batchNote)) {
+      if (bare.batchNote && editorFocused) return false; // tier 2: must type
       actions.onBatchNote(panel);
       return true;
     }
-    if (matchesKey(data, b.submit)) return actions.submit(panel);
+    if (matchesKey(data, b.submit)) {
+      if (bare.submit && editorFocused) return false; // tier 2: must type
+      return actions.submit(panel);
+    }
     if (matchesKey(data, b.discuss)) {
+      if (bare.discuss && editorFocused) return false; // tier 2: must type
       actions.onDiscuss(panel);
       return true;
     }
     // externalEditor is text-focus context (h2.34) — gated so ctrl+g stays
-    // free in every other context.
+    // free in every other context. TIER: its only valid context is editor
+    // focus, where a bare key must type — a bare remap therefore never
+    // intercepts (decisions :113-115; keep the chord).
     if (panel.focus === "text" && matchesKey(data, b.externalEditor)) {
+      if (bare.externalEditor) return false; // tier 2 in its only context
       actions.onExternalEditor(panel);
       return true;
     }
     // prev/next are view-aware (contract 3): in overview the config
-    // question-nav keys move the CURSOR ROW — never currentId.
+    // question-nav keys move the CURSOR ROW — never currentId. TIER: bare
+    // remaps forward while the editor holds focus (defaults tab/shift+tab
+    // are named bases — tier 1 — and intercept everywhere).
     if (matchesKey(data, b.prevQuestion)) {
+      if (bare.prevQuestion && editorFocused) return false; // tier 2: must type
       if (panel.view === "overview") return overviewUp(panel);
       return actions.prevQuestion(panel);
     }
     if (matchesKey(data, b.nextQuestion)) {
+      if (bare.nextQuestion && editorFocused) return false; // tier 2: must type
       if (panel.view === "overview") return overviewDown(panel);
       return actions.nextQuestion(panel);
     }

@@ -16,15 +16,20 @@
  *
  * | action          | default       | verified remap | router | registerShortcut | label surfaces rendered today        | notes |
  * |-----------------|---------------|----------------|--------|------------------|---------------------------------------|-------|
- * | deep            | ctrl+d        | ctrl+alt+d     | ✓      | n/a (panel-only) | footer (short, overview)              | |
- * | overview        | ctrl+l        | ctrl+shift+l   | ✓      | n/a              | footer (short, deep)                  | |
- * | elaborate       | ctrl+t        | ctrl+y         | ✓      | n/a              | none rendered (no string names it)    | |
- * | batchNote       | ctrl+shift+m  | ctrl+shift+n   | ✓      | n/a              | none rendered (note header omits key) | |
- * | submit          | ctrl+s        | f9             | ✓      | n/a              | footer (every screen incl. narrow)    | |
- * | discuss         | ctrl+shift+e  | ctrl+shift+p   | ✓      | n/a              | none rendered (discuss text omits key)| |
- * | externalEditor  | ctrl+g        | ctrl+u         | ✓      | n/a              | none rendered                         | text-focus gated |
+ * | deep            | d             | ctrl+alt+d     | ✓      | n/a (panel-only) | footer (short, overview)              | |
+ * | overview        | o             | ctrl+shift+l   | ✓      | n/a              | footer (short, deep)                  | |
+ * | elaborate       | t             | ctrl+y         | ✓      | n/a              | none rendered (no string names it)    | |
+ * | batchNote       | m             | ctrl+shift+n   | ✓      | n/a              | none rendered (note header omits key) | |
+ * | submit          | ctrl+s        | f9             | ✓      | n/a              | footer (every screen incl. narrow)    | load-bearing chord |
+ * | discuss         | e             | ctrl+shift+p   | ✓      | n/a              | none rendered (discuss text omits key)| |
+ * | externalEditor  | ctrl+g        | ctrl+u         | ✓      | n/a              | none rendered                         | text-focus gated; load-bearing chord |
  * | prevQuestion    | tab           | left           | ✓      | n/a              | none rendered                         | |
  * | nextQuestion    | shift+tab     | right          | ✓      | n/a              | none rendered                         | |
+ *
+ * Two-tier intercept (h2.74/BAREKEYS-001, ui-spec:70): bare defaults
+ * (d/o/t/m/e) intercept only from non-editor focus and always forward while
+ * the embedded editor holds focus; modifier chords intercept everywhere —
+ * see keys.ts's Mode A doc for the load-bearing-chord rationale.
  *
  * Fixed keys (NOT config-driven, by design — h2.34, out of AC-12 scope):
  * `up`/`down`/`left`/`right`/`esc`/`enter` plus digit quick-select 1–9.
@@ -84,15 +89,15 @@ import {
 
 const ALL_ACTIONS = Object.keys(DEFAULT_CONFIG.keys) as KeyAction[];
 
-/** Raw terminal data for each h2.34 DEFAULT accelerator (keys.test.ts table). */
+/** Raw terminal data for each h2.35 DEFAULT accelerator (post-BAREKEYS-001). */
 const DEFAULT_DATA: Record<KeyAction, string> = {
-  deep: "\u0004", // ctrl+d
-  overview: "\u000c", // ctrl+l
-  elaborate: "\u0014", // ctrl+t
-  batchNote: "\u001b[109;6u", // kitty CSI-u ctrl+shift+m (m = 109)
-  submit: "\u0013", // ctrl+s
-  discuss: "\u001b[101;6u", // kitty CSI-u ctrl+shift+e (e = 101)
-  externalEditor: "\u0007", // ctrl+g
+  deep: "d",
+  overview: "o",
+  elaborate: "t",
+  batchNote: "m",
+  submit: "\u0013", // ctrl+s — load-bearing chord
+  discuss: "e",
+  externalEditor: "\u0007", // ctrl+g — load-bearing chord
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
 };
@@ -345,9 +350,11 @@ describe("AC-12 exhaustive remap — all 9 actions, both directions", () => {
     }
   });
 
-  test("test_remapped_actions_fire_from_text_focus_too_intercept_rule", () => {
-    // The h2.34 intercept rule holds for ANY binding, not just defaults:
-    // remapped panel keys stay consumed while the user types in the editor.
+  test("test_remapped_actions_tier_by_binding_in_text_focus", () => {
+    // Two-tier (BAREKEYS-001): TIER 1 — every FULL_REMAP binding is a
+    // chord/f-key (never a typed character), so all of them intercept in
+    // text focus. TIER 2 — a BARE remap must forward there (it has to be
+    // typeable) while still intercepting from non-editor focus.
     for (const action of ALL_ACTIONS) {
       if (action === "externalEditor") continue; // already text-gated in the exhaustive test
       const actions = makeActions();
@@ -356,6 +363,15 @@ describe("AC-12 exhaustive remap — all 9 actions, both directions", () => {
       expect(route(REMAPS[action].data, panel), `${action} remap fires in text focus`).toBe(true);
       expect(actions[SPY_FOR[action]]).toHaveBeenCalledTimes(1);
     }
+
+    const bare = makeActions();
+    const bareRoute = buildKeyRouter(
+      { ...DEFAULT_CONFIG, keys: { ...DEFAULT_CONFIG.keys, batchNote: "n" } },
+      bare,
+    );
+    expect(bareRoute("n", makePanel({ focus: "text" }))).toBe(false); // must type
+    expect(bareRoute("n", makePanel({ focus: "options" }))).toBe(true);
+    expect(bare.onBatchNote).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -418,8 +434,11 @@ describe("label propagation — full remap (h2.52: config-generated display stri
         expect(footer, `${screen}: remapped hint for ${action}`).toContain(
           `${remapped[action]} ${WORDS[action]}`,
         );
+        // Bounded by the "· " hint separator: a remapped label that ENDS
+        // with the default label (e.g. "Ctrl+Alt+D" ⊃ "D") must not make
+        // this check false-positive — the DEFAULT hint itself is gone.
         expect(footer, `${screen}: default hint for ${action} must be gone`).not.toContain(
-          `${defaults[action]} ${WORDS[action]}`,
+          `· ${defaults[action]} ${WORDS[action]}`,
         );
       }
       for (const stat of STATIC_HINTS[screen]) {

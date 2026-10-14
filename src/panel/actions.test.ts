@@ -1804,7 +1804,7 @@ describe("handleInput — config-driven router (keys.ts, P1.M3.T3.S1)", () => {
   test("test_router_fixed_arrows_work_in_any_view", () => {
     const state = seed(BASIC);
     const { panel } = makePanel(state);
-    panel.handleInput("\u000c"); // ctrl+l → overview (router seam default)
+    panel.handleInput("o"); // overview (bare default, BAREKEYS-001)
     expect(panel.view).toBe("overview");
     // Arrows are FIXED keys (h2.34): the router checks them before anything
     // else, in ANY view — only enter/digits/externalEditor carry focus

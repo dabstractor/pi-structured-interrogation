@@ -132,21 +132,21 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "VIMNAV-001 — hjkl join the fixed key family",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Make h/j/k/l fixed, non-configurable aliases of ←/↓/↑/→ handled inside the SAME fixed branches with identical view-aware semantics and identical editor-focus forwarding.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Wire hjkl into the fixed arrow branches with identical gates and dispatch",
-              "status": "Ready",
+              "status": "Complete",
               "description": "One centralized branch per arrow direction already dispatches per view; extend each branch's key-match condition with its letter alias and document hjkl in the fixed-family doc block.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Add k/j to the fixed ↑/↓ branch and h/l to ←/→ with identical gating",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"

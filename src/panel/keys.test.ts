@@ -12,7 +12,7 @@
 import { Key, matchesKey, type KeyId } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
-import type { Question } from "../state.js";
+import { createInterrogationState, type Question } from "../state.js";
 import {
   buildKeyRouter,
   defaultRoutedActions,
@@ -20,7 +20,7 @@ import {
   resolveBindings,
   type RoutedActions,
 } from "./keys.js";
-import type { InterrogationPanel, PanelFocus, PanelView } from "./panel.js";
+import { InterrogationPanel, type PanelFocus, type PanelView } from "./panel.js";
 
 // ------------------------------------------------------------------ fixtures
 
@@ -93,6 +93,44 @@ function makePanel(
     openExternalEditor: vi.fn(async () => {}),
   };
   return panel as unknown as PanelStub;
+}
+
+/**
+ * REAL panel (real state + default config + real panel actions) for the
+ * VIMNAV-001 alias tests: cursor / currentId / overviewCursor assertions
+ * need the actual mutation surface — overview/deep dispatch calls the view
+ * movers directly, not through the spy seam.
+ */
+function makeRealPanel(specs: Array<Partial<Question> & { id: string }>): InterrogationPanel {
+  const state = createInterrogationState("goal");
+  for (const { id, ...overrides } of specs) {
+    state.upsertQuestion({
+      id,
+      prompt: `prompt:${id}`,
+      type: "choice",
+      rev: 1,
+      status: "open",
+      options: [
+        { value: "a", label: "A" },
+        { value: "b", label: "B" },
+      ],
+      ...overrides,
+    });
+  }
+  return new InterrogationPanel({
+    tui: { requestRender: vi.fn() } as never,
+    // ANSI-transparent theme — setView("deep"/"overview") renders content
+    // through theme.fg/bold/dim; these tests only read cursor fields, never
+    // styled output, so identity passthrough is enough.
+    theme: {
+      fg: (_kind: string, text: string) => text,
+      bold: (text: string) => text,
+      dim: (text: string) => text,
+    } as never,
+    done: () => {},
+    state,
+    config: DEFAULT_CONFIG,
+  });
 }
 
 /** All-void→true spies for the seam callbacks, boolean spies for actions. */
@@ -440,6 +478,154 @@ describe("buildKeyRouter — fixed keys and gating", () => {
     expect(actions.accept).toHaveBeenCalledTimes(1);
     expect(route(ESCAPE, panel)).toBe(true); // fixed esc — suspends from short
     expect(panel.suspendCalls).toBe(1);
+  });
+
+  test("test_hjkl_alias_the_fixed_arrows_regardless_of_config", () => {
+    // VIMNAV-001: hjkl ride the FIXED branches — a hostile remap of
+    // prevQuestion to bare "k" cannot make the alias dispatch the remap
+    // (fixed keys are checked BEFORE config accelerators and shadow them,
+    // exactly like the arrows they mirror).
+    const actions = makeActions();
+    const { route } = makeRouter(configWithKeys({ prevQuestion: "k", nextQuestion: "l" }), actions);
+    const panel = makePanel();
+    expect(route("k", panel)).toBe(true);
+    expect(actions.optionUp).toHaveBeenCalledTimes(1); // fixed alias, not prevQuestion
+    expect(actions.prevQuestion).not.toHaveBeenCalled();
+    expect(route("j", panel)).toBe(true);
+    expect(actions.optionDown).toHaveBeenCalledTimes(1);
+    expect(route("h", panel)).toBe(true); // ←'s dispatch — the remap is shadowed
+    expect(actions.prevQuestion).toHaveBeenCalledTimes(1);
+    expect(route("l", panel)).toBe(true);
+    expect(actions.nextQuestion).toHaveBeenCalledTimes(1);
+    expect(dispatchCount(actions)).toBe(4); // single dispatch per byte
+  });
+
+  test("test_jk_move_option_cursor_including_the_other_row", () => {
+    // Short view, REAL panel: j/k walk the option cursor across the FULL
+    // domain — options AND the ✎ Other row (cursorDomainSize = length + 1).
+    const panel = makeRealPanel([{ id: "q1" }]);
+    const { route } = makeRouter(DEFAULT_CONFIG, defaultRoutedActions());
+
+    route("j", panel); // ↓ semantics
+    expect(panel.cursorIndex).toBe(1);
+    route("j", panel);
+    expect(panel.cursorIndex).toBe(2); // the ✎ Other row (options.length)
+    route("j", panel);
+    expect(panel.cursorIndex).toBe(2); // clamped — Other row is the domain end
+    route("k", panel); // ↑ semantics
+    expect(panel.cursorIndex).toBe(1);
+    route("k", panel);
+    expect(panel.cursorIndex).toBe(0);
+  });
+
+  test("test_hl_navigate_full_list_clamped_no_wrap", () => {
+    // h/l = ←/→: the FULL question list, every status navigable (R1/FR-9),
+    // clamped at BOTH ends — never a wrap.
+    const panel = makeRealPanel([
+      { id: "q1" },
+      { id: "q2", status: "moot" },
+      { id: "q3", status: "withdrawn" },
+      { id: "q4" },
+    ]);
+    panel.state.applyAnswer("q4", { value: "a", at: "2025-01-01T00:00:00.000Z" });
+    panel.state.setStatus("q4", "closed");
+    const { route } = makeRouter(DEFAULT_CONFIG, defaultRoutedActions());
+
+    expect(panel.currentId).toBe("q1");
+    route("h", panel);
+    expect(panel.currentId).toBe("q1"); // clamped at the first
+    route("l", panel);
+    expect(panel.currentId).toBe("q2"); // moot navigable
+    route("l", panel);
+    expect(panel.currentId).toBe("q3"); // withdrawn navigable
+    route("l", panel);
+    expect(panel.currentId).toBe("q4"); // closed navigable
+    route("l", panel);
+    expect(panel.currentId).toBe("q4"); // clamped at the last
+    route("h", panel);
+    expect(panel.currentId).toBe("q3"); // backward works too
+  });
+
+  test("test_hjkl_deep_view_moves_selection", () => {
+    // Deep view: j/k move the SELECTION (same mutation surface as ↓/↑ —
+    // clamped at the Other row), h/l move the current question.
+    const panel = makeRealPanel([{ id: "q1" }, { id: "q2" }]);
+    panel.setView("deep");
+    const { route } = makeRouter(DEFAULT_CONFIG, defaultRoutedActions());
+
+    route("j", panel);
+    expect(panel.cursorIndex).toBe(1);
+    route("j", panel);
+    expect(panel.cursorIndex).toBe(2); // ✎ Other row
+    route("k", panel);
+    expect(panel.cursorIndex).toBe(1);
+    route("l", panel);
+    expect(panel.currentId).toBe("q2");
+    route("h", panel);
+    expect(panel.currentId).toBe("q1");
+  });
+
+  test("test_hjkl_overview_moves_cursor_row", () => {
+    // Overview: ALL FOUR move the CURSOR ROW — never the option cursor,
+    // never currentId (h2.29 view-aware dispatch).
+    const panel = makeRealPanel([{ id: "q1" }, { id: "q2" }]);
+    panel.setView("overview");
+    const { route } = makeRouter(DEFAULT_CONFIG, defaultRoutedActions());
+
+    route("j", panel);
+    expect(panel.overviewCursor).toBe(1);
+    expect(panel.cursorIndex).toBe(0); // option cursor untouched
+    expect(panel.currentId).toBe("q1");
+    route("k", panel);
+    expect(panel.overviewCursor).toBe(0);
+    route("l", panel);
+    expect(panel.overviewCursor).toBe(1);
+    route("h", panel);
+    expect(panel.overviewCursor).toBe(0);
+    expect(panel.currentId).toBe("q1");
+  });
+
+  test("test_hjkl_forward_in_text_and_note_focus", () => {
+    // Printable tier-2 keys: while the editor holds focus (text answer or
+    // batch note) hjkl must FORWARD (return false) so they TYPE — a
+    // consumed-and-ignore would make words like "hill" untypeable.
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    for (const focus of ["text", "note"] as PanelFocus[]) {
+      expect(route("h", makePanel({ focus }))).toBe(false);
+      expect(route("j", makePanel({ focus }))).toBe(false);
+      expect(route("k", makePanel({ focus }))).toBe(false);
+      expect(route("l", makePanel({ focus }))).toBe(false);
+    }
+    expect(dispatchCount(actions)).toBe(0);
+  });
+
+  test("test_arrows_still_work_alongside_aliases", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel();
+    expect(route(UP, panel)).toBe(true);
+    expect(route(DOWN, panel)).toBe(true);
+    expect(actions.optionUp).toHaveBeenCalledTimes(1);
+    expect(actions.optionDown).toHaveBeenCalledTimes(1);
+    expect(route(LEFT, panel)).toBe(true);
+    expect(route(RIGHT, panel)).toBe(true);
+    expect(actions.prevQuestion).toHaveBeenCalledTimes(1);
+    expect(actions.nextQuestion).toHaveBeenCalledTimes(1);
+    expect(dispatchCount(actions)).toBe(4);
+  });
+
+  test("test_hjkl_absent_from_the_config_schema", () => {
+    // AC-2 (h2.74): hjkl are FIXED — nowhere in the config schema. The
+    // keymap-guard completeness list stays hjkl-free too (file untouched;
+    // its staying green is the other half of this proof).
+    for (const key of ["h", "j", "k", "l"]) {
+      expect(Object.keys(DEFAULT_CONFIG.keys)).not.toContain(key);
+    }
+    const resolved = resolveBindings(DEFAULT_CONFIG);
+    for (const binding of Object.values(resolved)) {
+      expect(["h", "j", "k", "l"]).not.toContain(binding);
+    }
   });
 
   test("test_digitQuickSelect_off_forwards_digits", () => {

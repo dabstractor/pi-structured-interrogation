@@ -40,7 +40,16 @@
  * deliberately absent from the `KeyAction` config union (config.ts), so a
  * user cannot remap or shadow them by construction. They are checked BEFORE
  * every config accelerator — arrows first, because arrow sequences are
- * ESC-prefixed and an esc branch checked earlier would eat them. `←`/`→`
+ * ESC-prefixed and an esc branch checked earlier would eat them. VIMNAV-001
+ * (h2.74) extends the fixed family with the hjkl ALIASES: `k`=↑, `j`=↓,
+ * `h`=←, `l`=→ — matched by exact bare-byte equality (`data === "k"`; a
+ * bare letter never carries modifiers), riding the SAME conditions and
+ * dispatch as the arrows they mirror, fixed/config-absent exactly like
+ * them. Like the arrows they are NOT intercepted in text/note focus, where
+ * the editor owns every printable key — hjkl must TYPE (BAREKEYS-001
+ * tier-2 nature). Collision-winner order (documented, not fixed): a config
+ * binding on a bare `h`/`j`/`k`/`l` is shadowed by the fixed alias, same
+ * as the arrows shadow any theoretical arrow remap. `←`/`→`
  * navigate the FULL question list (prev/next — every status navigable, R1/
  * FR-9, clamped at the ends) and are view-aware exactly like the config
  * prev/next keys (overview: cursor row; short/deep: current question); they
@@ -436,12 +445,12 @@ export function buildKeyRouter(
     //    cursor). EDITOR FOCUS (ESC-002): arrows forward to the embedded
     //    editor (caret movement) — the option cursor never moves while the
     //    user types.
-    if (!editorFocused && matchesKey(data, Key.up)) {
+    if (!editorFocused && (matchesKey(data, Key.up) || data === "k")) {
       if (panel.view === "overview") return overviewUp(panel);
       if (panel.view === "deep") return deepSelectionUp(panel);
       return actions.optionUp(panel);
     }
-    if (!editorFocused && matchesKey(data, Key.down)) {
+    if (!editorFocused && (matchesKey(data, Key.down) || data === "j")) {
       if (panel.view === "overview") return overviewDown(panel);
       if (panel.view === "deep") return deepSelectionDown(panel);
       return actions.optionDown(panel);
@@ -456,11 +465,11 @@ export function buildKeyRouter(
     // the other fixed arrows, BEFORE esc: left/right sequences are
     // ESC-prefixed and the esc ladder must not eat them.
     if (panel.focus !== "text" && panel.focus !== "note") {
-      if (matchesKey(data, Key.left)) {
+      if (matchesKey(data, Key.left) || data === "h") {
         if (panel.view === "overview") return overviewUp(panel);
         return actions.prevQuestion(panel);
       }
-      if (matchesKey(data, Key.right)) {
+      if (matchesKey(data, Key.right) || data === "l") {
         if (panel.view === "overview") return overviewDown(panel);
         return actions.nextQuestion(panel);
       }

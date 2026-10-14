@@ -194,9 +194,21 @@ function coerceBoolean(value: unknown, fallback: boolean): boolean {
 /** Coerce the keys map: non-string or empty accelerators fall back to the default for that action. */
 function coerceKeys(raw: unknown): Record<KeyAction, string> {
   const src = isPlainObject(raw) ? raw : {};
+  // Legacy alias (BAREKEYS-001 rename): a pre-rename keys.focusText binding
+  // silently feeds keys.elaborate when the user has not rebound the new name;
+  // never logged. "User-absent" is only observable as "still equals the
+  // default" here — coerceKeys sees the DEFAULT-merged map (loadConfigFrom
+  // deep-merges DEFAULT_CONFIG first), so an explicit user rebind is exactly
+  // a valid value differing from the default, and it always wins.
+  const elaborateValid =
+    typeof src.elaborate === "string" &&
+    src.elaborate.trim() !== "" &&
+    src.elaborate !== DEFAULT_CONFIG.keys.elaborate;
+  const legacyValid = typeof src.focusText === "string" && src.focusText.trim() !== "";
+  const effSrc = !elaborateValid && legacyValid ? { ...src, elaborate: src.focusText } : src;
   const out = {} as Record<KeyAction, string>;
   for (const action of KEY_ACTIONS) {
-    const v = src[action];
+    const v = effSrc[action];
     out[action] = typeof v === "string" && v.trim() !== "" ? v : DEFAULT_CONFIG.keys[action];
   }
   return out;

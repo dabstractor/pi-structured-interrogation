@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Rename keys.focusText to keys.elaborate across config and consumers (values unchanged)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Pure identifier rename of the KeyAction-bound surface — config union/defaults-field/doc-table, keys.ts dispatch seam, panel.ts override, layout label maps, keymap-guard action list, test fixtures — keeping chord values and behavior identical so every suite stays green at the subtask boundary.",
               "subtasks": [
                 {
@@ -43,7 +43,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Add the silent focusText→elaborate compat alias in coerceKeys",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

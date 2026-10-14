@@ -8,7 +8,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { DEFAULT_CONFIG, loadConfigFrom, resolveKeyLabels } from "./config";
 
 const cleanup: string[] = [];
@@ -156,4 +156,77 @@ test("test_resolve_key_labels_reflects_rebound_keys", async () => {
 test("test_load_config_from_with_no_paths_returns_defaults", async () => {
   const cfg = await loadConfigFrom({});
   expect(cfg).toEqual(DEFAULT_CONFIG);
+});
+
+// ------------------ focusText→elaborate legacy alias (BAREKEYS-001 compat)
+
+describe("focusText→elaborate legacy alias (BAREKEYS-001)", () => {
+  test("test_alias_legacy_focusText_feeds_elaborate_when_new_name_absent", async () => {
+    const g = await writeSettings(JSON.stringify({ interrogator: { keys: { focusText: "ctrl+j" } } }));
+    const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+    expect(cfg.keys.elaborate).toBe("ctrl+j");
+    expect(resolveKeyLabels(cfg).elaborate).toBe("Ctrl+J"); // footer label inherits
+    // The raw legacy name never leaks into the resolved key surface.
+    expect((cfg.keys as Record<string, unknown>).focusText).toBeUndefined();
+  });
+
+  test("test_alias_explicit_elaborate_wins_over_focusText", async () => {
+    const g = await writeSettings(
+      JSON.stringify({ interrogator: { keys: { focusText: "ctrl+j", elaborate: "ctrl+k" } } }),
+    );
+    const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+    expect(cfg.keys.elaborate).toBe("ctrl+k");
+    expect(resolveKeyLabels(cfg).elaborate).toBe("Ctrl+K");
+  });
+
+  test("test_alias_invalid_elaborate_does_not_win_over_focusText", async () => {
+    // An INVALID new-name value never beats a valid legacy binding.
+    for (const bad of ["", "   ", 42, null]) {
+      const g = await writeSettings(
+        JSON.stringify({ interrogator: { keys: { focusText: "ctrl+j", elaborate: bad } } }),
+      );
+      const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+      expect(cfg.keys.elaborate, `elaborate=${JSON.stringify(bad)}`).toBe("ctrl+j");
+    }
+  });
+
+  test("test_alias_no_legacy_name_yields_default_elaborate", async () => {
+    // Value-agnostic default assertion (asserting DEFAULT_CONFIG survives
+    // the T2 default flip unchanged).
+    for (const keys of [{}, { focusText: "" }, { focusText: 42 }, { elaborate: "" }]) {
+      const g = await writeSettings(JSON.stringify({ interrogator: { keys } }));
+      const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+      expect(cfg.keys.elaborate, `keys=${JSON.stringify(keys)}`).toBe(DEFAULT_CONFIG.keys.elaborate);
+    }
+  });
+
+  test("test_alias_is_silent_no_console_output", async () => {
+    // Silence is contractual (tolerant-coercion posture) — zero warns/logs.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const g = await writeSettings(
+        JSON.stringify({ interrogator: { keys: { focusText: "ctrl+j" } } }),
+      );
+      await loadConfigFrom({ global: g, project: await missingPath() });
+      expect(warn).not.toHaveBeenCalled();
+      expect(info).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      info.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  test("test_alias_applies_after_global_project_deep_merge", async () => {
+    // Merge-level: the alias runs on the DEEP-MERGED raw keys map, so a
+    // global legacy binding survives a project file that touches other keys.
+    const g = await writeSettings(JSON.stringify({ interrogator: { keys: { focusText: "ctrl+j" } } }));
+    const p = await writeSettings(JSON.stringify({ interrogator: { keys: { submit: "ctrl+enter" } } }));
+    const cfg = await loadConfigFrom({ global: g, project: p });
+    expect(cfg.keys.elaborate).toBe("ctrl+j");
+    expect(cfg.keys.submit).toBe("ctrl+enter"); // the project override still applies
+  });
 });

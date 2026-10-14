@@ -105,16 +105,23 @@ test("test_numeric_string_toggle_values_still_coerce_via_booleans", async () => 
 
 test("test_toggles_coerce_bad_values_to_defaults_and_keep_false", async () => {
   const bad = await writeSettings(
-    JSON.stringify({ interrogator: { gateWarnings: "yes", roundDetection: 0, digitQuickSelect: {} } }),
+    JSON.stringify({ interrogator: { gateWarnings: "yes", roundDetection: 0 } }),
   );
   const cfg = await loadConfigFrom({ global: bad, project: await missingPath() });
   expect(cfg.gateWarnings).toBe(true);
   expect(cfg.roundDetection).toBe(true);
-  expect(cfg.digitQuickSelect).toBe(true);
-  const off = await writeSettings(JSON.stringify({ interrogator: { digitQuickSelect: false } }));
-  const cfg2 = await loadConfigFrom({ global: off, project: await missingPath() });
-  expect(cfg2.digitQuickSelect).toBe(false);
-  expect(cfg2).toEqual({ ...DEFAULT_CONFIG, digitQuickSelect: false });
+  // DIGIT-OUT-001: digitQuickSelect is deleted from the schema. A settings
+  // file still carrying it loads cleanly — coerceConfig rebuilds the config
+  // field-by-field, so the unknown key contributes nothing and is ABSENT
+  // from the resolved object (AC-3).
+  const stale = await writeSettings(
+    JSON.stringify({ interrogator: { gateWarnings: false, digitQuickSelect: false } }),
+  );
+  const cfg2 = await loadConfigFrom({ global: stale, project: await missingPath() });
+  expect(cfg2.gateWarnings).toBe(false);
+  expect("digitQuickSelect" in cfg2).toBe(false);
+  expect(Object.keys(cfg2)).not.toContain("digitQuickSelect");
+  expect(cfg2).toEqual({ ...DEFAULT_CONFIG, gateWarnings: false });
 });
 
 test("test_editor_mode_accepts_stock_and_rejects_unknown", async () => {

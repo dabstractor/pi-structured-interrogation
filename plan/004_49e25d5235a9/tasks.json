@@ -201,7 +201,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S2",
                   "title": "Delete actions.digit and purge digit-accept comments",
-                  "status": "Complete",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1"
@@ -219,7 +219,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S3",
                   "title": "Delete digitQuickSelect from the config schema and settings load",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S2",
@@ -249,14 +249,14 @@
               "type": "Task",
               "id": "P1.M4.T1",
               "title": "Stabilize integration suites, close AC coverage, and record keymap-conflict re-verification",
-              "status": "Planned",
+              "status": "Researching",
               "description": "The implementing subtasks flipped their seam-owning tests; this task sweeps the residual scripted suites to the new contract, adds scripted acceptance coverage per PRD §3, re-runs the conflict checker, and lands the full green gates.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T1.S1",
                   "title": "Flip residual scripted suites to the new keymap contract",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1",
@@ -281,7 +281,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S2",
                   "title": "Scripted AC coverage, keymap-conflict re-verification, and full gates",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M4.T1.S1",

@@ -76,8 +76,6 @@ export interface InterrogatorConfig {
   gateWarnings: boolean;
   /** Enable detection of interrogation rounds (P1.M7.T4.S1). Default true. */
   roundDetection: boolean;
-  /** Allow pressing 1–9 to quick-select an option. Default true. */
-  digitQuickSelect: boolean;
   /**
    * Summarize mid-interrogation compaction with the interrogation
    * preservation instructions prepended (P1.M7.T2.S1, FR-29/h2.42).
@@ -120,7 +118,6 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
   },
   gateWarnings: true,
   roundDetection: true,
-  digitQuickSelect: true,
   compactionPreservation: true,
   editorMode: "composed",
   escExitWindowMs: 500,
@@ -231,7 +228,6 @@ function coerceConfig(raw: unknown): InterrogatorConfig {
     keys: coerceKeys(src.keys),
     gateWarnings: coerceBoolean(src.gateWarnings, DEFAULT_CONFIG.gateWarnings),
     roundDetection: coerceBoolean(src.roundDetection, DEFAULT_CONFIG.roundDetection),
-    digitQuickSelect: coerceBoolean(src.digitQuickSelect, DEFAULT_CONFIG.digitQuickSelect),
     compactionPreservation: coerceBoolean(src.compactionPreservation, DEFAULT_CONFIG.compactionPreservation),
     editorMode: coerceEditorMode(src.editorMode),
     escExitWindowMs: Math.max(0, coerceNumber(src.escExitWindowMs, DEFAULT_CONFIG.escExitWindowMs)),
@@ -274,7 +270,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  *
  * Set overrides under a top-level `"interrogator"` object in either
  * `~/.pi/agent/settings.json` (global) or `<cwd>/.pi/settings.json` (project).
- * Nested objects merge per-key; scalars replace. 9 keys + 4 toggles
+ * Nested objects merge per-key; scalars replace. 9 keys + 3 toggles
  * + editorMode + escExitWindowMs (defaults = PRD h2.52 as amended by the
  * breakOut removal):
  *
@@ -306,7 +302,6 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * |--------------------|---------|------------------------------------------------------|----------|
  * | `gateWarnings`     | true    | FR-9 panel submit warning for unanswered gate questions | panel/actions.ts (P1.M3.T2.S2) |
  * | `roundDetection`   | true    | Detect interrogation rounds                          | detect.ts (P1.M7.T4.S1) |
- * | `digitQuickSelect` | true    | Press 1–9 to quick-select an option                  | panel keys (P1.M3.T3.S1) |
  * | `compactionPreservation` | true | Prepend preservation instructions to mid-interrogation compaction summaries | compaction.ts (P1.M7.T2.S1) |
  *
  * ### escExitWindowMs

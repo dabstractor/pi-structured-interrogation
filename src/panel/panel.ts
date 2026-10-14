@@ -538,8 +538,8 @@ export class InterrogationPanel implements Component {
    */
   readonly state: InterrogationState;
   /**
-   * Public readonly — actions read digitQuickSelect off it. Config is a
-   * read-only input; a config reload constructs a fresh panel.
+   * Public readonly config — a read-only input; a config reload constructs
+   * a fresh panel.
    */
   readonly config: InterrogatorConfig;
   /**

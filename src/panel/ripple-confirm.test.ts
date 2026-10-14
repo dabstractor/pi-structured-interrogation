@@ -365,10 +365,10 @@ describe("ripple confirm — choice gate (FR-18)", () => {
     const cursor = panel.cursorIndex;
     const id = panel.currentId;
 
-    // Arrows, digits, ctrl+s (submit), typing, tab, shift+enter: consumed
-    // no-ops — the modal returns BEFORE the gate-warning dismissal, the
-    // disarm check, the armed stage-2, and the keys seam. A digit must NOT
-    // quick-select and tab must NOT navigate while the modal is open.
+    // Arrows, numeric keys, ctrl+s (submit), typing, tab, shift+enter:
+    // consumed no-ops — the modal returns BEFORE the gate-warning dismissal,
+    // the disarm check, the armed stage-2, and the keys seam. A numeric key
+    // must NOT quick-select and tab must NOT navigate while the modal is open.
     for (const data of ["\x1b[A", "\x1b[B", "2", "x", "\x13", "\t", "\x1b[13;2u", "\n"]) {
       expect(panel.handleInput(data)).toBe(true);
       expect(panel.confirmMode).not.toBeNull();
@@ -383,19 +383,18 @@ describe("ripple confirm — choice gate (FR-18)", () => {
     expect(JSON.stringify(state.serialize())).toBe(serialized);
   });
 
-  test("test_digit_via_handleinput_no_longer_triggers_confirm", () => {
-    // DIGIT-OUT-001 S1: the ROUTER no longer routes digits — handleInput
-    // with a digit cannot reach the ripple gate anymore. The gate itself
-    // stays pinned via the direct digit() calls (actions.test.ts
-    // test_digit_on_closed_routes_through_the_ripple_seam /
-    // test_digit_on_answered_routes_through_the_ripple_seam, which survive
-    // with the implementation until S2 deletes it).
+  test("test_numeric_press_is_inert_during_review", () => {
+    // DIGIT-OUT-001: the router has no numeric bindings — a printable
+    // numeric key cannot reach the ripple gate (ENTER is the sole accept
+    // path). The same-gate-via-enter coverage lives in the
+    // triggerChoiceConfirm-driven tests above.
     const state = seedRippleChain();
     const { panel } = makePanel(state);
     panel.currentId = "q1";
-    panel.handleInput("2"); // inert — no accept, no ripple, no advance
+    const serialized = JSON.stringify(state.serialize());
+    expect(panel.handleInput("2")).toBe(false); // inert — no accept, no ripple
     expect(panel.confirmMode).toBeNull();
-    expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // untouched
+    expect(JSON.stringify(state.serialize())).toBe(serialized); // untouched
   });
 
   test("test_flash_and_gate_warning_suppressed_during_confirm_mode", () => {

@@ -45,7 +45,7 @@
  *
  * Purity: (question, cursorIndex, theme, width) → string[]. No pi imports
  * beyond the Theme type, no state mutation, no I/O, no key handling.
- * Navigation (↑/↓, digit select, enter accept) is P1.M3.T2.S2; editor
+ * Navigation (↑/↓, enter accept) is P1.M3.T2.S2; editor
  * composition on the ✎ affordance is P1.M4.T1.S2; gate/late dimming is
  * P1.M5.T3.S1. The deep view (P1.M5.T1.S1) reuses the ★/▸ line style.
  */
@@ -74,8 +74,9 @@ const STAR = "★ ";
  * options list ends here; accepting it (P1.M2.T2.S1) makes the embedded
  * editor the WRITE-IN surface whose committed text IS the answer
  * (`custom: true`). Fixed label — deliberately NOT configurable and NOT
- * digit-selectable (h2.32/h2.36); it replaces the retired explain
- * affordance in the same last-row cursor slot (the elaboration duty moved
+ * quick-selectable; reachable only via the cursor (h2.32/h2.36, as amended
+ * by DIGIT-OUT-001); it replaces the retired explain affordance in the same
+ * last-row cursor slot (the elaboration duty moved
  * to `ctrl+t`, P1.M2.T3.S1). Exported for deep-view.ts's synthetic Other
  * section (P1.M2.T6.S1) — single source of truth so the label never drifts
  * between views.
@@ -97,8 +98,8 @@ const MIN_TEASER_WIDTH = 4;
 /**
  * D-R13 (2026-09-30): DISPLAY order — recommended option first, the rest in
  * state order (stable). Presentation only: state stores nothing about the
- * order; the cursor domain, digit quick-select (1..9), and the ★ preselect
- * all speak display positions, and actions.acceptOptionIndex maps back at
+ * order; the cursor domain and the ★ preselect both speak display
+ * positions, and actions.acceptOptionIndex maps back at
  * its single seam. Exported (deep-view.ts sections render the same order).
  */
 export function displayOptions(q: Question): QuestionOption[] {

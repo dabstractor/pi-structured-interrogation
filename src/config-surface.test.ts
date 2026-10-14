@@ -32,7 +32,8 @@
  * see keys.ts's Mode A doc for the load-bearing-chord rationale.
  *
  * Fixed keys (NOT config-driven, by design — h2.34, out of AC-12 scope):
- * `up`/`down`/`left`/`right`/`esc`/`enter` plus digit quick-select 1–9.
+ * `up`/`down`/`left`/`right`/`esc`/`enter` (numeric keys are inert unmatched
+ * input at panel level — h2.74 DIGIT-OUT-001; ENTER is the sole accept path).
  * left/right are the FULL-list question navigation arrows (prev/next,
  * view-aware like the config keys; never intercepted in text/note focus).
  * Rendered strings may name ONLY these (ripple confirm "enter=keep,
@@ -206,7 +207,6 @@ function makeActions() {
   const spies = {
     optionUp: vi.fn((_p: InterrogationPanel) => true),
     optionDown: vi.fn((_p: InterrogationPanel) => true),
-    digit: vi.fn((_p: InterrogationPanel, _n: number) => true),
     accept: vi.fn((_p: InterrogationPanel) => true),
     prevQuestion: vi.fn((_p: InterrogationPanel) => true),
     nextQuestion: vi.fn((_p: InterrogationPanel) => true),

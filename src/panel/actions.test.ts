@@ -32,7 +32,6 @@ import {
 import {
   accept,
   cursorDomainSize,
-  digit,
   maybeAutoSubmit,
   nextUnanswered,
   nextQuestion,
@@ -510,14 +509,17 @@ describe("accept on answered — ripple-confirm seam (AC-13)", () => {
     expect(panel.currentId).toBe("other"); // advance happened
   });
 
-  test("test_digit_on_closed_routes_through_the_ripple_seam", () => {
-    // digit → acceptOptionIndex inherits the widened gate for free.
+  test("test_closed_different_value_veto_consumed_by_the_ripple_seam", () => {
+    // FR-18/BUG-003: closed questions carry recorded answers too — a
+    // different-value edit routes through the seam, and a veto is CONSUMED
+    // (nothing applied, no advance).
     const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
     state.setStatus("q1", "closed");
     const confirmRipple = seamMock(false); // veto proves BOTH invocation and no-apply
     const { panel } = makePanel(state, { confirmRipple });
     panel.currentId = "q1";
-    expect(digit(panel, 2)).toBe(true); // option "b" — different value; veto is consumed
+    panel.cursorIndex = 1; // option "b" — different value
+    expect(accept(panel)).toBe(true); // consumed outcome (the veto)
     expect(confirmRipple).toHaveBeenCalledTimes(1);
     expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // veto: untouched
     expect(panel.currentId).toBe("q1"); // no advance on veto
@@ -539,17 +541,6 @@ describe("accept same-value — inert no-op (ANSWER-PIN-001 / FR-D9)", () => {
     expect(q1?.answer?.at).toBe(T0); // no fresh timestamp — the core prohibition
     expect(q1?.status).toBe("answered");
     // Q14 rhythm: still advances to the next unanswered question.
-    expect(panel.currentId).toBe("q2");
-  });
-
-  test("test_same_value_digit_inherits_inert_no_op", () => {
-    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
-    const confirmRipple = seamMock(true);
-    const { panel } = makePanel(state, { confirmRipple });
-    panel.currentId = "q1";
-    expect(digit(panel, 1)).toBe(true); // option 1 = "a" — the recorded value
-    expect(confirmRipple).toHaveBeenCalledTimes(0); // digit inherits via acceptOptionIndex
-    expect(state.getQuestion("q1")?.answer?.at).toBe(T0);
     expect(panel.currentId).toBe("q2");
   });
 
@@ -596,21 +587,6 @@ describe("accept same-value — inert no-op (ANSWER-PIN-001 / FR-D9)", () => {
     expect(state.epoch).toBe(epochBefore + 1);
     const msg = sendMessage.mock.calls[0]?.[0] as SubmissionMessage;
     expect(msg.content).toContain("Submitted 1: q1: Alpha");
-  });
-
-  test("test_same_value_digit_on_reasked_reconfirms", () => {
-    // Digit inherits the reasked exclusion for free (same acceptOptionIndex).
-    const state = seed([{ id: "q1" }, { id: "q2" }]);
-    state.applyAnswer("q1", { value: "a", at: T0 });
-    state.setStatus("q1", "reasked");
-    const confirmRipple = seamMock(true);
-    const { panel } = makePanel(state, { confirmRipple });
-    panel.currentId = "q1";
-    expect(digit(panel, 1)).toBe(true); // option 1 = "a" — the recorded value
-    expect(confirmRipple).toHaveBeenCalledTimes(0);
-    expect(state.getQuestion("q1")?.status).toBe("answered");
-    expect(state.getQuestion("q1")?.answer?.at).not.toBe(T0);
-    expect(panel.currentId).toBe("q2");
   });
 
   test("test_same_value_on_submitted_is_inert", () => {
@@ -905,66 +881,6 @@ describe("write-in same-value — inert no-op + buffer consume (ANSWER-PIN-001 /
   });
 });
 
-describe("digit — quick-select (R5)", () => {
-  test("test_e_digit_accepts_option_and_advances_like_accept", () => {
-    const state = seed(BASIC);
-    const { panel } = makePanel(state);
-    expect(digit(panel, 2)).toBe(true);
-    expect(state.getQuestion("q1")?.answer?.value).toBe("b");
-    expect(state.getQuestion("q1")?.status).toBe("answered");
-    expect(panel.currentId).toBe("q2");
-  });
-
-  test("test_e_digit_beyond_option_count_is_noop_false", () => {
-    const state = seed([{ id: "q1" }]); // 2 options
-    const { panel } = makePanel(state);
-    expect(digit(panel, 3)).toBe(false); // ✎ affordance is not digit-selectable
-    expect(digit(panel, 9)).toBe(false);
-    expect(state.getQuestion("q1")?.answer).toBeUndefined();
-    expect(digit(panel, 0)).toBe(false);
-    expect(digit(panel, 1.5)).toBe(false);
-  });
-
-  test("test_digit_never_selects_the_other_row_no_state_change_fr_d1", () => {
-    // WRITEIN-001 / FR-D1 explicit exclusion: the ✎ Other — write your own
-    // row (cursor index options.length) is NOT digit-selectable — digit n
-    // with n-1 === options.length is a no-op that mutates NOTHING.
-    const state = seed([{ id: "q1" }]); // 2 options → Other row at index 2, digit 3
-    const { panel } = makePanel(state);
-    panel.currentId = "q1";
-    const before = state.serialize();
-
-    expect(digit(panel, 3)).toBe(false); // one past the 2 real options = the Other row
-    expect(digit(panel, 9)).toBe(false);
-    expect(state.serialize()).toEqual(before); // NO answer applied, no status change
-    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // nothing answered via digits
-    expect(panel.currentId).toBe("q1"); // no advance either
-  });
-
-  test("test_e_digit_disabled_falls_through_false", () => {
-    const state = seed(BASIC);
-    const config = { ...DEFAULT_CONFIG, digitQuickSelect: false };
-    const { panel } = makePanel(state, {}, config);
-    expect(digit(panel, 1)).toBe(false);
-    expect(state.getQuestion("q1")?.answer).toBeUndefined();
-  });
-
-  test("test_e_digit_on_text_question_is_false", () => {
-    const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
-    const { panel } = makePanel(state);
-    expect(digit(panel, 1)).toBe(false);
-  });
-
-  test("test_digit_on_answered_routes_through_the_ripple_seam", () => {
-    const state = seed([{ id: "q1", overrides: { status: "answered" } }, { id: "q2" }]);
-    const confirmRipple = seamMock(true);
-    const { panel } = makePanel(state, { confirmRipple });
-    panel.currentId = "q1";
-    expect(digit(panel, 2)).toBe(true);
-    expect(confirmRipple).toHaveBeenCalledTimes(1);
-    expect(confirmRipple.mock.calls[0][2].value).toBe("b");
-  });
-});
 
 describe("prevQuestion / nextQuestion — R1 free navigation", () => {
   const ALL_STATUSES: Array<{ id: string; overrides?: Partial<Question> }> = [
@@ -1777,33 +1693,25 @@ describe("handleInput — config-driven router (keys.ts, P1.M3.T3.S1)", () => {
     expect(panel.currentId).toBe("q1");
   });
 
-  test("test_matcher_digits_are_inert_no_answer_no_advance", () => {
-    // DIGIT-OUT-001 S1: the router no longer routes digits — handleInput
-    // with a digit is a no-op at options focus (no answer, no advance).
-    // The standalone actions.digit implementation survives (S2 deletes it)
-    // and keeps its own direct unit pins.
+  test("test_matcher_numeric_keys_are_inert_no_answer_no_advance", () => {
+    // DIGIT-OUT-001: the router has no numeric bindings — a printable
+    // numeric key is unmatched panel input: not consumed, no answer, no
+    // advance. ENTER is the sole accept path (FR-35 untouched).
     const state = seed(BASIC);
     const { panel } = makePanel(state);
-    panel.handleInput("2");
+    expect(panel.handleInput("2")).toBe(false);
     expect(state.getQuestion("q1")?.answer).toBeUndefined();
     expect(panel.currentId).toBe("q1");
-  });
-
-  test("test_matcher_digits_fall_through_when_quick_select_disabled", () => {
-    const state = seed(BASIC);
-    const config = { ...DEFAULT_CONFIG, digitQuickSelect: false };
-    const { panel } = makePanel(state, {}, config);
-    panel.handleInput("2");
-    expect(state.getQuestion("q1")?.answer).toBeUndefined();
   });
 
   test("test_matcher_skipped_when_the_keys_seam_consumes_first", () => {
     const state = seed(BASIC);
     const keys = vi.fn(() => true);
     const { panel } = makePanel(state, { keys });
-    panel.handleInput("\r");
-    expect(keys).toHaveBeenCalledWith("\r", panel);
+    panel.handleInput("o"); // bare overview key (BAREKEYS-001) — printable, non-enter
+    expect(keys).toHaveBeenCalledWith("o", panel);
     expect(state.getQuestion("q1")?.status).toBe("open"); // matcher never ran
+    expect(panel.view).toBe("short"); // the seam swallowed it pre-router
   });
 
   test("test_router_fixed_arrows_work_in_any_view", () => {
@@ -1812,7 +1720,7 @@ describe("handleInput — config-driven router (keys.ts, P1.M3.T3.S1)", () => {
     panel.handleInput("o"); // overview (bare default, BAREKEYS-001)
     expect(panel.view).toBe("overview");
     // Arrows are FIXED keys (h2.34): the router checks them before anything
-    // else, in ANY view — only enter/digits/externalEditor carry focus
+    // else, in ANY view — only enter/externalEditor carry focus
     // gating. View-gated TARGETS refine on top (deep P1.M5.T1.S1, overview
     // P1.M5.T2.S1): in overview ↓ moves the overview CURSOR ROW — never the
     // short-form option cursor and never currentId (h2.29).
@@ -1903,7 +1811,6 @@ describe("panelActions registry", () => {
     for (const name of [
       "optionUp",
       "optionDown",
-      "digit",
       "accept",
       "prevQuestion",
       "nextQuestion",

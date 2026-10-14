@@ -72,8 +72,6 @@ export interface SubmitDeps {
 export interface PanelActions {
   optionUp(panel: InterrogationPanel): boolean;
   optionDown(panel: InterrogationPanel): boolean;
-  /** Quick-select option n (1-based); out of range or disabled → false. */
-  digit(panel: InterrogationPanel, n: number): boolean;
   accept(panel: InterrogationPanel): boolean;
   prevQuestion(panel: InterrogationPanel): boolean;
   nextQuestion(panel: InterrogationPanel): boolean;
@@ -183,27 +181,6 @@ export function optionDown(panel: InterrogationPanel): boolean {
 }
 
 /**
- * Digit quick-select (R5): accept option `n-1` (1-based) through the SAME
- * path as accept — same-value re-commit inert (ANSWER-PIN-001), ripple seam
- * on answered/submitted edits, moot/withdrawn no-op, advance after commit. Requires config.digitQuickSelect. Out of range
- * (`n-1` past the option count — the ✎ Other write-in row is NOT
- * digit-selectable, h2.36: quick-select covers REAL options only),
- * on text questions, or with quick-select disabled → no-op returning false
- * so the key can fall through to other bindings.
- */
-export function digit(panel: InterrogationPanel, n: number): boolean {
-  if (!panel.config.digitQuickSelect) return false;
-  if (!Number.isInteger(n) || n < 1 || n > 9) return false;
-  const q = currentQuestion(panel);
-  if (q === undefined || q.type !== "choice") return false;
-  if (n - 1 >= (q.options?.length ?? 0)) return false;
-  if (q.status === "moot" || q.status === "withdrawn") return true;
-  // Boolean boundary coercion (Mode A): false stays not-consumed (fall-
-  // through), every other outcome is consumed.
-  return acceptOptionIndex(panel, q, n - 1) !== false;
-}
-
-/**
  * Accept the current cursor position (Q14=A: enter = accept + advance).
  * Context-dependent:
  * - No question context → false.
@@ -260,17 +237,17 @@ export function accept(panel: InterrogationPanel): boolean {
  * - "veto"   — the ripple-confirm seam refused the edit (answered/submitted
  *   question, different value); NOTHING applied, NO advance; deep view stays
  *   open so the user re-decides in the pane they are reading.
- * - false    — out-of-range index (opt undefined): not consumed; digit falls
- *   through. Boolean for call-site compatibility (accept/digit return boolean).
+ * - false    — out-of-range index (opt undefined): not consumed; the key falls
+ *   through. Boolean for call-site compatibility (accept returns boolean).
  */
 export type AcceptOutcome = "noop" | "accept" | "veto" | false;
 
 /**
- * Shared commit path for accept + digit + deep view. Same-value re-commit
+ * Shared commit path for accept + deep view. Same-value re-commit
  * FIRST (ANSWER-PIN-001 / FR-D9): a non-custom recorded answer whose value
  * byte-equals the proposed option is an INERT NO-OP that advances (Q14
  * rhythm) — no ripple seam, no applyAnswer (answer.at is never rewritten),
- * no moot recompute, no auto-submit; digit inherits for free. Otherwise:
+ * no moot recompute, no auto-submit. Otherwise:
  * route answered/submitted/closed edits through the ripple-confirm seam
  * FIRST (AC-13 — a veto skips everything), applyAnswer (status →
  * answered, the pending state per h2.38), then advance. BUG-003/FR-18:
@@ -282,19 +259,19 @@ export type AcceptOutcome = "noop" | "accept" | "veto" | false;
  *
  * Returns an {@link AcceptOutcome} (Mode A): "noop" (same-value, advance
  * already ran), "accept" (committed, advance already ran), "veto" (the seam
- * refused — nothing applied, no advance), or false (opt undefined — digit's
- * not-consumed fall-through). Only the return SHAPE changed; commit logic,
+ * refused — nothing applied, no advance), or false (opt undefined — not
+ * consumed). Only the return SHAPE changed; commit logic,
  * seam ordering, and advance placement are byte-identical. Boolean
- * consumers (accept/digit, the PanelActions interface) coerce with
+ * consumers (accept, the PanelActions interface) coerce with
  * `!== false` — the outcome strings are truthy, never return them raw.
  */
 export function acceptOptionIndex(panel: InterrogationPanel, q: Question, optionIndex: number): AcceptOutcome {
   // D-R13 (2026-09-30): optionIndex is a DISPLAY position (recommended-first
   // order — displayOptions); the mapping lives HERE, the single seam, so
-  // cursor domain, digits, and deep view can all speak display positions.
+  // cursor domain and deep view both speak display positions.
   const opt = displayOptions(q)[optionIndex];
   if (opt === undefined) return false;
-  // ANSWER-PIN-001 / FR-D9: enter (or digit) on the ALREADY-RECORDED value
+  // ANSWER-PIN-001 / FR-D9: enter on the ALREADY-RECORDED value
   // on a SETTLED question (answered/submitted/closed — statuses the user's
   // own commit produced) is an inert no-op that advances — never a
   // re-proposal. Checked BEFORE the ripple seam: a same-value re-commit is
@@ -909,7 +886,6 @@ export function maybeAutoSubmit(
 export const panelActions: PanelActions = {
   optionUp,
   optionDown,
-  digit,
   accept,
   prevQuestion,
   nextQuestion,

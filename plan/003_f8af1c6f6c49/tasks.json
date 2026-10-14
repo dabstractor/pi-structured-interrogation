@@ -47,9 +47,7 @@
                   "title": "Purge seed-site JSDoc/comments; flip seed assertions",
                   "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P1.M1.T1.S1"
-                  ],
+                  "dependencies": ["P1.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — the three seed sites call initialCursorIndex and inherit the new pinning behavior automatically: src/panel/panel.ts:354 `set currentId(id)`; src/panel/panel.ts:~888-896 editor-close re-seed (EXPLAIN-003 site); src/panel/deep-view.ts:568 `deepSeedCursorIndex` (clamp bound `count` already tolerates the ✎ index).\n2. INPUT: the new initialCursorIndex contract from P1.M1.T1.S1 (recorded answer pins; ★ only when unanswered).\n3. LOGIC: Edit ONLY comments/JSDoc at the three sites — purge every \"answers never pin the cursor\" / \"next enter should ACCEPT the recommendation\" claim; the editor-close comment now states it re-seeds to the RECORDED answer when one exists. NO logic changes. Flip tests: src/panel/actions.test.ts ~:995 (EXPLAIN-003 re-seed now expects the recorded answer) and src/panel/panel.test.ts ~:618 (currentId seed on revisit). Mock: none — scripted vitest.\n4. OUTPUT: comment-purged seed sites; green seed tests — confirms inheritance for downstream subtasks.\n5. DOCS: [Mode A] JSDoc at the three seed sites states the pinning inheritance; rides with this work.",
                   "prd_selectors": [
                     "h2.0",
@@ -66,9 +64,7 @@
                   "title": "tool-schema recommendation description → spec-verbatim string",
                   "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P1.M1.T1.S1"
-                  ],
+                  "dependencies": ["P1.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Agent-facing-schema — src/tool-schema.ts:62 today reads `description: \"Recommended option value; marked ★ and preselected\"` — the status-agnostic claim.\n2. INPUT: the pinning contract from P1.M1.T1.S1 (preselect only while unanswered).\n3. LOGIC: Replace the description with the spec-verbatim sentence: \"Recommended option value; marked ★; preselected only while unanswered — a recorded answer always owns the cursor\". Byte-exact match against spec h2.19/h2.24 is mandatory — if the spec text differs from this string, SPEC WINS; quote the spec, do not paraphrase. Update src/tool-schema.test.ts string assertions; keep the ≤120-word resident agent-facing-text constraints green. Mock: none.\n4. OUTPUT: updated schema string + green tool-schema tests; this string is agent-visible documentation of the behavior shipped by P1.M1.T1.S1.\n5. DOCS: [Mode A] the description string IS the agent-facing doc — no further docs work.",
                   "prd_selectors": [
                     "h2.0",
@@ -95,9 +91,7 @@
                   "title": "acceptOptionIndex: same-value commit is an inert NO-OP (digit inherits)",
                   "status": "Complete",
                   "story_points": 2,
-                  "dependencies": [
-                    "P1.M1.T1.S1"
-                  ],
+                  "dependencies": ["P1.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Accept-paths — src/panel/actions.ts:244 `acceptOptionIndex(panel, q, optionIndex): boolean`; ripple seam at :255 `if (!panel.confirmRippleEdit(q.id, proposed)) return true; // seam vetoed`; maybeAutoSubmit at :265 (AUTOSUBMIT-001/003 transition-gated); digit path at :196 routes through acceptOptionIndex (`return acceptOptionIndex(panel, q, n - 1)`).\n2. INPUT: question record with `answer: { value, custom?, at }` from state; the pinned caret from P1.M1.T1.S1 means enter lands on the recorded row by default.\n3. LOGIC: Implement FR-D9: BEFORE the ripple seam at :255, if q.answer exists && !answer.custom && answer.value === proposed option value → state NO-OP: skip confirmRippleEdit, applyAnswer, evaluateDependsOn, maybeAutoSubmit entirely; NO fresh answer.at; advance to next unanswered per the Q14 rhythm only. FR-18 confirm fires only on an explicit DIFFERENT choice. digit inherits via :196 — add an explicit digit-on-recorded-value no-op test (consumed, advance, zero state change: no modal, no epoch bump, no answer.at rewrite). Add maybeAutoSubmit-never-fires-from-no-op test. Mock: none — scripted vitest; the ripple confirm renders through the existing panel test harness.\n4. OUTPUT: acceptOptionIndex exposing a THREE-OUTCOME result (NO-OP | ACCEPT | VETO — e.g. return flag/enum) consumed by P1.M1.T2.S3 (acceptFromDeep) and covered by P1.M1.T5.S2's AC-16 test.\n5. DOCS: [Mode A] JSDoc on acceptOptionIndex and the digit path stating the no-op contract, citing ANSWER-PIN-001/FR-35; purge the actions.ts ~:278 status-agnostic comment as touched.",
                   "prd_selectors": [
                     "h2.0",
@@ -123,9 +117,7 @@
                   "title": "writeInEnter: byte-identical re-commit inert + buffer consume",
                   "status": "Complete",
                   "story_points": 2,
-                  "dependencies": [
-                    "P1.M1.T2.S1"
-                  ],
+                  "dependencies": ["P1.M1.T2.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — src/panel/actions.ts:295 `writeInEnter(panel): boolean`; docs ~:273-293 describe the post-commit sequence and the confirmRippleEdit choice seam; the write-in buffer stages into the draft slot on advance (VAL-002 consume pattern per spec h2.62 staging philosophy).\n2. INPUT: the write-in buffer text and the recorded `answer: { value, custom: true, at }` (write-ins) or `{ value }` (text questions); the NO-OP/advance semantics established in P1.M1.T2.S1.\n3. LOGIC: Implement FR-D9: BEFORE the ripple-victims branch — if (answer.custom === true && buffer === answer.value) OR (type:\"text\" && answer.value === buffer) → inert no-op: advance only; consume/neutralize the buffer per the VAL-002 pattern so the advance's draft write-through CANNOT stage committed text into the draft slot. Flip the same-value write-in edit assertions at src/panel/actions.test.ts ~:1684-1685 and ~:1829-1836. Mock: none — scripted vitest.\n4. OUTPUT: inert writeInEnter with consumed buffer; green flipped tests; consumed-buffer guarantee consumed by P1.M1.T5.S2's AC-16 write-in scenario.\n5. DOCS: [Mode A] JSDoc on writeInEnter stating the inert-re-commit + buffer-consume contract; purge actions.ts comments ~:305/329/338-339/353/371 as touched.",
                   "prd_selectors": [
                     "h2.0",
@@ -146,9 +138,7 @@
                   "title": "acceptFromDeep: no-op returns to short + advances; veto stays in deep",
                   "status": "Complete",
                   "story_points": 2,
-                  "dependencies": [
-                    "P1.M1.T2.S1"
-                  ],
+                  "dependencies": ["P1.M1.T2.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — src/panel/deep-view.ts:528 `acceptFromDeep(panel): boolean`; :552 `if (q.answer === before) return true;` reads a same-value no-op as a VETO (user stuck in deep view); comments ~:559-566 carry the old claim.\n2. INPUT: the THREE-OUTCOME signal (NO-OP | ACCEPT | VETO) returned by acceptOptionIndex from P1.M1.T2.S1.\n3. LOGIC: Implement FR-D9: a same-value NO-OP is an ACCEPT, not a veto — return to the short form and advance (Q14 rhythm); only a ripple VETO keeps the user in deep view. Replace/augment the :552 heuristic with the explicit outcome signal. Flip src/panel/deep-view.test.ts ~:420; add both branches: same-value → short + advance; veto → stays in deep. Mock: none — scripted vitest.\n4. OUTPUT: three-outcome acceptFromDeep; green deep-view tests; behavior covered end-to-end by AC-16 in P1.M1.T5.S2.\n5. DOCS: [Mode A] JSDoc on acceptFromDeep stating the no-op-vs-veto distinction; purge deep-view.ts comments ~:559-566.",
                   "prd_selectors": [
                     "h2.0",
@@ -165,11 +155,9 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S4",
                   "title": "BUG-001 — acceptOptionIndex/digit: reasked same-value commit = RE-CONFIRMATION",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
-                  "dependencies": [
-                    "P1.M1.T2.S1"
-                  ],
+                  "dependencies": ["P1.M1.T2.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md §Accept-paths — src/panel/actions.ts `acceptOptionIndex` + the digit path (post-P1 state: the P1.M1.T2.S1 same-value no-op precedes the confirmRippleEdit seam; locate by content, lines drifted). decisions.md §2026-10-05 answer pinning re-ask amendment (BUG-001): a rule-1 re-ask flips status to `reasked` while KEEPING the answer — the lifecycle marker, not the user, created that hybrid, so enter/digit on the kept value is a re-confirmation, not a no-op ('re-confirming the kept value IS keeping it').\n2. INPUT: question with status `reasked` carrying its pre-re-ask `answer` (rule-1 same-options update keeps answers); proposed option value equal to `answer.value`.\n3. LOGIC: Narrow the inert no-op to SETTLED statuses — `q.status ∈ {answered, submitted, closed}`. When status is `reasked` and the proposed value equals the recorded answer: RE-CONFIRMATION commit — re-mark answered(pending) with a fresh `answer.at` (diff-invisible: the answer signature is value+text only, never `at`), run the dependsOn moot recompute, and run maybeAutoSubmit with the transition commit context (may fire the auto-submit, letting the re-ask → re-confirm → settle → completion loop close). FR-18 different-value ripple unchanged; digit path inherits; the three-outcome signal routes re-confirmations as ACCEPTs for acceptFromDeep. Tests: enter on the kept value of a reasked question re-marks pending and can complete the interrogation (old wedge: question counted unanswered everywhere, ctrl+s said 'nothing to submit', completion permanently blocked unless the user changed their answer). Mock: none — scripted vitest.\n4. OUTPUT: amended acceptOptionIndex no-op predicate (settled-only) consumed by the digit path and covered by P1.M1.T5.S3's flips.\n5. DOCS: [Mode A] JSDoc on acceptOptionIndex stating the settled-vs-reasked split, citing BUG-001/ANSWER-PIN-001.",
                   "prd_selectors": [
                     "h2.0",
@@ -188,11 +176,9 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S5",
                   "title": "BUG-001 — writeInEnter: reasked exclusion + KIND-PRESERVING custom",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
-                  "dependencies": [
-                    "P1.M1.T2.S2"
-                  ],
+                  "dependencies": ["P1.M1.T2.S2"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/panel-ui-seams.md — src/panel/actions.ts `writeInEnter` (post-P1 state: byte-identical no-op + buffer consume from P1.M1.T2.S2; locate by content). decisions.md §2026-10-05 re-ask amendment (BUG-001): 'Editor-path twin landed in the same amendment: writeInEnter gains the identical q.status !== \"reasked\" exclusion on its byte-identical no-op, and its direct commit is KIND-PRESERVING on that path'.\n2. INPUT: write-in buffer text; recorded answer with status `reasked` — a choice write-in (`custom: true`) or a fallback-shaped plain text answer (no custom key).\n3. LOGIC: (a) the byte-identical no-op gains `q.status !== \"reasked\"` — a byte-identical re-commit on a reasked question re-confirms (answered(pending), fresh answer.at, moot recompute, maybeAutoSubmit transition) instead of inertly advancing; (b) that direct re-confirm commit is KIND-PRESERVING — derive `custom` from the recorded answer: a choice write-in re-commits `custom: true`; a fallback-shaped plain-text answer re-commits plain with the key absent, never flipped into a write-in. Buffer-consume semantics from P1.M1.T2.S2 otherwise unchanged. Tests: both kinds re-confirm; reasked write-in re-confirm can complete the loop. Mock: none — scripted vitest.\n4. OUTPUT: amended writeInEnter; covered by P1.M1.T5.S3.\n5. DOCS: [Mode A] JSDoc on writeInEnter stating the reasked exclusion + kind-preserving rule, citing BUG-001.",
                   "prd_selectors": [
                     "h2.0",
@@ -211,12 +197,9 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S6",
                   "title": "BUG-003 — option/digit path: FR-18 gate widens to CLOSED edits",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P1.M1.T2.S1",
-                    "P1.M1.T2.S4"
-                  ],
+                  "dependencies": ["P1.M1.T2.S1", "P1.M1.T2.S4"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/panel/actions.ts `acceptOptionIndex` confirmRippleEdit seam + digit path (locate by content; seam anchored by P1.M1.T2.S1's no-op). decisions.md §2026-10-06 closed-edit ripple (BUG-003, Q39=B extension): 'the ripple-confirm seam fires for different-value edits to CLOSED (archived) questions on the option-accept and digit paths — a closed question still carries its recorded answer (FR-2: answers editable even archived), so silently mooting its answered dependents was an unconfirmed invalidation of real user work'.\n2. INPUT: question with status `closed` carrying `answer`; a DIFFERENT proposed value; dependsOn transitive closure hitting answered/submitted/closed victims.\n3. LOGIC: The FR-18 confirmRippleEdit gate's trigger/victim form becomes the explicit status list `answered|submitted|closed` — NOT answer-presence (answer-presence would also capture the `reasked` hybrid from rule-1 re-asks and require exemptions that would break P1.M1.T2.S4's same-value re-confirm seam; the status list keeps that path seam-free by construction). Ordering is load-bearing: the same-value no-op (which already covers closed) runs BEFORE the gate, so same-value re-commits on closed stay inert (advance, no modal, no state write); zero-victim closed edits apply directly with no modal. digit path inherits. Tests: different-value closed edit raises the modal; same-value closed re-commit inert; zero-victim closed edit applies silently. Mock: none — scripted vitest.\n4. OUTPUT: widened gate consumed on both option-accept paths; covered by P1.M1.T5.S3.\n5. DOCS: [Mode A] JSDoc at the seam citing BUG-003 and the status-list-not-answer-presence rule.",
                   "prd_selectors": [
                     "h2.0",
@@ -231,12 +214,9 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S7",
                   "title": "BUG-003 — editor path: writeInEnter gate + stageText seam widen",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P1.M1.T2.S2",
-                    "P1.M1.T2.S5"
-                  ],
+                  "dependencies": ["P1.M1.T2.S2", "P1.M1.T2.S5"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/panel/actions.ts `writeInEnter` (commit + elaboration seams) and `stageText` (elaboration-save seam; locate by content — stageText predates plan 003). decisions.md §2026-10-06 closed-edit ripple (BUG-003, editor-path twin): 'the writeInEnter commit and stageText elaboration-save seams widen to the same answered|submitted|closed status list — writeInEnter's gate sits behind its byte-identical no-op (closed same-value re-commits stay inert), stageText keeps its answer !== undefined conjunct (a draft-only save never applies an answer or mutes victims — the deferred draft save is cancel/commit only)'.\n2. INPUT: write-in/text edits and elaboration saves on questions with status ∈ {answered, submitted, closed}.\n3. LOGIC: (a) writeInEnter's ripple gate widens to the same explicit status list, positioned BEHIND its byte-identical no-op — closed same-value write-in re-commits stay inert; different-value closed write-in edits route through the FR-18 keep/cancel modal; (b) stageText (elaboration save) widens identically but KEEPS its `answer !== undefined` conjunct — a draft-only save never applies an answer and never mutes victims. Mock: none — scripted vitest.\n4. OUTPUT: both editor-path seams aligned with the option/digit gate from P1.M1.T2.S6; covered by P1.M1.T5.S3.\n5. DOCS: [Mode A] JSDoc on both seams citing BUG-003.",
                   "prd_selectors": [
                     "h2.0",
@@ -329,12 +309,7 @@
                     "P1.M1.T3.S1"
                   ],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/testing-verification.md — to-flip map with owner subtasks; anchors (locate by content, lines drift): actions.test.ts:541/1878/1948, short-view.test.ts, two-stage.test.ts, panel.test.ts ~:618 (if not already flipped in T1.S2), ac-panel.test.ts ~:477, overview.test.ts ~:412/452 (if not already handled in T3.S7).\n2. INPUT: the landed contracts from P1.M1.T1.S1 (pin), T2.S4/S5/S6 (no-ops), T3.S7 (marker).\n3. LOGIC: Flip every remaining assertion that pins ★-preselect-on-revisit or same-value-edit behavior — each flip asserts the NEW contract (caret on recorded row / no-op advance), never a deletion. Run src/panel/*.test.ts green. Mock: none — scripted vitest only.\n4. OUTPUT: green src/panel/*.test.ts on the new contract — precondition for P1.M1.T5.S2's full-suite gate.\n5. DOCS: none — no user-facing/config/API surface change.",
-                  "prd_selectors": [
-                    "h2.8",
-                    "h2.8/h3.5",
-                    "h2.10",
-                    "h2.53"
-                  ]
+                  "prd_selectors": ["h2.8", "h2.8/h3.5", "h2.10", "h2.53"]
                 },
                 {
                   "type": "Subtask",
@@ -368,7 +343,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S3",
                   "title": "Flip/stabilize suites for BUG-001/BUG-003 amendments; gates green",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S4",
@@ -427,7 +402,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T6.S2",
                   "title": "README.md: re-ask re-confirmation + archived-edit confirm notes",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S4",
@@ -457,69 +432,52 @@
       "type": "Phase",
       "id": "P2",
       "title": "Phase D2 — Pinned deep-view question (DEEP-PIN-001)",
-      "status": "Planned",
+      "status": "Complete",
       "description": "The deep pane splits into two regions: a PINNED question region (moot reason line when moot, full description, full goal below it, dimmed) that NEVER scrolls, and a scrollable options region under it. Root cause (2026-10-05 owner report): the pre-pin single-scroll-pane layout let the sticky selection floor (offset ≥ headerIdx − viewportHeight + 2) strand the question above the window with no way back short of toggling the view. Rulings: scrollOffset indexes the OPTIONS region only; DeepContent grows a questionLines region rendered on every offset; question-region overflow truncates bottom-first (dimmed … marker, description priority over goal, ANSI-safe whole-line cut, never slicing styled lines); the options window never shrinks below MIN_OPTIONS_VIEWPORT (4 lines); text questions (no options region) let the question use the full pane height; the sticky-header clamp itself is unchanged but now operates inside the options region; render budget contract (pinned + window ≤ DEEP_VIEW_HEIGHT, every line width-bounded) holds. Non-goals: no changes to the D-R14 visual contract geometry (bar col 3, text col 4, amendment-8 trailing Title ★, variation-B separators, ▸/┃ selection glyphs), no short-view/overview changes, no state-machine changes.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P2.M1",
           "title": "D2.M1 — Two-region deep pane",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Single milestone delivering the pinned questionLines region, options-region scroll semantics, truncation rules, viewport floor, clamp retarget, render-budget contract, suite flips, and AC-5 re-verification.",
           "tasks": [
             {
               "type": "Task",
               "id": "P2.M1.T1",
               "title": "FR — DeepContent grows a pinned questionLines region",
-              "status": "Planned",
+              "status": "Complete",
               "description": "The deep pane becomes two regions: question content pinned above (moot reason line when moot, full description, full goal, dimmed), options content scrollable under it; scrollOffset indexes the options region only; overflow truncates bottom-first with a 4-line options floor.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T1.S1",
                   "title": "questionLines region + scrollOffset indexes the options region only",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/panel/deep-view.ts — `buildDeepContent`/`DeepContent`, `scrollOffset`, `renderDeepWindow`, `DEEP_VIEW_HEIGHT` (locate by content; D-R14 amendment-9 work reshaped this file after plan 003's line anchors). ui-spec.md §Layout deep-view bullet (two-region pane) + decisions.md §2026-10-05 DEEP-PIN-001 ruling (1): 'scrollOffset indexes the OPTIONS region only; DeepContent grows a questionLines region rendered on every offset'.\n2. INPUT: the current question (moot reason line when moot, full description, full goal) and the options content (option sections + ✎ Other section) with D-R14 rendering (bar col 3, text col 4, ▸/┃ selection glyphs, variation-B separators).\n3. LOGIC: Split the pane into two regions: a PINNED question region — moot reason line (when moot), full description, full goal below it, dimmed — rendered on EVERY offset and NEVER scrolling; a scrollable options region under it where `scrollOffset` indexes options content only. Text questions (no options region) let the question use the full pane height. ZERO changes to the options region's visual contract (D-R14 geometry untouched). Tests: question region identical at offset 0/mid/max; scrolling to the lowest section leaves the question fully visible. Mock: none — scripted vitest only.\n4. OUTPUT: two-region DeepContent consumed by T1.S2/S3 and P2.M1.T2.\n5. DOCS: [Mode A] JSDoc on DeepContent/buildDeepContent/renderDeepWindow stating the two-region contract, citing DEEP-PIN-001 ('The question shouldn't scroll out of view at all.').",
-                  "prd_selectors": [
-                    "h2.29",
-                    "h2.8/h3.1",
-                    "h2.37",
-                    "h2.66"
-                  ]
+                  "prd_selectors": ["h2.29", "h2.8/h3.1", "h2.37", "h2.66"]
                 },
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T1.S2",
                   "title": "Question-region overflow: bottom-first truncation, dimmed …, description > goal",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
-                  "dependencies": [
-                    "P2.M1.T1.S1"
-                  ],
+                  "dependencies": ["P2.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: DEEP-PIN-001 ruling (2): 'when the question region alone would overflow DEEP_VIEW_HEIGHT it is whole-line truncated bottom-first with a dimmed … marker — the DESCRIPTION keeps priority over the goal (the goal is context already summarized in the header, FR-30), never by slicing styled lines (ANSI-safe whole-line cut)'.\n2. INPUT: the pinned questionLines from P2.M1.T1.S1 with styled/dimmed lines; DEEP_VIEW_HEIGHT budget.\n3. LOGIC: Implement overflow truncation of the question region: drop WHOLE lines bottom-first (goal lines go before description lines; description keeps priority), render a dimmed `…` marker at the cut, never slice a styled line mid-line (ANSI-safe — truncation picks line boundaries only). The options-window floor (T1.S3) bounds how much the question region may consume. Tests: long description + goal → goal truncated first, then description tail; `…` present; no line ever partially rendered; the moot reason line survives whenever the question renders. Mock: none — scripted vitest.\n4. OUTPUT: bounded questionLines feeding the render budget (P2.M1.T2.S2).\n5. DOCS: [Mode A] JSDoc on the truncation helper stating priority order + ANSI safety, citing DEEP-PIN-001 ruling (2).",
-                  "prd_selectors": [
-                    "h2.29",
-                    "h2.30",
-                    "h2.66"
-                  ]
+                  "prd_selectors": ["h2.29", "h2.30", "h2.66"]
                 },
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T1.S3",
                   "title": "MIN_OPTIONS_VIEWPORT (4-line) options floor; text-question full-height path",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P2.M1.T1.S1"
-                  ],
+                  "dependencies": ["P2.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: DEEP-PIN-001 ruling (3): 'the options window never shrinks below MIN_OPTIONS_VIEWPORT (4 lines) — a pane with no visible options would strand the selection'; ruling (4): text questions (no options region) let the question use the full pane height.\n2. INPUT: the two-region layout from P2.M1.T1.S1.\n3. LOGIC: Introduce MIN_OPTIONS_VIEWPORT = 4: options-window height = DEEP_VIEW_HEIGHT − pinned question height, floored at 4 lines; the question region truncates (T1.S2) to make the floor fit. Text questions (no options region) skip the floor — the question region may use the full pane. Tests: extremely long description still leaves ≥4 option lines; text question renders full-height question. Mock: none — scripted vitest.\n4. OUTPUT: viewport-floor constant + height math consumed by P2.M1.T2.\n5. DOCS: [Mode A] constant JSDoc citing DEEP-PIN-001 ruling (3).",
-                  "prd_selectors": [
-                    "h2.29",
-                    "h2.30",
-                    "h2.66"
-                  ]
+                  "prd_selectors": ["h2.29", "h2.30", "h2.66"]
                 }
               ]
             },
@@ -527,41 +485,28 @@
               "type": "Task",
               "id": "P2.M1.T2",
               "title": "FR — Sticky clamp + render budget inside the options region",
-              "status": "Planned",
+              "status": "Complete",
               "description": "The sticky selection floor (offset ≥ headerIdx − viewportHeight + 2) is unchanged but now operates inside the options region where its floor can no longer hide the question; the render budget contract covers both regions.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T2.S1",
                   "title": "Sticky-header clamp retargets to the options region",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P2.M1.T1.S1"
-                  ],
+                  "dependencies": ["P2.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: the sticky selection floor — `offset ≥ headerIdx − viewportHeight + 2` (AC-5's keep-the-selected-header-visible clamp; src/panel/deep-view.ts `clampScroll`, locate by content). DEEP-PIN-001 root cause: 'the pre-pin single-scroll-pane layout let the sticky selection floor strand the question above the window with no way back short of toggling the view'; ruling (5): 'the sticky-header clamp itself is unchanged — it now operates inside the options region where its floor can no longer hide the question'.\n2. INPUT: options-region-only scrollOffset from P2.M1.T1.S1.\n3. LOGIC: The clamp expression itself is UNCHANGED — it now operates INSIDE the options region (headerIdx/viewportHeight speak options-region indices/heights). Verify the old strand scenario is structurally unreachable: cursor on the lowest section, offset at its floor, question region still fully rendered above. Tests: the repro walk (deep view → scroll to last section → question visible; no exit-and-reenter needed). Mock: none — scripted vitest.\n4. OUTPUT: retargeted clamp covered by P2.M1.T3 suites.\n5. DOCS: [Mode A] comment at the clamp stating the retarget, citing DEEP-PIN-001 ruling (5).",
-                  "prd_selectors": [
-                    "h2.29",
-                    "h2.10",
-                    "h2.66"
-                  ]
+                  "prd_selectors": ["h2.29", "h2.10", "h2.66"]
                 },
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T2.S2",
                   "title": "Render budget contract: pinned + window ≤ DEEP_VIEW_HEIGHT, width-bounded",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P2.M1.T1.S2",
-                    "P2.M1.T2.S1"
-                  ],
+                  "dependencies": ["P2.M1.T1.S2", "P2.M1.T2.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: the pre-existing render budget contract (DEEP-PIN-001 tail: 'Render budget contract (h2.51 row 2) unchanged: pinned + window ≤ DEEP_VIEW_HEIGHT, every line width-bounded') must now cover BOTH regions.\n2. INPUT: pinned questionLines (P2.M1.T1.S2) + options window (P2.M1.T1.S3) + clamp (P2.M1.T2.S1).\n3. LOGIC: Assert the combined contract: pinned region + options window ≤ DEEP_VIEW_HEIGHT on every offset and question shape; every rendered line width-bounded (the existing width loop now covers both regions). Tests: sweep across question heights/option counts at narrow widths (terminal-budget suite). Mock: none — scripted vitest.\n4. OUTPUT: budget-contract guarantee for the whole pane.\n5. DOCS: [Mode A] JSDoc on the render entry restating the budget over both regions.",
-                  "prd_selectors": [
-                    "h2.29",
-                    "h2.30",
-                    "h2.66"
-                  ]
+                  "prd_selectors": ["h2.29", "h2.30", "h2.66"]
                 }
               ]
             },
@@ -569,14 +514,14 @@
               "type": "Task",
               "id": "P2.M1.T3",
               "title": "Stabilize deep-view suites + AC-5 verification",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Flip the D-R14-era single-pane expectations to the two-region contract, add the AC-5 pinned-question verification, and hold the binding green gates.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T3.S1",
                   "title": "Flip/extend deep-view tests for the two-region layout",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P2.M1.T1.S1",
@@ -586,28 +531,17 @@
                     "P2.M1.T2.S2"
                   ],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/panel/deep-view.test.ts holds the D-R14-era single-pane expectations (scroll offsets over the whole content, question-at-top-of-scroll assertions); src/panel/terminal-budget.test.ts holds the width/height budget rows.\n2. INPUT: the two-region contracts from P2.M1.T1/T2.\n3. LOGIC: Flip/extend: scroll offsets are options-region-relative; question-region presence assertions at all offsets; truncation rows (goal-first, ANSI-safe, … marker); viewport-floor rows; clamp-retarget rows. Run src/panel/deep-view.test.ts + terminal-budget + adjacent panel suites green. Mock: none — scripted vitest only.\n4. OUTPUT: green deep-view suite on the two-region contract — precondition for P2.M1.T3.S2.\n5. DOCS: none — test work only.",
-                  "prd_selectors": [
-                    "h2.29",
-                    "h2.53",
-                    "h2.66"
-                  ]
+                  "prd_selectors": ["h2.29", "h2.53", "h2.66"]
                 },
                 {
                   "type": "Subtask",
                   "id": "P2.M1.T3.S2",
                   "title": "AC-5 scripted re-verification + binding green gates",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P2.M1.T3.S1"
-                  ],
+                  "dependencies": ["P2.M1.T3.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/003_f8af1c6f6c49/architecture/testing-verification.md §Green-gates; AC-5 (deep view: toggle, scroll all ramifications incl. the Other section, select an option from deep view → returns to short form, advances).\n2. INPUT: all P2.M1.T1/T2 contracts + green suites from P2.M1.T3.S1.\n3. LOGIC: Add/extend the AC-5 scripted flow with the DEEP-PIN invariant: while scrolling every section (including ✎ Other and the lowest option), the question region stays pinned and fully visible; select-from-deep still returns to short form and advances (Q14). Gates (binding): npm test full suite green; npm run typecheck green; src/no-hardcoded-keys.test.ts + src/keymap-guard.test.ts green — NO new key labels. Mock: none.\n4. OUTPUT: AC-5 + pinned-question verification resident in the suite; all gates green — the phase's acceptance evidence.\n5. DOCS: none — test work only.",
-                  "prd_selectors": [
-                    "h2.10",
-                    "h2.29",
-                    "h2.53",
-                    "h2.66"
-                  ]
+                  "prd_selectors": ["h2.10", "h2.29", "h2.53", "h2.66"]
                 }
               ]
             }
@@ -619,53 +553,42 @@
       "type": "Phase",
       "id": "P3",
       "title": "Phase D3 — Guard & submit-pipeline bugfix pins (BUG-005, BUG-002 panel parity)",
-      "status": "Planned",
+      "status": "Complete",
       "description": "Two decisions.md bugfix pins from the PRD update. (1) BUG-005 (2026-10-07): 'guard-friendly first upserts' extends to epoch-carrying ones on a freshly swapped state — assertFresh accepts ANY sent epoch when the receiver is fresh (epoch 1, zero live questions) and the batch is all-new ids; the digest is provably empty ('(none)') so the mismatch signal carried no information. Deliberately scoped: all-new-id batches on NON-empty states still epoch-STALE (rotation guard, guards.test.ts 'epoch-only mismatch with only new ids'); the answers record path is untouched (a stale-epoch answers call is a true heal). Detected by invariant — NO new state field (serialize/hygiene pins forbid one). (2) BUG-002 panel parity (2026 wave 001_64331ded9ddb, D-R6 parity bullet): the panel ctrl+s submit honors the same flush rule — pending (answered) ids flush → submitted, synthesize card entries, bump the epoch, and deliver even when the answer-signature diff is empty (identical re-selection after a rule-2 re-ask); the zero-pending early return ('nothing to submit') is unchanged. Non-goals: no remote-bridge resurrection (surface removed 2026-10-02), no rev-guard changes, no UI changes.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P3.M1",
           "title": "D3.M1 — assertFresh fresh-receiver acceptance + ctrl+s empty-diff flush",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Single milestone delivering both bugfix pins with their boundary tests and green gates.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M1.T1",
               "title": "BUG-005 — assertFresh accepts any epoch on a fresh receiver (all-new ids)",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Fresh receiver (epoch 1, zero live questions — the post-completion swap singleton) + all-new-id upsert: any sent epoch is accepted; every other epoch-guard boundary unchanged.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T1.S1",
                   "title": "assertFresh: fresh-receiver epoch acceptance, scoped",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/guards.ts `assertFresh` (+ StaleError/buildStaleMessage; locate by content) — shaped by the 2026-09-14 swap pin (new interrogation replaces the completed singleton: fresh epoch 1, zero live questions) and the 2026-09-14 clarification (epoch REQUIRED only when an upsert touches existing ids). decisions.md Protocol §2026-10-07 bugfix pin (BUG-005): companion to the swap pin.\n2. INPUT: an upsert carrying a top-level `epoch` on a freshly swapped state (epoch 1, zero live questions) with an all-new-id batch.\n3. LOGIC: When the receiver is fresh (epoch === 1 && zero live questions) AND every batch id is new, accept ANY sent epoch (including stale-looking ones) — no STALE rejection; the digest since the sent epoch is provably empty ('(none)'), so the mismatch signal carries no information. Scope is deliberate: all-new-id batches on NON-empty states remain epoch-STALE (rotation guard); the `answers` record path is untouched (a stale-epoch answers call is a true heal). NO new state field — serialize/hygiene pins forbid one; detected by invariant. Mock: none — scripted vitest.\n4. OUTPUT: amended assertFresh consumed by P3.M1.T1.S2's boundary tests.\n5. DOCS: [Mode A] JSDoc on assertFresh stating the fresh-receiver acceptance rule and its scoping, citing BUG-005.",
-                  "prd_selectors": [
-                    "h2.22",
-                    "h2.41",
-                    "h2.58",
-                    "h2.63"
-                  ]
+                  "prd_selectors": ["h2.22", "h2.41", "h2.58", "h2.63"]
                 },
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T1.S2",
                   "title": "Boundary tests: fresh-accept vs rotation-guard STALE; gates green",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P3.M1.T1.S1"
-                  ],
+                  "dependencies": ["P3.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/guards.test.ts row 'epoch-only mismatch with only new ids' is the rotation-guard boundary this pin must PRESERVE as STALE.\n2. INPUT: the amended assertFresh from P3.M1.T1.S1.\n3. LOGIC: New rows: fresh receiver (post-completion swap) + all-new ids + sent epoch ≠ 1 → ACCEPTED (no STALE); same shape on a NON-empty state → STALE (rotation guard stays green); upserts touching existing ids keep requiring the current epoch (unchanged); the answers-path heal rows untouched. Gates: npm test full suite green; npm run typecheck green. Mock: none — scripted vitest.\n4. OUTPUT: green guard suite pinning both sides of the boundary — the task's acceptance evidence.\n5. DOCS: none — test work only.",
-                  "prd_selectors": [
-                    "h2.22",
-                    "h2.53",
-                    "h2.58"
-                  ]
+                  "prd_selectors": ["h2.22", "h2.53", "h2.58"]
                 }
               ]
             },
@@ -673,14 +596,14 @@
               "type": "Task",
               "id": "P3.M1.T2",
               "title": "BUG-002 — panel ctrl+s flush parity on empty answer-signature diffs",
-              "status": "Planned",
+              "status": "Complete",
               "description": "The panel ctrl+s submit flushes pending (answered) ids → submitted, synthesizes card entries, bumps the epoch, and delivers even when the answer-signature diff is empty (identical re-selection after a rule-2 re-ask); the zero-pending early return ('nothing to submit') is unchanged.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T2.S1",
                   "title": "Submit pipeline: empty-diff flush rule (panel path)",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: the panel ctrl+s submit pipeline — reconcile → baseline/diff → BUG-008 filter → gate check → markSubmitted → buildSubmission → deliverSubmission → noteSubmissionDelivered — in src/panel/actions.ts (submit entry; locate by content) and src/delivery.ts (buildSubmission/deliverSubmission), src/merge.ts (markSubmitted). decisions.md Remote bridge §'D-R6 parity, panel path (2026 wave 001_64331ded9ddb / BUG-002)'.\n2. INPUT: pending (answered) questions whose answer-signature diff vs the baseline snapshot is EMPTY — identical re-selection after a rule-2 (changed-options) re-ask reset and re-answered the same value.\n3. LOGIC: The panel ctrl+s submit honors the flush rule: pending ids flush → submitted, card entries synthesized, epoch bumped, submission delivered — EVEN when the answer-signature diff is empty. The zero-pending early return ('nothing to submit' footer flash) is unchanged — it still fires when no answered-pending ids exist, with no epoch bump and no delivery. Mock: none — scripted vitest.\n4. OUTPUT: flush-rule submit pipeline covered by P3.M1.T2.S2.\n5. DOCS: [Mode A] JSDoc on the submit entry point stating the empty-diff flush rule, citing BUG-002 panel parity.",
@@ -696,18 +619,11 @@
                   "type": "Subtask",
                   "id": "P3.M1.T2.S2",
                   "title": "Flush-rule tests + no-op interplay; gates green",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P3.M1.T2.S1"
-                  ],
+                  "dependencies": ["P3.M1.T2.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/panel/actions.test.ts / src/panel/ac-panel.test.ts submit suites hold the empty-diff expectations; the ANSWER-PIN-001 no-op seams (P1.M1.T2) never mark pending and must not trigger the flush.\n2. INPUT: the flush rule from P3.M1.T2.S1.\n3. LOGIC: Rows: identical re-selection after a rule-2 re-ask + ctrl+s → ONE delivery, epoch +1, card synthesized, ids submitted; zero-pending ctrl+s → 'nothing to submit' flash, no delivery, no epoch bump; a same-value no-op followed by ctrl+s ships nothing from the no-op path. Gates: npm test full suite green; npm run typecheck green. Mock: none — scripted vitest.\n4. OUTPUT: green submit suite on the flush rule — the task's acceptance evidence.\n5. DOCS: none — test work only.",
-                  "prd_selectors": [
-                    "h2.32",
-                    "h2.39",
-                    "h2.53",
-                    "h2.59"
-                  ]
+                  "prd_selectors": ["h2.32", "h2.39", "h2.53", "h2.59"]
                 }
               ]
             }
@@ -719,88 +635,62 @@
       "type": "Phase",
       "id": "P4",
       "title": "Phase D4 — Moot reason persistence (BUG-004, Option A)",
-      "status": "Planned",
+      "status": "Complete",
       "description": "The moot reason (h2.29 `moot: {depId}={value}`) is PERSISTED on Question.mootReason at the evaluateDependsOn mute/still-moot site (Option A) rather than recomputed at render time (Option B REJECTED: dependencyMet render-time plumbing would force state into three public pure-renderer signatures — short-view mootReason, overview overviewMootReason, layout statusMarkers all stay pure Question-only readers). Rulings: (1) the field write is SILENT — never routed through setStatus/emitChanged — so still-moot passes stay zero-event and serialize byte-identical when the reason string is unchanged; a CHANGED reason on a still-moot question updates the field silently too; (2) a reason never outlives moot — both reopen branches (re-met; removed/emptied dependsOn, BUG-006b) clear the field BEFORE the setStatus flip, and merge rebuilds clear defensively; (3) renderers read the field first with legacy fallback chains intact and only while status === 'moot'; (4) the panel renders the reason VERBATIM with its 'moot: ' prefix — only buildCompletion strips the prefix for the record format; (5) buildCompletion keeps its recompute as the evaluator-truth cross-check (agreement test pins record reasons === persisted fields, prefix-stripped); (6) reconstruction step 5 re-runs evaluateDependsOn, so the field self-heals after restart. answerSignature is untouched. Non-goals: no new state fields beyond mootReason, no dependsOn semantics changes, no UI layout changes.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P4.M1",
           "title": "D4.M1 — Persisted moot reason: write, clear, render, verify",
-          "status": "Planned",
+          "status": "Complete",
           "description": "Single milestone delivering the Question.mootReason field, silent evaluator write, lifecycle clears, field-first rendering, buildCompletion agreement pin, and suite stabilization.",
           "tasks": [
             {
               "type": "Task",
               "id": "P4.M1.T1",
               "title": "FR — Question.mootReason: persist, clear, render",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Persist the moot reason at the evaluator site (silent write), clear it on both reopen branches before the status flip and in merge rebuilds, render it field-first (verbatim with prefix; buildCompletion strips), and pin the evaluator-vs-record agreement.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T1.S1",
                   "title": "Evaluator site: persist mootReason as a silent field write",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: src/depends-on.ts `evaluateDependsOn` mute/still-moot site + src/state.ts (setStatus/emitChanged; the Question record and its serialization — locate by content). decisions.md §2026-10-06 moot reason persistence (BUG-004, Option A; the source plan's architecture/ripple-moot-seams.md §4).\n2. INPUT: dependsOn evaluation producing reason strings `moot: {depId}={value}`.\n3. LOGIC: Persist the reason on `Question.mootReason` at the mute/still-moot site. The field write is SILENT — never routed through setStatus/emitChanged — so still-moot passes stay zero-event and serialize byte-identically when the reason string is unchanged; a CHANGED reason on a still-moot question also updates the field silently (the next natural emit carries it). No new events; serialize/hygiene pins stay green. Mock: none — scripted vitest.\n4. OUTPUT: persisted mootReason consumed by S2/S3/S4.\n5. DOCS: [Mode A] JSDoc at the evaluator site stating the silent-write rule, citing BUG-004 ruling (1).",
-                  "prd_selectors": [
-                    "h2.8/h3.2",
-                    "h2.13",
-                    "h2.40",
-                    "h2.69"
-                  ]
+                  "prd_selectors": ["h2.8/h3.2", "h2.13", "h2.40", "h2.69"]
                 },
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T1.S2",
                   "title": "Lifecycle clears: both reopen branches + merge rebuilds",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P4.M1.T1.S1"
-                  ],
+                  "dependencies": ["P4.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: the two reopen branches in evaluateDependsOn (re-met dependency; removed/emptied dependsOn — BUG-006b) and the merge/upsert rebuild paths (src/depends-on.ts, src/merge.ts; locate by content).\n2. INPUT: persisted mootReason from P4.M1.T1.S1.\n3. LOGIC: A reason never outlives moot: BOTH reopen branches clear the field BEFORE the setStatus flip so the emitted reopen snapshot already shows it absent; merge rebuilds clear the field defensively (reasons are evaluator-owned; rules 1–3/reopens never produce moot). Withdrawn/closed questions may retain a stale field harmlessly (never rendered; cleared on rebuild). Tests: reopen emits a snapshot with the field absent; rebuild clears stale fields. Mock: none — scripted vitest.\n4. OUTPUT: lifecycle-clean mootReason.\n5. DOCS: [Mode A] inline comments at both branches citing BUG-004 ruling (2).",
-                  "prd_selectors": [
-                    "h2.21",
-                    "h2.40",
-                    "h2.69"
-                  ]
+                  "prd_selectors": ["h2.21", "h2.40", "h2.69"]
                 },
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T1.S3",
                   "title": "Renderers read field-first (verbatim prefix); buildCompletion strips",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P4.M1.T1.S1"
-                  ],
+                  "dependencies": ["P4.M1.T1.S1"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: the moot surfaces — short-view/overview moot lines (src/panel/short-view.ts, src/panel/overview.ts via src/panel/layout.ts statusMarkers — all pure Question-only readers) and the completion record (src/completion.ts buildCompletion; locate by content).\n2. INPUT: Question.mootReason from P4.M1.T1.S1.\n3. LOGIC: Renderers read the field FIRST with their legacy fallback chains intact (pre-persistence history/state has no field) and ONLY while status === 'moot' (the field alone never triggers a moot line/marker). The panel renders the reason VERBATIM with its `moot: ` prefix; ONLY buildCompletion strips the prefix for the record format. The three pure-renderer signatures stay Question-only (Option B rejected on exactly this). Tests: field-first render, fallback when field absent, no moot line from the field alone. Mock: none — scripted vitest.\n4. OUTPUT: field-first rendering across all moot surfaces.\n5. DOCS: [Mode A] JSDoc at the renderer helpers stating field-first + fallback + status guard, citing BUG-004 ruling (3)/(4).",
-                  "prd_selectors": [
-                    "h2.29",
-                    "h2.38",
-                    "h2.49",
-                    "h2.69"
-                  ]
+                  "prd_selectors": ["h2.29", "h2.38", "h2.49", "h2.69"]
                 },
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T1.S4",
                   "title": "Agreement pin: record reasons === persisted fields; self-heal; answerSignature untouched",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
-                  "dependencies": [
-                    "P4.M1.T1.S1",
-                    "P4.M1.T1.S3"
-                  ],
+                  "dependencies": ["P4.M1.T1.S1", "P4.M1.T1.S3"],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: buildCompletion's existing reason recompute is the evaluator-truth cross-check (BUG-004 ruling 5); reconstruction step 5 (src/reconstruct.ts) already re-runs evaluateDependsOn; src/snapshots.ts answerSignature must remain blind to the field.\n2. INPUT: persisted fields (S1) + field-first rendering (S3).\n3. LOGIC: buildCompletion KEEPS its recompute; add the agreement test pinning record reasons === persisted fields (prefix-stripped). `answerSignature` untouched — the field never perturbs submission diffs. Pin that a persisted field cannot go stale after restart (reconstruction step 5 self-healing by construction). Mock: none — scripted vitest.\n4. OUTPUT: agreement + self-heal pins — the task's correctness evidence.\n5. DOCS: none — test work only.",
-                  "prd_selectors": [
-                    "h2.44",
-                    "h2.47",
-                    "h2.49",
-                    "h2.69"
-                  ]
+                  "prd_selectors": ["h2.44", "h2.47", "h2.49", "h2.69"]
                 }
               ]
             },
@@ -808,14 +698,14 @@
               "type": "Task",
               "id": "P4.M1.T2",
               "title": "Stabilize state/render/delivery suites + gates",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Keep the zero-event and purity pins green under the silent field write, flip any recompute-time assertions to field-first reads, and hold the binding gates.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P4.M1.T2.S1",
                   "title": "Zero-event/purity pins green + full gates",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P4.M1.T1.S1",
@@ -824,10 +714,7 @@
                     "P4.M1.T1.S4"
                   ],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: the depends-on zero-event pins (src/depends-on.test.ts) and the delivery buildCompletion purity pin (src/delivery.test.ts / src/completion.test.ts) are the suites most sensitive to the silent field write (BUG-004 ruling 1 names them).\n2. INPUT: all P4.M1.T1 contracts.\n3. LOGIC: Keep the zero-event pins green (still-moot passes emit nothing; serialize byte-identical on unchanged reason); flip any recompute-time reason assertions to field-first reads; withdrawn/closed stale-field tolerance rows. Gates (binding): npm test full suite green; npm run typecheck green; src/no-hardcoded-keys.test.ts + src/keymap-guard.test.ts green — NO new key labels. Mock: none — scripted vitest.\n4. OUTPUT: green suites — the phase's acceptance evidence.\n5. DOCS: none — test work only.",
-                  "prd_selectors": [
-                    "h2.53",
-                    "h2.69"
-                  ]
+                  "prd_selectors": ["h2.53", "h2.69"]
                 }
               ]
             }

@@ -404,17 +404,35 @@ describe("two-stage enter — note mode (R3)", () => {
     expect(panel.textField.getText()).toBe("cross-cutting context");
   });
 
-  test("test_ctrl_shift_m_repress_exits_note_mode_preserving_draft", () => {
+  test("test_ctrl_shift_m_chord_remap_in_note_focus_is_idempotent", () => {
+    // BAREKEYS-001: a REMAPPED batchNote chord is tier-1 — it intercepts
+    // even in editor focus — so the flattened OPEN-ONLY seam must no-op in
+    // note focus instead of mid-typing-swapping the editor (the old
+    // re-press exit is exactly the hazard this removes). The surviving
+    // exits stay enter and the double-esc pair (h2.31 Exit-gestures).
     const state = seedOpen(["q1"]);
-    const { panel, drafts } = makePanel(state);
+    const editor = fakeEditor();
+    const drafts = draftsSpy();
+    const panel = new InterrogationPanel({
+      tui: { requestRender: vi.fn() } as unknown as TUI,
+      theme: stubTheme,
+      done: () => {},
+      state,
+      config: { ...DEFAULT_CONFIG, keys: { ...DEFAULT_CONFIG.keys, batchNote: "ctrl+shift+m" } },
+      drafts,
+      editorFactory: () => editor,
+    });
     panel.enterNoteMode();
     panel.textField.setText("kept");
+    const CHORD_M = "\u001b[109;6u"; // kitty CSI-u ctrl+shift+m (m = 109)
 
-    // BAREKEYS-001: a second bare `m` would TYPE in the note — the exit is
-    // the double-esc pair (write-through; ESC-002 note ladder).
+    expect(panel.handleInput(CHORD_M)).toBe(true); // tier-1 chord intercepts
+    expect(panel.focus).toBe("note"); // idempotent no-op — NOT an exit
+    expect(panel.textField.getText()).toBe("kept"); // buffer intact
+    expect(drafts.setNote).not.toHaveBeenCalled(); // no write-through — still editing
+
     panel.handleInput("\u001b"); // single esc forwards to the note editor
     panel.handleInput("\u001b"); // pair completes → exitNoteMode
-
     expect(panel.focus).toBe("options");
     expect(panel.batchNote).toBe("kept");
     expect(drafts.setNote).toHaveBeenCalledWith("kept");

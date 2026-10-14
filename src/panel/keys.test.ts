@@ -565,8 +565,8 @@ describe("defaultRoutedActions — seam defaults", () => {
     expect(panel.enterNoteMode).toHaveBeenCalledTimes(1);
     expect(panel.exitNoteMode).not.toHaveBeenCalled();
     const inNote = makePanel({ focus: "note" });
-    actions.onBatchNote(inNote); // re-press → exit
-    expect(inNote.exitNoteMode).toHaveBeenCalledTimes(1);
+    actions.onBatchNote(inNote); // BAREKEYS-001: open-only — note focus is an idempotent no-op
+    expect(inNote.exitNoteMode).not.toHaveBeenCalled();
     expect(inNote.enterNoteMode).not.toHaveBeenCalled();
     expect(() => actions.onExternalEditor(panel)).not.toThrow();
     expect(panel.openExternalEditor).toHaveBeenCalledTimes(1);
@@ -575,7 +575,7 @@ describe("defaultRoutedActions — seam defaults", () => {
 
 // ------------------------------------------------- batch note (R3) dispatch
 
-describe("batch note (R3, P1.M4.T2.S2) — ctrl+shift+m toggle + esc exit", () => {
+describe("batch note (R3, P1.M4.T2.S2) — open-only (BAREKEYS-001) + esc exit", () => {
   test("test_bare_batch_note_tiers_by_focus", () => {
     // BAREKEYS-001: batchNote's default is now the bare `m` — tier 2
     // intercepts only from NON-editor focus. (The old ctrl+shift+m

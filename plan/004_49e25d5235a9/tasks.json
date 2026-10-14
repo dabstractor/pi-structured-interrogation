@@ -91,7 +91,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Remove re-press-to-close gestures for the elaborate and note prompts",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"

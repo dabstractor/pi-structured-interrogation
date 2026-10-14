@@ -454,8 +454,8 @@ export class InterrogationPanel implements Component {
   lastEscAt: number | undefined;
 
   /**
-   * Batch note text (R3) — written by {@link exitNoteMode} (enter, esc, and
-   * ctrl+shift+m re-press all write through) and read at submit time as the
+   * Batch note text (R3) — written by {@link exitNoteMode} (enter and the
+   * double-esc pair both write through) and read at submit time as the
    * fallback when no DraftStore seam carries a note. Cleared by the submit
    * action AFTER the note ships (h2.32 "cleared after shipping").
    */
@@ -631,19 +631,20 @@ export class InterrogationPanel implements Component {
     // P1.M3.T3.S1): the seam default wires the named actions + view-toggle
     // seams; an explicit args.keys (host override) replaces it wholesale.
     // Host-side refinement of the onElaborate seam (keys.ts itself is
-    // untouched): ctrl+t is now a TOGGLE (ESC-002) — options focus → focus
-    // + seed the embedded editor; text focus → exitTextField (draft
-    // write-through + blur — never a commit). A deterministic single-key
-    // "close the prompt box" companion to the double-esc exit.
+    // untouched): ENTRY-ONLY (BAREKEYS-001, h2.74/h2.31 — the re-press
+    // close is removed; closes are `enter` and the double-`esc` pair).
+    // Options focus → focus + seed the embedded editor.
     // WRITEIN-001 duty-follows-cursor (P1.M2.T3.S1, h2.32): the ENTRY
     // declares the duty via desiredTextDuty — write-in when the cursor sits
     // on the ✎ Other row or the question is type:"text", elaboration
-    // otherwise. The re-press exit is duty-agnostic: save + blur, never a
-    // commit, from either duty (R4 write-through).
+    // otherwise.
     const routed = defaultRoutedActions(args.delivery);
     routed.onElaborate = (p) => {
-      if (p.focus === "text") p.exitTextField();
-      else p.focusTextField(desiredTextDuty(p));
+      // BAREKEYS-001: entry-only. Bare 't' forwards while the editor holds
+      // focus (two-tier rule), so the router only reaches here from
+      // non-editor focus; the guard keeps a chord-remapped elaborate
+      // idempotent instead of mid-typing-closing the editor.
+      if (p.focus !== "text") p.focusTextField(desiredTextDuty(p));
     };
     // Host-side refinement of the discuss seam (P1.M6.T2.S2): discussInChat
     // needs the PiUISurface to preload the editor (h2.35), so the closure
@@ -806,7 +807,7 @@ export class InterrogationPanel implements Component {
     // enter in text/note focus NEVER reaches the editor (no stock
     // submitValue, no onSubmit) and never the router (in note focus the
     // router would read enter as options accept). Note exit = exitNoteMode:
-    // the SAME write-through as esc/re-press (h2.32).
+    // the SAME write-through as esc (h2.32).
     if (enter && (this.focus === "text" || this.focus === "note")) {
       if (this.focus === "note") this.exitNoteMode();
       // The duty decides what enter MEANS (WRITEIN-001, P1.M2.T3.S1,
@@ -850,8 +851,10 @@ export class InterrogationPanel implements Component {
    * the typed text is sacred; a bare blur would let the next refocus seed a
    * STALE draft over it) and blur to options (going back is not an answer
    * gesture — the next enter accepts the highlighted option, it does not
-   * commit). Fires from the ctrl+t toggle and the double-esc exit (keys.ts);
-   * never suspends the panel and never touches state (same save discipline).
+   * commit). Fires from the double-esc editor exit (keys.ts ESC-002;
+   * BAREKEYS-001 removed the re-press toggle — closes are `enter` per duty
+   * and double-`esc`); never suspends the panel and never touches state
+   * (same save discipline).
    */
   exitTextField(): void {
     this.stageText(this.textField.getText());
@@ -1093,7 +1096,7 @@ export class InterrogationPanel implements Component {
    *   draft (panel-local slot → seam → "" — a NEW BLANK box when it has
    *   never been drafted). The write-through is deliberately UNGATED (no
    *   FR-18 ripple modal): navigation is not an answer gesture — the modal
-   *   guards only the explicit save/exit gestures (enter, ctrl+t, esc-esc).
+   *   guards only the explicit save/exit gestures (enter, double-esc).
    *
    *   [Mode A] BUG-004 duty re-derivation (WRITEIN-001 cursor-follow,
    *   FR-12 / h3.3): when the switch happens while the editor is focused
@@ -1218,10 +1221,13 @@ export class InterrogationPanel implements Component {
   }
 
   /**
-   * [Mode A] Enter note mode (R3 / FR-13, h2.32) — ctrl+shift+m swaps the
-   * editor area into note duty AT ANY TIME: from options focus, text focus,
-   * and any view (short/deep/overview — buildLines renders the same swap in
-   * all of them). The SAME embedded TextField instance is reused — never a
+   * [Mode A] Enter note mode (R3 / FR-13, h2.32) — the note key swaps the
+   * editor area into note duty from any non-editor focus and any view
+   * (short/deep/overview — buildLines renders the same swap in all of
+   * them; BAREKEYS-001 made the default bare `m` forward while the editor
+   * holds focus, and the chord-remapped binding idempotent there — OPEN
+   * only, no re-press close). The SAME embedded TextField instance is
+   * reused — never a
    * second editor — and {@link TextField.seed} loads the freshest draft
    * idempotently with zero editor-history pollution: the DraftStore seam's
    * note first (the suspend/resume-safe copy, P1.M4.T2.S1), then the panel
@@ -1233,8 +1239,8 @@ export class InterrogationPanel implements Component {
    * line, lands on `details.note` for the user-only diff card
    * (P1.M7.T3.S1), and is then cleared ("cleared after shipping"). A
    * zero-pending submit ships nothing and therefore holds the note. enter
-   * saves + exits; esc / re-press exit via {@link exitNoteMode}, whose
-   * write-through keeps the draft (FR-16).
+   * saves + exits; the double-esc pair exits via {@link exitNoteMode},
+   * whose write-through keeps the draft (FR-16).
    *
    * [Mode A] Swap write-through guarantee (R4/ESC-002, BUG-002 gesture 3):
    * entering note mode FIRST stages the in-flight question buffer —
@@ -1243,9 +1249,10 @@ export class InterrogationPanel implements Component {
    * question id, writing the typed text to its draftSlots entry + the
    * DraftStore seam — and ONLY THEN is the note text seeded over the editor
    * (`drafts?.getNote() || batchNote || ""` precedence unchanged). A
-   * ctrl+shift+m mid-answer therefore destroys nothing: the question draft
-   * survives in slot + seam and re-seeds on exit, and any saved note
-   * replaces it in the editor. Combined with {@link exitNoteMode}'s existing
+   * buffer — the note key mid-answer therefore destroys nothing: the
+   * question draft survives in slot + seam and re-seeds on exit, and any
+   * saved note replaces it in the editor. Combined with
+   * {@link exitNoteMode}'s existing
    * write-through (note buffer persisted before the question re-seed), BOTH
    * directions of the swap are non-destructive (R4). The call is a no-op on
    * the guard paths — options focus with a blurred/empty buffer writes
@@ -1262,9 +1269,10 @@ export class InterrogationPanel implements Component {
   }
 
   /**
-   * Exit note mode — the single landing spot for ALL three exits: enter
-   * (stage-1 save in {@link handleInput}), esc (the router's esc-descent
-   * ladder), and the ctrl+shift+m re-press (keys.ts onBatchNote toggle).
+   * Exit note mode — the single landing spot for BOTH exits: enter
+   * (stage-1 save in {@link handleInput}) and the double-esc pair (the
+   * router's esc ladder, ESC-002 — BAREKEYS-001 removed the re-press
+   * toggle: the note key is open-only and idempotent in note focus).
    * FR-16: exit never destroys state — the field text is WRITTEN THROUGH
    * to the DraftStore seam + panel field BEFORE blurring, so the draft
    * survives the exit and re-seeds on re-entry. Together with

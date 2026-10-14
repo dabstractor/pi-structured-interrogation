@@ -131,8 +131,10 @@ export interface RoutedActions {
   /** Focus the text editor. Default: focus = "text" (M4 refines). */
   onElaborate(p: InterrogationPanel): void;
   /**
-   * Batch note (R3, h2.32): toggle note mode — enterNoteMode from any
-   * focus/view, exitNoteMode on re-press. Implemented by the default set.
+   * Batch note (R3, h2.32): OPEN note mode — enterNoteMode from any
+   * non-editor focus/view (BAREKEYS-001 removed the re-press close: a bare
+   * `m` while the editor holds focus must type; closes are `enter` and the
+   * double-`esc` pair). Implemented by the default set.
    */
   onBatchNote(p: InterrogationPanel): void;
   /** Discuss in chat. Wired host-side at panel.ts's router-construction
@@ -357,11 +359,13 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
       p.focus = "text"; // M4.T1.S2 refines (draft seeding, composed editor)
     },
     onBatchNote: (p) => {
-      // R3/h2.32 toggle (P1.M4.T2.S2): open from ANY focus/view; re-press
-      // while in note mode exits. Both directions write through the
-      // DraftStore seam — the panel methods own the draft bookkeeping.
-      if (p.focus === "note") p.exitNoteMode();
-      else p.enterNoteMode();
+      // R3/h2.33: OPEN-only (BAREKEYS-001 killed the re-press toggle — a
+      // bare 'm' types while the editor holds focus). Valid from any
+      // non-editor focus and any view (FR-13). The guard keeps a
+      // chord-remapped batchNote idempotent instead of mid-typing-swapping
+      // the editor. Closes are `enter` and the double-`esc` pair; the panel
+      // methods own the draft write-through bookkeeping.
+      if (p.focus !== "note") p.enterNoteMode();
     },
     onDiscuss: () => {
       // Wired host-side: panel.ts refines this seam with discussInChat
@@ -468,7 +472,8 @@ export function buildKeyRouter(
     //    hands the byte to the embedded editor); a second esc within
     //    escWindow closes the prompt box only (escExitEditor — draft
     //    write-through + blur, never suspend). escWindow === 0 disables the
-    //    pair (every esc forwards; close via the ctrl+t toggle or enter).
+    //    pair (every esc forwards; close via `enter` or the double-`esc`
+    //    pair — BAREKEYS-001 removed the re-press toggles).
     if (matchesKey(data, Key.escape)) {
       if (!editorFocused) {
         escapeDescend(panel);

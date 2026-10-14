@@ -1662,10 +1662,11 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     );
   });
 
-  test("test_ctrl_t_repress_closes_field_saving_draft_without_arming", () => {
-    // ESC-002: ctrl+t is a TOGGLE — the re-press exits the prompt box with a
-    // draft write-through (R4) and, unlike the enter stage-1 save, does NOT
-    // arm the two-stage advance (the next enter ACCEPTS, it never advances).
+  test("test_elaborate_double_esc_exits_saving_draft_without_arming", () => {
+    // BAREKEYS-001: the editor's no-commit exit is the double-esc pair —
+    // draft write-through (R4) + blur, and unlike the enter stage-1 save it
+    // does NOT arm the two-stage advance (the next enter ACCEPTS, it never
+    // advances). A bare `t` in text focus would TYPE now, never toggle.
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
     state.upsertQuestion(choiceQ("q2"));
@@ -1677,10 +1678,8 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     };
     const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
 
-    panel.handleInput("t"); // open (bare default, BAREKEYS-001)
+    panel.handleInput("t"); // open (bare default, BAREKEYS-001 — entry-only)
     panel.textField.setText("elaboration");
-    // BAREKEYS-001: a second bare `t` would TYPE now — the editor exit is
-    // the double-esc pair (draft write-through + blur), ESC-002.
     panel.handleInput(ESCAPE); // single esc forwards to the editor
     panel.handleInput(ESCAPE); // pair completes → exitTextField
     expect(panel.focus).toBe("options");
@@ -1692,6 +1691,86 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     expect(panel.handleInput("\r")).toBe(true);
     expect(state.getQuestion("q1")?.answer?.value).toBe("a");
     expect(panel.currentId).toBe("q2"); // accept-advance, not the armed skip
+  });
+
+  test("test_t_in_text_focus_types_and_does_not_exit", () => {
+    // BAREKEYS-001: the re-press toggle is REMOVED — a bare `t` while the
+    // editor holds focus is a letter, not an exit (two-tier rule: the
+    // router forwards it; the buffer grows; no close side effects).
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = {
+      getDraft: vi.fn(() => undefined),
+      setDraft: vi.fn(),
+      getNote: () => "",
+      setNote: vi.fn(),
+    };
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts, editorFactory: () => typingEditor() }),
+    );
+
+    panel.handleInput("t"); // open (options focus intercept — entry-only seam)
+    expect(panel.focus).toBe("text");
+    expect(panel.handleInput("t")).toBe(true); // forwarded to the editor
+    expect(panel.textField.getText()).toBe("t"); // buffer grew by the letter — it TYPED
+    expect(panel.focus).toBe("text"); // no exit
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // no write-through — still editing
+  });
+
+  test("test_writein_duty_double_esc_exits_with_write_through_never_commits", () => {
+    // WRITEIN-001 × BAREKEYS-001: in write-in duty enter COMMITS the buffer
+    // as the answer, so the only close-without-commit is the double-esc
+    // pair — write-through to the draft, NEVER an applyAnswer.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const drafts = {
+      getDraft: vi.fn(() => undefined),
+      setDraft: vi.fn(),
+      getNote: () => "",
+      setNote: vi.fn(),
+    };
+    const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
+
+    panel.currentId = "q1";
+    panel.focusTextField("writein");
+    panel.textField.setText("my own answer");
+    panel.handleInput(ESCAPE); // single esc forwards to the editor
+    panel.handleInput(ESCAPE); // pair completes → exitTextField (write-through)
+    expect(panel.focus).toBe("options");
+    expect(panel.textField.focused).toBe(false);
+    expect(panel.draftTextFor("q1")).toBe("my own answer"); // write-through
+    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // NEVER a commit
+    expect(state.getQuestion("q1")?.status).toBe("open"); // state untouched
+  });
+
+  test("test_elaborate_chord_remap_in_text_focus_is_idempotent", () => {
+    // The chord-remap hazard BAREKEYS-001 closes: a remapped elaborate
+    // binding is tier-1 (intercepts even in editor focus) — the flattened
+    // entry-only seam must NO-OP there, never mid-typing-close the editor.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = {
+      getDraft: vi.fn(() => undefined),
+      setDraft: vi.fn(),
+      getNote: () => "",
+      setNote: vi.fn(),
+    };
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, {
+        drafts,
+        config: { ...DEFAULT_CONFIG, keys: { ...DEFAULT_CONFIG.keys, elaborate: "ctrl+shift+t" } },
+      }),
+    );
+    const CHORD_T = "\u001b[116;6u"; // kitty CSI-u ctrl+shift+t (t = 116)
+
+    panel.handleInput(CHORD_T); // tier-1 chord intercepts from options → enter
+    expect(panel.focus).toBe("text");
+    panel.textField.setText("mid-thought");
+    panel.handleInput(CHORD_T); // chord in text focus — idempotent, NOT an exit
+    expect(panel.focus).toBe("text");
+    expect(panel.textField.getText()).toBe("mid-thought"); // buffer intact
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // no write-through — nothing exited
   });
 
   test("test_blurTextField_returns_focus_to_options", () => {
@@ -1924,6 +2003,26 @@ import { DraftStore as RealDraftStore } from "../draft-store.js";
 /** kitty CSI-u ctrl+shift+m (keys.test.ts DEFAULT_DATA convention). */
 const BATCH_NOTE = "m"; // BAREKEYS-001: bare default (was ctrl+shift+m)
 
+/**
+ * Stateful composed editor that APPENDS printable input (stock-editor
+ * typing semantics) — lets typing assertions check real buffer growth
+ * ("route forwarded AND the letter landed"), not just handleInput receipt.
+ */
+function typingEditor(): EditorComponent & { setText: Mock } {
+  let text = "";
+  return {
+    getText: vi.fn(() => text),
+    setText: vi.fn((t: string) => {
+      text = t;
+    }),
+    handleInput: vi.fn((data: string) => {
+      text += data;
+    }),
+    render: vi.fn(() => [text]),
+    focused: false,
+  } as unknown as EditorComponent & { setText: Mock };
+}
+
 describe("note mode (R3, P1.M4.T2.S2)", () => {
   function makeDrafts(getNote = "") {
     return {
@@ -1964,7 +2063,7 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     expect(lines.join("\n")).not.toContain("[deep] placeholder");
   });
 
-  test("test_repress_exits_preserving_draft_and_reentry_reseeds_from_store", () => {
+  test("test_note_close_via_enter_saves_and_exits", () => {
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
     const drafts = makeDrafts();
@@ -1974,10 +2073,9 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     panel.handleInput(BATCH_NOTE); // open (bare default — options focus intercepts)
     (panel.textField.editor as unknown as { setText: Mock }).setText("note body");
 
-    // BAREKEYS-001: a second bare `m` would TYPE in the note — the exit is
-    // the double-esc pair (write-through, FR-16; ESC-002 note ladder).
-    panel.handleInput(ESCAPE); // single esc forwards to the note editor
-    panel.handleInput(ESCAPE); // pair completes → exitNoteMode
+    // BAREKEYS-001 close #1: enter exits the note (h2.34 fork — the router
+    // never sees it) with the same write-through as esc.
+    expect(panel.handleInput("\r")).toBe(true);
     expect(panel.focus).toBe("options");
     expect(panel.batchNote).toBe("note body");
     expect(drafts.setNote).toHaveBeenCalledWith("note body");
@@ -1988,6 +2086,45 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     panel.enterNoteMode();
     expect(panel.focus).toBe("note");
     expect(panel.textField.getText()).toBe("note body");
+  });
+
+  test("test_note_close_via_double_esc_preserving_draft", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDrafts();
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts: drafts as unknown as DraftStore }),
+    );
+    panel.handleInput(BATCH_NOTE); // open (bare default — options focus intercepts)
+    (panel.textField.editor as unknown as { setText: Mock }).setText("note body");
+
+    // BAREKEYS-001 close #2: the double-esc pair (write-through, FR-16;
+    // ESC-002 note ladder). A bare `m` here would TYPE, never exit.
+    panel.handleInput(ESCAPE); // single esc forwards to the note editor
+    panel.handleInput(ESCAPE); // pair completes → exitNoteMode
+    expect(panel.focus).toBe("options");
+    expect(panel.batchNote).toBe("note body");
+    expect(drafts.setNote).toHaveBeenCalledWith("note body");
+    expect(panel.textField.focused).toBe(false);
+  });
+
+  test("test_m_in_note_focus_types_and_does_not_exit", () => {
+    // BAREKEYS-001: the re-press toggle is REMOVED — a bare `m` while the
+    // note editor holds focus is a letter, not an exit (two-tier rule: the
+    // router forwards it; the buffer grows; no close side effects).
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const drafts = makeDrafts();
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { drafts: drafts as unknown as DraftStore, editorFactory: () => typingEditor() }),
+    );
+    panel.handleInput(BATCH_NOTE); // open
+    panel.textField.setText("no");
+
+    expect(panel.handleInput("m")).toBe(true); // panel consumes by forwarding to the editor
+    expect(panel.textField.getText()).toBe("nom"); // buffer grew by the letter — it TYPED
+    expect(panel.focus).toBe("note"); // no exit
+    expect(drafts.setNote).not.toHaveBeenCalled(); // no write-through — still editing
   });
 
   test("test_esc_exits_note_mode_and_unmatched_input_types_into_it", () => {
@@ -2158,12 +2295,14 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
   });
 
   test("test_note_mode_round_trip_is_idempotent_latest_text_wins", () => {
-    // Full swap cycle via the ROUTED toggle (a ctrl+shift+m CHORD remap:
-    // BAREKEYS-001 makes the bare default `m` forward from editor focus, so
-    // the every-focus routed toggle is chord remap territory — the swap
-    // cycle itself is unchanged): question draft → note → question → note —
-    // every buffer survives and the question slot carries exactly one
-    // entry whose latest text wins.
+    // Full swap cycle with a ctrl+shift+m CHORD remap (BAREKEYS-001 makes
+    // the bare default `m` forward from editor focus, so every-focus
+    // reachability is chord-remap territory): question draft → note →
+    // question → note — every buffer survives and the question slot
+    // carries exactly one entry whose latest text wins. BAREKEYS-001 ALSO
+    // removed the toggle exit: the chord in NOTE focus is an idempotent
+    // no-op now, so the swap OUT goes through the surviving close
+    // (exitNoteMode — the enter fork / double-esc equivalent).
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
     const drafts = makeDrafts("");
@@ -2180,17 +2319,20 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
 
     panel.focusTextField();
     panel.textField.setText("question draft");
-    panel.handleInput(CHORD_NOTE); // toggle in (routed chord)
+    panel.handleInput(CHORD_NOTE); // chord in (tier-1 — non-editor focus)
     expect(panel.focus).toBe("note");
     panel.textField.setText("the note");
-    panel.handleInput(CHORD_NOTE); // toggle out (routed chord)
+    panel.handleInput(CHORD_NOTE); // BAREKEYS-001: no-op in note focus — must NOT exit
+    expect(panel.focus).toBe("note");
+    expect(panel.textField.getText()).toBe("the note"); // buffer intact
+    panel.exitNoteMode(); // the surviving close — swap out, write-through
     expect(panel.batchNote).toBe("the note");
     expect(panel.textField.getText()).toBe("question draft"); // re-seeded
 
     panel.handleInput(CHORD_NOTE); // re-enter — note re-seeds idempotently
     expect(panel.textField.getText()).toBe("the note");
     expect(panel.draftTextFor("q1")).toBe("question draft"); // still intact
-    panel.handleInput(CHORD_NOTE); // out again — question draft re-seeds
+    panel.exitNoteMode(); // swap out again — question draft re-seeds
     expect(panel.textField.getText()).toBe("question draft");
 
     // Re-focus the question editor and revise the answer; the NEXT swap

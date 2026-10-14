@@ -71,7 +71,7 @@ function mkConfig(keys: Partial<Record<string, string>> = {}): InterrogatorConfi
     keys: {
       deep: "ctrl+d",
       overview: "ctrl+l",
-      focusText: "ctrl+t",
+      elaborate: "ctrl+t",
       batchNote: "ctrl+n",
       submit: "ctrl+enter",
       discuss: "ctrl+g",
@@ -390,7 +390,7 @@ describe("renderFooter", () => {
     const state = mkState();
 
     // Text focus (short screen): enter SAVES (not accepts), esc-esc back,
-    // and the focusText toggle closes.
+    // and the elaborate toggle closes.
     const text = renderFooter(state, "short", labels, theme, 160, false, {
       mode: "text",
       escEscHint: true,

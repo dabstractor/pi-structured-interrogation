@@ -48,7 +48,7 @@ export type EditorMode =
 export type KeyAction =
   | "deep"
   | "overview"
-  | "focusText"
+  | "elaborate"
   | "batchNote"
   | "submit"
   | "discuss"
@@ -93,7 +93,7 @@ export interface InterrogatorConfig {
 const KEY_ACTIONS = [
   "deep",
   "overview",
-  "focusText",
+  "elaborate",
   "batchNote",
   "submit",
   "discuss",
@@ -110,7 +110,7 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
   keys: {
     deep: "ctrl+d",
     overview: "ctrl+l",
-    focusText: "ctrl+t",
+    elaborate: "ctrl+t",
     batchNote: "ctrl+shift+m",
     submit: "ctrl+s",
     discuss: "ctrl+shift+e",
@@ -271,7 +271,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * |-----------------|-----------------|------------------------------------------------|----------------|
  * | `deep`          | `"ctrl+d"`      | Open the deep-dive/ramification view           | footer, dialogs |
  * | `overview`      | `"ctrl+l"`      | Open the question overview list                | footer, dialogs |
- * | `focusText`     | `"ctrl+t"`      | Focus the text editor for the current question | footer          |
+ * | `elaborate`     | `"ctrl+t"`      | Enter the editor: elaboration on the selection / write-in duty (FR-12) | footer          |
  * | `batchNote`     | `"ctrl+shift+m"`| Attach a batch note                            | footer, dialogs |
  * | `submit`        | `"ctrl+s"`      | Submit answers / close the panel               | footer, widget  |
  * | `discuss`       | `"ctrl+shift+e"`| Discuss the current question in chat           | footer, dialogs |
@@ -293,7 +293,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * focus a single esc forwards to the editor itself (pi-vim insert-mode
  * exit); a second esc within the window closes the prompt box only (draft
  * write-through + blur back to options). `0` disables the double-esc exit
- * (single esc still forwards; close via the `focusText` toggle or enter).
+ * (single esc still forwards; close via the `elaborate` toggle or enter).
  * Negative values coerce to 0. Default 500.
  *
  * ### editorMode

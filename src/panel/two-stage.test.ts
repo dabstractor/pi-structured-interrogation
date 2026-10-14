@@ -178,7 +178,7 @@ function makePanel(state: InterrogationState, keysSpy = false): Handle {
 }
 
 /** Focus the embedded editor through the real router seam (ctrl+t). */
-function focusText(panel: InterrogationPanel): void {
+function elaborate(panel: InterrogationPanel): void {
   panel.handleInput("\u0014");
 }
 
@@ -190,7 +190,7 @@ describe("commit-at-enter — one enter does the whole job (WRITEIN-001, h2.32)"
     const { panel, drafts } = makePanel(state);
     // Duty-follows-cursor (P1.M2.T3.S1): ctrl+t on a type:"text" question
     // opens WRITE-IN duty — the buffer IS the answer.
-    focusText(panel);
+    elaborate(panel);
     expect(panel.textDuty).toBe("writein");
     panel.handleInput("my write-in answer");
 
@@ -215,7 +215,7 @@ describe("commit-at-enter — one enter does the whole job (WRITEIN-001, h2.32)"
   test("test_elaboration_enter_on_choice_saves_blurs_no_commit_no_advance", () => {
     const state = seedOpen(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
-    focusText(panel); // ctrl+t on an option cursor → elaboration duty
+    elaborate(panel); // ctrl+t on an option cursor → elaboration duty
     expect(panel.textDuty).toBe("elaboration");
     panel.handleInput("my elaboration");
 
@@ -241,7 +241,7 @@ describe("commit-at-enter — one enter does the whole job (WRITEIN-001, h2.32)"
     // draft write-through + blur only (R4; landed writeInEnter behavior).
     const state = seedOpenText(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
-    focusText(panel);
+    elaborate(panel);
     expect(panel.textField.getText()).toBe(""); // empty buffer
 
     expect(panel.handleInput("\r")).toBe(true);
@@ -282,7 +282,7 @@ describe("two-stage enter — newline safety (R4)", () => {
     test(`test_${name}_inserts_newline_without_saving`, () => {
       const state = seedOpen(["q1", "q2"]);
       const { panel, editor, drafts } = makePanel(state);
-      focusText(panel);
+      elaborate(panel);
       panel.handleInput("line1");
 
       panel.handleInput(seq); // must fall through to the editor verbatim
@@ -299,7 +299,7 @@ describe("two-stage enter — newline safety (R4)", () => {
   test("test_multiline_flow_shift_enter_then_enter_saves_both_lines", () => {
     const state = seedOpen(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
-    focusText(panel);
+    elaborate(panel);
     panel.handleInput("line1");
     panel.handleInput("\x1b[13;2u"); // shift+enter → newline in the editor
     panel.handleInput("line2");
@@ -317,7 +317,7 @@ describe("two-stage enter — newline safety (R4)", () => {
     // newline and never fall through to the editor.
     const state = seedOpenText(["q1", "q2"]);
     const { panel, editor } = makePanel(state);
-    focusText(panel);
+    elaborate(panel);
     panel.handleInput("kitty answer");
 
     panel.handleInput("\x1b[13u");
@@ -335,7 +335,7 @@ describe("two-stage enter — newline safety (R4)", () => {
     // newline request — in write-in duty too, where plain enter commits.
     const state = seedOpenText(["q1", "q2"]);
     const { panel, editor, drafts } = makePanel(state);
-    focusText(panel); // write-in duty on the text question
+    elaborate(panel); // write-in duty on the text question
     panel.handleInput("line1");
 
     panel.handleInput("\n"); // ctrl+j — newline request, never a commit
@@ -432,7 +432,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
   test("test_refocus_after_stage1_reseeds_saved_draft", () => {
     const state = seedOpen(["q1", "q2"]);
     const { panel } = makePanel(state);
-    focusText(panel);
+    elaborate(panel);
     panel.handleInput("the draft");
     panel.handleInput("\r"); // elaboration enter: save + blur (buffer keeps the draft)
     expect(panel.focus).toBe("options");
@@ -446,7 +446,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
   test("test_draft_slot_survives_navigation_and_reseeds_on_return", () => {
     const state = seedOpen(["q1", "q2"]);
     const { panel } = makePanel(state);
-    focusText(panel);
+    elaborate(panel);
     panel.handleInput("q1 draft");
     panel.handleInput("\r"); // elaboration save on q1 (slot written, blurred)
 
@@ -464,7 +464,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
   test("test_cross_question_refocus_seeds_new_question_draft_not_stale_text", () => {
     const state = seedOpen(["q1", "q2"]);
     const { panel } = makePanel(state);
-    focusText(panel);
+    elaborate(panel);
     panel.handleInput("q1 draft");
     panel.handleInput("\r"); // elaboration save on q1 (slot written)
 
@@ -483,7 +483,7 @@ describe("two-stage enter — history isolation (h2.31)", () => {
     const { panel, editor } = makePanel(state);
     // Full journey: write-in focus on a text question, type, newline,
     // commit-enter, note save — none of it may push editor history.
-    focusText(panel);
+    elaborate(panel);
     panel.handleInput("line1");
     panel.handleInput("\x1b[13;2u");
     panel.handleInput("line2");

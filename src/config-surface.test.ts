@@ -18,7 +18,7 @@
  * |-----------------|---------------|----------------|--------|------------------|---------------------------------------|-------|
  * | deep            | ctrl+d        | ctrl+alt+d     | ✓      | n/a (panel-only) | footer (short, overview)              | |
  * | overview        | ctrl+l        | ctrl+shift+l   | ✓      | n/a              | footer (short, deep)                  | |
- * | focusText       | ctrl+t        | ctrl+y         | ✓      | n/a              | none rendered (no string names it)    | |
+ * | elaborate       | ctrl+t        | ctrl+y         | ✓      | n/a              | none rendered (no string names it)    | |
  * | batchNote       | ctrl+shift+m  | ctrl+shift+n   | ✓      | n/a              | none rendered (note header omits key) | |
  * | submit          | ctrl+s        | f9             | ✓      | n/a              | footer (every screen incl. narrow)    | |
  * | discuss         | ctrl+shift+e  | ctrl+shift+p   | ✓      | n/a              | none rendered (discuss text omits key)| |
@@ -88,7 +88,7 @@ const ALL_ACTIONS = Object.keys(DEFAULT_CONFIG.keys) as KeyAction[];
 const DEFAULT_DATA: Record<KeyAction, string> = {
   deep: "\u0004", // ctrl+d
   overview: "\u000c", // ctrl+l
-  focusText: "\u0014", // ctrl+t
+  elaborate: "\u0014", // ctrl+t
   batchNote: "\u001b[109;6u", // kitty CSI-u ctrl+shift+m (m = 109)
   submit: "\u0013", // ctrl+s
   discuss: "\u001b[101;6u", // kitty CSI-u ctrl+shift+e (e = 101)
@@ -105,7 +105,7 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
 const REMAPS: Record<KeyAction, { key: string; data: string }> = {
   deep: { key: "ctrl+alt+d", data: "\u001b\u0004" }, // legacy ESC + control byte
   overview: { key: "ctrl+shift+l", data: "\u001b[108;6u" }, // kitty CSI-u (l = 108)
-  focusText: { key: "ctrl+y", data: "\u0019" }, // 0x19 = ctrl+y
+  elaborate: { key: "ctrl+y", data: "\u0019" }, // 0x19 = ctrl+y
   batchNote: { key: "ctrl+shift+n", data: "\u001b[110;6u" }, // kitty (n = 110)
   submit: { key: "f9", data: "\u001b[20~" },
   discuss: { key: "ctrl+shift+p", data: "\u001b[112;6u" }, // kitty (p = 112)
@@ -127,7 +127,7 @@ const FULL_REMAP: InterrogatorConfig = {
 const SPY_FOR: Record<KeyAction, Exclude<keyof ReturnType<typeof makeActions>, "all">> = {
   deep: "onDeep",
   overview: "onOverview",
-  focusText: "onFocusText",
+  elaborate: "onElaborate",
   batchNote: "onBatchNote",
   submit: "submit",
   discuss: "onDiscuss",
@@ -140,7 +140,7 @@ const SPY_FOR: Record<KeyAction, Exclude<keyof ReturnType<typeof makeActions>, "
 const WORDS: Record<KeyAction, string> = {
   deep: "deep",
   overview: "list",
-  focusText: "text",
+  elaborate: "text",
   batchNote: "note",
   submit: "submit",
   discuss: "discuss",
@@ -208,7 +208,7 @@ function makeActions() {
     submit: vi.fn((_p: InterrogationPanel) => true),
     onDeep: vi.fn((_p: InterrogationPanel) => undefined),
     onOverview: vi.fn((_p: InterrogationPanel) => undefined),
-    onFocusText: vi.fn((_p: InterrogationPanel) => undefined),
+    onElaborate: vi.fn((_p: InterrogationPanel) => undefined),
     onBatchNote: vi.fn((_p: InterrogationPanel) => undefined),
     onDiscuss: vi.fn((_p: InterrogationPanel) => undefined),
     onExternalEditor: vi.fn((_p: InterrogationPanel) => undefined),

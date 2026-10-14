@@ -64,7 +64,7 @@ const NARROW_FOOTER_ACTIONS: readonly KeyAction[] = ["submit", "deep"];
 const ACTION_WORDS: Record<KeyAction, string> = {
   deep: "deep",
   overview: "list",
-  focusText: "text",
+  elaborate: "text",
   batchNote: "note",
   submit: "submit",
   discuss: "discuss",
@@ -428,7 +428,7 @@ export function renderHintLine(q: Question, theme: Theme, width: number, dim = f
  * the editor holds focus the standard "enter accept" prefix becomes
  * "enter save", and the close gestures append: "esc esc back" when the
  * double-esc window is armed (escEscHint), plus the editor-mode toggle
- * label (focusText for the explain field, batchNote for note duty — labels
+ * label (elaborate for the explain field, batchNote for note duty — labels
  * from the caller's resolved `labels`, never hardcoded; "esc" is a fixed
  * key so it may appear as a static hint word per h2.52).
  */
@@ -498,7 +498,7 @@ export function renderFooter(
   const keyActions = narrow ? NARROW_FOOTER_ACTIONS : SCREEN_KEYS[screen];
   const hints: string[] = keyActions.map((action) => `${labels[action]} ${ACTION_WORDS[action]}`);
   if (screen === "short") hints.unshift("enter accept"); // enter is not remappable
-  if (screen === "short") hints.push(`${labels.focusText} explain`); // D-R11: the footer permanently names the chord
+  if (screen === "short") hints.push(`${labels.elaborate} explain`); // D-R11: the footer permanently names the chord
   if (screen === "deep") hints.push("esc back", "↑/↓ scroll");
   if (screen === "overview") hints.push("enter jump", "esc back");
   if (editorExit !== undefined) {
@@ -507,13 +507,13 @@ export function renderFooter(
     // (single esc forwards to the editor), arrows do not scroll. Drop the
     // descent statics and swap in the editor's own affordances; the fit
     // loop drops the appended close gestures right-to-left first.
-    const statics = new Set(["enter accept", "enter jump", "esc back", "↑/↓ scroll", `${labels.focusText} explain`]);
+    const statics = new Set(["enter accept", "enter jump", "esc back", "↑/↓ scroll", `${labels.elaborate} explain`]);
     const kept = hints.filter((h) => !statics.has(h));
     hints.length = 0;
     hints.push("enter save", ...kept);
     if (editorExit.escEscHint) hints.push("esc esc back");
     hints.push(
-      editorExit.mode === "note" ? `${labels.batchNote} close` : `${labels.focusText} close`,
+      editorExit.mode === "note" ? `${labels.batchNote} close` : `${labels.elaborate} close`,
     );
   }
 

@@ -132,7 +132,7 @@ test("test_resolve_key_labels_covers_all_actions_with_default_config", async () 
   expect(Object.keys(labels)).toHaveLength(9);
   expect(labels.deep).toBe("Ctrl+D");
   expect(labels.overview).toBe("Ctrl+L");
-  expect(labels.focusText).toBe("Ctrl+T");
+  expect(labels.elaborate).toBe("Ctrl+T");
   expect(labels.batchNote).toBe("Ctrl+Shift+M");
   expect(labels.submit).toBe("Ctrl+S");
   expect(labels.discuss).toBe("Ctrl+Shift+E");

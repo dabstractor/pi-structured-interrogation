@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Keymap trilogy — bare keys, hjkl, digit removal (VIMNAV-001 / BAREKEYS-001 / DIGIT-OUT-001)",
-      "status": "Ready",
+      "status": "Planned",
       "description": "Close the implementation gap for the 2026-10-12 keymap rulings — the ONLY unshipped change in the PRD diff (spec synced at 8c5f870 with 'No source moves'). Bare-letter defaults (d/o/t/m/e) with the focusText→elaborate rename and a two-tier intercept rule; hjkl join the fixed key family as arrow aliases; digit quick-select is removed entirely; README synced; full suite + guards green. The other eleven bundled rulings are already shipped in source (TRUST-001 3779383, DEEP-PIN-002 6e383c2, DEEP-PIN-003 3779383, GOAL-OUT/MIRROR-SILENT/DEEP-FULL/CAPS-OUT e6e2f3a, DEEP-STICKY 2b174b1, DEEP-LAND 182f4ce, BUG wave via plan 003) — cite, do not rebuild, no re-verification beyond the suite staying green. No state-machine, lifecycle, rendering, delivery, persistence, or spec/*.md work. Research: plan/004_49e25d5235a9/architecture/ (config-surface.md, keys-and-actions.md, readme-and-test-flows.md, system_context.md).",
       "milestones": [
         {
@@ -18,28 +18,44 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Rename keys.focusText to keys.elaborate across config and consumers (values unchanged)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Pure identifier rename of the KeyAction-bound surface — config union/defaults-field/doc-table, keys.ts dispatch seam, panel.ts override, layout label maps, keymap-guard action list, test fixtures — keeping chord values and behavior identical so every suite stays green at the subtask boundary.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T1.S1",
                   "title": "Rename the KeyAction member, defaults field, dispatch seam, and label maps",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h2.74", "h2.35", "h2.18", "h2.3", "h2.10", "h2.52", "h2.53"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_49e25d5235a9/architecture/config-surface.md §1/§4 and keys-and-actions.md §6/§9 map every site: KeyAction union src/config.ts:48-58 ('focusText' :51), KEY_ACTIONS :93-103 (:96), DEFAULT_CONFIG.keys.focusText :113, loadConfig JSDoc row ~:274; consumers: src/panel/keys.ts RoutedActions.onFocusText (~:51), defaultRoutedActions delegate (~:319-321), dispatch matchesKey(data, b.focusText) :475 (BUG-011 gate view==='short' && focus!=='note' at :463-471 stays as-is); src/panel/panel.ts override :645-648; src/panel/layout.ts :67/:431/:501/:510/:516; src/keymap-guard.test.ts hand-duplicated ALL_ACTIONS :24-34 ('focusText' :29); fixtures src/panel/keys.test.ts DEFAULT_DATA :39-50 + makeActions spy :118, src/config.test.ts :129, src/config-surface.test.ts seam maps :128-149.\n2. INPUT: current HEAD source — DEFAULT_CONFIG.keys.focusText === 'ctrl+t'; all values and intercept behavior unchanged by this subtask.\n3. LOGIC: Mechanical rename only: union member 'focusText'→'elaborate', KEY_ACTIONS entry, DEFAULT_CONFIG field, JSDoc row name (purpose wording per FR-12: elaboration/write-in duty), RoutedActions member onFocusText→onElaborate, defaultRoutedActions, keys.ts dispatch read b.focusText→b.elaborate, panel.ts override property, layout.ts label/hint map keys, keymap-guard ALL_ACTIONS (its completeness test asserts DEFAULT_CONFIG.keys key set), and the listed test fixtures/spies. DO NOT rename panel.focusTextField()/exitTextField() methods or desiredTextDuty() — they are editor-focus mechanics, not the config key (research keys-and-actions.md §4). Behavior byte-identical: keys.test.ts, config.test.ts, config-surface.test.ts, keymap-guard stay green after mechanical flips. spec/*.md are READ-ONLY (synced at 8c5f870) — report spec errors, never edit.\n4. OUTPUT: config.ts exports KeyAction including 'elaborate', DEFAULT_CONFIG.keys.elaborate === 'ctrl+t' (value flip deferred to P1.M1.T2.S1), resolveKeyLabels exposing labels.elaborate; keys.ts dispatches onElaborate. Consumed by P1.M1.T1.S2 (alias) and P1.M1.T2.S1 (value flip + tiering).\n5. DOCS: [Mode A] config.ts loadConfig JSDoc keys-table row renamed with FR-12-aligned purpose wording. No README touch here (Mode B final task owns it)."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/004_49e25d5235a9/architecture/config-surface.md §1/§4 and keys-and-actions.md §6/§9 map every site: KeyAction union src/config.ts:48-58 ('focusText' :51), KEY_ACTIONS :93-103 (:96), DEFAULT_CONFIG.keys.focusText :113, loadConfig JSDoc row ~:274; consumers: src/panel/keys.ts RoutedActions.onFocusText (~:51), defaultRoutedActions delegate (~:319-321), dispatch matchesKey(data, b.focusText) :475 (BUG-011 gate view==='short' && focus!=='note' at :463-471 stays as-is); src/panel/panel.ts override :645-648; src/panel/layout.ts :67/:431/:501/:510/:516; src/keymap-guard.test.ts hand-duplicated ALL_ACTIONS :24-34 ('focusText' :29); fixtures src/panel/keys.test.ts DEFAULT_DATA :39-50 + makeActions spy :118, src/config.test.ts :129, src/config-surface.test.ts seam maps :128-149.\n2. INPUT: current HEAD source — DEFAULT_CONFIG.keys.focusText === 'ctrl+t'; all values and intercept behavior unchanged by this subtask.\n3. LOGIC: Mechanical rename only: union member 'focusText'→'elaborate', KEY_ACTIONS entry, DEFAULT_CONFIG field, JSDoc row name (purpose wording per FR-12: elaboration/write-in duty), RoutedActions member onFocusText→onElaborate, defaultRoutedActions, keys.ts dispatch read b.focusText→b.elaborate, panel.ts override property, layout.ts label/hint map keys, keymap-guard ALL_ACTIONS (its completeness test asserts DEFAULT_CONFIG.keys key set), and the listed test fixtures/spies. DO NOT rename panel.focusTextField()/exitTextField() methods or desiredTextDuty() — they are editor-focus mechanics, not the config key (research keys-and-actions.md §4). Behavior byte-identical: keys.test.ts, config.test.ts, config-surface.test.ts, keymap-guard stay green after mechanical flips. spec/*.md are READ-ONLY (synced at 8c5f870) — report spec errors, never edit.\n4. OUTPUT: config.ts exports KeyAction including 'elaborate', DEFAULT_CONFIG.keys.elaborate === 'ctrl+t' (value flip deferred to P1.M1.T2.S1), resolveKeyLabels exposing labels.elaborate; keys.ts dispatches onElaborate. Consumed by P1.M1.T1.S2 (alias) and P1.M1.T2.S1 (value flip + tiering).\n5. DOCS: [Mode A] config.ts loadConfig JSDoc keys-table row renamed with FR-12-aligned purpose wording. No README touch here (Mode B final task owns it).",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.35",
+                    "h2.18",
+                    "h2.3",
+                    "h2.10",
+                    "h2.52",
+                    "h2.53"
+                  ]
                 },
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Add the silent focusText→elaborate compat alias in coerceKeys",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S1"],
-                  "prd_selectors": ["h2.74", "h2.35", "h2.18", "h2.55", "h2.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: config-surface.md §2 — coerceKeys (src/config.ts:195-202) iterates KEY_ACTIONS and silently drops unknown action names, so post-rename a settings keys.focusText would vanish; there is NO alias precedent in config.ts — the alias must be added fresh. coerceConfig (:216-225) rebuilds the object field-by-field; this is the only place settings key names are read.\n2. INPUT: raw settings keys object (possibly carrying legacy focusText and/or new elaborate) reaching coerceKeys from P1.M1.T1.S1's renamed config surface.\n3. LOGIC: In coerceKeys (or coerceConfig immediately before it): if raw.focusText is a non-empty string AND raw.elaborate is absent/not-a-string, use raw.focusText as the elaborate source; an explicit keys.elaborate always wins; aliasing is silent (no console.warn — tolerant-coercion posture per spec h2.74/decisions :113). Tests: settings {keys:{focusText:'ctrl+t'}} resolves keys.elaborate 'ctrl+t' and the footer label reflects it; both-present → elaborate wins; focusText present + elaborate invalid → alias value used (not the default). spec/*.md READ-ONLY.\n4. OUTPUT: loadConfig() behavior for the deprecated alias — consumed by P1.M1.T2.S1 (default-value tests), P1.M4.T1.S2 (AC-4 scripted coverage). The alias is code-only: the name focusText must NOT appear in any doc (PRD grep gate).\n5. DOCS: none beyond a one-line maintainer comment at the alias site inside coerceKeys — the old name must disappear from types and docs; no README/doc-table mention permitted."
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: config-surface.md §2 — coerceKeys (src/config.ts:195-202) iterates KEY_ACTIONS and silently drops unknown action names, so post-rename a settings keys.focusText would vanish; there is NO alias precedent in config.ts — the alias must be added fresh. coerceConfig (:216-225) rebuilds the object field-by-field; this is the only place settings key names are read.\n2. INPUT: raw settings keys object (possibly carrying legacy focusText and/or new elaborate) reaching coerceKeys from P1.M1.T1.S1's renamed config surface.\n3. LOGIC: In coerceKeys (or coerceConfig immediately before it): if raw.focusText is a non-empty string AND raw.elaborate is absent/not-a-string, use raw.focusText as the elaborate source; an explicit keys.elaborate always wins; aliasing is silent (no console.warn — tolerant-coercion posture per spec h2.74/decisions :113). Tests: settings {keys:{focusText:'ctrl+t'}} resolves keys.elaborate 'ctrl+t' and the footer label reflects it; both-present → elaborate wins; focusText present + elaborate invalid → alias value used (not the default). spec/*.md READ-ONLY.\n4. OUTPUT: loadConfig() behavior for the deprecated alias — consumed by P1.M1.T2.S1 (default-value tests), P1.M4.T1.S2 (AC-4 scripted coverage). The alias is code-only: the name focusText must NOT appear in any doc (PRD grep gate).\n5. DOCS: none beyond a one-line maintainer comment at the alias site inside coerceKeys — the old name must disappear from types and docs; no README/doc-table mention permitted.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.35",
+                    "h2.18",
+                    "h2.55",
+                    "h2.10"
+                  ]
                 }
               ]
             },
@@ -54,11 +70,22 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Flip defaults to d/o/t/m/e and tier intercepts on modifier presence in buildKeyRouter",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2"],
-                  "prd_selectors": ["h2.74", "h2.35", "h2.18", "h2.31", "h2.33", "h2.10", "h2.3"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §1/§2 — today config intercepts (src/panel/keys.ts :455-506) fire in EVERY focus state incl. text/note (module doc 'Mode A' :11-19 + resolution-order block :60-76 document the ONE-tier rule and must be rewritten; verbatim spec two-tier wording quoted in §8 from ui-spec :70). Defaults block src/config.ts :111-119; JSDoc table :271-280. Tests that INVERT: keys.test.ts:278 test_text_focus_still_intercepts_panel_keys, :508 ctrl_shift_m-every-focus, config-surface.test.ts:348 fire_from_text_focus intercept rule; default fixtures keys.test.ts DEFAULT_DATA :39-50 and config-surface.test.ts :88-98 change from control bytes (\\u0004, \\u000c, \\u0014, \\u001b[109;6u, \\u001b[101;6u) to plain letters 'd','o','t','m','e'.\n2. INPUT: P1.M1.T1.S1's renamed config/dispatch (elaborate field, onElaborate seam) and P1.M1.T1.S2's alias-aware coercion.\n3. LOGIC: (a) DEFAULT_CONFIG.keys → deep:'d', overview:'o', elaborate:'t', batchNote:'m', discuss:'e'; submit stays 'ctrl+s', externalEditor 'ctrl+g', prevQuestion 'tab', nextQuestion 'shift+tab' (spec decisions :113-115 give the two surviving chords and their reasons — quote them in the JSDoc). (b) In buildKeyRouter step 7, classify each resolved binding: TIER-2 (bare) iff its normalized KeyId is a single printable character — intercepts ONLY when !(focus==='text'||focus==='note'), otherwise returns false so panel.ts hands the byte to the composed editor (typing 't' in an answer inserts a 't'); TIER-1 (any modifier chord, tab, f-key remaps like f9 — anything not a single printable char) intercepts in every focus state. Fixed branches (↑/↓/←/→/esc/enter, steps 3-6) untouched; externalEditor keeps its editor-focus-only gate; elaborate keeps the BUG-011 short-view gate; config keys keep firing from deep/overview non-editor focus (keys.test :760/:910). (c) Rewrite keys.ts module doc blocks (:11-19, :60-76) to the two-tier rule. Tests: letters dispatch from options/deep/overview focus; letters forward (route===false, buffer receives them) in text AND note focus; ctrl+s submits from text focus; ctrl+g opens the mocked $EDITOR; a remap-to-chord (e.g. deep:'ctrl+alt+d') still intercepts in text focus; a remap-to-bare forwards. Mock $EDITOR via the existing external-editor test seam; no other externals. spec/*.md READ-ONLY.\n4. OUTPUT: the new default keymap + tiered resolution order — consumed by P1.M1.T2.S2 (gestures), P1.M2.T1.S1 (hjkl mirrors the bare-tier gating), P1.M3.T1.S1 (digit branch dies in the same order).\n5. DOCS: [Mode A] config.ts JSDoc keys-table default column (d/o/t/m/e + the two surviving chords with reasons) and keys.ts module two-tier doc rewrite."
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §1/§2 — today config intercepts (src/panel/keys.ts :455-506) fire in EVERY focus state incl. text/note (module doc 'Mode A' :11-19 + resolution-order block :60-76 document the ONE-tier rule and must be rewritten; verbatim spec two-tier wording quoted in §8 from ui-spec :70). Defaults block src/config.ts :111-119; JSDoc table :271-280. Tests that INVERT: keys.test.ts:278 test_text_focus_still_intercepts_panel_keys, :508 ctrl_shift_m-every-focus, config-surface.test.ts:348 fire_from_text_focus intercept rule; default fixtures keys.test.ts DEFAULT_DATA :39-50 and config-surface.test.ts :88-98 change from control bytes (\\u0004, \\u000c, \\u0014, \\u001b[109;6u, \\u001b[101;6u) to plain letters 'd','o','t','m','e'.\n2. INPUT: P1.M1.T1.S1's renamed config/dispatch (elaborate field, onElaborate seam) and P1.M1.T1.S2's alias-aware coercion.\n3. LOGIC: (a) DEFAULT_CONFIG.keys → deep:'d', overview:'o', elaborate:'t', batchNote:'m', discuss:'e'; submit stays 'ctrl+s', externalEditor 'ctrl+g', prevQuestion 'tab', nextQuestion 'shift+tab' (spec decisions :113-115 give the two surviving chords and their reasons — quote them in the JSDoc). (b) In buildKeyRouter step 7, classify each resolved binding: TIER-2 (bare) iff its normalized KeyId is a single printable character — intercepts ONLY when !(focus==='text'||focus==='note'), otherwise returns false so panel.ts hands the byte to the composed editor (typing 't' in an answer inserts a 't'); TIER-1 (any modifier chord, tab, f-key remaps like f9 — anything not a single printable char) intercepts in every focus state. Fixed branches (↑/↓/←/→/esc/enter, steps 3-6) untouched; externalEditor keeps its editor-focus-only gate; elaborate keeps the BUG-011 short-view gate; config keys keep firing from deep/overview non-editor focus (keys.test :760/:910). (c) Rewrite keys.ts module doc blocks (:11-19, :60-76) to the two-tier rule. Tests: letters dispatch from options/deep/overview focus; letters forward (route===false, buffer receives them) in text AND note focus; ctrl+s submits from text focus; ctrl+g opens the mocked $EDITOR; a remap-to-chord (e.g. deep:'ctrl+alt+d') still intercepts in text focus; a remap-to-bare forwards. Mock $EDITOR via the existing external-editor test seam; no other externals. spec/*.md READ-ONLY.\n4. OUTPUT: the new default keymap + tiered resolution order — consumed by P1.M1.T2.S2 (gestures), P1.M2.T1.S1 (hjkl mirrors the bare-tier gating), P1.M3.T1.S1 (digit branch dies in the same order).\n5. DOCS: [Mode A] config.ts JSDoc keys-table default column (d/o/t/m/e + the two surviving chords with reasons) and keys.ts module two-tier doc rewrite.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.35",
+                    "h2.18",
+                    "h2.31",
+                    "h2.33",
+                    "h2.10",
+                    "h2.3"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -66,9 +93,17 @@
                   "title": "Remove re-press-to-close gestures for the elaborate and note prompts",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S1"],
-                  "prd_selectors": ["h2.74", "h2.31", "h2.33", "h2.35", "h2.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §6 — the elaborate re-press toggle lives in the panel.ts:645-648 OVERRIDE (if focus==='text' exitTextField() else focusTextField(desiredTextDuty(p))); the keys.ts default onFocusText (:319-321) is already entry-only. The note toggle is keys.ts onBatchNote :322-328 (if focus==='note' exitNoteMode() else enterNoteMode()). keys.ts:418 comment 'close via the ctrl+t toggle or enter' is a purge site. Closes remain: enter (per-duty editor save) and double-esc via escExitEditor keys.ts:236-242 (escExitWindowMs window — independent of the toggles, gesture-removal-safe). Spec ui-spec :43: 'The third gesture — key re-press — died with the bare-key defaults'; :62: 'no re-press close — a bare m while the editor holds focus must type'.\n2. INPUT: P1.M1.T2.S1's tiered router — bare t/m are now unreachable by the router while the editor holds focus (they type), so the exit arms are dead code paths.\n3. LOGIC: panel.ts override becomes entry-only (unconditional focusTextField(desiredTextDuty(p)) — the router now only invokes it from non-editor focus); keys.ts onBatchNote flattens to open-only enterNoteMode() (valid from any non-editor focus and any view per FR-13). Purge the :418 gesture comment (and :276 desiredTextDuty digit mention is deferred to P1.M3.T1.S1). Tests: pressing t/m while the editor holds focus types the letter and does NOT exit (route===false, buffer grows); elaborate and note prompts close via enter and via double-esc within escExitWindowMs; flip the gesture-pinning tests: panel.test.ts :1964 (note re-press exits preserving draft) and :2769 (ctrl_t repress exits) reworked to the new exits, two-stage.test.ts :385/:413 pair reworked. spec/*.md READ-ONLY.\n4. OUTPUT: gesture-free close semantics (enter / double-esc only) — consumed by P1.M1.T2.S3 (footer stops advertising close hints) and P1.M4.T1.S1 (suite sweep).\n5. DOCS: [Mode A] comments in panel.ts/keys.ts describing close gestures updated to enter/double-esc only."
+                  "dependencies": [
+                    "P1.M1.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §6 — the elaborate re-press toggle lives in the panel.ts:645-648 OVERRIDE (if focus==='text' exitTextField() else focusTextField(desiredTextDuty(p))); the keys.ts default onFocusText (:319-321) is already entry-only. The note toggle is keys.ts onBatchNote :322-328 (if focus==='note' exitNoteMode() else enterNoteMode()). keys.ts:418 comment 'close via the ctrl+t toggle or enter' is a purge site. Closes remain: enter (per-duty editor save) and double-esc via escExitEditor keys.ts:236-242 (escExitWindowMs window — independent of the toggles, gesture-removal-safe). Spec ui-spec :43: 'The third gesture — key re-press — died with the bare-key defaults'; :62: 'no re-press close — a bare m while the editor holds focus must type'.\n2. INPUT: P1.M1.T2.S1's tiered router — bare t/m are now unreachable by the router while the editor holds focus (they type), so the exit arms are dead code paths.\n3. LOGIC: panel.ts override becomes entry-only (unconditional focusTextField(desiredTextDuty(p)) — the router now only invokes it from non-editor focus); keys.ts onBatchNote flattens to open-only enterNoteMode() (valid from any non-editor focus and any view per FR-13). Purge the :418 gesture comment (and :276 desiredTextDuty digit mention is deferred to P1.M3.T1.S1). Tests: pressing t/m while the editor holds focus types the letter and does NOT exit (route===false, buffer grows); elaborate and note prompts close via enter and via double-esc within escExitWindowMs; flip the gesture-pinning tests: panel.test.ts :1964 (note re-press exits preserving draft) and :2769 (ctrl_t repress exits) reworked to the new exits, two-stage.test.ts :385/:413 pair reworked. spec/*.md READ-ONLY.\n4. OUTPUT: gesture-free close semantics (enter / double-esc only) — consumed by P1.M1.T2.S3 (footer stops advertising close hints) and P1.M4.T1.S1 (suite sweep).\n5. DOCS: [Mode A] comments in panel.ts/keys.ts describing close gestures updated to enter/double-esc only.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.31",
+                    "h2.33",
+                    "h2.35",
+                    "h2.10"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -76,9 +111,18 @@
                   "title": "Footer drops (not swaps) the elaborate hint while the editor holds focus",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T2.S2"],
-                  "prd_selectors": ["h2.74", "h2.35", "h2.37", "h2.64", "h2.28", "h2.3"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §7 — renderFooter (src/panel/layout.ts ~:478-530); labels come from resolveKeyLabels (memoized per panel). TODAY layout.ts :511-521 SWAPS the screen statics while editor-focused: filters out the {focusText} explain hint and pushes 'enter save', 'esc esc back', and toggle hints `${labels.focusText} close` (text) / `${labels.batchNote} close` (note). Spec ui-spec :116: the short-view footer permanently carries `{elaborate} explain` (resolved via keys.elaborate, default t), it is 'first casualty of the narrow-width right-to-left drop loop, and dropped (not swapped) while the editor holds focus'. D-R11 as amended (h2.37/h2.64).\n2. INPUT: labels.elaborate (renamed in P1.M1.T1.S1, default 'T' after P1.M1.T2.S1) and the gesture-free close semantics of P1.M1.T2.S2 (no close hints to advertise).\n3. LOGIC: While focus==='text'||'note': DROP the `{elaborate} explain` hint entirely (never render a replacement close hint); delete the `{focusText} close`/`${labels.batchNote} close` toggle-hint branches; keep 'enter save' and the double-esc hint (escEscHint) and all non-editor footer content unchanged; the narrow-width drop loop must still drop the explain hint FIRST. Identifier renames at layout.ts :501/:510/:516 landed in P1.M1.T1.S1 — this subtask owns the behavioral drop. Tests: footer omits the explain hint and any close hint while editor-focused (text and note); shows `{elaborate} explain` from options focus; labels reflect remapped keys (config-surface.test.ts label suite :399-470 flips, incl. footer not containing default-label hints); layout.test.ts fixture flips (:72-74). Mock: none (pure render functions on fixture configs).\n4. OUTPUT: the footer contract (drop-not-swap) — consumed by P1.M4.T1.S2 (AC-4 label assertions) and P1.M4.T2.S1 (README usage prose).\n5. DOCS: [Mode A] layout.ts comments describing the editor-focus hint set."
+                  "dependencies": [
+                    "P1.M1.T2.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §7 — renderFooter (src/panel/layout.ts ~:478-530); labels come from resolveKeyLabels (memoized per panel). TODAY layout.ts :511-521 SWAPS the screen statics while editor-focused: filters out the {focusText} explain hint and pushes 'enter save', 'esc esc back', and toggle hints `${labels.focusText} close` (text) / `${labels.batchNote} close` (note). Spec ui-spec :116: the short-view footer permanently carries `{elaborate} explain` (resolved via keys.elaborate, default t), it is 'first casualty of the narrow-width right-to-left drop loop, and dropped (not swapped) while the editor holds focus'. D-R11 as amended (h2.37/h2.64).\n2. INPUT: labels.elaborate (renamed in P1.M1.T1.S1, default 'T' after P1.M1.T2.S1) and the gesture-free close semantics of P1.M1.T2.S2 (no close hints to advertise).\n3. LOGIC: While focus==='text'||'note': DROP the `{elaborate} explain` hint entirely (never render a replacement close hint); delete the `{focusText} close`/`${labels.batchNote} close` toggle-hint branches; keep 'enter save' and the double-esc hint (escEscHint) and all non-editor footer content unchanged; the narrow-width drop loop must still drop the explain hint FIRST. Identifier renames at layout.ts :501/:510/:516 landed in P1.M1.T1.S1 — this subtask owns the behavioral drop. Tests: footer omits the explain hint and any close hint while editor-focused (text and note); shows `{elaborate} explain` from options focus; labels reflect remapped keys (config-surface.test.ts label suite :399-470 flips, incl. footer not containing default-label hints); layout.test.ts fixture flips (:72-74). Mock: none (pure render functions on fixture configs).\n4. OUTPUT: the footer contract (drop-not-swap) — consumed by P1.M4.T1.S2 (AC-4 label assertions) and P1.M4.T2.S1 (README usage prose).\n5. DOCS: [Mode A] layout.ts comments describing the editor-focus hint set.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.35",
+                    "h2.37",
+                    "h2.64",
+                    "h2.28",
+                    "h2.3"
+                  ]
                 }
               ]
             }
@@ -104,9 +148,18 @@
                   "title": "Add k/j to the fixed ↑/↓ branch and h/l to ←/→ with identical gating",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S1"],
-                  "prd_selectors": ["h2.74", "h2.35", "h2.8", "h2.8/h3.1", "h2.29", "h2.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §2/§3 — src/panel/keys.ts has ONE centralized branch per arrow with inline view-switch: ↑/↓ at :382-391 calls overviewUp/overviewDown (overview), deepSelectionUp/deepSelectionDown (deep), actions.optionUp/optionDown (short view, option cursor domain includes the ✎ Other row); ←/→ at :401-410 is editor-gated (focus!=='text'/'note') and calls overviewUp/Down in overview, else actions.prevQuestion/nextQuestion (full list, clamped, no wrap). Forwarding = return false; panel hands the byte to the composed editor. Spec ui-spec :94: 'k/j are checked in the same fixed branch as ↑/↓ — identical view-aware semantics and identical editor-focus forwarding (VIMNAV-001)'; hjkl are FIXED, not configurable (decisions :112). Fixed-keys doc block keys.ts:21-48 to extend.\n2. INPUT: P1.M1.T2.S1's tiered router — the fixed branches already gate on editorFocused; the alias letters must ride the exact same gates.\n3. LOGIC: Extend the key-match conditions, e.g. (matchesKey(data, Key.up) || isBareKey(data, 'k')) in the ↑ branch, j with ↓, h with ←, l with → — same non-editor-focus gate (all four forward/return false while focus==='text'||'note' so they TYPE), same per-view dispatch functions, same clamped no-wrap question navigation. Add NO config surface: hjkl must not appear in KeyAction, KEY_ACTIONS, DEFAULT_CONFIG, or the config JSDoc (AC-2 'nowhere in the config schema'). Extend the fixed-keys doc block (:21-48) to list the hjkl aliases as fixed like the arrows. Tests (raw-byte style, keys.test.ts arrow suite :359/:580 extended): short view j/k move the option cursor including the ✎ Other row and h/l navigate questions clamped at both ends without wrap; deep view moves the selection; overview moves the cursor row; all four type (route===false, buffer grows) in text and note focus; arrows still work; hjkl absent from the config schema (keymap-guard completeness list without them). Mock: none (router + panel stubs).\n4. OUTPUT: the fixed-family navigation contract — consumed by P1.M4.T1.S2 (AC-2 scripted coverage) and P1.M4.T2.S1 (README fixed-keys table).\n5. DOCS: [Mode A] keys.ts fixed-keys doc block lists hjkl as non-configurable arrow aliases."
+                  "dependencies": [
+                    "P1.M1.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §2/§3 — src/panel/keys.ts has ONE centralized branch per arrow with inline view-switch: ↑/↓ at :382-391 calls overviewUp/overviewDown (overview), deepSelectionUp/deepSelectionDown (deep), actions.optionUp/optionDown (short view, option cursor domain includes the ✎ Other row); ←/→ at :401-410 is editor-gated (focus!=='text'/'note') and calls overviewUp/Down in overview, else actions.prevQuestion/nextQuestion (full list, clamped, no wrap). Forwarding = return false; panel hands the byte to the composed editor. Spec ui-spec :94: 'k/j are checked in the same fixed branch as ↑/↓ — identical view-aware semantics and identical editor-focus forwarding (VIMNAV-001)'; hjkl are FIXED, not configurable (decisions :112). Fixed-keys doc block keys.ts:21-48 to extend.\n2. INPUT: P1.M1.T2.S1's tiered router — the fixed branches already gate on editorFocused; the alias letters must ride the exact same gates.\n3. LOGIC: Extend the key-match conditions, e.g. (matchesKey(data, Key.up) || isBareKey(data, 'k')) in the ↑ branch, j with ↓, h with ←, l with → — same non-editor-focus gate (all four forward/return false while focus==='text'||'note' so they TYPE), same per-view dispatch functions, same clamped no-wrap question navigation. Add NO config surface: hjkl must not appear in KeyAction, KEY_ACTIONS, DEFAULT_CONFIG, or the config JSDoc (AC-2 'nowhere in the config schema'). Extend the fixed-keys doc block (:21-48) to list the hjkl aliases as fixed like the arrows. Tests (raw-byte style, keys.test.ts arrow suite :359/:580 extended): short view j/k move the option cursor including the ✎ Other row and h/l navigate questions clamped at both ends without wrap; deep view moves the selection; overview moves the cursor row; all four type (route===false, buffer grows) in text and note focus; arrows still work; hjkl absent from the config schema (keymap-guard completeness list without them). Mock: none (router + panel stubs).\n4. OUTPUT: the fixed-family navigation contract — consumed by P1.M4.T1.S2 (AC-2 scripted coverage) and P1.M4.T2.S1 (README fixed-keys table).\n5. DOCS: [Mode A] keys.ts fixed-keys doc block lists hjkl as non-configurable arrow aliases.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.35",
+                    "h2.8",
+                    "h2.8/h3.1",
+                    "h2.29",
+                    "h2.10"
+                  ]
                 }
               ]
             }
@@ -132,9 +185,17 @@
                   "title": "Delete the digit branch and digit routing from keys.ts",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T2.S1"],
-                  "prd_selectors": ["h2.74", "h2.35", "h2.10", "h2.8", "h2.65"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §2 step 8 / §5 — digit branch src/panel/keys.ts :508-519 (config.digitQuickSelect && view!=='overview' && focus!=='text'/'note' → actions.digit(panel, Number(k)) for '1'..'9'), RoutedActions.digit iface :103, defaultRoutedActions delegate :300, doc comments :70-74 (resolution-order list), :93, :260, :276 (desiredTextDuty), :351.\n2. INPUT: P1.M1.T2.S1's tiered resolution order — the digit step sits after the config intercepts and dies as a whole.\n3. LOGIC: Delete the digit resolution step, the RoutedActions.digit member, and the defaultRoutedActions delegate (the standalone actions.digit implementation survives one more subtask — nothing references it; typecheck must stay green). Digits become plain unmatched input: router returns false — they type in editor focus and do NOTHING at options/overview/deep focus (no accept, no advance, no state change; AC-3). Purge digit wording from keys.ts doc comments (:70-74, :93, :260, :276, :351). Tests: route('3')===false from options, overview, and deep focus with zero state change; handleInput('2') inserts '2' in editor focus; flip keys.test.ts digit tests (:376, :384, :610, :896-907 short-view digit case) to inertness assertions. Mock: none.\n4. OUTPUT: digit-free resolution order — consumed by P1.M3.T1.S2 (delete the now-unreferenced action).\n5. DOCS: [Mode A] keys.ts resolution-order doc comment loses the digit step."
+                  "dependencies": [
+                    "P1.M1.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §2 step 8 / §5 — digit branch src/panel/keys.ts :508-519 (config.digitQuickSelect && view!=='overview' && focus!=='text'/'note' → actions.digit(panel, Number(k)) for '1'..'9'), RoutedActions.digit iface :103, defaultRoutedActions delegate :300, doc comments :70-74 (resolution-order list), :93, :260, :276 (desiredTextDuty), :351.\n2. INPUT: P1.M1.T2.S1's tiered resolution order — the digit step sits after the config intercepts and dies as a whole.\n3. LOGIC: Delete the digit resolution step, the RoutedActions.digit member, and the defaultRoutedActions delegate (the standalone actions.digit implementation survives one more subtask — nothing references it; typecheck must stay green). Digits become plain unmatched input: router returns false — they type in editor focus and do NOTHING at options/overview/deep focus (no accept, no advance, no state change; AC-3). Purge digit wording from keys.ts doc comments (:70-74, :93, :260, :276, :351). Tests: route('3')===false from options, overview, and deep focus with zero state change; handleInput('2') inserts '2' in editor focus; flip keys.test.ts digit tests (:376, :384, :610, :896-907 short-view digit case) to inertness assertions. Mock: none.\n4. OUTPUT: digit-free resolution order — consumed by P1.M3.T1.S2 (delete the now-unreferenced action).\n5. DOCS: [Mode A] keys.ts resolution-order doc comment loses the digit step.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.35",
+                    "h2.10",
+                    "h2.8",
+                    "h2.65"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -142,9 +203,17 @@
                   "title": "Delete actions.digit and purge digit-accept comments",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M3.T1.S1"],
-                  "prd_selectors": ["h2.74", "h2.65", "h2.8", "h2.35", "h2.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §5 — src/panel/actions.ts: PanelActions.digit iface :76, digit() implementation :185-208 (reads panel.config.digitQuickSelect at :195 — the LAST config reader; routes via acceptOptionIndex(panel, q, n-1)), registry export :912, and the FR-35/ANSWER-PIN-001 comment :297 'enter (or digit) on the ALREADY-RECORDED value' — the purge site. Comment residue: src/panel/short-view.ts :48/:77/:100 (digit-selectable / digit quick-select 1..9), src/panel/panel.ts :541 JSDoc ('actions read digitQuickSelect off it'). Same-value no-op remains an ENTER behavior (FR-35 as amended; the accept path :263-294 stays, reworded where it cites digits).\n2. INPUT: P1.M3.T1.S1's digit-free router (nothing dispatches digit anymore).\n3. LOGIC: Delete PanelActions.digit, digit(), and the registry export; purge 'enter (or a digit)' phrasing and digit-select comments at the listed sites (reword the ✎ Other row comment per the D-R13 amendment — never digit-selectable → not quick-selectable / reachable only via the cursor); fix panel.ts:541 JSDoc. Tests: delete the actions.test.ts digit suite :908-967 (superseded by P1.M3.T1.S1 router inertness tests); flip matcher tests :1780-1791 (panel.handleInput('2') → false) and :1795-1810 (seam-consumes test sends 'o' not \\u000c); ripple-confirm.test.ts :390 digit press → inert. FR-35 same-value ENTER no-op tests must stay green untouched. Mock: none.\n4. OUTPUT: actions registry without digit — unblocks P1.M3.T1.S3 (config field deletion; the :195 reader is gone).\n5. DOCS: [Mode A] comment/JSDoc purge at actions.ts/short-view.ts/panel.ts sites listed above."
+                  "dependencies": [
+                    "P1.M3.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: keys-and-actions.md §5 — src/panel/actions.ts: PanelActions.digit iface :76, digit() implementation :185-208 (reads panel.config.digitQuickSelect at :195 — the LAST config reader; routes via acceptOptionIndex(panel, q, n-1)), registry export :912, and the FR-35/ANSWER-PIN-001 comment :297 'enter (or digit) on the ALREADY-RECORDED value' — the purge site. Comment residue: src/panel/short-view.ts :48/:77/:100 (digit-selectable / digit quick-select 1..9), src/panel/panel.ts :541 JSDoc ('actions read digitQuickSelect off it'). Same-value no-op remains an ENTER behavior (FR-35 as amended; the accept path :263-294 stays, reworded where it cites digits).\n2. INPUT: P1.M3.T1.S1's digit-free router (nothing dispatches digit anymore).\n3. LOGIC: Delete PanelActions.digit, digit(), and the registry export; purge 'enter (or a digit)' phrasing and digit-select comments at the listed sites (reword the ✎ Other row comment per the D-R13 amendment — never digit-selectable → not quick-selectable / reachable only via the cursor); fix panel.ts:541 JSDoc. Tests: delete the actions.test.ts digit suite :908-967 (superseded by P1.M3.T1.S1 router inertness tests); flip matcher tests :1780-1791 (panel.handleInput('2') → false) and :1795-1810 (seam-consumes test sends 'o' not \\u000c); ripple-confirm.test.ts :390 digit press → inert. FR-35 same-value ENTER no-op tests must stay green untouched. Mock: none.\n4. OUTPUT: actions registry without digit — unblocks P1.M3.T1.S3 (config field deletion; the :195 reader is gone).\n5. DOCS: [Mode A] comment/JSDoc purge at actions.ts/short-view.ts/panel.ts sites listed above.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.65",
+                    "h2.8",
+                    "h2.35",
+                    "h2.10"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -152,9 +221,18 @@
                   "title": "Delete digitQuickSelect from the config schema and settings load",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M3.T1.S2", "P1.M1.T1.S1"],
-                  "prd_selectors": ["h2.74", "h2.18", "h2.55", "h2.35", "h2.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: config-surface.md §1-§3 — src/config.ts sites: interface field :80, default :123 (digitQuickSelect: true), coerceConfig call :222, loadConfig JSDoc toggles-table row :287; header counts ~:266 ('9 keys + 4 toggles' becomes '9 keys + 3 toggles' — the key count is unchanged by the rename). coerceConfig rebuilds field-by-field, so an unknown digitQuickSelect in a settings file already contributes nothing once the field is deleted (AC-3 'absent from the config schema and settings load').\n2. INPUT: P1.M3.T1.S2's reader-free codebase (no source reads config.digitQuickSelect anymore).\n3. LOGIC: Delete the four config.ts sites and fix the JSDoc header counts. Tests: config.test.ts :106-114 toggles test drops digitQuickSelect fixtures and asserts the resolved config object LACKS the key; a settings file still carrying digitQuickSelect loads cleanly with it absent; config-surface.test.ts fixtures drop the field; keymap-guard completeness unaffected (9 keys). npm run typecheck green. Mock: none.\n4. OUTPUT: final config schema (9 keys, 3 toggles) — consumed by P1.M4.T2.S1 (README sample settings block) and P1.M4.T1.S2 (AC-3 scripted).\n5. DOCS: [Mode A] loadConfig JSDoc toggles table row deleted + counts corrected."
+                  "dependencies": [
+                    "P1.M3.T1.S2",
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: config-surface.md §1-§3 — src/config.ts sites: interface field :80, default :123 (digitQuickSelect: true), coerceConfig call :222, loadConfig JSDoc toggles-table row :287; header counts ~:266 ('9 keys + 4 toggles' becomes '9 keys + 3 toggles' — the key count is unchanged by the rename). coerceConfig rebuilds field-by-field, so an unknown digitQuickSelect in a settings file already contributes nothing once the field is deleted (AC-3 'absent from the config schema and settings load').\n2. INPUT: P1.M3.T1.S2's reader-free codebase (no source reads config.digitQuickSelect anymore).\n3. LOGIC: Delete the four config.ts sites and fix the JSDoc header counts. Tests: config.test.ts :106-114 toggles test drops digitQuickSelect fixtures and asserts the resolved config object LACKS the key; a settings file still carrying digitQuickSelect loads cleanly with it absent; config-surface.test.ts fixtures drop the field; keymap-guard completeness unaffected (9 keys). npm run typecheck green. Mock: none.\n4. OUTPUT: final config schema (9 keys, 3 toggles) — consumed by P1.M4.T2.S1 (README sample settings block) and P1.M4.T1.S2 (AC-3 scripted).\n5. DOCS: [Mode A] loadConfig JSDoc toggles table row deleted + counts corrected.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.18",
+                    "h2.55",
+                    "h2.35",
+                    "h2.10"
+                  ]
                 }
               ]
             }
@@ -180,9 +258,24 @@
                   "title": "Flip residual scripted suites to the new keymap contract",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S1", "P1.M1.T2.S2", "P1.M1.T2.S3", "P1.M2.T1.S1", "P1.M3.T1.S1", "P1.M3.T1.S2", "P1.M3.T1.S3"],
-                  "prd_selectors": ["h2.74", "h2.10", "h2.53", "h2.35", "h2.31", "h2.33"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: readme-and-test-flows.md §3 per-suite tables with line numbers — src/panel/panel.test.ts ~50 handleInput sites (byte consts CTRL_D/CTRL_L :61-62, BATCH_NOTE :1922, CTRL_T :2557, PLUS inline \\u0014 sends at :1531/:1570/:2852 that a const-rename sed would miss; note-mode entry sites where a bare m while the editor holds focus now types — set focus/enterNoteMode() directly, pattern at two-stage.test.ts:385), two-stage.test.ts ~13 sites, ac-panel.test.ts 8, deep-view.test.ts 4 (\\u0004 → 'd'), ripple-confirm.test.ts 2, discuss.test.ts 3 sends + the 'ungated ctrl+shift+e' intercept test :552-567 which INVERTS (bare e must type while editing), layout.test.ts fixtures :72-74, plus keys.test/actions.test/config-surface residuals not owned earlier.\n2. INPUT: the completed implementing subtasks P1.M1.T2.S1/S2/S3, P1.M2.T1.S1, P1.M3.T1.S1/S2/S3 — all behavior is landed; only test expectations remain stale.\n3. LOGIC: Mechanical flip of every remaining chord byte to its bare letter ('d','o','t','m','e'), digit-press expectations to inert, and toggle-exit scenarios to enter/double-esc or direct focus manipulation; keep ctrl+s (\\u0013) and ctrl+g (\\u0007) bytes; rename describe/test labels that name chords ('ctrl+t duty — EXPLAIN vs OTHER' → elaborate). Simulation styles stay as-is (router-level route(data, stub) and full-panel handleInput(data), both raw-byte). Gate: FULL `npm test` green AND `npm run typecheck` green. Mock: none beyond existing harnesses.\n4. OUTPUT: a fully green suite — precondition for P1.M4.T1.S2 (gates + AC) and P1.M4.T2.S1 (docs).\n5. DOCS: [Mode A inline] test names/comments updated where they name chords; no product docs in this subtask."
+                  "dependencies": [
+                    "P1.M1.T2.S1",
+                    "P1.M1.T2.S2",
+                    "P1.M1.T2.S3",
+                    "P1.M2.T1.S1",
+                    "P1.M3.T1.S1",
+                    "P1.M3.T1.S2",
+                    "P1.M3.T1.S3"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: readme-and-test-flows.md §3 per-suite tables with line numbers — src/panel/panel.test.ts ~50 handleInput sites (byte consts CTRL_D/CTRL_L :61-62, BATCH_NOTE :1922, CTRL_T :2557, PLUS inline \\u0014 sends at :1531/:1570/:2852 that a const-rename sed would miss; note-mode entry sites where a bare m while the editor holds focus now types — set focus/enterNoteMode() directly, pattern at two-stage.test.ts:385), two-stage.test.ts ~13 sites, ac-panel.test.ts 8, deep-view.test.ts 4 (\\u0004 → 'd'), ripple-confirm.test.ts 2, discuss.test.ts 3 sends + the 'ungated ctrl+shift+e' intercept test :552-567 which INVERTS (bare e must type while editing), layout.test.ts fixtures :72-74, plus keys.test/actions.test/config-surface residuals not owned earlier.\n2. INPUT: the completed implementing subtasks P1.M1.T2.S1/S2/S3, P1.M2.T1.S1, P1.M3.T1.S1/S2/S3 — all behavior is landed; only test expectations remain stale.\n3. LOGIC: Mechanical flip of every remaining chord byte to its bare letter ('d','o','t','m','e'), digit-press expectations to inert, and toggle-exit scenarios to enter/double-esc or direct focus manipulation; keep ctrl+s (\\u0013) and ctrl+g (\\u0007) bytes; rename describe/test labels that name chords ('ctrl+t duty — EXPLAIN vs OTHER' → elaborate). Simulation styles stay as-is (router-level route(data, stub) and full-panel handleInput(data), both raw-byte). Gate: FULL `npm test` green AND `npm run typecheck` green. Mock: none beyond existing harnesses.\n4. OUTPUT: a fully green suite — precondition for P1.M4.T1.S2 (gates + AC) and P1.M4.T2.S1 (docs).\n5. DOCS: [Mode A inline] test names/comments updated where they name chords; no product docs in this subtask.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.10",
+                    "h2.53",
+                    "h2.35",
+                    "h2.31",
+                    "h2.33"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -190,9 +283,24 @@
                   "title": "Scripted AC coverage, keymap-conflict re-verification, and full gates",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M4.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M1.T2.S2", "P1.M1.T2.S3", "P1.M2.T1.S1", "P1.M3.T1.S1", "P1.M3.T1.S2", "P1.M3.T1.S3"],
-                  "prd_selectors": ["h2.74", "h2.35", "h2.10", "h2.53"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: readme-and-test-flows.md §2 (simulation recipes: router-level route(data, panelStub) with vi.fn spies; full-panel handleInput; editor focus via makePanel({focus:'text'}) or focusTextField()). config-surface.md §5 — guards need NO edits beyond the P1.M1.T1.S1 keymap-guard rename (no-hardcoded-keys regexes only match chords and the DEFAULT_CONFIG block is blanked; known gap — neither guard checks fixed-key collisions — is recorded in system_context.md as out of scope). scripts/verify-keymap-conflicts.sh parses DEFAULT_CONFIG.keys (README:386) — re-run it.\n2. INPUT: P1.M4.T1.S1's green suite plus every implementing subtask's landed behavior.\n3. LOGIC: Close scripted AC gaps per PRD §3 (add tests only where P1.M4.T1.S1 leaves none): AC-1 letters dispatch from non-editor focus and TYPE while editor-focused, ctrl+s submits from text focus, ctrl+g opens the mocked $EDITOR; AC-2 hjkl per-view navigation + clamping + typing + absence from the config schema; AC-3 '1'-'9' inert at panel level, digits type in the editor, digitQuickSelect absent from settings load; AC-4 keys.focusText alias still binds the elaboration key, keys.elaborate drives action and footer label; AC-5 re-pressing t/m while focused types, prompts close via enter/double-esc only. Run scripts/verify-keymap-conflicts.sh — update the script where its conflict tables assume chords (expected result: bare letters collide with nothing; the panel owns the whole keyboard while open; no global shortcut exists) — and RECORD the re-verification output for the PR notes (AC-6). Final gates: npm test, npm run typecheck, src/no-hardcoded-keys.test.ts, src/keymap-guard.test.ts all green. Mock $EDITOR via the existing external-editor seam.\n4. OUTPUT: green gates + the recorded conflict re-verification — consumed by P1.M4.T2.S1 (README conflict-section rewrite) and the PR notes.\n5. DOCS: [Mode A] comments in scripts/verify-keymap-conflicts.sh if its logic is updated."
+                  "dependencies": [
+                    "P1.M4.T1.S1",
+                    "P1.M1.T1.S2",
+                    "P1.M1.T2.S1",
+                    "P1.M1.T2.S2",
+                    "P1.M1.T2.S3",
+                    "P1.M2.T1.S1",
+                    "P1.M3.T1.S1",
+                    "P1.M3.T1.S2",
+                    "P1.M3.T1.S3"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: readme-and-test-flows.md §2 (simulation recipes: router-level route(data, panelStub) with vi.fn spies; full-panel handleInput; editor focus via makePanel({focus:'text'}) or focusTextField()). config-surface.md §5 — guards need NO edits beyond the P1.M1.T1.S1 keymap-guard rename (no-hardcoded-keys regexes only match chords and the DEFAULT_CONFIG block is blanked; known gap — neither guard checks fixed-key collisions — is recorded in system_context.md as out of scope). scripts/verify-keymap-conflicts.sh parses DEFAULT_CONFIG.keys (README:386) — re-run it.\n2. INPUT: P1.M4.T1.S1's green suite plus every implementing subtask's landed behavior.\n3. LOGIC: Close scripted AC gaps per PRD §3 (add tests only where P1.M4.T1.S1 leaves none): AC-1 letters dispatch from non-editor focus and TYPE while editor-focused, ctrl+s submits from text focus, ctrl+g opens the mocked $EDITOR; AC-2 hjkl per-view navigation + clamping + typing + absence from the config schema; AC-3 '1'-'9' inert at panel level, digits type in the editor, digitQuickSelect absent from settings load; AC-4 keys.focusText alias still binds the elaboration key, keys.elaborate drives action and footer label; AC-5 re-pressing t/m while focused types, prompts close via enter/double-esc only. Run scripts/verify-keymap-conflicts.sh — update the script where its conflict tables assume chords (expected result: bare letters collide with nothing; the panel owns the whole keyboard while open; no global shortcut exists) — and RECORD the re-verification output for the PR notes (AC-6). Final gates: npm test, npm run typecheck, src/no-hardcoded-keys.test.ts, src/keymap-guard.test.ts all green. Mock $EDITOR via the existing external-editor seam.\n4. OUTPUT: green gates + the recorded conflict re-verification — consumed by P1.M4.T2.S1 (README conflict-section rewrite) and the PR notes.\n5. DOCS: [Mode A] comments in scripts/verify-keymap-conflicts.sh if its logic is updated.",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.35",
+                    "h2.10",
+                    "h2.53"
+                  ]
                 }
               ]
             },
@@ -209,9 +317,28 @@
                   "title": "Rewrite README usage prose, sample settings, keymap tables, and conflict section",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M1.T2.S2", "P1.M1.T2.S3", "P1.M2.T1.S1", "P1.M3.T1.S1", "P1.M3.T1.S2", "P1.M3.T1.S3", "P1.M4.T1.S1", "P1.M4.T1.S2"],
-                  "prd_selectors": ["h2.74", "h2.35", "h2.55", "h2.18", "h2.10", "h2.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: readme-and-test-flows.md §1 stale map with every line number — Usage prose :33-68 (quick-select sentence :36; chords :37-38 and :47; pinning refs :51/:54/:59), Configuration sample :137-155 (keys block :137-149, digitQuickSelect :155), Keymap section :173-233 (remappable table :177-188, fixed-keys table :191-199 with the 1-9 row :198 and arrows :196-197, intercept prose :231-233), Acceptance refs :261 (2b ctrl+t) and :277 (16 'enter/digit'), the whole 'Keymap conflict re-verification' section :320-389. README has NO TOC (no anchor list to maintain).\n2. INPUT: the landed contract from all implementing subtasks plus P1.M4.T1.S2's recorded conflict re-verification output.\n3. LOGIC: Rewrite the stale sections to the new contract: bare letters d/o/t/m/e with the elaborate naming; the fixed family (arrows + hjkl, enter, esc, ctrl+c) documented as non-configurable, noting that remapping a config key ONTO a fixed key (e.g. deep:'j') is deterministically shadowed by the fixed branch; the two surviving chords ctrl+s/ctrl+g with their reasons (submit must fire from text focus; externalEditor's only valid context is editor focus where a bare key must type — decisions :113); two-tier intercept prose (bare keys type while the editor holds focus); the same-value no-op described as an enter behavior; sample settings.json showing only the 9 keys, no digitQuickSelect/focusText. GATE (PRD §2 R4, verbatim): `grep -n \"ctrl+t\\|ctrl+d\\|ctrl+l\\|focusText\\|digit\" README.md` must return ZERO — the word 'digit' may not appear at all; phrase number-key inertness without it (e.g. 'number keys do nothing at panel level'). Do NOT edit spec/*.md (synced at 8c5f870 — report spec errors, never diverge silently).\n4. OUTPUT: README.md matching HEAD behavior — the changeset's public face; closes the delta.\n5. DOCS: [Mode B] this subtask IS the changeset-level documentation sync (README keymap prose, sample config, keymap tables, conflict section)."
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T1.S2",
+                    "P1.M1.T2.S1",
+                    "P1.M1.T2.S2",
+                    "P1.M1.T2.S3",
+                    "P1.M2.T1.S1",
+                    "P1.M3.T1.S1",
+                    "P1.M3.T1.S2",
+                    "P1.M3.T1.S3",
+                    "P1.M4.T1.S1",
+                    "P1.M4.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: readme-and-test-flows.md §1 stale map with every line number — Usage prose :33-68 (quick-select sentence :36; chords :37-38 and :47; pinning refs :51/:54/:59), Configuration sample :137-155 (keys block :137-149, digitQuickSelect :155), Keymap section :173-233 (remappable table :177-188, fixed-keys table :191-199 with the 1-9 row :198 and arrows :196-197, intercept prose :231-233), Acceptance refs :261 (2b ctrl+t) and :277 (16 'enter/digit'), the whole 'Keymap conflict re-verification' section :320-389. README has NO TOC (no anchor list to maintain).\n2. INPUT: the landed contract from all implementing subtasks plus P1.M4.T1.S2's recorded conflict re-verification output.\n3. LOGIC: Rewrite the stale sections to the new contract: bare letters d/o/t/m/e with the elaborate naming; the fixed family (arrows + hjkl, enter, esc, ctrl+c) documented as non-configurable, noting that remapping a config key ONTO a fixed key (e.g. deep:'j') is deterministically shadowed by the fixed branch; the two surviving chords ctrl+s/ctrl+g with their reasons (submit must fire from text focus; externalEditor's only valid context is editor focus where a bare key must type — decisions :113); two-tier intercept prose (bare keys type while the editor holds focus); the same-value no-op described as an enter behavior; sample settings.json showing only the 9 keys, no digitQuickSelect/focusText. GATE (PRD §2 R4, verbatim): `grep -n \"ctrl+t\\|ctrl+d\\|ctrl+l\\|focusText\\|digit\" README.md` must return ZERO — the word 'digit' may not appear at all; phrase number-key inertness without it (e.g. 'number keys do nothing at panel level'). Do NOT edit spec/*.md (synced at 8c5f870 — report spec errors, never diverge silently).\n4. OUTPUT: README.md matching HEAD behavior — the changeset's public face; closes the delta.\n5. DOCS: [Mode B] this subtask IS the changeset-level documentation sync (README keymap prose, sample config, keymap tables, conflict section).",
+                  "prd_selectors": [
+                    "h2.74",
+                    "h2.35",
+                    "h2.55",
+                    "h2.18",
+                    "h2.10",
+                    "h2.1"
+                  ]
                 }
               ]
             }

@@ -48,7 +48,7 @@
  * (panel.exitTextField / exitNoteMode). The first esc of the pair still
  * reached the editor, so vim users keep their mode semantics; "twice in a
  * row" is strict (any other key resets the window via `panel.lastEscAt`).
- * The deterministic single-key companion is the ctrl+t toggle (onFocusText
+ * The deterministic single-key companion is the ctrl+t toggle (onElaborate
  * seam): press in options focus to enter, press again to close.
  *
  * ## Mode A — single dispatch + collision ordering
@@ -65,7 +65,7 @@
  *   3. enter                    (fixed — options focus only → view-aware:
  *      overview jump → deep accept → short accept)
  *   4. config intercepts, in this order:
- *      deep, overview, focusText, batchNote, submit, discuss,
+ *      deep, overview, elaborate, batchNote, submit, discuss,
  *      externalEditor (only when focus === "text"), prevQuestion,
  *      nextQuestion (view-aware: overview cursor movers), then digits 1–9
  *      (only when digitQuickSelect AND view !== "overview" AND focus is
@@ -111,7 +111,7 @@ export interface RoutedActions {
   /** View toggle overview↔(deepSticky ? deep : short). M5 refines. */
   onOverview(p: InterrogationPanel): void;
   /** Focus the text editor. Default: focus = "text" (M4 refines). */
-  onFocusText(p: InterrogationPanel): void;
+  onElaborate(p: InterrogationPanel): void;
   /**
    * Batch note (R3, h2.32): toggle note mode — enterNoteMode from any
    * focus/view, exitNoteMode on re-press. Implemented by the default set.
@@ -278,7 +278,7 @@ function escExitEditor(panel: InterrogationPanel): void {
  *   buffer is context that attaches to the selection at submit (FR-12:
  *   an elaboration never answers alone).
  *
- * Consumed by the panel's ctrl+t entry (panel.ts's routed.onFocusText →
+ * Consumed by the panel's ctrl+t entry (panel.ts's routed.onElaborate →
  * `focusTextField(duty)`). The accept-the-Other-row path pre-sets the duty
  * itself (actions.ts) and does not go through here. Lives in keys.ts (the
  * ctrl+t entry layer) rather than panel.ts so the entry site and the
@@ -316,7 +316,7 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
     onOverview: (p) => {
       p.setView(p.view === "overview" ? (p.deepSticky ? "deep" : "short") : "overview");
     },
-    onFocusText: (p) => {
+    onElaborate: (p) => {
       p.focus = "text"; // M4.T1.S2 refines (draft seeding, composed editor)
     },
     onBatchNote: (p) => {
@@ -472,9 +472,9 @@ export function buildKeyRouter(
     if (
       panel.view === "short" &&
       panel.focus !== "note" &&
-      matchesKey(data, b.focusText)
+      matchesKey(data, b.elaborate)
     ) {
-      actions.onFocusText(panel);
+      actions.onElaborate(panel);
       return true;
     }
     if (matchesKey(data, b.batchNote)) {

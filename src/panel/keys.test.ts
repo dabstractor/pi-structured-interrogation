@@ -28,7 +28,7 @@ import type { InterrogationPanel, PanelFocus, PanelView } from "./panel.js";
 const DEFAULT_DATA: Record<KeyAction, string> = {
   deep: "\u0004", // ctrl+d
   overview: "\u000c", // ctrl+l
-  focusText: "\u0014", // ctrl+t
+  elaborate: "\u0014", // ctrl+t
   batchNote: "\u001b[109;6u", // kitty CSI-u ctrl+shift+m (m = 109)
   submit: "\u0013", // ctrl+s
   discuss: "\u001b[101;6u", // kitty CSI-u ctrl+shift+e (e = 101)
@@ -107,7 +107,7 @@ function makeActions() {
     submit: vi.fn((_p: InterrogationPanel) => true),
     onDeep: vi.fn((_p: InterrogationPanel) => undefined),
     onOverview: vi.fn((_p: InterrogationPanel) => undefined),
-    onFocusText: vi.fn((_p: InterrogationPanel) => undefined),
+    onElaborate: vi.fn((_p: InterrogationPanel) => undefined),
     onBatchNote: vi.fn((_p: InterrogationPanel) => undefined),
     onDiscuss: vi.fn((_p: InterrogationPanel) => undefined),
     onExternalEditor: vi.fn((_p: InterrogationPanel) => undefined),
@@ -285,7 +285,7 @@ describe("buildKeyRouter — h2.34 intercept rule with focus === text", () => {
     expect(route(DEFAULT_DATA.deep, makePanel({ focus: "text" }))).toBe(true);
     expect(actions.onDeep).toHaveBeenCalledTimes(1);
     expect(route(DEFAULT_DATA.overview, makePanel({ focus: "text" }))).toBe(true);
-    expect(route(DEFAULT_DATA.focusText, makePanel({ focus: "text" }))).toBe(true);
+    expect(route(DEFAULT_DATA.elaborate, makePanel({ focus: "text" }))).toBe(true);
     expect(route(DEFAULT_DATA.batchNote, makePanel({ focus: "text" }))).toBe(true);
     expect(route(DEFAULT_DATA.discuss, makePanel({ focus: "text" }))).toBe(true);
     expect(route(DEFAULT_DATA.prevQuestion, makePanel({ focus: "text" }))).toBe(true);
@@ -484,7 +484,7 @@ describe("defaultRoutedActions — seam defaults", () => {
     actions.onOverview(sticky); // sticky → deep
     expect(sticky.view).toBe("deep");
 
-    actions.onFocusText(panel);
+    actions.onElaborate(panel);
     expect(panel.focus).toBe("text");
 
     // Wired seams: the batch-note toggle hits the panel methods (R3), the
@@ -727,8 +727,8 @@ describe("deep view routing gates (P1.M5.T1.S1)", () => {
     const { panel, applied } = makeDeepPanel();
     panel.cursorIndex = 1;
 
-    expect(route(DEFAULT_DATA.focusText, panel as unknown as InterrogationPanel)).toBe(false);
-    expect(actions.onFocusText).not.toHaveBeenCalled();
+    expect(route(DEFAULT_DATA.elaborate, panel as unknown as InterrogationPanel)).toBe(false);
+    expect(actions.onElaborate).not.toHaveBeenCalled();
     expect(dispatchCount(actions)).toBe(0); // nothing else consumed it either
 
     expect(route(ENTER, panel as unknown as InterrogationPanel)).toBe(true);
@@ -923,24 +923,24 @@ describe("buildKeyRouter — overview view-gating (P1.M5.T2.S1)", () => {
   });
 });
 
-// --------------------------------------- focusText view gate (BUG-011)
+// --------------------------------------- elaborate view gate (BUG-011)
 
-describe("focusText gated to the short view (BUG-011)", () => {
+describe("elaborate gated to the short view (BUG-011)", () => {
   test("test_ctrl_t_in_deep_view_falls_through_without_dispatching", () => {
     // The editor renders only in the short view — ctrl+t in deep must be a
     // no-op FALL-THROUGH (return false), never a swallowed keystroke.
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
-    expect(route(DEFAULT_DATA.focusText, makePanel({ view: "deep" }))).toBe(false);
-    expect(actions.onFocusText).not.toHaveBeenCalled();
+    expect(route(DEFAULT_DATA.elaborate, makePanel({ view: "deep" }))).toBe(false);
+    expect(actions.onElaborate).not.toHaveBeenCalled();
     expect(dispatchCount(actions)).toBe(0);
   });
 
   test("test_ctrl_t_in_overview_view_falls_through_without_dispatching", () => {
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
-    expect(route(DEFAULT_DATA.focusText, makePanel({ view: "overview" }))).toBe(false);
-    expect(actions.onFocusText).not.toHaveBeenCalled();
+    expect(route(DEFAULT_DATA.elaborate, makePanel({ view: "overview" }))).toBe(false);
+    expect(actions.onElaborate).not.toHaveBeenCalled();
     expect(dispatchCount(actions)).toBe(0);
   });
 
@@ -948,10 +948,10 @@ describe("focusText gated to the short view (BUG-011)", () => {
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
     // Options focus (default view short): dispatched as before.
-    expect(route(DEFAULT_DATA.focusText, makePanel())).toBe(true);
-    expect(actions.onFocusText).toHaveBeenCalledTimes(1);
+    expect(route(DEFAULT_DATA.elaborate, makePanel())).toBe(true);
+    expect(actions.onElaborate).toHaveBeenCalledTimes(1);
     // Text focus (the line-284 case — default view short): still dispatched.
-    expect(route(DEFAULT_DATA.focusText, makePanel({ focus: "text" }))).toBe(true);
-    expect(actions.onFocusText).toHaveBeenCalledTimes(2);
+    expect(route(DEFAULT_DATA.elaborate, makePanel({ focus: "text" }))).toBe(true);
+    expect(actions.onElaborate).toHaveBeenCalledTimes(2);
   });
 });

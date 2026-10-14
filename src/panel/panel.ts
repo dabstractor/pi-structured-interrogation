@@ -436,7 +436,7 @@ export class InterrogationPanel implements Component {
    * ONE editor, three duties: "writein" (the buffer IS the answer — entered
    * by accepting the ✎ Other row; enter COMMITS `applyAnswer({value, custom:
    * true})` + advance, Q14 parity), "elaboration" (default — the buffer
-   * attaches to the selected option at submit; entered via keys.focusText,
+   * attaches to the selected option at submit; entered via keys.elaborate,
    * P1.M2.T3.S1), and note duty (focus === "note", R3 — question-agnostic,
    * unchanged). The ACTIVE duty decides what the text MEANS and what the
    * editor region label says; it is set at focus time and reset to
@@ -551,7 +551,7 @@ export class InterrogationPanel implements Component {
   /**
    * Embedded free-text editor (P1.M4.T1.S1) — exactly ONE per panel
    * lifetime, instantiated in the constructor (inside the live custom()
-   * body). Never focused at construction; the router's onFocusText seam
+   * body). Never focused at construction; the router's onElaborate seam
    * (ctrl+t / ✎ accept) drives focus + draft seeding.
    */
   readonly textField: TextField;
@@ -630,7 +630,7 @@ export class InterrogationPanel implements Component {
     // Key dispatch ALWAYS flows through the config-driven router (keys.ts,
     // P1.M3.T3.S1): the seam default wires the named actions + view-toggle
     // seams; an explicit args.keys (host override) replaces it wholesale.
-    // Host-side refinement of the onFocusText seam (keys.ts itself is
+    // Host-side refinement of the onElaborate seam (keys.ts itself is
     // untouched): ctrl+t is now a TOGGLE (ESC-002) — options focus → focus
     // + seed the embedded editor; text focus → exitTextField (draft
     // write-through + blur — never a commit). A deterministic single-key
@@ -641,7 +641,7 @@ export class InterrogationPanel implements Component {
     // otherwise. The re-press exit is duty-agnostic: save + blur, never a
     // commit, from either duty (R4 write-through).
     const routed = defaultRoutedActions(args.delivery);
-    routed.onFocusText = (p) => {
+    routed.onElaborate = (p) => {
       if (p.focus === "text") p.exitTextField();
       else p.focusTextField(desiredTextDuty(p));
     };
@@ -1153,7 +1153,7 @@ export class InterrogationPanel implements Component {
   }
 
   /**
-   * Focus path for the router's onFocusText seam (keys.focusText / ctrl+t,
+   * Focus path for the router's onElaborate seam (keys.elaborate / ctrl+t,
    * and the ✎ affordance route refined in the constructor): focus the
    * embedded editor and seed the current draft. P1.M4.T1.S2's seed-on-
    * refocus contract (h2.31) is preserved: the freshest read is the

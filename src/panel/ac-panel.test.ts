@@ -95,7 +95,7 @@ const ENTER = "\r";
 const ESCAPE = "\u001b";
 const CTRL_D = "\u0004"; // DEFAULT_CONFIG.keys.deep
 const CTRL_L = "\u000c"; // DEFAULT_CONFIG.keys.overview
-const CTRL_T = "\u0014"; // DEFAULT_CONFIG.keys.focusText
+const CTRL_T = "\u0014"; // DEFAULT_CONFIG.keys.elaborate
 const NEXT_Q = "\u001b[Z"; // shift+tab — DEFAULT_CONFIG.keys.nextQuestion
 
 /** Identity theme (panel.test.ts stubTheme): layout renderers run bare. */

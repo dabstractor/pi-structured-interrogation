@@ -1528,7 +1528,7 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     };
     const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
 
-    panel.handleInput("\u0014"); // ctrl+t = config.keys.focusText
+    panel.handleInput("\u0014"); // ctrl+t = config.keys.elaborate
     expect(panel.focus).toBe("text");
     expect(panel.textField.focused).toBe(true);
     expect(panel.textField.getText()).toBe("saved draft");
@@ -2554,7 +2554,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
 // ------------------------------------------------------------------ ctrl+t duty
 
 describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
-  const CTRL_T = "\u0014"; // DEFAULT_CONFIG.keys.focusText
+  const CTRL_T = "\u0014"; // DEFAULT_CONFIG.keys.elaborate
 
   /** Panel with the stateful fake composed editor (label/enter assertions). */
   function makeDutyPanel(state: InterrogationState): InterrogationPanel {

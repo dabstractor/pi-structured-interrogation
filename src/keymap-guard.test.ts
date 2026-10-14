@@ -37,7 +37,7 @@ import { DEFAULT_CONFIG, type KeyAction } from "./config.js";
 const ALL_ACTIONS: KeyAction[] = [
 	"deep",
 	"overview",
-	"focusText",
+	"elaborate",
 	"batchNote",
 	"submit",
 	"discuss",

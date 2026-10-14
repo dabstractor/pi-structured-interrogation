@@ -92,7 +92,7 @@ import {
   gateWarningLine,
   pickGateInitialQuestionId,
 } from "./gate.js";
-import { buildDeepContent, deepSeedCursorIndex, renderDeepWindow } from "./deep-view.js";
+import { buildDeepContent, deepLandScroll, deepSeedCursorIndex, renderDeepWindow } from "./deep-view.js";
 import { buildOverviewContent, clampOverviewScroll } from "./overview.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
 import { terminalBudget } from "./terminal-budget.js";
@@ -358,6 +358,17 @@ export class InterrogationPanel implements Component {
     this.currentIdValue = id;
     const q = id !== undefined ? this.state.getQuestion(id) : undefined;
     this.cursorIndex = q !== undefined ? initialCursorIndex(q) : 0;
+    // DEEP-LAND-001 (2026-10-14, owner report): while the deep pane is
+    // LIVE, a question change re-seeds its scroll window too — from 0
+    // through the sticky-header clamp, so the seeded caret's section
+    // (ANSWER-PIN-001) is inside the window. The stale offset from the
+    // PREVIOUS question could otherwise sit above the caret's header or
+    // below it (question navigation previously left it untouched — a
+    // stale-high window hid the first answers above the top, and the
+    // boundary no-op moves could not recover without a down+up jiggle).
+    // Short/overview views skip it: scrollOffset is unused there and
+    // setView("deep") re-seeds on every entry anyway.
+    if (this.view === "deep") this.scrollOffset = deepLandScroll(this);
     // EXPLAIN-002: the editor buffer is QUESTION-SCOPED — switching
     // questions writes the outgoing buffer through to its owner question's
     // draft and re-seeds from the new question's draft. Without this, the
@@ -1037,14 +1048,19 @@ export class InterrogationPanel implements Component {
     // Deep entry (P1.M5.T1.S1): seed the selection via deepSeedCursorIndex —
     // ANSWER-PIN-001/FR-35: a recorded answer owns the selection (its
     // display row; the ✎ Other section for write-ins — legal under the
-    // count clamp), ★ preselect only while unanswered — and reset the
-    // scroll window ONCE per entry; deepSticky bookkeeping stays with
-    // the router's onDeep/onOverview seams.
+    // count clamp), ★ preselect only while unanswered — and re-seed the
+    // scroll window ONCE per entry (from 0, clamped so the seeded caret's
+    // section is visible — DEEP-LAND-001); deepSticky bookkeeping stays
+    // with the router's onDeep/onOverview seams.
     if (view === "deep") {
       const q =
         this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;
       this.cursorIndex = deepSeedCursorIndex(q);
-      this.scrollOffset = 0;
+      // DEEP-LAND-001: re-seed from 0 through the sticky-header clamp — a
+      // bare 0 can drop the seeded caret below the window (a write-in
+      // pins to the ✎ Other section, which is always the LAST section;
+      // so can a recorded answer on a late display row).
+      this.scrollOffset = deepLandScroll(this);
     } else if (view === "overview") {
       // Overview entry (P1.M5.T2.S1): seed the cursor to the CURRENT
       // question's row index (ctrl+l → esc round-trips leave you where you

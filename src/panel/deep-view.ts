@@ -14,7 +14,15 @@
  * scrolling to the last answer choices cannot hide the question being
  * answered (the pre-pin layout scrolled the whole pane and its sticky
  * floor `offset ≥ headerIdx - vh + 2` then made the question unreachable
- * until the view was toggled). When the pinned region alone would
+ * until the view was toggled). DEEP-LAND-001 (2026-10-14, owner report):
+ * every LANDING on a question — deep entry, question navigation while
+ * deep, the post-accept landing — re-seeds the scroll window from 0
+ * through the full sticky-header clamp ({@link deepLandScroll}), so the
+ * section carrying the caret is visible the moment the pane renders (a
+ * stale offset from the previous question, or a bare reset to 0 with the
+ * caret pinned to a late section, could leave it outside the window —
+ * and the boundary no-op moves could not recover it without a down+up
+ * jiggle). When the pinned region alone would
  * overflow {@link DEEP_VIEW_HEIGHT}, it is line-truncated bottom-first
  * with a dimmed `…` marker —
  * never by stealing the options window's minimum height.
@@ -533,8 +541,12 @@ export function clampScroll(content: DeepContent, scrollOffset: number, cursorIn
  * Render the deep pane at `scrollOffset`: the PINNED question region
  * (DEEP-PIN-001 — moot line + description, present on EVERY offset;
  * the question never scrolls out of view) followed by the options-region
- * window, defensively re-clamped (renderers never mutate panel state),
- * every visible section header re-rendered with the CURRENT cursor prefix
+ * window, defensively re-clamped through the FULL {@link clampScroll}
+ * sticky-header budget — not just the global bounds (renderers never
+ * mutate panel state, but every render still guarantees contract 5: the
+ * highlighted section's header is in the window; DEEP-LAND-001 defense
+ * for mid-panel upserts/resizes that shift section indexes), every
+ * visible section header re-rendered with the CURRENT cursor prefix
  * (`▸ ` highlighted / two spaces), dimmed when {@link DeepContent.dimAll}.
  * Always returns at most `content.viewportHeight` options lines under the
  * pinned question lines (total ≤ {@link DEEP_VIEW_HEIGHT}), each within
@@ -548,8 +560,7 @@ export function renderDeepWindow(
   width: number,
 ): string[] {
   const budget = Math.max(1, width - INSET.length - RIGHT.length);
-  const maxOffset = Math.max(0, content.lines.length - content.viewportHeight);
-  const offset = Math.max(0, Math.min(scrollOffset, maxOffset));
+  const offset = clampScroll(content, scrollOffset, cursorIndex);
   const end = Math.min(content.lines.length, offset + content.viewportHeight);
   const window: string[] = [];
   for (let i = offset; i < end; i++) window.push(content.lines[i]!);
@@ -611,6 +622,38 @@ export function deepSelectionDown(panel: InterrogationPanel): boolean {
 }
 
 /**
+ * DEEP-LAND-001 (2026-10-14, owner report): every LANDING on a question in
+ * the deep view re-seeds the scroll window from 0 through the FULL
+ * {@link clampScroll} sticky-header budget, so the section carrying the
+ * caret — the ANSWER-PIN-001 seed (recorded answer's display row; the ✎
+ * Other section for write-ins, which is always the LAST section) or a
+ * user-moved cursor — is INSIDE the window the moment the pane renders.
+ * The bug this replaces: landings either left `scrollOffset` stale from
+ * the PREVIOUS question (question navigation re-seeds `cursorIndex` but
+ * never the offset — a stale-high window hid the first answers ABOVE the
+ * top) or reset it to a bare 0 (deep entry, the post-accept landing — a
+ * caret pinned to a late section landed BELOW the window); at the domain
+ * boundaries `stepDeepSelection` no-ops without re-clamping, so `up` on a
+ * hidden first answer or `down` on a hidden last one moved nothing — the
+ * user had to jiggle down+up / up+down to force a clamp. Base 0 keeps the
+ * landing semantics ("reset the scroll window ONCE per entry", amended:
+ * reset THEN clamp): the pane starts at the top unless the caret's own
+ * section forces scroll — minimal movement, exactly what an explicit
+ * ↑/↓ onto that section would produce. Pure read of panel state — returns
+ * the offset; callers own the assignment. Called from panel.setView on
+ * deep ENTRY, from the currentId setter while the deep pane is LIVE
+ * (navigation/advance landings), and from {@link acceptFromDeep} for the
+ * post-accept landing (including the advance-STAY case, where currentId
+ * is unchanged and the setter never fires — the caret sits on the
+ * just-accepted row).
+ */
+export function deepLandScroll(panel: InterrogationPanel): number {
+  const { q, input } = deepInput(panel);
+  if (q === undefined) return 0;
+  return clampScroll(buildDeepContent(input), 0, panel.cursorIndex);
+}
+
+/**
  * Shared deep-selection step: mutate `panel.cursorIndex` within
  * `[0, options.length]` — index `options.length` IS the synthetic
  * `✎ Other` section (P1.M2.T6.S1; same domain convention as actions.ts's
@@ -646,11 +689,14 @@ function stepDeepSelection(panel: InterrogationPanel, delta: number): boolean {
  * the case on real entry, since the router's ctrl+d sets it — the pane
  * STAYS OPEN on the advanced-to question (the answer flow never yanks the
  * reader out of the detailed view; one piece of state, the sticky toggle,
- * decides); otherwise it returns to the short view. Either way the scroll
- * offset resets — the advance's `currentId` setter has ALREADY re-seeded
- * `cursorIndex` for the new question (initialCursorIndex's domain
- * `[0, options.length]` is the deep domain — deepSeedCursorIndex is just
- * its clamp), so a stay-in-deep needs nothing beyond the scroll reset
+ * decides); otherwise it returns to the short view. Either way the
+ * landing scroll re-seeds from 0 through the DEEP-LAND-001 clamp (not a
+ * bare 0 — a caret pinned to a late section must stay visible): the
+ * advance's `currentId` setter has ALREADY re-seeded `cursorIndex` for
+ * the new question (initialCursorIndex's domain `[0, options.length]` is
+ * the deep domain — deepSeedCursorIndex is just its clamp) and re-seeded
+ * the scroll the same way while the pane was live, so a stay-in-deep
+ * needs nothing beyond the landing re-seed here
  * (`setView("deep")` is a no-op while already deep, by design). On the synthetic `✎ Other` section (index
  * `options.length`, P1.M2.T6.S1) NOTHING is answered: the panel returns to
  * the short form with the editor focused in write-in duty (h2.32) — the
@@ -714,12 +760,17 @@ export function acceptFromDeep(panel: InterrogationPanel): boolean {
   // overview). Never re-derive the outcome from state (q.answer
   // before/after identity) — that heuristic is the bug this signal
   // replaced. The advance's currentId setter already re-seeded cursorIndex
-  // (same [0, options.length] domain deepSeedCursorIndex clamps), and
-  // setView("deep") no-ops while already deep — only the scroll reset
-  // below remains either way.
+  // (same [0, options.length] domain deepSeedCursorIndex clamps) and, while
+  // the pane was live, the scroll too; setView("deep") no-ops while
+  // already deep — only the landing re-seed below remains either way.
   if (outcome === "veto") return true;
   panel.setView(panel.deepSticky ? "deep" : "short");
-  panel.scrollOffset = 0;
+  // DEEP-LAND-001: the landing scroll re-seeds from 0 through the sticky
+  // clamp — not a bare 0. The advance-stay case (all questions answered,
+  // currentId unchanged, setter never fired) is the load-bearing one: the
+  // caret sits on the just-accepted row, which can be a LATE section that
+  // a bare 0 would drop below the window.
+  panel.scrollOffset = deepLandScroll(panel);
   return outcome !== false;
 }
 

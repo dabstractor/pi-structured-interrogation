@@ -41,6 +41,7 @@ import {
   wrapText,
   type DeepContent,
 } from "./deep-view.js";
+import { nextQuestion } from "./actions.js";
 import { InterrogationPanel, type InterrogationPanelArgs } from "./panel.js";
 import { renderShortViewOptions } from "./short-view.js";
 
@@ -361,12 +362,14 @@ describe("renderDeepWindow", () => {
 
   test("test_window_slice_respects_offset_and_end", () => {
     const content = fixedContent();
-    const window = renderDeepWindow(content, 0, 12, theme, 80);
+    // Cursor 1 (header 12): offset 12 is inside its sticky range [4, 12],
+    // so the slice renders exactly there — mid-offset windowing intact.
+    const window = renderDeepWindow(content, 1, 12, theme, 80);
     // Pinned question region rides EVERY window (DEEP-PIN-001); header
     // lines (index 12 "b", 20 "c") re-render with selection styling.
     expect(window).toEqual([
       "Q0", "Q1", "Q2",
-      "  b", "L13", "L14", "L15", "L16", "L17", "L18", "L19", "  c", "L21",
+      "▸ b", "L13", "L14", "L15", "L16", "L17", "L18", "L19", "  c", "L21",
     ]);
   });
 
@@ -421,11 +424,16 @@ describe("renderDeepWindow", () => {
 
   test("test_window_defensive_clamp_on_stale_offset", () => {
     const content = fixedContent();
-    // Offset 100 (stale after a width change) re-clamps to maxOffset 20.
+    // DEEP-LAND-001: the render's defensive clamp is the FULL sticky
+    // budget, not just the global bounds — a stale offset (e.g. after a
+    // width change) renders with the CURSOR's header in the window.
+    // Cursor 0 (header 5): offset 100 clamps to 5, not maxOffset 20.
     const window = renderDeepWindow(content, 0, 100, theme, 80);
     expect(window).toHaveLength(13); // 3 pinned + 10 window
     expect(window[0]).toBe("Q0"); // pinned region always leads
-    expect(window[3]).toBe("  c"); // line 20 is option 2's header
+    expect(window[3]).toBe("▸ a ★"); // header 5 pinned at the window top
+    // A cursor with NO section still gets the plain global clamp.
+    expect(renderDeepWindow(content, 99, 100, theme, 80)[3]).toBe("  c"); // line 20
   });
 
   test("test_moot_window_dims_headers", () => {
@@ -716,6 +724,107 @@ describe("deep selection (deepSelectionUp/Down)", () => {
 });
 
 // ------------------------------------------------------------- acceptFromDeep
+
+describe("landing scroll (DEEP-LAND-001)", () => {
+  /** 10 single-ramification options — sections run 3 lines each, so the
+   * options region (~30+ lines) overflows the viewport and late sections
+   * (and the ✎ Other section) sit below a top-anchored window. */
+  function longChoiceQ(id: string, overrides: Partial<Question> = {}): Question {
+    return choiceQ(id, {
+      options: Array.from({ length: 10 }, (_, n) => ({
+        value: `opt${n}`,
+        label: `opt ${n}`,
+        ramification: `Ram ${n}`,
+      })),
+      recommendation: undefined,
+      ...overrides,
+    });
+  }
+
+  function setup(questions: Question[], answered: string[] = []): InterrogationPanel {
+    const state = createInterrogationState("goal");
+    for (const q of questions) state.upsertQuestion(q);
+    // upsert normalizes status to "open" — answered statuses go through
+    // the raw setStatus primitive (fixture discipline, acceptFromDeep tests).
+    for (const id of answered) state.setStatus(id, "answered");
+    return new InterrogationPanel(panelArgsFor(state));
+  }
+
+  /** Deep-pane body lines (between header and footer) for visibility asserts. */
+  function deepBody(panel: InterrogationPanel): string[] {
+    return panel.render(80).slice(1, -2);
+  }
+
+  test("test_deep_entry_lands_with_write_in_other_section_visible", () => {
+    // A write-in answer pins the caret to the ✎ Other section — always
+    // the LAST section. Entering deep view must not land it below a
+    // top-anchored window (the bare reset-to-0 bug).
+    const panel = setup([
+      longChoiceQ("q1", { answer: { value: "hand", at: "t", custom: true } }),
+    ], ["q1"]);
+    panel.currentId = "q1";
+    panel.setView("deep");
+    expect(panel.cursorIndex).toBe(10); // ✎ Other row (ANSWER-PIN-001)
+    expect(panel.scrollOffset).toBeGreaterThan(0); // clamped up from 0 — not a bare reset
+    expect(deepBody(panel).some((l) => l.includes("✎ Other"))).toBe(true); // caret's section visible
+  });
+
+  test("test_navigation_landing_replaces_stale_high_offset", () => {
+    // The owner-reported first-answer case: scroll deep on q1, navigate to
+    // an answered question whose caret seeds to display row 0 — the stale
+    // offset must NOT carry over (it hid the first answers above the top,
+    // and `up` at the boundary was a no-op — only down+up recovered).
+    const panel = setup([
+      longChoiceQ("q1"),
+      longChoiceQ("q2", { answer: { value: "opt0", at: "t" } }),
+    ], ["q2"]);
+    panel.setView("deep"); // q1 (first open) — caret 0, no ★ (no recommendation)
+    for (let i = 0; i < 8; i++) deepSelectionDown(panel);
+    expect(panel.scrollOffset).toBeGreaterThan(0); // scrolled deep on q1
+    expect(nextQuestion(panel)).toBe(true);
+    expect(panel.currentId).toBe("q2");
+    expect(panel.cursorIndex).toBe(0); // recorded answer owns the caret (FR-35)
+    expect(panel.scrollOffset).toBe(0); // stale offset REPLACED, not carried
+    expect(deepBody(panel).some((l) => l.includes("opt 0"))).toBe(true);
+    // Boundary no-op (up at row 0) — consumed, and the caret's header
+    // STAYS visible without the down+up jiggle.
+    expect(deepSelectionUp(panel)).toBe(true);
+    expect(deepBody(panel).some((l) => l.includes("opt 0"))).toBe(true);
+  });
+
+  test("test_navigation_landing_clamps_up_for_late_recorded_answer", () => {
+    // The mirror case: caret seeds to a LATE display row while the offset
+    // sits low (0) — the landing clamp must scroll it INTO the window
+    // (the stale reset-to-0 bug hid the last answers below the bottom,
+    // and `down` at the boundary was a no-op).
+    const panel = setup([
+      longChoiceQ("q1"),
+      longChoiceQ("q2", { answer: { value: "opt9", at: "t" } }),
+    ], ["q2"]);
+    panel.setView("deep"); // q1 at offset 0
+    expect(panel.scrollOffset).toBe(0);
+    expect(nextQuestion(panel)).toBe(true);
+    expect(panel.cursorIndex).toBe(9); // opt9 — the last display row
+    expect(panel.scrollOffset).toBeGreaterThan(0); // clamped up from 0
+    expect(deepBody(panel).some((l) => l.includes("opt 9"))).toBe(true);
+  });
+
+  test("test_accept_stay_landing_keeps_just_accepted_row_visible", () => {
+    // Advance-STAY (all questions answered → currentId unchanged → the
+    // setter never re-seeds): the post-accept landing clamp must keep the
+    // just-accepted late row visible — a bare reset-to-0 dropped it below
+    // the window.
+    const panel = setup([longChoiceQ("q1")]);
+    panel.handleInput("\u0004"); // ctrl+d → deep (sets deepSticky)
+    for (let i = 0; i < 9; i++) deepSelectionDown(panel); // highlight opt9
+    expect(acceptFromDeep(panel)).toBe(true);
+    expect(panel.view).toBe("deep"); // sticky landing
+    expect(panel.currentId).toBe("q1"); // no next unanswered → STAY
+    expect(panel.cursorIndex).toBe(9);
+    expect(panel.scrollOffset).toBeGreaterThan(0); // not a bare reset
+    expect(deepBody(panel).some((l) => l.includes("opt 9"))).toBe(true);
+  });
+});
 
 describe("acceptFromDeep", () => {
   function setup(questions: Question[], statuses: Record<string, Question["status"]> = {}): InterrogationPanel {

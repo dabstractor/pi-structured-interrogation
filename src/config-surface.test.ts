@@ -445,6 +445,25 @@ describe("label propagation — full remap (h2.52: config-generated display stri
         expect(footer, `${screen}: fixed-key hint "${stat}" survives`).toContain(stat);
       }
     }
+
+    // Editor-focused (editorExit set — P1.M1.T2.S3): remapped labels still
+    // resolve (h2.52), the dropped statics stay gone, and the footer names
+    // NEITHER the explain surface NOR any close gesture (D-R11 as amended —
+    // the editor's own exits need no panel label).
+    const editorFooter = renderFooter(footerState(), "short", remapped, theme, 160, false, {
+      mode: "text",
+      escEscHint: true,
+    });
+    expect(editorFooter).toContain("enter save");
+    expect(editorFooter).toContain("esc esc back");
+    for (const action of ALL_ACTIONS) {
+      expect(
+        editorFooter,
+        `editor focus: default hint for ${action} must be gone`,
+      ).not.toContain(`· ${defaults[action]} ${WORDS[action]}`);
+    }
+    expect(editorFooter).not.toContain("explain");
+    expect(editorFooter).not.toContain("close");
   });
 
   test("test_narrow_footer_keeps_remapped_submit_and_deep_hints", () => {

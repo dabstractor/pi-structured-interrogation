@@ -426,14 +426,22 @@ export function renderHintLine(q: Question, theme: Theme, width: number, dim = f
 /**
  * Footer hints for the embedded-editor exit affordances (ESC-002). While
  * the editor holds focus the standard "enter accept" prefix becomes
- * "enter save", and the close gestures append: "esc esc back" when the
- * double-esc window is armed (escEscHint), plus the editor-mode toggle
- * label (elaborate for the explain field, batchNote for note duty — labels
- * from the caller's resolved `labels`, never hardcoded; "esc" is a fixed
- * key so it may appear as a static hint word per h2.52).
+ * "enter save" and an "esc esc back" hint is appended when the double-esc
+ * window is armed (escEscHint) — everything else per screen survives minus
+ * the lying statics (which include the elaborate explain hint: DROPPED, not
+ * swapped — D-R11 as amended, h2.37). No close hint is rendered: since
+ * BAREKEYS-001 (h2.74) removed the re-press-to-close toggles, no close
+ * gesture exists to advertise, and a bare key must type while the editor
+ * holds focus (h2.35) — the editor's own exits (enter, double-esc) need no
+ * panel label.
  */
 export interface FooterEditorExit {
-  /** Which duty the editor is on: "text" (explain field) or "note". */
+  /**
+   * Which duty the editor is on: "text" (explain field) or "note".
+   * Retained for CALL-SITE STABILITY ONLY (panel.ts's footerLine still
+   * passes it) — renderFooter no longer reads it (the close hints it
+   * selected were removed with BAREKEYS-001's toggle gestures).
+   */
   mode: "text" | "note";
   /** True when escExitWindowMs > 0 (the esc-esc hint would otherwise lie). */
   escEscHint: boolean;
@@ -457,9 +465,11 @@ export interface FooterEditorExit {
  * key hints survive longest. Default false → byte-identical to the
  * pre-P1.M7.T5.S1 behavior for every existing caller.
  *
- * Editor exit (ESC-002): `editorExit` swaps the hints for the embedded
- * editor's own affordances (see {@link FooterEditorExit}) — enter saves,
- * the mode toggle closes, esc-esc closes. Omitted → the standard hints.
+ * Editor exit (ESC-002): `editorExit` swaps the prefix to the embedded
+ * editor's own affordances (see {@link FooterEditorExit}) — "enter save",
+ * optional "esc esc back", screen hints minus the lying statics; the
+ * explain hint is dropped (not swapped) and no close hint exists
+ * (D-R11 as amended). Omitted → the standard hints.
  *
  * @param state   plain-JSON state snapshot (read-only)
  * @param screen  which view the footer is for (selects SCREEN_KEYS + statics)
@@ -505,16 +515,18 @@ export function renderFooter(
     // While the editor holds focus the screen statics lie: enter no longer
     // accepts/jumps (it SAVES — two-stage, h2.31), esc does not descend
     // (single esc forwards to the editor), arrows do not scroll. Drop the
-    // descent statics and swap in the editor's own affordances; the fit
-    // loop drops the appended close gestures right-to-left first.
+    // descent statics and the elaborate explain hint with them; swap in the
+    // editor's own affordances. D-R11 as amended (h2.37 / ui-spec :116):
+    // the explain hint is DROPPED, not swapped — bare keys never intercept
+    // in editor focus (h2.35/BAREKEYS-001), and the editor's own exits
+    // (enter save, double-esc) need no panel label, so NO close hint is
+    // advertised either. The fit loop's first casualty while editor-focused
+    // is therefore "esc esc back" (right-to-left pop order).
     const statics = new Set(["enter accept", "enter jump", "esc back", "↑/↓ scroll", `${labels.elaborate} explain`]);
     const kept = hints.filter((h) => !statics.has(h));
     hints.length = 0;
     hints.push("enter save", ...kept);
     if (editorExit.escEscHint) hints.push("esc esc back");
-    hints.push(
-      editorExit.mode === "note" ? `${labels.batchNote} close` : `${labels.elaborate} close`,
-    );
   }
 
   // Drop hints right-to-left until the full form fits; progress-only is the

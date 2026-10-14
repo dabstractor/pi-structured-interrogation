@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "BAREKEYS-001 — bare defaults, elaborate rename, two-tier intercept, gesture removal",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Rename keys.focusText→keys.elaborate everywhere with a silent compat alias; flip the five defaults to bare letters; tier the intercept rule on modifier/printable presence so bare keys type while the embedded editor holds focus; kill the re-press-to-close gestures; footer drops (not swaps) the elaborate hint while editing.",
           "tasks": [
             {
@@ -63,7 +63,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Bare-letter defaults and the two-tier intercept rule",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Flip the five defaults to bare letters, tier config-key interception on printable-vs-modifier presence in buildKeyRouter, remove the re-press-to-close gestures (enter / double-esc only), and make the footer drop the elaborate hint while the editor holds focus.",
               "subtasks": [
                 {
@@ -109,7 +109,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S3",
                   "title": "Footer drops (not swaps) the elaborate hint while the editor holds focus",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S2"
@@ -132,21 +132,21 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "VIMNAV-001 — hjkl join the fixed key family",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Make h/j/k/l fixed, non-configurable aliases of ←/↓/↑/→ handled inside the SAME fixed branches with identical view-aware semantics and identical editor-focus forwarding.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Wire hjkl into the fixed arrow branches with identical gates and dispatch",
-              "status": "Planned",
+              "status": "Ready",
               "description": "One centralized branch per arrow direction already dispatches per view; extend each branch's key-match condition with its letter alias and document hjkl in the fixed-family doc block.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Add k/j to the fixed ↑/↓ branch and h/l to ←/→ with identical gating",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"
@@ -183,7 +183,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Delete the digit branch and digit routing from keys.ts",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1"

@@ -69,15 +69,18 @@ function mkState(overrides: Partial<SerializedState> = {}): SerializedState {
 function mkConfig(keys: Partial<Record<string, string>> = {}): InterrogatorConfig {
   return {
     keys: {
-      deep: "ctrl+d",
-      overview: "ctrl+l",
-      elaborate: "ctrl+t",
-      batchNote: "ctrl+n",
-      submit: "ctrl+enter",
-      discuss: "ctrl+g",
-      externalEditor: "ctrl+e",
-      prevQuestion: "ctrl+p",
-      nextQuestion: "ctrl+x",
+      // BAREKEYS-001 defaults (P1.M1.T2.S1 flip, mirrors config.ts):
+      // d/o/t/m/e are bare keys; submit keeps its chord, externalEditor
+      // keeps ctrl+g, prev/next keep tab/shift+tab.
+      deep: "d",
+      overview: "o",
+      elaborate: "t",
+      batchNote: "m",
+      submit: "ctrl+s",
+      discuss: "e",
+      externalEditor: "ctrl+g",
+      prevQuestion: "tab",
+      nextQuestion: "shift+tab",
       ...keys,
     },
   } as unknown as InterrogatorConfig;
@@ -327,20 +330,20 @@ describe("renderFooter", () => {
     const line = renderFooter(mkState(), "short", labels, theme, 120);
     expect(line).toContain("0/1 answered ·"); // re-asked segment omitted at zero (2026-09-30)
     expect(line).toContain("enter accept");
-    expect(line).toContain("Ctrl+D deep");
-    expect(line).toContain("Ctrl+L list");
-    expect(line).toContain("Ctrl+Enter submit");
+    expect(line).toContain("D deep");
+    expect(line).toContain("O list");
+    expect(line).toContain("Ctrl+S submit");
     expect(line.trimEnd().endsWith("⏎ ┘")).toBe(true);
   });
 
   test("deep/overview screens show their own static hints", () => {
     const labels = resolveKeyLabels(mkConfig());
     const deep = renderFooter(mkState(), "deep", labels, theme, 120);
-    expect(deep).toContain("Ctrl+Enter submit");
+    expect(deep).toContain("Ctrl+S submit");
     expect(deep).toContain("esc back");
     expect(deep).toContain("↑/↓ scroll");
     const overview = renderFooter(mkState(), "overview", labels, theme, 120);
-    expect(overview).toContain("Ctrl+D deep");
+    expect(overview).toContain("D deep");
     expect(overview).toContain("enter jump");
   });
 
@@ -350,12 +353,12 @@ describe("renderFooter", () => {
     const reboundLabels = resolveKeyLabels(mkConfig({ deep: "ctrl+x", submit: "f9" }));
     const before = renderFooter(state, "short", defaultLabels, theme, 120);
     const after = renderFooter(state, "short", reboundLabels, theme, 120);
-    expect(before).toContain("Ctrl+D deep");
-    expect(before).toContain("Ctrl+Enter submit");
+    expect(before).toContain("D deep");
+    expect(before).toContain("Ctrl+S submit");
     expect(after).toContain("Ctrl+X deep");
     expect(after).toContain("F9 submit");
-    expect(after).not.toContain("Ctrl+D deep");
-    expect(after).not.toContain("Ctrl+Enter submit");
+    expect(after).not.toContain("D deep");
+    expect(after).not.toContain("Ctrl+S submit");
   });
 
   test("narrow widths drop key hints right-to-left before touching progress", () => {
@@ -364,9 +367,12 @@ describe("renderFooter", () => {
 
     const wide = renderFooter(state, "short", labels, theme, 60);
     expect(wide).toContain("enter accept"); // leftmost hint survives first
-    expect(wide).toContain("Ctrl+D deep");
-    expect(wide).not.toContain("Ctrl+L list"); // dropped right-to-left
-    expect(wide).not.toContain("Ctrl+Enter submit");
+    // The bare-key labels (S1 flip) are shorter: deep AND list fit at 60;
+    // the ladder still sheds right-to-left — submit + explain yield first.
+    expect(wide).toContain("D deep");
+    expect(wide).toContain("O list");
+    expect(wide).not.toContain("Ctrl+S submit");
+    expect(wide).not.toContain("explain");
     expect(visibleWidth(wide)).toBeLessThanOrEqual(60);
 
     const narrow = renderFooter(state, "short", labels, theme, 45);
@@ -385,12 +391,13 @@ describe("renderFooter", () => {
     expect(line).toContain("0/0 answered");
   });
 
-  test("editor-exit hints: enter save, esc-esc back, toggle close (ESC-002)", () => {
+  test("editor-exit hints: enter save, esc-esc back, explain/close dropped (ESC-002, D-R11 as amended)", () => {
     const labels = resolveKeyLabels(mkConfig());
     const state = mkState();
 
     // Text focus (short screen): enter SAVES (not accepts), esc-esc back,
-    // and the elaborate toggle closes.
+    // and NOTHING else is advertised — the explain hint is dropped (not
+    // swapped) and no close hint exists (BAREKEYS-001 removed the toggle).
     const text = renderFooter(state, "short", labels, theme, 160, false, {
       mode: "text",
       escEscHint: true,
@@ -398,26 +405,33 @@ describe("renderFooter", () => {
     expect(text).toContain("enter save");
     expect(text).not.toContain("enter accept");
     expect(text).toContain("esc esc back");
-    expect(text).toContain("Ctrl+T close");
+    expect(text).not.toContain("explain");
+    expect(text).not.toContain("close");
 
-    // Note duty: the toggle hint is the batchNote key instead.
+    // Note duty: identical drop — the batchNote key (mkConfig carries S1's
+    // default "m") advertises NOTHING while the editor is focused.
     const note = renderFooter(state, "short", labels, theme, 160, false, {
       mode: "note",
       escEscHint: true,
     });
     expect(note).toContain("enter save");
-    expect(note).toContain("Ctrl+N close"); // mkConfig rebinds batchNote
+    expect(note).not.toContain("explain");
+    expect(note).not.toContain("close");
 
     // Window disabled (escExitWindowMs = 0): the esc-esc hint must not lie.
     const noWindow = renderFooter(state, "short", labels, theme, 160, false, {
       mode: "text",
       escEscHint: false,
     });
+    expect(noWindow).toContain("enter save");
+    expect(noWindow).not.toContain("enter accept");
     expect(noWindow).not.toContain("esc esc");
-    expect(noWindow).toContain("Ctrl+T close");
+    expect(noWindow).not.toContain("explain");
+    expect(noWindow).not.toContain("close");
 
     // Deep-screen editor exit: the descent statics are dropped (esc belongs
-    // to the editor while focused) and the editor affordances swap in.
+    // to the editor while focused) and the editor affordances swap in —
+    // still no explain, no close.
     const deep = renderFooter(state, "deep", labels, theme, 160, false, {
       mode: "text",
       escEscHint: true,
@@ -426,6 +440,50 @@ describe("renderFooter", () => {
     expect(deep).toContain("esc esc back");
     expect(deep.split("esc esc back").join("")).not.toContain("esc back");
     expect(deep).not.toContain("↑/↓ scroll");
+  });
+
+  test("editor-focus footer drops explain on every screen and mode (D-R11 as amended)", () => {
+    const labels = resolveKeyLabels(mkConfig());
+    const state = mkState();
+    for (const screen of SCREENS) {
+      for (const mode of ["text", "note"] as const) {
+        const line = renderFooter(state, screen, labels, theme, 160, false, {
+          mode,
+          escEscHint: true,
+        });
+        expect(line, `${screen}/${mode}: enter save present`).toContain("enter save");
+        expect(line, `${screen}/${mode}: esc-esc back present`).toContain("esc esc back");
+        expect(line, `${screen}/${mode}: explain dropped`).not.toContain("explain");
+        expect(line, `${screen}/${mode}: no close hint`).not.toContain("close");
+      }
+    }
+  });
+
+  test("options-focus short footer still names the elaborate key (regression)", () => {
+    // D-R11's permanent half is untouched: with the editor NOT focused the
+    // short footer carries `{elaborate} explain` — asserted via the resolved
+    // label (never a hardcoded "T"), per the h2.52 config-labels rule.
+    const labels = resolveKeyLabels(mkConfig());
+    const line = renderFooter(mkState(), "short", labels, theme, 160);
+    expect(line).toContain(`${labels.elaborate} explain`);
+  });
+
+  test("narrow editor-focus footer degrades without explain or close", () => {
+    // Narrow + editorExit must simply not crash and never surface the
+    // dropped hints; the fit loop pops right-to-left (esc-esc back is now
+    // the first casualty while editor-focused), "enter save" still fits at 40.
+    const labels = resolveKeyLabels(mkConfig());
+    const state = mkState();
+    for (const mode of ["text", "note"] as const) {
+      const line = renderFooter(state, "short", labels, theme, 40, true, {
+        mode,
+        escEscHint: true,
+      });
+      expect(line).toContain("answered"); // progress never dropped
+      expect(line).toContain("enter save");
+      expect(line).not.toContain("explain");
+      expect(line).not.toContain("close");
+    }
   });
 });
 
@@ -655,14 +713,14 @@ describe("renderFooter narrow mode (h2.30, P1.M7.T5.S1)", () => {
     // Roomy width: the narrow FILTER (not the fit loop) must do the work.
     const short = renderFooter(mkState(), "short", labels, theme, 120, true);
     expect(short).toContain("enter accept"); // static hint stays
-    expect(short).toContain("Ctrl+Enter submit");
-    expect(short).toContain("Ctrl+D deep");
-    expect(short).not.toContain("Ctrl+L list"); // excluded by the 2-key cap
+    expect(short).toContain("Ctrl+S submit");
+    expect(short).toContain("D deep");
+    expect(short).not.toContain("O list"); // excluded by the 2-key cap
 
     const deep = renderFooter(mkState(), "deep", labels, theme, 120, true);
-    expect(deep).toContain("Ctrl+Enter submit");
-    expect(deep).toContain("Ctrl+D deep"); // replaces deep's own list hint
-    expect(deep).not.toContain("Ctrl+L list");
+    expect(deep).toContain("Ctrl+S submit");
+    expect(deep).toContain("D deep"); // replaces deep's own list hint
+    expect(deep).not.toContain("O list");
   });
 
   test("width 59 keeps exactly the submit + deep key hints — statics drop first", () => {

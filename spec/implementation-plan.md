@@ -14,9 +14,9 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 **M2 — Delivery + lifecycle.** `delivery.ts`, `lifecycle.ts` (auto-close on `agent_settled`, completion injection), renderers for tool rows. Verify with acceptance criteria 2, 3, 13, 14 (state-level, without panel: submissions still deliver from fallback path in `-p`).
 
-**M3 — Panel short form.** `panel/panel.ts`, `short-view.ts`, `keys.ts`: replace-editor hosting, header/goal, options with ★ marks + preselect, digits/enter accept-advance, tab navigation, footer status. Verify AC-1 (minus gate dimming), AC-5 partially.
+**M3 — Panel short form.** `panel/panel.ts`, `short-view.ts`, `keys.ts`: replace-editor hosting, header/goal, options with ★ marks + preselect, enter accept-advance (digits removed — DIGIT-OUT-001), tab navigation, footer status. Verify AC-1 (minus gate dimming), AC-5 partially.
 
-**M4 — Text field + drafts.** `text-field.ts`: compose `getEditorComponent()`, `ctrl+g` `$EDITOR`, per-question drafts + batch note + `ctrl+shift+m`. ~~Two-stage enter~~ REMOVED (WRITEIN-001): the editor has three duties (write-in via the Other row / elaboration via `ctrl+t` / note), `enter` commits wherever the text completes an answer. Verify draft survival across navigation and upserts (R4).
+**M4 — Text field + drafts.** `text-field.ts`: compose `getEditorComponent()`, `ctrl+g` `$EDITOR`, per-question drafts + batch note + `m`. ~~Two-stage enter~~ REMOVED (WRITEIN-001): the editor has three duties (write-in via the Other row / elaboration via `t` / note), `enter` commits wherever the text completes an answer. Verify draft survival across navigation and upserts (R4).
 
 **M5 — Deep view, overview, gate, ripples.** `deep-view.ts` (scrollable pane, sticky option headers, select-from-deep), `overview.ts`, group dimming + gate warnings, `dependsOn` evaluator + moot marks + ripple confirm. Verify AC-5, 6, 7.
 
@@ -25,8 +25,8 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 **M7 — Persistence + polish.** `persistence.ts` (mirror, reconstruction; auto-open removed per SURFACE-002 — widget line only), compaction instructions, message/entry renderers (cards), round detection (FR-26), terminal fallbacks (<24/<12 rows, <60 cols), config reference, README. Verify AC-8, 9, 10, 11, 12.
 
 **M8 — Write-ins, auto-submit, surfacing gates (2026-09-19 interrogation; spec/decisions.md post-session pins).**
-- `short-view.ts`/`deep-view.ts`/`overview.ts`: synthetic `✎ Other — write your own` trailing row (cursor index `options.length` — the old ✎ slot), extension-supplied deep-view ramification, `✎` marker = write-in/text answer; digits never select Other.
-- `panel/panel.ts` + `panel/actions.ts`: editor duties (write-in commit = `applyAnswer({value, custom:true})` + advance; elaboration save+blur, never advances; `ctrl+t` duty follows cursor-on-Other/text); REMOVE `advanceArmed` two-stage machinery; `maybeAutoSubmit(panel, deps)` after every commit (zero open/reasked + ≥1 pending → exact submit pipeline + flash; gate questions unanswered → ⚠ hold line + no auto-submit); `reconcileDraftsForSubmit` role-binding (real option → `answer.text`; Other/text → `answer.value custom`); zero-pending flash: held-elaboration wording.
+- `short-view.ts`/`deep-view.ts`/`overview.ts`: synthetic `✎ Other — write your own` trailing row (cursor index `options.length` — the old ✎ slot), extension-supplied deep-view ramification, `✎` marker = write-in/text answer.
+- `panel/panel.ts` + `panel/actions.ts`: editor duties (write-in commit = `applyAnswer({value, custom:true})` + advance; elaboration save+blur, never advances; `t` duty follows cursor-on-Other/text); REMOVE `advanceArmed` two-stage machinery; `maybeAutoSubmit(panel, deps)` after every commit (zero open/reasked + ≥1 pending → exact submit pipeline + flash; gate questions unanswered → ⚠ hold line + no auto-submit); `reconcileDraftsForSubmit` role-binding (real option → `answer.text`; Other/text → `answer.value custom`); zero-pending flash: held-elaboration wording.
 - `panel/panel.ts` `maybeAutoOpen` + `handleUpserted`: SURFACE-001 gates (upsert-call via the `pendingUpsertArgs` stash, unanswered-exist, not-completed); reads never surface.
 - `reconstruct.ts`: SURFACE-002 — session_start NEVER opens the panel (auto-open disabled entirely); set the suspend widget line when resumable questions exist (non-TUI fallback flag unchanged: it shapes tool results, not surfaces).
 - `state.ts`/`snapshots.ts`/`renderers.ts`/`completion.ts`: `answer.custom` marker; `✎ {text}` display in diff cards + completion record; replay stays value-first.
@@ -38,7 +38,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 ## File checklist
 
 - [ ] `index.ts` — factory; registers tool/command/shortcut/events/renderers; mode guards
-- [ ] `config.ts` — defaults + settings load; keymap table (ui-spec §Hotkeys), caps (tool-protocol §Caps), toggles (`gateWarnings`, `roundDetection`, `digitQuickSelect`)
+- [ ] `config.ts` — defaults + settings load; keymap table (ui-spec §Hotkeys), caps (tool-protocol §Caps), toggles (`gateWarnings`, `roundDetection`)
 - [ ] `state.ts` — state machine, rev/epoch, snapshots, change events, dependsOn evaluator
 - [ ] `tool.ts` — schema, guards, merge rules, caps, fallback formatting, status line
 - [ ] `panel/panel.ts` — `ctx.ui.custom` host, view switching, focus model, draft store
@@ -75,13 +75,13 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 ```jsonc
 {
-  "keys": { "deep": "ctrl+d", "overview": "ctrl+l", "focusText": "ctrl+t",
-            "batchNote": "ctrl+shift+m", "submit": "ctrl+s",
-            "discuss": "ctrl+shift+e", "externalEditor": "ctrl+g",
+  "keys": { "deep": "d", "overview": "o", "elaborate": "t",
+            "batchNote": "m", "submit": "ctrl+s",
+            "discuss": "e", "externalEditor": "ctrl+g",
             "prevQuestion": "tab", "nextQuestion": "shift+tab" },
   "caps": { "description": 1200, "ramification": 600, "options": 7,
             "questions": 40, "goal": 400, "contextBudgetPct": 4 },
-  "gateWarnings": true, "roundDetection": true, "digitQuickSelect": true,
+  "gateWarnings": true, "roundDetection": true,
   "editorMode": "composed"
 }
 ```

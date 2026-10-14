@@ -14,7 +14,7 @@ pi-interrogator/
 │   ├── panel.ts              # InterrogationPanel component (ctx.ui.custom host)
 │   ├── short-view.ts         # short form rendering
 │   ├── deep-view.ts          # scrollable deep view rendering
-│   ├── overview.ts           # ctrl+l list
+│   ├── overview.ts           # `o` list
 │   ├── text-field.ts         # embedded editor wrapper (factory composition)
 │   └── keys.ts               # key routing: config-driven, panel-intercept rules
 ├── fallback.ts             # non-TUI digest + chat answer recording
@@ -150,4 +150,4 @@ session_tree → same reconstruction walk against the new branch
 
 ## Config surface (all hotkeys + caps + toggles)
 
-Loaded from pi `settings.json` under `"interrogator"` key; deep-merged over defaults. See ui-spec.md §Config for the full reference including every keymap entry, cap formula parameters, and toggle flags (`gateWarnings`, `roundDetection`, `digitQuickSelect`).
+Loaded from pi `settings.json` under `"interrogator"` key; deep-merged over defaults. See ui-spec.md §Config for the full reference including every keymap entry, cap formula parameters, and toggle flags (`gateWarnings`, `roundDetection`).

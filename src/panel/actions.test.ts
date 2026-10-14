@@ -1777,11 +1777,16 @@ describe("handleInput — config-driven router (keys.ts, P1.M3.T3.S1)", () => {
     expect(panel.currentId).toBe("q1");
   });
 
-  test("test_matcher_digits_quick_select_when_enabled", () => {
+  test("test_matcher_digits_are_inert_no_answer_no_advance", () => {
+    // DIGIT-OUT-001 S1: the router no longer routes digits — handleInput
+    // with a digit is a no-op at options focus (no answer, no advance).
+    // The standalone actions.digit implementation survives (S2 deletes it)
+    // and keeps its own direct unit pins.
     const state = seed(BASIC);
     const { panel } = makePanel(state);
     panel.handleInput("2");
-    expect(state.getQuestion("q1")?.answer?.value).toBe("b");
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(panel.currentId).toBe("q1");
   });
 
   test("test_matcher_digits_fall_through_when_quick_select_disabled", () => {

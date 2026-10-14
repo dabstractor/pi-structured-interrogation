@@ -383,17 +383,19 @@ describe("ripple confirm — choice gate (FR-18)", () => {
     expect(JSON.stringify(state.serialize())).toBe(serialized);
   });
 
-  test("test_digit_quick_select_on_answered_uses_same_gate", () => {
+  test("test_digit_via_handleinput_no_longer_triggers_confirm", () => {
+    // DIGIT-OUT-001 S1: the ROUTER no longer routes digits — handleInput
+    // with a digit cannot reach the ripple gate anymore. The gate itself
+    // stays pinned via the direct digit() calls (actions.test.ts
+    // test_digit_on_closed_routes_through_the_ripple_seam /
+    // test_digit_on_answered_routes_through_the_ripple_seam, which survive
+    // with the implementation until S2 deletes it).
     const state = seedRippleChain();
     const { panel } = makePanel(state);
     panel.currentId = "q1";
-    panel.handleInput("2"); // digit quick-select → option index 1 ("b")
-    expect(panel.confirmMode).not.toBeNull();
-    expect(panel.confirmMode?.proposed?.value).toBe("b");
-    expect(panel.confirmMode?.victims).toEqual(["q2", "q3"]);
-    expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // deferred
-    panel.handleInput("\r"); // keep
-    expect(state.getQuestion("q1")?.answer?.value).toBe("b");
+    panel.handleInput("2"); // inert — no accept, no ripple, no advance
+    expect(panel.confirmMode).toBeNull();
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // untouched
   });
 
   test("test_flash_and_gate_warning_suppressed_during_confirm_mode", () => {

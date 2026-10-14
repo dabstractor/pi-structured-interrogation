@@ -94,12 +94,7 @@
  *      every focus; bare keys only from non-editor focus, else forward):
  *      deep, overview, elaborate, batchNote, submit, discuss,
  *      externalEditor (only when focus === "text"), prevQuestion,
- *      nextQuestion (view-aware: overview cursor movers), then digits 1–9
- *      (only when digitQuickSelect AND view !== "overview" AND focus is
- *      NOT "text"/"note" — typing digits into an answer or a note is
- *      legitimate; h2.34 scopes quick-select to the short-form options
- *      focus, and a digit in overview must not accept an option on the
- *      current question)
+ *      nextQuestion (view-aware: overview cursor movers).
  *   5. no match → return false (forward to embedded editor / default nav)
  *
  * Accelerator validation: config strings arrive RESOLVED (defaults merged by
@@ -108,7 +103,7 @@
  * back to the h2.52 default for that action with a single console.warn, so a
  * settings.json typo cannot brick the panel.
  */
-import { Key, matchesKey, parseKey, type KeyId } from "@earendil-works/pi-tui";
+import { Key, matchesKey, type KeyId } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { panelActions, type SubmitDeps } from "./actions.js";
 import { acceptFromDeep, deepSelectionDown, deepSelectionUp } from "./deep-view.js";
@@ -117,7 +112,7 @@ import type { InterrogationPanel } from "./panel.js";
 
 /**
  * Seam callbacks for actions whose owning modules land later. Navigation /
- * accept / digit / submit delegate to the named-action registry
+ * accept / submit delegate to the named-action registry
  * (actions.ts, P1.M3.T2.S2); `submit` receives a host-pre-bound
  * {@link SubmitDeps} wrapper (the deps never flow through keys.ts).
  * The `on*` callbacks mutate the panel directly and are replaced by their
@@ -126,8 +121,6 @@ import type { InterrogationPanel } from "./panel.js";
 export interface RoutedActions {
   optionUp(p: InterrogationPanel): boolean;
   optionDown(p: InterrogationPanel): boolean;
-  /** Quick-select option n (1-based). The router returns this boolean verbatim. */
-  digit(p: InterrogationPanel, n: number): boolean;
   accept(p: InterrogationPanel): boolean;
   prevQuestion(p: InterrogationPanel): boolean;
   nextQuestion(p: InterrogationPanel): boolean;
@@ -158,7 +151,7 @@ export interface RoutedActions {
 /** Every legal modifier token in pi-tui's KeyId grammar. */
 const MODIFIER_NAMES: ReadonlySet<string> = new Set(["ctrl", "shift", "alt", "super"]);
 
-/** Single-character base keys: letters, digits, and pi-tui's symbol set. */
+/** Single-character base keys: letters, number keys, and pi-tui's symbol set. */
 const SINGLE_CHAR_BASES: ReadonlySet<string> = new Set([
   ..."abcdefghijklmnopqrstuvwxyz",
   ..."0123456789",
@@ -305,7 +298,7 @@ function escExitEditor(panel: InterrogationPanel): void {
 }
 
 /**
- * The default action set: navigation/accept/digit/submit delegate to the
+ * The default action set: navigation/accept/submit delegate to the
  * named-action registry (actions.ts); view toggles keep panel.ts's exact
  * prior semantics (deepSticky bookkeeping included); the not-yet-landed
  * features stay no-op seams. `delivery` pre-binds SubmitDeps for submit;
@@ -321,7 +314,7 @@ function escExitEditor(panel: InterrogationPanel): void {
  *   undefined/empty, so the index test alone would "coincidentally" fire),
  *   OR the cursor rests on the `✎ Other — write your own` row of a choice
  *   question (`cursorIndex === options.length` — short-view.ts's cursor
- *   convention; digit quick-select never selects that row).
+ *   convention).
  * - `"elaboration"` otherwise (default): cursor on a real option — the
  *   buffer is context that attaches to the selection at submit (FR-12:
  *   an elaboration never answers alone).
@@ -345,7 +338,6 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
   return {
     optionUp: (p) => panelActions.optionUp(p),
     optionDown: (p) => panelActions.optionDown(p),
-    digit: (p, n) => panelActions.digit(p, n),
     accept: (p) => panelActions.accept(p),
     prevQuestion: (p) => panelActions.prevQuestion(p),
     nextQuestion: (p) => panelActions.nextQuestion(p),
@@ -398,7 +390,7 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
  * focus), the fixed-key list, and the collision-ordering guarantee.
  *
  * @returns `(data, panel) => boolean` — true ONLY when a handler was invoked.
- * For navigation/digit/submit actions the returned value is the action's own
+ * For navigation/submit actions the returned value is the action's own
  * consumed result; one-shot seam actions (view toggles, esc descent, …)
  * consume unconditionally (true).
  */
@@ -588,21 +580,6 @@ export function buildKeyRouter(
       if (bare.nextQuestion && editorFocused) return false; // tier 2: must type
       if (panel.view === "overview") return overviewDown(panel);
       return actions.nextQuestion(panel);
-    }
-
-    // Digits are printable — NEVER intercepted while the user types an
-    // answer (focus === "text") or a note (focus === "note", R3 — the SAME
-    // editor on note duty), nor in the overview (a digit there would accept
-    // an option on the CURRENT question — not what the list is for);
-    // quick-select is a short-form options-focus affordance.
-    if (
-      config.digitQuickSelect &&
-      panel.view !== "overview" &&
-      panel.focus !== "text" &&
-      panel.focus !== "note"
-    ) {
-      const k = parseKey(data);
-      if (k !== undefined && k >= "1" && k <= "9") return actions.digit(panel, Number(k));
     }
 
     // 5. No match — forward (embedded editor when text-focused, else default).

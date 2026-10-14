@@ -138,7 +138,6 @@ function makeActions() {
   const spies = {
     optionUp: vi.fn((_p: InterrogationPanel) => true),
     optionDown: vi.fn((_p: InterrogationPanel) => true),
-    digit: vi.fn((_p: InterrogationPanel, _n: number) => true),
     accept: vi.fn((_p: InterrogationPanel) => true),
     prevQuestion: vi.fn((_p: InterrogationPanel) => true),
     nextQuestion: vi.fn((_p: InterrogationPanel) => true),
@@ -628,25 +627,47 @@ describe("buildKeyRouter — fixed keys and gating", () => {
     }
   });
 
-  test("test_digitQuickSelect_off_forwards_digits", () => {
-    const config = { ...DEFAULT_CONFIG, digitQuickSelect: false };
+  test("test_digits_are_always_forwarded", () => {
+    // DIGIT-OUT-001: digits are plain unmatched panel input — the router
+    // returns false regardless of any config (digitQuickSelect is S3's
+    // deletion and no longer gates anything).
     const actions = makeActions();
-    const { route } = makeRouter(config, actions);
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
     expect(route("5", makePanel())).toBe(false);
-    expect(actions.digit).not.toHaveBeenCalled();
   });
 
-  test("test_digit_honors_action_result", () => {
+  test("test_digit_is_inert_at_options_focus", () => {
+    // AC-3 (h2.74 DIGIT-OUT-001): a digit must not answer or advance —
+    // zero panel change at options focus, for any digit.
     const actions = makeActions();
-    actions.digit.mockReturnValueOnce(false); // beyond options → not consumed
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
-    expect(route("7", makePanel())).toBe(false);
-    expect(actions.digit).toHaveBeenCalledWith(expect.anything(), 7);
+    for (const key of ["7", "2", "9"]) {
+      const panel = makePanel();
+      const before = {
+        view: panel.view,
+        focus: panel.focus,
+        deepSticky: panel.deepSticky,
+        suspendCalls: panel.suspendCalls,
+      };
+      expect(route(key, panel)).toBe(false);
+      expect({
+        view: panel.view,
+        focus: panel.focus,
+        deepSticky: panel.deepSticky,
+        suspendCalls: panel.suspendCalls,
+      }).toEqual(before);
+      expect(panel.invalidate).not.toHaveBeenCalled();
+    }
+  });
 
-    const actions2 = makeActions();
-    const route2 = makeRouter(DEFAULT_CONFIG, actions2).route;
-    expect(route2("2", makePanel())).toBe(true); // in range → consumed
-    expect(actions2.digit).toHaveBeenCalledWith(expect.anything(), 2);
+  test("test_digit_types_in_text_focus", () => {
+    // DIGIT-OUT-001: false = forward — the byte reaches the composed
+    // editor and types.
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ focus: "text" });
+    expect(route("2", panel)).toBe(false);
+    expect(panel.exitTextField).not.toHaveBeenCalled();
   });
 
   test("test_navigation_action_false_propagates", () => {
@@ -867,14 +888,16 @@ describe("batch note (R3, P1.M4.T2.S2) — open-only (BAREKEYS-001) + esc exit",
     expect(panel.enterNoteMode).not.toHaveBeenCalled();
   });
 
-  test("test_digits_are_never_quick_select_while_typing_a_note", () => {
-    // R3: the note field is the SAME editor — typing digits into it is
-    // legitimate, so quick-select must not intercept (h2.34 scoping).
+  test("test_digit_types_in_note_focus", () => {
+    // R3: the note field is the SAME editor — route returns false so the
+    // byte is forwarded and types (DIGIT-OUT-001; was a quick-select
+    // non-interception pin).
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
     const panel = makePanel({ focus: "note" });
     expect(route("7", panel)).toBe(false);
-    expect(actions.digit).not.toHaveBeenCalled();
+    expect(panel.enterNoteMode).not.toHaveBeenCalled();
+    expect(panel.exitNoteMode).not.toHaveBeenCalled();
   });
 });
 
@@ -939,6 +962,19 @@ describe("deep view routing gates (P1.M5.T1.S1)", () => {
     expect(route(UP, panel as unknown as InterrogationPanel)).toBe(true);
     expect(panel.cursorIndex).toBe(0); // deep selection moved up
     expect(actions.optionUp).not.toHaveBeenCalled(); // short-view cursor untouched
+  });
+
+  test("test_digit_is_inert_in_deep_focus", () => {
+    // DIGIT-OUT-001: digits are unmatched at deep/options focus — no
+    // accept, no selection move, no view change (AC-3 zero state change).
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const { panel } = makeDeepPanel();
+
+    expect(route("3", panel as unknown as InterrogationPanel)).toBe(false);
+    expect(panel.cursorIndex).toBe(0); // deep selection untouched
+    expect(panel.currentId).toBe("q1");
+    expect(panel.viewLogs).toEqual([]);
   });
 
   test("test_down_in_deep_moves_selection_within_option_domain", () => {
@@ -1153,18 +1189,18 @@ describe("buildKeyRouter — overview view-gating (P1.M5.T2.S1)", () => {
     expect(panel.viewLogs).toEqual([]); // no view change — forwarded
   });
 
-  test("test_digits_do_not_quick_select_in_overview", () => {
+  test("test_digit_is_inert_in_overview", () => {
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
     const { panel } = makeOverviewPanel();
 
     expect(route("3", panel as unknown as InterrogationPanel)).toBe(false);
-    expect(actions.digit).not.toHaveBeenCalled(); // no option accepted on q1
-    // Control: the SAME byte in the short form still quick-selects.
-    const short = makePanel({ view: "short" });
-    expect(route("3", short as unknown as InterrogationPanel)).toBe(true);
-    expect(actions.digit).toHaveBeenCalledTimes(1);
-    expect(actions.digit).toHaveBeenCalledWith(short as unknown as InterrogationPanel, 3);
+    // Zero state change (AC-3): no cursor move, no option accepted, no
+    // view change, no question jump.
+    expect(panel.overviewCursor).toBe(0);
+    expect(panel.cursorIndex).toBe(0);
+    expect(panel.currentId).toBe("q1");
+    expect(panel.viewLogs).toEqual([]);
   });
 
   test("test_config_intercepts_still_fire_in_overview_view", () => {

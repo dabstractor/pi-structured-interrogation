@@ -51,7 +51,7 @@ export type KeyAction =
   | "elaborate"
   | "batchNote"
   | "submit"
-  | "discuss"
+  | "chat"
   | "externalEditor"
   | "prevQuestion"
   | "nextQuestion";
@@ -94,7 +94,7 @@ const KEY_ACTIONS = [
   "elaborate",
   "batchNote",
   "submit",
-  "discuss",
+  "chat",
   "externalEditor",
   "prevQuestion",
   "nextQuestion",
@@ -111,7 +111,7 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
     elaborate: "t",
     batchNote: "m",
     submit: "ctrl+s",
-    discuss: "e",
+    chat: "e",
     externalEditor: "ctrl+g",
     prevQuestion: "tab",
     nextQuestion: "shift+tab",
@@ -275,8 +275,9 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * Set overrides under a top-level `"interrogator"` object in either
  * `~/.pi/agent/settings.json` (global) or `<cwd>/.pi/settings.json` (project).
  * Nested objects merge per-key; scalars replace. 9 keys + 3 toggles
- * + editorMode + escExitWindowMs (defaults = PRD h2.52 as amended by the
- * breakOut removal):
+ * (gateWarnings/roundDetection/compactionPreservation) + editorMode +
+ * escExitWindowMs + sideChatModel + sideChatAutoApply (defaults = PRD h2.52
+ * as amended by the breakOut removal):
  *
  * ### keys — accelerator strings, pi lowercase form
  * | field           | default         | purpose                                        | label consumer |
@@ -286,7 +287,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * | `elaborate`     | `"t"`           | Enter the editor: elaboration on the selection / write-in duty (FR-12) | footer          |
  * | `batchNote`     | `"m"`           | Attach a batch note                            | footer, dialogs |
  * | `submit`        | `"ctrl+s"`      | Submit answers / close the panel               | footer, widget  |
- * | `discuss`       | `"e"`           | Discuss the current question in chat           | footer, dialogs |
+ * | `chat`         | `"e"`           | Open the per-question side chat                | footer, dialogs |
  * | `externalEditor`| `"ctrl+g"`      | Open the draft in an external editor           | footer, widget  |
  * | `prevQuestion`  | `"tab"`         | Move to the previous question                  | footer          |
  * | `nextQuestion`  | `"shift+tab"`   | Move to the next question                      | footer          |

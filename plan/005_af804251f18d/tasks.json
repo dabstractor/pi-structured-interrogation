@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Per-question side chat (SIDECHAT-001…005) — engine, view, discuss removal, guards, docs",
-      "status": "Ready",
+      "status": "Planned",
       "description": "Implement the in-panel per-question side chat that never touches the main conversation, replacing the discuss-in-chat handoff: rename keys.discuss→keys.chat (+silent alias) with sideChatModel/sideChatAutoApply config; new src/panel/sidechat.ts engine (module-memory singleton, one-shot branch snapshot, own system prompt, nested modelRegistry loop with abort, ```answer parser, usage tally); new src/panel/chat-view.ts view (second editor instance, esc ladder, confirm row); panel open/replace/discard hooks with suspend survival and non-TUI inertness; apply through the ordinary accept seams with indistinguishable provenance; delete discuss.ts end-to-end; static cache-isolation guard; AC-17 scripted coverage; README + keymap-conflict re-verification. Spec is already synced at HEAD d18bc39 — this changeset is source-only. Research findings: plan/005_af804251f18d/architecture/ (note: installed package is @earendil-works/pi-coding-agent, NOT pi-agent; streamSimple lives in @earendil-works/pi-ai, not on ModelRegistry; setEditorText seam STAYS for editor-preservation).",
       "milestones": [
         {
@@ -18,28 +18,39 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Rename keys.discuss to keys.chat across config and consumers, with silent compat alias",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Behavior-preserving rename of the key action end-to-end (default stays \"e\", TIER-2 bare semantics unchanged), plus the silent deprecated alias so settings files still carrying keys.discuss keep working. The discuss-in-chat BEHAVIOR stays live through this task (the renamed onChat seam still calls discussInChat) until Milestone M2 swaps the handler — M1 must stay green mid-flight.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T1.S1",
                   "title": "Rename the KeyAction member, defaults, dispatch seam, label maps, and every fixture",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h1.4/h2.36", "h1.2/h2.19", "h1.6/h2.58", "h1.7/h2.80"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/config-and-keys-rename.md has the verified touchpoint inventory at HEAD d18bc39 — src/config.ts :54 (KeyAction union \"discuss\"), :97 (KEY_ACTIONS), :114 (DEFAULT_CONFIG.keys.discuss:\"e\"), :289 (loadConfig JSDoc row), :263 (count string); src/panel/keys.ts :144-146 (RoutedActions.onDiscuss), :372-377 (default stub), :414 (bare tier map), :558-561 (dispatch arm); src/panel/layout.ts :70 (ACTION_WORDS); src/keymap-guard.test.ts :46 (ALL_ACTIONS :41-52); test fixtures in keys.test/config.test/config-surface.test/keymap-ac.test/ac-panel.test/layout.test. The three Record<KeyAction,…> maps in config-surface.test.ts make TS force the sweep.\n2. INPUT: none — baseline HEAD d18bc39.\n3. LOGIC: Pure rename, zero behavior change: \"discuss\"→\"chat\" in the union/list/default/JSDoc row (purpose text: open the per-question side chat); onDiscuss→onChat (interface, stub, bare map, dispatch arm keeps the exact two-tier shape `if (bare.chat && editorFocused) return false;`); ACTION_WORDS.chat; ALL_ACTIONS; every test fixture and comment (keys.ts :95/:120). panel.ts:652-661 host refinement renames routed.onDiscuss→routed.onChat but STILL calls discussInChat(pi, p) — deleted in P1.M2.T4.S1/P1.M2.T7.S1. Update the loadConfig JSDoc count string to the TRUE final surface (9 keys + 3 toggles gateWarnings/roundDetection/compactionPreservation + editorMode + escExitWindowMs + sideChatModel + sideChatAutoApply — the rename adds no key). Tests (TDD implied): rename-only assertions — chat dispatches from every view, letter-vs-letter ordering pin (keys.test.ts:751, deep-before-discuss) carries to chat, keymap-guard exhaustiveness green.\n4. OUTPUT: `keys.chat` action + `RoutedActions.onChat(panel)` seam + `bare.chat` tier entry, consumed by P1.M2.T4.S1; typecheck + full suite green at task end.\n5. DOCS: [Mode A] config.ts loadConfig JSDoc keys-table row + count string; keys.ts module docs (dispatch order + two-tier note for the chat key). README sweep is NOT here — it is Mode B (P1.M3.T3)."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/config-and-keys-rename.md has the verified touchpoint inventory at HEAD d18bc39 — src/config.ts :54 (KeyAction union \"discuss\"), :97 (KEY_ACTIONS), :114 (DEFAULT_CONFIG.keys.discuss:\"e\"), :289 (loadConfig JSDoc row), :263 (count string); src/panel/keys.ts :144-146 (RoutedActions.onDiscuss), :372-377 (default stub), :414 (bare tier map), :558-561 (dispatch arm); src/panel/layout.ts :70 (ACTION_WORDS); src/keymap-guard.test.ts :46 (ALL_ACTIONS :41-52); test fixtures in keys.test/config.test/config-surface.test/keymap-ac.test/ac-panel.test/layout.test. The three Record<KeyAction,…> maps in config-surface.test.ts make TS force the sweep.\n2. INPUT: none — baseline HEAD d18bc39.\n3. LOGIC: Pure rename, zero behavior change: \"discuss\"→\"chat\" in the union/list/default/JSDoc row (purpose text: open the per-question side chat); onDiscuss→onChat (interface, stub, bare map, dispatch arm keeps the exact two-tier shape `if (bare.chat && editorFocused) return false;`); ACTION_WORDS.chat; ALL_ACTIONS; every test fixture and comment (keys.ts :95/:120). panel.ts:652-661 host refinement renames routed.onDiscuss→routed.onChat but STILL calls discussInChat(pi, p) — deleted in P1.M2.T4.S1/P1.M2.T7.S1. Update the loadConfig JSDoc count string to the TRUE final surface (9 keys + 3 toggles gateWarnings/roundDetection/compactionPreservation + editorMode + escExitWindowMs + sideChatModel + sideChatAutoApply — the rename adds no key). Tests (TDD implied): rename-only assertions — chat dispatches from every view, letter-vs-letter ordering pin (keys.test.ts:751, deep-before-discuss) carries to chat, keymap-guard exhaustiveness green.\n4. OUTPUT: `keys.chat` action + `RoutedActions.onChat(panel)` seam + `bare.chat` tier entry, consumed by P1.M2.T4.S1; typecheck + full suite green at task end.\n5. DOCS: [Mode A] config.ts loadConfig JSDoc keys-table row + count string; keys.ts module docs (dispatch order + two-tier note for the chat key). README sweep is NOT here — it is Mode B (P1.M3.T3).",
+                  "prd_selectors": [
+                    "h1.4/h2.36",
+                    "h1.2/h2.19",
+                    "h1.6/h2.58",
+                    "h1.7/h2.80"
+                  ]
                 },
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Add the silent discuss→chat compat alias in coerceKeys",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S1"],
-                  "prd_selectors": ["h1.7/h2.80", "h1.4/h2.36", "h1.2/h2.19"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/config-and-keys-rename.md §Silent alias mechanism — copy the exact focusText→elaborate precedent at src/config.ts:194-205; the RAW pre-merge user keys map is threaded from loadConfigFrom :237 because deepMerge (:259-260) cannot distinguish absent from rebound-to-default.\n2. INPUT: the renamed surface from P1.M1.T1.S1.\n3. LOGIC: In coerceKeys add the presence-based alias verbatim in that shape: `chatExplicit` = non-empty string on the raw user map; `legacyValid` = non-empty string on src.discuss; `effSrc = !chatExplicit && legacyValid ? { ...src, chat: src.discuss } : src`. Silent — never logged, never warned; explicit valid keys.chat ALWAYS wins even when equal to the default. Add the one-line maintainer comment at the alias site mirroring the focusText one. Tests: config.test.ts — legacy discuss maps onto chat; explicit chat wins over legacy discuss; blank legacy ignored (mirror the existing focusText alias tests if present, else establish the shape).\n4. OUTPUT: old-name settings keep working; consumed implicitly by every config consumer. After this subtask the name `discuss` exists ONLY at this alias site in src/ (verified finally in P1.M3.T3.S2).\n5. DOCS: [Mode A] the one-line maintainer comment at the coerceKeys alias site IS the deliverable; the name `discuss` must NOT appear in any documentation file — that is enforced by the Mode B sweep (P1.M3.T3)."
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/config-and-keys-rename.md §Silent alias mechanism — copy the exact focusText→elaborate precedent at src/config.ts:194-205; the RAW pre-merge user keys map is threaded from loadConfigFrom :237 because deepMerge (:259-260) cannot distinguish absent from rebound-to-default.\n2. INPUT: the renamed surface from P1.M1.T1.S1.\n3. LOGIC: In coerceKeys add the presence-based alias verbatim in that shape: `chatExplicit` = non-empty string on the raw user map; `legacyValid` = non-empty string on src.discuss; `effSrc = !chatExplicit && legacyValid ? { ...src, chat: src.discuss } : src`. Silent — never logged, never warned; explicit valid keys.chat ALWAYS wins even when equal to the default. Add the one-line maintainer comment at the alias site mirroring the focusText one. Tests: config.test.ts — legacy discuss maps onto chat; explicit chat wins over legacy discuss; blank legacy ignored (mirror the existing focusText alias tests if present, else establish the shape).\n4. OUTPUT: old-name settings keep working; consumed implicitly by every config consumer. After this subtask the name `discuss` exists ONLY at this alias site in src/ (verified finally in P1.M3.T3.S2).\n5. DOCS: [Mode A] the one-line maintainer comment at the coerceKeys alias site IS the deliverable; the name `discuss` must NOT appear in any documentation file — that is enforced by the Mode B sweep (P1.M3.T3).",
+                  "prd_selectors": [
+                    "h1.7/h2.80",
+                    "h1.4/h2.36",
+                    "h1.2/h2.19"
+                  ]
                 }
               ]
             },
@@ -47,18 +58,25 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Add sideChatModel and sideChatAutoApply config fields",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Two new non-key config fields with interface entries, defaults, coercion, and JSDoc rows: sideChatModel?: string (default: the session model at chat open) and sideChatAutoApply: boolean (default false).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Interface fields, defaults, coercion, and JSDoc rows for the two side-chat settings",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T1.S1"],
-                  "prd_selectors": ["h1.2/h2.19", "h1.6/h2.58", "h1.4/h2.38", "h1.7/h2.80"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/config-and-keys-rename.md §New-config recipe (precedent: compactionPreservation) — InterrogatorConfig at src/config.ts:81-86, DEFAULT_CONFIG ~:121, coerceConfig ~:231 (coerceBoolean pattern), JSDoc toggles table ~:303-311. sideChatModel is the FIRST optional field in this config — no undefined-default precedent exists.\n2. INPUT: config surface as renamed by P1.M1.T1.S1.\n3. LOGIC: Add `sideChatModel?: string` (JSDoc: \"provider/model-id\" override for the side chat; default = the session's current model at chat open; invalid → notify + session model) and `sideChatAutoApply: boolean` (JSDoc: skip the answer-confirm row; default false) to InterrogatorConfig; DEFAULT_CONFIG gains `sideChatAutoApply: false`; coerceConfig gains `coerceBoolean(src.sideChatAutoApply, false)` and a new optional-string path for sideChatModel (`typeof v === \"string\" && v.trim() ? v : undefined`); add both JSDoc config-reference rows; keep the count string truthful (updated in P1.M1.T1.S1 — extend if needed). Tests in src/config.test.ts: boolean coercion (true/false/\"true\"/\"false\"/absent→false), optional string (trim, blank→undefined, absent→undefined).\n4. OUTPUT: resolved `config.sideChatModel` / `config.sideChatAutoApply` consumed by P1.M1.T5.S1 (model override) and P1.M1.T6.S2 (confirm bypass); nothing else may read raw settings for these.\n5. DOCS: [Mode A] the two loadConfig JSDoc rows ride with this change; README sample-settings is Mode B (P1.M3.T3)."
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/config-and-keys-rename.md §New-config recipe (precedent: compactionPreservation) — InterrogatorConfig at src/config.ts:81-86, DEFAULT_CONFIG ~:121, coerceConfig ~:231 (coerceBoolean pattern), JSDoc toggles table ~:303-311. sideChatModel is the FIRST optional field in this config — no undefined-default precedent exists.\n2. INPUT: config surface as renamed by P1.M1.T1.S1.\n3. LOGIC: Add `sideChatModel?: string` (JSDoc: \"provider/model-id\" override for the side chat; default = the session's current model at chat open; invalid → notify + session model) and `sideChatAutoApply: boolean` (JSDoc: skip the answer-confirm row; default false) to InterrogatorConfig; DEFAULT_CONFIG gains `sideChatAutoApply: false`; coerceConfig gains `coerceBoolean(src.sideChatAutoApply, false)` and a new optional-string path for sideChatModel (`typeof v === \"string\" && v.trim() ? v : undefined`); add both JSDoc config-reference rows; keep the count string truthful (updated in P1.M1.T1.S1 — extend if needed). Tests in src/config.test.ts: boolean coercion (true/false/\"true\"/\"false\"/absent→false), optional string (trim, blank→undefined, absent→undefined).\n4. OUTPUT: resolved `config.sideChatModel` / `config.sideChatAutoApply` consumed by P1.M1.T5.S1 (model override) and P1.M1.T6.S2 (confirm bypass); nothing else may read raw settings for these.\n5. DOCS: [Mode A] the two loadConfig JSDoc rows ride with this change; README sample-settings is Mode B (P1.M3.T3).",
+                  "prd_selectors": [
+                    "h1.2/h2.19",
+                    "h1.6/h2.58",
+                    "h1.4/h2.38",
+                    "h1.7/h2.80"
+                  ]
                 }
               ]
             },
@@ -76,8 +94,14 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h1.4/h2.38", "h1.5/h2.51", "h1.7/h2.80", "h1.2/h2.13", "h1.2/h2.12"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-002 and panel-view-integration.md §Suspend — MODULE scope is load-bearing: the panel INSTANCE dies on suspend and resumeOpenPanel builds a fresh one; only sidechat.ts module memory makes \"survives suspend, dies on restart\" true with zero persistence code. state-and-persistence.md §Side chat: the chat lives in NONE of the three storage layers — no InterrogationState fields, no details, no custom entries, no renderer.\n2. INPUT: none — new file src/panel/sidechat.ts.\n3. LOGIC: Module-scoped singleton store: record {questionId, messages: ChatMessage[], streamState, abortController, modelSnapshot, usage} plus lifecycle API: `get()`, `openOrReplace(questionId)` (same question → reuse; different → replace WHOLESALE — no confirm, no carry-over; rebinds snapshot/prompt/model via the builders from P1.M1.T4.S1/P1.M1.T4.S2/P1.M1.T5.S1, injected as arguments so this subtask stays UI- and ctx-free), `discard()` (plain in-memory delete; abort is the caller's job — P1.M2.T5.S1). Header doc block states the SIDECHAT-002 contract implemented. Tests: singleton identity, wholesale replacement (no message/usage carry-over), discard clears everything, replacement needs no confirmation.\n4. OUTPUT: store + lifecycle consumed by P1.M1.T3.S2, P1.M1.T4.S1, P1.M2.T4.S1 (open path), P1.M2.T5.S1 (discard hooks).\n5. DOCS: [Mode A] sidechat.ts header doc block stating the SIDECHAT-002 singleton + ephemerality contracts (the codebase's existing header-block discipline)."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-002 and panel-view-integration.md §Suspend — MODULE scope is load-bearing: the panel INSTANCE dies on suspend and resumeOpenPanel builds a fresh one; only sidechat.ts module memory makes \"survives suspend, dies on restart\" true with zero persistence code. state-and-persistence.md §Side chat: the chat lives in NONE of the three storage layers — no InterrogationState fields, no details, no custom entries, no renderer.\n2. INPUT: none — new file src/panel/sidechat.ts.\n3. LOGIC: Module-scoped singleton store: record {questionId, messages: ChatMessage[], streamState, abortController, modelSnapshot, usage} plus lifecycle API: `get()`, `openOrReplace(questionId)` (same question → reuse; different → replace WHOLESALE — no confirm, no carry-over; rebinds snapshot/prompt/model via the builders from P1.M1.T4.S1/P1.M1.T4.S2/P1.M1.T5.S1, injected as arguments so this subtask stays UI- and ctx-free), `discard()` (plain in-memory delete; abort is the caller's job — P1.M2.T5.S1). Header doc block states the SIDECHAT-002 contract implemented. Tests: singleton identity, wholesale replacement (no message/usage carry-over), discard clears everything, replacement needs no confirmation.\n4. OUTPUT: store + lifecycle consumed by P1.M1.T3.S2, P1.M1.T4.S1, P1.M2.T4.S1 (open path), P1.M2.T5.S1 (discard hooks).\n5. DOCS: [Mode A] sidechat.ts header doc block stating the SIDECHAT-002 singleton + ephemerality contracts (the codebase's existing header-block discipline).",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.5/h2.51",
+                    "h1.7/h2.80",
+                    "h1.2/h2.13",
+                    "h1.2/h2.12"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -85,9 +109,15 @@
                   "title": "/clear and /new byte-exact first-token reset commands",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T3.S1"],
-                  "prd_selectors": ["h1.4/h2.38", "h1.5/h2.51", "h1.7/h2.80"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-002 slash escapes — byte-exact match on the FIRST whitespace-delimited input token, nothing else; a `/usr/bin` path or markdown heading is a message.\n2. INPUT: store lifecycle from P1.M1.T3.S1.\n3. LOGIC: `classifyChatCommand(input)` → \"/clear\" | \"/new\" | null (first whitespace-delimited token, byte-exact — no prefix, no trim-games beyond whitespace splitting); on command: `resetChat(currentQuestionId)` discards messages AND usage, rebinds FRESH to the CURRENT question (new snapshot + prompt + model resolution via the injected builders), view stays open (view concerns are P1.M2's; the engine just never closes). Tests: `/clear`, `/new`, `/clear extra words` still command; `/usr/bin/env`, `/clearance`, `see /clear below`, a markdown heading → message (null).\n4. OUTPUT: classification + resetChat consumed by P1.M2.T3.S1 (the enter/send pipeline calls classify before send).\n5. DOCS: none beyond the S1 header block — command names are user-facing behavior documented Mode B in the README side-chat section (P1.M3.T3.S1); no config/API surface change here."
+                  "dependencies": [
+                    "P1.M1.T3.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-002 slash escapes — byte-exact match on the FIRST whitespace-delimited input token, nothing else; a `/usr/bin` path or markdown heading is a message.\n2. INPUT: store lifecycle from P1.M1.T3.S1.\n3. LOGIC: `classifyChatCommand(input)` → \"/clear\" | \"/new\" | null (first whitespace-delimited token, byte-exact — no prefix, no trim-games beyond whitespace splitting); on command: `resetChat(currentQuestionId)` discards messages AND usage, rebinds FRESH to the CURRENT question (new snapshot + prompt + model resolution via the injected builders), view stays open (view concerns are P1.M2's; the engine just never closes). Tests: `/clear`, `/new`, `/clear extra words` still command; `/usr/bin/env`, `/clearance`, `see /clear below`, a markdown heading → message (null).\n4. OUTPUT: classification + resetChat consumed by P1.M2.T3.S1 (the enter/send pipeline calls classify before send).\n5. DOCS: none beyond the S1 header block — command names are user-facing behavior documented Mode B in the README side-chat section (P1.M3.T3.S1); no config/API surface change here.",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.5/h2.51",
+                    "h1.7/h2.80"
+                  ]
                 }
               ]
             },
@@ -104,9 +134,16 @@
                   "title": "One-shot branch snapshot pipeline (getBranch → context messages)",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T3.S1"],
-                  "prd_selectors": ["h1.2/h2.15", "h1.2/h2.14/h3.9", "h1.4/h2.38", "h1.7/h2.80"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/nested-llm-and-snapshot-seams.md — the installed package is `@earendil-works/pi-coding-agent` (there is NO pi-agent); `sessionEntryToContextMessages` is re-exported from its index (dist/index.d.ts:19); `getBranch(): SessionEntry[]` returns ALL entry types — filter message-bearing entries (the qna.ts walk pattern); the helper returns AgentMessage[] while Context.messages needs Message[] — narrow custom messages or convert via `convertToLlm` (in-repo precedent src/compaction.ts:44).\n2. INPUT: the singleton record from P1.M1.T3.S1 (the frozen snapshot is stored on it at creation).\n3. LOGIC: `takeBranchSnapshot(sessionManager)`: `getBranch()` → keep message-bearing entries → `flatMap(sessionEntryToContextMessages)` → narrow/convert to `Message[]` → freeze. Called ONCE per chat creation inside openOrReplace; NEVER re-read mid-chat (mid-chat submissions leave it stale — accepted v1). No writes anywhere (read-only session access). Tests: mixed SessionEntry fixtures (message/custom/model-change/compaction) → only conversation messages survive, order preserved; snapshot identity stable across turns.\n4. OUTPUT: frozen `Message[]` snapshot on the singleton, consumed by P1.M1.T5.S1 (context assembly: system prompt + snapshot + chat turns).\n5. DOCS: [Mode A] sidechat.ts header block gains the snapshot-once note (SIDECHAT-003 accepted-staleness contract)."
+                  "dependencies": [
+                    "P1.M1.T3.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/nested-llm-and-snapshot-seams.md — the installed package is `@earendil-works/pi-coding-agent` (there is NO pi-agent); `sessionEntryToContextMessages` is re-exported from its index (dist/index.d.ts:19); `getBranch(): SessionEntry[]` returns ALL entry types — filter message-bearing entries (the qna.ts walk pattern); the helper returns AgentMessage[] while Context.messages needs Message[] — narrow custom messages or convert via `convertToLlm` (in-repo precedent src/compaction.ts:44).\n2. INPUT: the singleton record from P1.M1.T3.S1 (the frozen snapshot is stored on it at creation).\n3. LOGIC: `takeBranchSnapshot(sessionManager)`: `getBranch()` → keep message-bearing entries → `flatMap(sessionEntryToContextMessages)` → narrow/convert to `Message[]` → freeze. Called ONCE per chat creation inside openOrReplace; NEVER re-read mid-chat (mid-chat submissions leave it stale — accepted v1). No writes anywhere (read-only session access). Tests: mixed SessionEntry fixtures (message/custom/model-change/compaction) → only conversation messages survive, order preserved; snapshot identity stable across turns.\n4. OUTPUT: frozen `Message[]` snapshot on the singleton, consumed by P1.M1.T5.S1 (context assembly: system prompt + snapshot + chat turns).\n5. DOCS: [Mode A] sidechat.ts header block gains the snapshot-once note (SIDECHAT-003 accepted-staleness contract).",
+                  "prd_selectors": [
+                    "h1.2/h2.15",
+                    "h1.2/h2.14/h3.9",
+                    "h1.4/h2.38",
+                    "h1.7/h2.80"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -114,9 +151,16 @@
                   "title": "Side-chat system prompt builder (question verbatim, goal, digest, answer protocol)",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T3.S1"],
-                  "prd_selectors": ["h1.4/h2.38", "h1.7/h2.80", "h1.2/h2.14/h3.9", "h1.1/h2.8/h3.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-003 and ui-spec.md §Side chat \"Model & context\" — the prompt carries the question VERBATIM with full description and every ramification (the deep-view quality contract — no truncation, CAPS-OUT-001 spirit), the goal, a one-line-per-question answers digest, and the answer protocol.\n2. INPUT: plain data — the question record (id, prompt, description, options with ramifications, type), the session goal, and the question list with answers for the digest; taken from the same state snapshot the panel renders (InterrogationState shapes in src/state.ts).\n3. LOGIC: `buildSideChatSystemPrompt(question, goal, questionsWithAnswers)`: (a) role framing — private advisor for exactly ONE question; (b) the question verbatim: prompt + full description + EVERY option's full ramification text; (c) the goal; (d) one-line-per-question answers digest (id/prompt + answered value or status); (e) the answer protocol instruction — once converged with the user, end the reply with a fenced ` ```answer ` block containing strict JSON `{\"value\": \"<exact option value>\"}` on choice questions or `{\"text\": \"…\"}` on text/write-in. Own system prompt → structurally NO prefix share with the main conversation's cache. Pure function. Tests: verbatim inclusion of long descriptions/ramifications, digest one-line-per-question shape, protocol block instruction present, goal line present.\n4. OUTPUT: prompt string consumed by P1.M1.T5.S1 (Context.systemPrompt).\n5. DOCS: none — internal prompt content; the spec sections are the authority and the header block (S1) covers the contract."
+                  "dependencies": [
+                    "P1.M1.T3.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-003 and ui-spec.md §Side chat \"Model & context\" — the prompt carries the question VERBATIM with full description and every ramification (the deep-view quality contract — no truncation, CAPS-OUT-001 spirit), the goal, a one-line-per-question answers digest, and the answer protocol.\n2. INPUT: plain data — the question record (id, prompt, description, options with ramifications, type), the session goal, and the question list with answers for the digest; taken from the same state snapshot the panel renders (InterrogationState shapes in src/state.ts).\n3. LOGIC: `buildSideChatSystemPrompt(question, goal, questionsWithAnswers)`: (a) role framing — private advisor for exactly ONE question; (b) the question verbatim: prompt + full description + EVERY option's full ramification text; (c) the goal; (d) one-line-per-question answers digest (id/prompt + answered value or status); (e) the answer protocol instruction — once converged with the user, end the reply with a fenced ` ```answer ` block containing strict JSON `{\"value\": \"<exact option value>\"}` on choice questions or `{\"text\": \"…\"}` on text/write-in. Own system prompt → structurally NO prefix share with the main conversation's cache. Pure function. Tests: verbatim inclusion of long descriptions/ramifications, digest one-line-per-question shape, protocol block instruction present, goal line present.\n4. OUTPUT: prompt string consumed by P1.M1.T5.S1 (Context.systemPrompt).\n5. DOCS: none — internal prompt content; the spec sections are the authority and the header block (S1) covers the contract.",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.7/h2.80",
+                    "h1.2/h2.14/h3.9",
+                    "h1.1/h2.8/h3.1"
+                  ]
                 }
               ]
             },
@@ -133,9 +177,20 @@
                   "title": "Model resolution and turn dispatch over an injected nested-call seam",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T2.S1", "P1.M1.T3.S1", "P1.M1.T4.S1", "P1.M1.T4.S2"],
-                  "prd_selectors": ["h1.2/h2.15", "h1.2/h2.16", "h1.4/h2.38", "h1.6/h2.57", "h1.7/h2.80"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/nested-llm-and-snapshot-seams.md — model resolution fallback precedent src/compaction.ts:123-126 (`ctx.model ?? ctx.modelRegistry.getAvailable()[0]`); ModelRegistry exposes complete/find/hasConfiguredAuth/getAvailable but NOT streamSimple (that is a standalone `@earendil-works/pi-ai` export); do NOT copy compaction's `cacheRetention:\"none\"` — the side chat is multi-turn and wants its OWN small prefix cache (stable own sessionId, default retention).\n2. INPUT: config.sideChatModel from P1.M1.T2.S1; singleton store P1.M1.T3.S1; snapshot P1.M1.T4.S1; system prompt P1.M1.T4.S2.\n3. LOGIC: `resolveSideChatModel(config, modelRegistry, sessionModel, notify)`: if sideChatModel set → `find(provider, modelId)`; invalid/unknown → `notify` + session model (sessionModel ?? getAvailable()[0]); no model resolvable → return an inert marker (the view opens inert — P1.M2.T1.S2). `sendTurn(text)`: append user message → assemble Context {systemPrompt, messages: [...snapshot, ...turns]} → invoke the INJECTED model-call port (shape: (model, context, {signal, sessionId}) => stream-or-promise; production binding uses pi-ai streamSimple / modelRegistry.complete) with a fresh AbortController stored on the singleton. The port, registry, and notify are constructor/injection arguments — the engine never imports ctx directly (unit-testable, and the R5 guard stays clean). Auth errors from the port surface as engine notice records (in-view via P1.M2.T1.S2) — the panel never blocks. Tests: override resolution + invalid→notify+fallback + no-model inert; context assembly order (system prompt + frozen snapshot + turns); abortController stored/replaced per turn.\n4. OUTPUT: `sendTurn`/`abort`/state machine (idle→streaming→idle) consumed by P1.M2.T3.S1 (view key routing) and P1.M2.T5.S1 (mid-stream abort).\n5. DOCS: [Mode A] sidechat.ts header block: nested-calls-only (SIDECHAT-005) + model resolution contract."
+                  "dependencies": [
+                    "P1.M1.T2.S1",
+                    "P1.M1.T3.S1",
+                    "P1.M1.T4.S1",
+                    "P1.M1.T4.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/nested-llm-and-snapshot-seams.md — model resolution fallback precedent src/compaction.ts:123-126 (`ctx.model ?? ctx.modelRegistry.getAvailable()[0]`); ModelRegistry exposes complete/find/hasConfiguredAuth/getAvailable but NOT streamSimple (that is a standalone `@earendil-works/pi-ai` export); do NOT copy compaction's `cacheRetention:\"none\"` — the side chat is multi-turn and wants its OWN small prefix cache (stable own sessionId, default retention).\n2. INPUT: config.sideChatModel from P1.M1.T2.S1; singleton store P1.M1.T3.S1; snapshot P1.M1.T4.S1; system prompt P1.M1.T4.S2.\n3. LOGIC: `resolveSideChatModel(config, modelRegistry, sessionModel, notify)`: if sideChatModel set → `find(provider, modelId)`; invalid/unknown → `notify` + session model (sessionModel ?? getAvailable()[0]); no model resolvable → return an inert marker (the view opens inert — P1.M2.T1.S2). `sendTurn(text)`: append user message → assemble Context {systemPrompt, messages: [...snapshot, ...turns]} → invoke the INJECTED model-call port (shape: (model, context, {signal, sessionId}) => stream-or-promise; production binding uses pi-ai streamSimple / modelRegistry.complete) with a fresh AbortController stored on the singleton. The port, registry, and notify are constructor/injection arguments — the engine never imports ctx directly (unit-testable, and the R5 guard stays clean). Auth errors from the port surface as engine notice records (in-view via P1.M2.T1.S2) — the panel never blocks. Tests: override resolution + invalid→notify+fallback + no-model inert; context assembly order (system prompt + frozen snapshot + turns); abortController stored/replaced per turn.\n4. OUTPUT: `sendTurn`/`abort`/state machine (idle→streaming→idle) consumed by P1.M2.T3.S1 (view key routing) and P1.M2.T5.S1 (mid-stream abort).\n5. DOCS: [Mode A] sidechat.ts header block: nested-calls-only (SIDECHAT-005) + model resolution contract.",
+                  "prd_selectors": [
+                    "h1.2/h2.15",
+                    "h1.2/h2.16",
+                    "h1.4/h2.38",
+                    "h1.6/h2.57",
+                    "h1.7/h2.80"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -143,9 +198,16 @@
                   "title": "Streaming consumption: deltas, stop reasons, abort, auth errors",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T5.S1"],
-                  "prd_selectors": ["h1.4/h2.38", "h1.2/h2.16", "h1.2/h2.14/h3.9", "h1.7/h2.80"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/nested-llm-and-snapshot-seams.md §Exact API signatures — AssistantMessageEventStream events start|text_start|text_delta|text_end|…|done{reason,message}|error{reason,error} with `partial` riding every event; abort via the options signal terminates with error{reason:\"aborted\"}; missing auth throws synchronously; StopReason includes \"aborted\"/\"error\".\n2. INPUT: sendTurn dispatch from P1.M1.T5.S1 (this subtask owns the consumption side of the injected port).\n3. LOGIC: Consume the stream: text deltas accumulate into a streaming buffer exposed via streamState (view polls/renders — P1.M2.T1.S1); on done: freeze the assistant message (join text content), record stopReason; on error{reason:\"aborted\"} or stopReason \"aborted\": DISCARD the partial text — the turn never happened (no message record, no usage); on other errors / sync auth throw: record an in-view notice entry, chat stays usable (next turn fine); only COMPLETED replies are handed to the parser (P1.M1.T6.S1 consumes the frozen message). Tests: happy-path delta→freeze; abort discards partial + no usage; error event → notice record; auth throw → notice record; parser never sees partials.\n4. OUTPUT: frozen assistant messages + streamState transitions consumed by P1.M2.T1.S1 (streaming cursor) and P1.M1.T6.S1 (parser input).\n5. DOCS: none — internal state machine; header block from S1 covers it."
+                  "dependencies": [
+                    "P1.M1.T5.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/nested-llm-and-snapshot-seams.md §Exact API signatures — AssistantMessageEventStream events start|text_start|text_delta|text_end|…|done{reason,message}|error{reason,error} with `partial` riding every event; abort via the options signal terminates with error{reason:\"aborted\"}; missing auth throws synchronously; StopReason includes \"aborted\"/\"error\".\n2. INPUT: sendTurn dispatch from P1.M1.T5.S1 (this subtask owns the consumption side of the injected port).\n3. LOGIC: Consume the stream: text deltas accumulate into a streaming buffer exposed via streamState (view polls/renders — P1.M2.T1.S1); on done: freeze the assistant message (join text content), record stopReason; on error{reason:\"aborted\"} or stopReason \"aborted\": DISCARD the partial text — the turn never happened (no message record, no usage); on other errors / sync auth throw: record an in-view notice entry, chat stays usable (next turn fine); only COMPLETED replies are handed to the parser (P1.M1.T6.S1 consumes the frozen message). Tests: happy-path delta→freeze; abort discards partial + no usage; error event → notice record; auth throw → notice record; parser never sees partials.\n4. OUTPUT: frozen assistant messages + streamState transitions consumed by P1.M2.T1.S1 (streaming cursor) and P1.M1.T6.S1 (parser input).\n5. DOCS: none — internal state machine; header block from S1 covers it.",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.2/h2.16",
+                    "h1.2/h2.14/h3.9",
+                    "h1.7/h2.80"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -153,9 +215,15 @@
                   "title": "Per-chat usage tally and compact close notification",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T5.S2"],
-                  "prd_selectors": ["h1.4/h2.38", "h1.2/h2.16", "h1.7/h2.80"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/nested-llm-and-snapshot-seams.md — Usage shape is `usage.input`/`usage.output` with cost nested at `usage.cost.total` (NOT flat in/out); precedent for reading usage off a nested result: src/compaction.ts:187-191.\n2. INPUT: per-turn usage from the frozen results of P1.M1.T5.S2.\n3. LOGIC: Accumulate input/output/cost.total into the singleton's usage record per completed turn (aborted turns contribute nothing); `formatChatCloseNotice(usage)` → `chat closed · {in} in · {out} out · ${cost}` with K-humanization (e.g. 12.4K / 3.1K / $0.07). Usage NEVER enters session stats, entries, or tool results — structurally true because the engine writes nowhere else (SIDECHAT-005). Tests: accumulation math, humanized formatting exactness, abort contributes zero.\n4. OUTPUT: notice string consumed by P1.M2.T5.S1 (fired on every discard/close path).\n5. DOCS: none — string format is spec-pinned (ui-spec §Side chat); README coverage is Mode B."
+                  "dependencies": [
+                    "P1.M1.T5.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/nested-llm-and-snapshot-seams.md — Usage shape is `usage.input`/`usage.output` with cost nested at `usage.cost.total` (NOT flat in/out); precedent for reading usage off a nested result: src/compaction.ts:187-191.\n2. INPUT: per-turn usage from the frozen results of P1.M1.T5.S2.\n3. LOGIC: Accumulate input/output/cost.total into the singleton's usage record per completed turn (aborted turns contribute nothing); `formatChatCloseNotice(usage)` → `chat closed · {in} in · {out} out · ${cost}` with K-humanization (e.g. 12.4K / 3.1K / $0.07). Usage NEVER enters session stats, entries, or tool results — structurally true because the engine writes nowhere else (SIDECHAT-005). Tests: accumulation math, humanized formatting exactness, abort contributes zero.\n4. OUTPUT: notice string consumed by P1.M2.T5.S1 (fired on every discard/close path).\n5. DOCS: none — string format is spec-pinned (ui-spec §Side chat); README coverage is Mode B.",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.2/h2.16",
+                    "h1.7/h2.80"
+                  ]
                 }
               ]
             },
@@ -173,8 +241,13 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h1.4/h2.38", "h1.1/h2.8/h3.1", "h1.7/h2.80", "h1.2/h2.14/h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-004 — LAST block in a COMPLETED reply (streaming partials never parse), strict JSON, choice values must BYTE-match an option value, malformed → in-view notice + chat stays open.\n2. INPUT: frozen assistant reply text from P1.M1.T5.S2 + the question's option value set (from the same state shapes the panel renders).\n3. LOGIC: `parseAnswerBlock(replyText, optionValues)`: find ALL fenced blocks whose info string is exactly `answer`; take the LAST; strict JSON.parse of the body; `{\"value\": v}` valid iff v byte-matches (===) an option value; `{\"text\": t}` valid for write-in/text questions (non-empty); anything else (missing block, malformed JSON, unknown shape, non-matching value) → `{kind:\"none\", reason}` where reason feeds the in-view notice (P1.M2.T1.S2). Pure function — no engine state. Tests: last-block-wins with multiple blocks; byte-match strictness (case/whitespace mismatch → none); malformed JSON → none+reason; empty text → none; valid value and valid text shapes.\n4. OUTPUT: ParsedAnswer union consumed by P1.M1.T6.S2.\n5. DOCS: none — pure internal function; the protocol text itself lives in the system prompt (P1.M1.T4.S2)."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-004 — LAST block in a COMPLETED reply (streaming partials never parse), strict JSON, choice values must BYTE-match an option value, malformed → in-view notice + chat stays open.\n2. INPUT: frozen assistant reply text from P1.M1.T5.S2 + the question's option value set (from the same state shapes the panel renders).\n3. LOGIC: `parseAnswerBlock(replyText, optionValues)`: find ALL fenced blocks whose info string is exactly `answer`; take the LAST; strict JSON.parse of the body; `{\"value\": v}` valid iff v byte-matches (===) an option value; `{\"text\": t}` valid for write-in/text questions (non-empty); anything else (missing block, malformed JSON, unknown shape, non-matching value) → `{kind:\"none\", reason}` where reason feeds the in-view notice (P1.M2.T1.S2). Pure function — no engine state. Tests: last-block-wins with multiple blocks; byte-match strictness (case/whitespace mismatch → none); malformed JSON → none+reason; empty text → none; valid value and valid text shapes.\n4. OUTPUT: ParsedAnswer union consumed by P1.M1.T6.S2.\n5. DOCS: none — pure internal function; the protocol text itself lives in the system prompt (P1.M1.T4.S2).",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.1/h2.8/h3.1",
+                    "h1.7/h2.80",
+                    "h1.2/h2.14/h3.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -182,9 +255,16 @@
                   "title": "ApplyDecision contract and pendingConfirm state with autoApply bypass",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M1.T6.S1", "P1.M1.T2.S1"],
-                  "prd_selectors": ["h1.1/h2.8/h3.1", "h1.4/h2.38", "h1.7/h2.80"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Open/replace/discard — the ONLY sanctioned apply seams are acceptOptionIndex (src/panel/actions.ts:268-331) and the write-in commit path (actions.ts:384-518); the engine must never touch them directly (it is UI-free) — it produces a decision, the panel routes it.\n2. INPUT: ParsedAnswer from P1.M1.T6.S1; config.sideChatAutoApply from P1.M1.T2.S1; the singleton store P1.M1.T3.S1.\n3. LOGIC: `toApplyDecision(parsed, question)`: value → `{seam:\"acceptOptionIndex\", optionIndex}` (index of the byte-matched option); text → `{seam:\"writeIn\", text}`. Store `pendingConfirm` on the singleton when a reply yields a decision and `!config.sideChatAutoApply`; with autoApply true the decision is exposed as immediately-applyable (no confirm state). Declining (P1.M2.T6.S1) clears pendingConfirm; a new reply replaces it. Tests: decision mapping for both seams; pendingConfirm set/skipped per autoApply; decline clears.\n4. OUTPUT: ApplyDecision + pendingConfirm consumed by P1.M2.T1.S2 (confirm row rendering) and P1.M2.T6.S1 (the single routing consumer).\n5. DOCS: none — internal contract; the panel-side wiring task carries the header-block note."
+                  "dependencies": [
+                    "P1.M1.T6.S1",
+                    "P1.M1.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Open/replace/discard — the ONLY sanctioned apply seams are acceptOptionIndex (src/panel/actions.ts:268-331) and the write-in commit path (actions.ts:384-518); the engine must never touch them directly (it is UI-free) — it produces a decision, the panel routes it.\n2. INPUT: ParsedAnswer from P1.M1.T6.S1; config.sideChatAutoApply from P1.M1.T2.S1; the singleton store P1.M1.T3.S1.\n3. LOGIC: `toApplyDecision(parsed, question)`: value → `{seam:\"acceptOptionIndex\", optionIndex}` (index of the byte-matched option); text → `{seam:\"writeIn\", text}`. Store `pendingConfirm` on the singleton when a reply yields a decision and `!config.sideChatAutoApply`; with autoApply true the decision is exposed as immediately-applyable (no confirm state). Declining (P1.M2.T6.S1) clears pendingConfirm; a new reply replaces it. Tests: decision mapping for both seams; pendingConfirm set/skipped per autoApply; decline clears.\n4. OUTPUT: ApplyDecision + pendingConfirm consumed by P1.M2.T1.S2 (confirm row rendering) and P1.M2.T6.S1 (the single routing consumer).\n5. DOCS: none — internal contract; the panel-side wiring task carries the header-block note.",
+                  "prd_selectors": [
+                    "h1.1/h2.8/h3.1",
+                    "h1.4/h2.38",
+                    "h1.7/h2.80"
+                  ]
                 }
               ]
             }
@@ -210,9 +290,18 @@
                   "title": "Header, transcript, scroll window, footer, render budget",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T3.S1", "P1.M1.T5.S2"],
-                  "prd_selectors": ["h1.4/h2.38", "h1.4/h2.30", "h1.4/h2.31", "h1.2/h2.12", "h1.2/h2.14/h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Add-a-view recipe — deep-view.ts/overview.ts own a height cap (~20 rows) + scroll clamp and delegate to terminalBudget; cached-render discipline means sidechat state mutations must call panel.invalidate() (panel.ts:679-703); footer is renderFooter(snapshot, view, …) with per-view action sets (layout.ts:43-49).\n2. INPUT: singleton messages/streamState from P1.M1.T3.S1 + P1.M1.T5.S2 (streaming buffer drives the cursor); the current question (id + prompt) from panel state.\n3. LOGIC: New src/panel/chat-view.ts `buildChatContent(width, rows, chatState, question, resolvedKeys)`: one-line header `chat · q3 — {prompt, truncated}`; transcript — user lines prefixed `you ›`, assistant lines plain, streaming cursor while a reply is in flight; CHAT_VIEW_HEIGHT cap + scroll clamp (↑/↓ target it — routing in P1.M2.T3.S1); footer `enter send · /clear · esc` whose esc hint reads `abort` while streaming and `exit` when idle, and which names the binding when current ≠ bound (`e reopens the chat on q3` — generated from resolved config, never hardcoded); terminal fallbacks (<24/<12 rows, <60 cols) per the shared budget. Header doc block: SIDECHAT-001 view contract. Tests: layout exactness at default/narrow/tiny budgets, truncation, hint variants, remapped-binding footer naming.\n4. OUTPUT: render functions consumed by P1.M2.T4.S1 (the buildLines \"chat\" branch).\n5. DOCS: [Mode A] chat-view.ts header doc block stating the SIDECHAT-001 view contract it implements."
+                  "dependencies": [
+                    "P1.M1.T3.S1",
+                    "P1.M1.T5.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Add-a-view recipe — deep-view.ts/overview.ts own a height cap (~20 rows) + scroll clamp and delegate to terminalBudget; cached-render discipline means sidechat state mutations must call panel.invalidate() (panel.ts:679-703); footer is renderFooter(snapshot, view, …) with per-view action sets (layout.ts:43-49).\n2. INPUT: singleton messages/streamState from P1.M1.T3.S1 + P1.M1.T5.S2 (streaming buffer drives the cursor); the current question (id + prompt) from panel state.\n3. LOGIC: New src/panel/chat-view.ts `buildChatContent(width, rows, chatState, question, resolvedKeys)`: one-line header `chat · q3 — {prompt, truncated}`; transcript — user lines prefixed `you ›`, assistant lines plain, streaming cursor while a reply is in flight; CHAT_VIEW_HEIGHT cap + scroll clamp (↑/↓ target it — routing in P1.M2.T3.S1); footer `enter send · /clear · esc` whose esc hint reads `abort` while streaming and `exit` when idle, and which names the binding when current ≠ bound (`e reopens the chat on q3` — generated from resolved config, never hardcoded); terminal fallbacks (<24/<12 rows, <60 cols) per the shared budget. Header doc block: SIDECHAT-001 view contract. Tests: layout exactness at default/narrow/tiny budgets, truncation, hint variants, remapped-binding footer naming.\n4. OUTPUT: render functions consumed by P1.M2.T4.S1 (the buildLines \"chat\" branch).\n5. DOCS: [Mode A] chat-view.ts header doc block stating the SIDECHAT-001 view contract it implements.",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.4/h2.30",
+                    "h1.4/h2.31",
+                    "h1.2/h2.12",
+                    "h1.2/h2.14/h3.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -220,9 +309,16 @@
                   "title": "In-view notices, answer confirm row, inert notice",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M2.T1.S1", "P1.M1.T6.S1"],
-                  "prd_selectors": ["h1.4/h2.38", "h1.4/h2.41", "h1.1/h2.8/h3.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §UX details + guards-tests notes — the confirm row is footer-height, same family as the ripple confirm (src/panel/ripple-confirm.ts styling precedent); empty/edge states: no model seam → chat view opens INERT with a one-line notice, the panel never blocks.\n2. INPUT: render module from P1.M2.T1.S1; parser reasons from P1.M1.T6.S1; engine notice records from P1.M1.T5.S2; pendingConfirm from P1.M1.T6.S2; inert marker from P1.M1.T5.S1.\n3. LOGIC: Render (a) transient in-view notice rows (auth error, malformed answer block with reason, usage/close flash is a notify not a row — keep to spec: close notify goes through ctx.ui.notify per P1.M1.T5.S3 consumer), (b) the confirm row when pendingConfirm: `apply ★ sqlite? · enter = yes · esc = no` (value preview from the matched option; text preview for write-ins), (c) the inert one-line notice when the model seam is missing. All rows respect the render budget.\n4. OUTPUT: confirm-row visibility + notice rendering consumed by P1.M2.T3.S1 (enter/esc routing) and P1.M2.T6.S1 (apply).\n5. DOCS: none — visual details are spec-pinned (ui-spec §Side chat); header block covers the contract."
+                  "dependencies": [
+                    "P1.M2.T1.S1",
+                    "P1.M1.T6.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §UX details + guards-tests notes — the confirm row is footer-height, same family as the ripple confirm (src/panel/ripple-confirm.ts styling precedent); empty/edge states: no model seam → chat view opens INERT with a one-line notice, the panel never blocks.\n2. INPUT: render module from P1.M2.T1.S1; parser reasons from P1.M1.T6.S1; engine notice records from P1.M1.T5.S2; pendingConfirm from P1.M1.T6.S2; inert marker from P1.M1.T5.S1.\n3. LOGIC: Render (a) transient in-view notice rows (auth error, malformed answer block with reason, usage/close flash is a notify not a row — keep to spec: close notify goes through ctx.ui.notify per P1.M1.T5.S3 consumer), (b) the confirm row when pendingConfirm: `apply ★ sqlite? · enter = yes · esc = no` (value preview from the matched option; text preview for write-ins), (c) the inert one-line notice when the model seam is missing. All rows respect the render budget.\n4. OUTPUT: confirm-row visibility + notice rendering consumed by P1.M2.T3.S1 (enter/esc routing) and P1.M2.T6.S1 (apply).\n5. DOCS: none — visual details are spec-pinned (ui-spec §Side chat); header block covers the contract.",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.4/h2.41",
+                    "h1.1/h2.8/h3.1"
+                  ]
                 }
               ]
             },
@@ -240,8 +336,13 @@
                   "status": "Planned",
                   "story_points": 2,
                   "dependencies": [],
-                  "prd_selectors": ["h1.4/h2.32", "h1.4/h2.38", "h1.2/h2.15", "h1.6/h2.57"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Second editor — the panel builds ONE TextField in its constructor (panel.ts:615-629) via createEditorComponent (text-field.ts:88-95) from the factory captured once per openPanel (:1884); a second instance with the same factory is the sanctioned pattern; one-editor-per-panel-lifetime is load-bearing (panel.ts:611-614, BUG-011 invisible-editor note keys.ts:534-538) — focus the chat editor ONLY while view===\"chat\"; the embedded editor's history API is never invoked (panel.ts:758-759) — same for chat.\n2. INPUT: args.editorFactory + config + tui/theme/keybindings already on the panel constructor path.\n3. LOGIC: Construct a second TextField in the InterrogationPanel constructor (same createEditorComponent path); add a distinct chat-editor focus state beside PanelFocus (panel.ts:111) without disturbing the existing three duties; wire input: `enter` sends (consumed by P1.M2.T3.S1's interception), `shift+enter`/`ctrl+j` newline (stock editor behavior — verify forwarding); NO draft/buffer scoping (messages are sent, not drafted — nothing enters the DraftStore); up/down arrows forward to the chat editor while it holds focus (ESC-002-family discipline); blur handling never suspends the panel. Tests: second instance construction from a fake factory, focus flag exclusive to view===\"chat\", enter does not commit a draft, up/down forwarded to the editor not the transcript while focused.\n4. OUTPUT: chat input component + focus state consumed by P1.M2.T3.S1 (key routing) and P1.M2.T4.S1 (view render embeds it).\n5. DOCS: [Mode A] panel.ts focus-model doc note (fourth focus target: chat input; SIDECHAT contract reference)."
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Second editor — the panel builds ONE TextField in its constructor (panel.ts:615-629) via createEditorComponent (text-field.ts:88-95) from the factory captured once per openPanel (:1884); a second instance with the same factory is the sanctioned pattern; one-editor-per-panel-lifetime is load-bearing (panel.ts:611-614, BUG-011 invisible-editor note keys.ts:534-538) — focus the chat editor ONLY while view===\"chat\"; the embedded editor's history API is never invoked (panel.ts:758-759) — same for chat.\n2. INPUT: args.editorFactory + config + tui/theme/keybindings already on the panel constructor path.\n3. LOGIC: Construct a second TextField in the InterrogationPanel constructor (same createEditorComponent path); add a distinct chat-editor focus state beside PanelFocus (panel.ts:111) without disturbing the existing three duties; wire input: `enter` sends (consumed by P1.M2.T3.S1's interception), `shift+enter`/`ctrl+j` newline (stock editor behavior — verify forwarding); NO draft/buffer scoping (messages are sent, not drafted — nothing enters the DraftStore); up/down arrows forward to the chat editor while it holds focus (ESC-002-family discipline); blur handling never suspends the panel. Tests: second instance construction from a fake factory, focus flag exclusive to view===\"chat\", enter does not commit a draft, up/down forwarded to the editor not the transcript while focused.\n4. OUTPUT: chat input component + focus state consumed by P1.M2.T3.S1 (key routing) and P1.M2.T4.S1 (view render embeds it).\n5. DOCS: [Mode A] panel.ts focus-model doc note (fourth focus target: chat input; SIDECHAT contract reference).",
+                  "prd_selectors": [
+                    "h1.4/h2.32",
+                    "h1.4/h2.38",
+                    "h1.2/h2.15",
+                    "h1.6/h2.57"
+                  ]
                 }
               ]
             },
@@ -258,9 +359,19 @@
                   "title": "Routing branches, enter interception, and the streaming-abort esc rung",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M2.T1.S2", "P1.M2.T2.S1", "P1.M1.T3.S2", "P1.M1.T5.S2"],
-                  "prd_selectors": ["h1.4/h2.36", "h1.4/h2.38", "h1.1/h2.8/h3.1", "h1.2/h2.14/h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md — fixed keys are view-aware branches (keys.ts:433-505), esc ladder escapeDescend :276-283 has NO streaming-abort precedent (the chat rung is new); ENTER IS INTERCEPTED AT PANEL LEVEL in handleInput BEFORE the router (WRITEIN-001 machinery, panel.ts ~:725-830) — the chat-input enter branch goes there; ctrl+c and CONFIRM-MODE ordering must be revisited for the chat view.\n2. INPUT: chat view render (P1.M2.T1.S2), chat editor focus (P1.M2.T2.S1), classifyChatCommand (P1.M1.T3.S2), engine sendTurn/abort + streamState (P1.M1.T5.S2).\n3. LOGIC: (a) keys.ts fixed ↑/↓: add a `panel.view === \"chat\"` branch routing to transcript scroll (chatScroll); (b) panel.handleInput: while the chat editor holds focus, `enter` → classifyChatCommand first (/clear //new → resetChat; else sendTurn(text), clear input); while pendingConfirm shows and focus is not in the editor, `enter` → apply handler (P1.M2.T6.S1), `esc` → decline; (c) esc ladder new rung in escapeDescend: chat view + streaming → abort (partial discarded by the engine); chat view + idle → exit the view (chat retained, setView back to the prior view without touching the singleton); underlying ladder unchanged after exit; (d) bare `e` stays TIER-2: forwards (types) while ANY editor holds focus including the chat editor (keys.test.ts:751 pin carries); (e) verify ctrl+c close flow and the ripple CONFIRM-MODE modal coexist with the chat view. Tests: scroll routing per view; enter classification order; esc abort-then-exit sequencing; e forwarding in chat-editor focus; ctrl+c from chat view.\n4. OUTPUT: complete chat-view input contract; the apply branch targets P1.M2.T6.S1's handler (stubbed no-op until then — keep this subtask's tests on routing, not apply semantics).\n5. DOCS: [Mode A] keys.ts module docs: chat dispatch + two-tier note + the esc-ladder chat rung."
+                  "dependencies": [
+                    "P1.M2.T1.S2",
+                    "P1.M2.T2.S1",
+                    "P1.M1.T3.S2",
+                    "P1.M1.T5.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md — fixed keys are view-aware branches (keys.ts:433-505), esc ladder escapeDescend :276-283 has NO streaming-abort precedent (the chat rung is new); ENTER IS INTERCEPTED AT PANEL LEVEL in handleInput BEFORE the router (WRITEIN-001 machinery, panel.ts ~:725-830) — the chat-input enter branch goes there; ctrl+c and CONFIRM-MODE ordering must be revisited for the chat view.\n2. INPUT: chat view render (P1.M2.T1.S2), chat editor focus (P1.M2.T2.S1), classifyChatCommand (P1.M1.T3.S2), engine sendTurn/abort + streamState (P1.M1.T5.S2).\n3. LOGIC: (a) keys.ts fixed ↑/↓: add a `panel.view === \"chat\"` branch routing to transcript scroll (chatScroll); (b) panel.handleInput: while the chat editor holds focus, `enter` → classifyChatCommand first (/clear //new → resetChat; else sendTurn(text), clear input); while pendingConfirm shows and focus is not in the editor, `enter` → apply handler (P1.M2.T6.S1), `esc` → decline; (c) esc ladder new rung in escapeDescend: chat view + streaming → abort (partial discarded by the engine); chat view + idle → exit the view (chat retained, setView back to the prior view without touching the singleton); underlying ladder unchanged after exit; (d) bare `e` stays TIER-2: forwards (types) while ANY editor holds focus including the chat editor (keys.test.ts:751 pin carries); (e) verify ctrl+c close flow and the ripple CONFIRM-MODE modal coexist with the chat view. Tests: scroll routing per view; enter classification order; esc abort-then-exit sequencing; e forwarding in chat-editor focus; ctrl+c from chat view.\n4. OUTPUT: complete chat-view input contract; the apply branch targets P1.M2.T6.S1's handler (stubbed no-op until then — keep this subtask's tests on routing, not apply semantics).\n5. DOCS: [Mode A] keys.ts module docs: chat dispatch + two-tier note + the esc-ladder chat rung.",
+                  "prd_selectors": [
+                    "h1.4/h2.36",
+                    "h1.4/h2.38",
+                    "h1.1/h2.8/h3.1",
+                    "h1.2/h2.14/h3.9"
+                  ]
                 }
               ]
             },
@@ -277,9 +388,22 @@
                   "title": "PanelView union, setView seeding, render branch, footer set, and the onChat open-or-replace action",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T3.S1", "P1.M1.T4.S1", "P1.M1.T4.S2", "P1.M1.T5.S1", "P1.M2.T1.S1"],
-                  "prd_selectors": ["h1.4/h2.30", "h1.4/h2.38", "h1.1/h2.8/h3.1", "h1.2/h2.14/h3.9", "h1.2/h2.12"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Add-a-view recipe — union at panel.ts:108, setView seeding :1051-1083, buildLines dispatch :1443+, footer action sets layout.ts:43-49 + ACTION_WORDS; the host refinement site :652-661 currently calls discussInChat through the renamed onChat seam.\n2. INPUT: onChat seam (P1.M1.T1.S1); engine openOrReplace + builders (P1.M1.T3.S1 + P1.M1.T4.S1 + P1.M1.T4.S2 + P1.M1.T5.S1); buildChatContent (P1.M2.T1.S1); the chat input component (P1.M2.T2.S1) for view embedding.\n3. LOGIC: Add \"chat\" to PanelView; add chatScroll state + a setView \"chat\" seeding branch (scroll to latest, once-only via the unchanged-view no-op); add the buildLines \"chat\" branch (shared header → buildChatContent → view-aware footer with the new chat action set + ACTION_WORDS entries); implement the actions.onChat default + host wiring: singleton lives on the CURRENT question → setView(\"chat\"); otherwise engine openOrReplace (snapshot taken NOW, once) then setView. REPLACE the interim discussInChat call in the panel.ts host refinement — no suspend, no editor preload, main editor untouched (AC-17.1). `e` reaches onChat from any view at non-editor focus via the existing dispatch arm.\n4. OUTPUT: the complete open path (AC-17.1/17.3 behavior); consumed by P1.M2.T5.S1/S2 and the AC suites.\n5. DOCS: [Mode A] panel.ts header doc block listing the SIDECHAT-00x contracts the panel now implements."
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T3.S1",
+                    "P1.M1.T4.S1",
+                    "P1.M1.T4.S2",
+                    "P1.M1.T5.S1",
+                    "P1.M2.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Add-a-view recipe — union at panel.ts:108, setView seeding :1051-1083, buildLines dispatch :1443+, footer action sets layout.ts:43-49 + ACTION_WORDS; the host refinement site :652-661 currently calls discussInChat through the renamed onChat seam.\n2. INPUT: onChat seam (P1.M1.T1.S1); engine openOrReplace + builders (P1.M1.T3.S1 + P1.M1.T4.S1 + P1.M1.T4.S2 + P1.M1.T5.S1); buildChatContent (P1.M2.T1.S1); the chat input component (P1.M2.T2.S1) for view embedding.\n3. LOGIC: Add \"chat\" to PanelView; add chatScroll state + a setView \"chat\" seeding branch (scroll to latest, once-only via the unchanged-view no-op); add the buildLines \"chat\" branch (shared header → buildChatContent → view-aware footer with the new chat action set + ACTION_WORDS entries); implement the actions.onChat default + host wiring: singleton lives on the CURRENT question → setView(\"chat\"); otherwise engine openOrReplace (snapshot taken NOW, once) then setView. REPLACE the interim discussInChat call in the panel.ts host refinement — no suspend, no editor preload, main editor untouched (AC-17.1). `e` reaches onChat from any view at non-editor focus via the existing dispatch arm.\n4. OUTPUT: the complete open path (AC-17.1/17.3 behavior); consumed by P1.M2.T5.S1/S2 and the AC suites.\n5. DOCS: [Mode A] panel.ts header doc block listing the SIDECHAT-00x contracts the panel now implements.",
+                  "prd_selectors": [
+                    "h1.4/h2.30",
+                    "h1.4/h2.38",
+                    "h1.1/h2.8/h3.1",
+                    "h1.2/h2.14/h3.9",
+                    "h1.2/h2.12"
+                  ]
                 }
               ]
             },
@@ -296,9 +420,18 @@
                   "title": "Discard-on-answer/close hooks at the state mutation seams (mid-stream abort)",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M2.T4.S1", "P1.M1.T5.S2"],
-                  "prd_selectors": ["h1.4/h2.38", "h1.1/h2.8/h3.1", "h1.5/h2.51", "h1.4/h2.41", "h1.2/h2.14/h3.9"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Open/replace/discard — agent-side upserts never pass through keys.ts, so hook the STATE mutation seams (applyAnswer / evaluateDependsOn / the questions-upserted host subscription handleUpserted at panel.ts:1880-1883) or the universal state.on(\"changed\") bus (:669-670) — the cheapest single point that sees every path (option accept, write-in, side-chat apply, moot/withdraw/upsert close).\n2. INPUT: open path P1.M2.T4.S1; engine abort + streamState (P1.M1.T5.S2); close-notice formatting (P1.M1.T5.S3).\n3. LOGIC: After every state mutation, if the singleton's questionId is answered/closed/moot/withdrawn (any terminal-for-chat condition): streaming → abortController.abort() FIRST, then discard(); close the chat view if open, landing where the accept machinery's advance already points (do not invent new navigation); fire the compact usage notify (chat closed · …). Guard against double-notify on repeated mutations. Tests: discard via option accept, via write-in, via moot (dependsOn flip), via upsert close, via side-chat apply; mid-stream close aborts then discards; view closes with correct landing; notify fires exactly once.\n4. OUTPUT: the discard guarantee consumed by AC-17.5 and P1.M2.T6.S1 (apply relies on it).\n5. DOCS: none — panel.ts header block (P1.M2.T4.S1) already declares the contract; no new user-facing surface."
+                  "dependencies": [
+                    "P1.M2.T4.S1",
+                    "P1.M1.T5.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Open/replace/discard — agent-side upserts never pass through keys.ts, so hook the STATE mutation seams (applyAnswer / evaluateDependsOn / the questions-upserted host subscription handleUpserted at panel.ts:1880-1883) or the universal state.on(\"changed\") bus (:669-670) — the cheapest single point that sees every path (option accept, write-in, side-chat apply, moot/withdraw/upsert close).\n2. INPUT: open path P1.M2.T4.S1; engine abort + streamState (P1.M1.T5.S2); close-notice formatting (P1.M1.T5.S3).\n3. LOGIC: After every state mutation, if the singleton's questionId is answered/closed/moot/withdrawn (any terminal-for-chat condition): streaming → abortController.abort() FIRST, then discard(); close the chat view if open, landing where the accept machinery's advance already points (do not invent new navigation); fire the compact usage notify (chat closed · …). Guard against double-notify on repeated mutations. Tests: discard via option accept, via write-in, via moot (dependsOn flip), via upsert close, via side-chat apply; mid-stream close aborts then discards; view closes with correct landing; notify fires exactly once.\n4. OUTPUT: the discard guarantee consumed by AC-17.5 and P1.M2.T6.S1 (apply relies on it).\n5. DOCS: none — panel.ts header block (P1.M2.T4.S1) already declares the contract; no new user-facing surface.",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.1/h2.8/h3.1",
+                    "h1.5/h2.51",
+                    "h1.4/h2.41",
+                    "h1.2/h2.14/h3.9"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -306,9 +439,17 @@
                   "title": "Suspend/resume survival and non-TUI / no-model-seam inertness",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M2.T4.S1"],
-                  "prd_selectors": ["h1.4/h2.37", "h1.4/h2.38", "h1.5/h2.51", "h1.4/h2.41", "h1.1/h2.8/h3.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Suspend/resume + non-TUI — suspend keeps the module-scoped host record (panel.ts ~:1830-1850) and resumeOpenPanel rebuilds a FRESH panel from lastOpts; the singleton survives because it is module state in sidechat.ts; non-TUI guard is panel.ts:1861 (`pi.mode !== \"tui\"` → return false) — the panel never mounts, so `e` is inert by construction.\n2. INPUT: open path P1.M2.T4.S1 (view rebind mechanics).\n3. LOGIC: Verify/wire resume: a suspended panel with a live chat resumes via /interrogate or {reopen:true} and the fresh panel's chat view rebinds to the surviving singleton (messages intact; the chat editor's unsent buffer is NOT preserved — messages are sent, not drafted); pi restart loses the chat with ZERO session-file residue — assert no entries, no details fields, no usage records, no transcript renderer involvement anywhere in the engine (grep-verify the engine writes nowhere). Non-TUI: `e` inert (guard untouched); no-model-seam (RPC surfaces / test fakes / !ctx.model): chat view opens INERT with the one-line notice (P1.M2.T1.S2) — the panel never blocks. Tests: suspend→resume chat intact; fresh-panel rebind; restart simulation leaves no persistence artifacts; inert view without model.\n4. OUTPUT: AC-17.6 behavior.\n5. DOCS: none — README limitations entry is Mode B (P1.M3.T3.S1)."
+                  "dependencies": [
+                    "P1.M2.T4.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Suspend/resume + non-TUI — suspend keeps the module-scoped host record (panel.ts ~:1830-1850) and resumeOpenPanel rebuilds a FRESH panel from lastOpts; the singleton survives because it is module state in sidechat.ts; non-TUI guard is panel.ts:1861 (`pi.mode !== \"tui\"` → return false) — the panel never mounts, so `e` is inert by construction.\n2. INPUT: open path P1.M2.T4.S1 (view rebind mechanics).\n3. LOGIC: Verify/wire resume: a suspended panel with a live chat resumes via /interrogate or {reopen:true} and the fresh panel's chat view rebinds to the surviving singleton (messages intact; the chat editor's unsent buffer is NOT preserved — messages are sent, not drafted); pi restart loses the chat with ZERO session-file residue — assert no entries, no details fields, no usage records, no transcript renderer involvement anywhere in the engine (grep-verify the engine writes nowhere). Non-TUI: `e` inert (guard untouched); no-model-seam (RPC surfaces / test fakes / !ctx.model): chat view opens INERT with the one-line notice (P1.M2.T1.S2) — the panel never blocks. Tests: suspend→resume chat intact; fresh-panel rebind; restart simulation leaves no persistence artifacts; inert view without model.\n4. OUTPUT: AC-17.6 behavior.\n5. DOCS: none — README limitations entry is Mode B (P1.M3.T3.S1).",
+                  "prd_selectors": [
+                    "h1.4/h2.37",
+                    "h1.4/h2.38",
+                    "h1.5/h2.51",
+                    "h1.4/h2.41",
+                    "h1.1/h2.8/h3.1"
+                  ]
                 }
               ]
             },
@@ -325,9 +466,19 @@
                   "title": "Confirm-row apply/decline and autoApply bypass routed via acceptOptionIndex / write-in commit",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M2.T1.S2", "P1.M2.T3.S1", "P1.M1.T6.S2", "P1.M2.T5.S1"],
-                  "prd_selectors": ["h1.1/h2.8/h3.1", "h1.4/h2.38", "h1.7/h2.80", "h1.0/h2.0"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Open/replace/discard — acceptOptionIndex is src/panel/actions.ts:268-331 (chain applyAnswer :315 → evaluateDependsOn :319 → advanceAfterAccept :320 → stageSupersededWriteIn :326 → maybeAutoSubmit :327; ripple veto panel.confirmRippleEdit :313); write-in commit region actions.ts:384-518 (same post-commit ordering :508-518). Routing VERBATIM through these seams makes provenance indistinguishable BY CONSTRUCTION.\n2. INPUT: ApplyDecision + pendingConfirm (P1.M1.T6.S2); confirm-row rendering + enter/esc routing (P1.M2.T1.S2, P1.M2.T3.S1); discard machinery (P1.M2.T5.S1).\n3. LOGIC: `applyChatAnswer(panel, deps)`: seam \"acceptOptionIndex\" → call the existing acceptOptionIndex with the decision's optionIndex (same arguments a keyboard accept produces); seam \"writeIn\" → invoke the existing write-in commit path with the decision's text. NO new answer code path, no wrapper that could add markers: submission deltas, diff cards, completion record, and tool results stay byte-identical to user-made answers (assert in tests by comparing against a user-selection fixture). `esc` on the confirm row declines → clear pendingConfirm, chat stays open. `sideChatAutoApply: true` skips the confirm (apply on parse completion). The apply answers the question → P1.M2.T5.S1's hook discards the chat + fires usage notify. Tests: byte-identical delta/card records vs user selection; ripple confirm still raises on invalidating edits; ANSWER-PIN same-value no-op holds; advance + auto-submit flow; decline keeps chat; autoApply applies without confirm.\n4. OUTPUT: AC-17.4 behavior; the last engine/view seam — the feature is functionally complete after this subtask.\n5. DOCS: [Mode A] panel.ts/sidechat.ts header blocks note the SIDECHAT-004 indistinguishable-provenance contract at the apply site."
+                  "dependencies": [
+                    "P1.M2.T1.S2",
+                    "P1.M2.T3.S1",
+                    "P1.M1.T6.S2",
+                    "P1.M2.T5.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Open/replace/discard — acceptOptionIndex is src/panel/actions.ts:268-331 (chain applyAnswer :315 → evaluateDependsOn :319 → advanceAfterAccept :320 → stageSupersededWriteIn :326 → maybeAutoSubmit :327; ripple veto panel.confirmRippleEdit :313); write-in commit region actions.ts:384-518 (same post-commit ordering :508-518). Routing VERBATIM through these seams makes provenance indistinguishable BY CONSTRUCTION.\n2. INPUT: ApplyDecision + pendingConfirm (P1.M1.T6.S2); confirm-row rendering + enter/esc routing (P1.M2.T1.S2, P1.M2.T3.S1); discard machinery (P1.M2.T5.S1).\n3. LOGIC: `applyChatAnswer(panel, deps)`: seam \"acceptOptionIndex\" → call the existing acceptOptionIndex with the decision's optionIndex (same arguments a keyboard accept produces); seam \"writeIn\" → invoke the existing write-in commit path with the decision's text. NO new answer code path, no wrapper that could add markers: submission deltas, diff cards, completion record, and tool results stay byte-identical to user-made answers (assert in tests by comparing against a user-selection fixture). `esc` on the confirm row declines → clear pendingConfirm, chat stays open. `sideChatAutoApply: true` skips the confirm (apply on parse completion). The apply answers the question → P1.M2.T5.S1's hook discards the chat + fires usage notify. Tests: byte-identical delta/card records vs user selection; ripple confirm still raises on invalidating edits; ANSWER-PIN same-value no-op holds; advance + auto-submit flow; decline keeps chat; autoApply applies without confirm.\n4. OUTPUT: AC-17.4 behavior; the last engine/view seam — the feature is functionally complete after this subtask.\n5. DOCS: [Mode A] panel.ts/sidechat.ts header blocks note the SIDECHAT-004 indistinguishable-provenance contract at the apply site.",
+                  "prd_selectors": [
+                    "h1.1/h2.8/h3.1",
+                    "h1.4/h2.38",
+                    "h1.7/h2.80",
+                    "h1.0/h2.0"
+                  ]
                 }
               ]
             },
@@ -344,9 +495,16 @@
                   "title": "Delete discuss.ts + discuss.test.ts + host wiring; sweep residual mentions",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M2.T4.S1"],
-                  "prd_selectors": ["h1.1/h2.8/h3.1", "h1.2/h2.14/h3.9", "h1.7/h2.80", "h1.2/h2.12"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md §Discuss deletion inventory — DIES: src/panel/discuss.ts (whole file), src/panel/discuss.test.ts (583 lines — suite verdicts table there), panel.ts:74 import + the interim discussInChat call in the onChat refinement. STAYS: the PiUISurface.setEditorText declaration (panel.ts:229 — STILL CONSUMED by src/panel/editor-preservation.ts:99) and its non-discuss test fakes (tree-nav-repro:76, ac-scripted:977, ac-panel:258, editor-preservation.test:179/312/347/387); the esc break-out flow (FR-14/FR-16) untouched.\n2. INPUT: the new open path is live (P1.M2.T4.S1) — nothing routes to discussInChat anymore.\n3. LOGIC: Delete both discuss files; remove the import + the discussInChat call remnants in panel.ts; reword the PiUISurface JSDoc (panel.ts:224-225: editor-preservation is the sanctioned writer now) and the discuss-era rationale comments (editor-preservation.ts:32, suspend.ts:22, panel.ts:326/:941, editor-preservation.test.ts:282-284); sweep every remaining src mention per the inventory. The discuss.test.ts R4 write-through coverage survives via editor-preservation.test.ts — add the successor pin: opening the chat stages NO drafts and never double-stages after a simulated resume. Full suite + typecheck green after deletion.\n4. OUTPUT: `discuss` appears in src/ ONLY at the coerceKeys alias site (P1.M1.T1.S2) — the final grep verification is P1.M3.T3.S2's job; here: src sweep clean.\n5. DOCS: [Mode A] the reworded comments ride with the deletion; README discuss-row removal is Mode B (P1.M3.T3)."
+                  "dependencies": [
+                    "P1.M2.T4.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md §Discuss deletion inventory — DIES: src/panel/discuss.ts (whole file), src/panel/discuss.test.ts (583 lines — suite verdicts table there), panel.ts:74 import + the interim discussInChat call in the onChat refinement. STAYS: the PiUISurface.setEditorText declaration (panel.ts:229 — STILL CONSUMED by src/panel/editor-preservation.ts:99) and its non-discuss test fakes (tree-nav-repro:76, ac-scripted:977, ac-panel:258, editor-preservation.test:179/312/347/387); the esc break-out flow (FR-14/FR-16) untouched.\n2. INPUT: the new open path is live (P1.M2.T4.S1) — nothing routes to discussInChat anymore.\n3. LOGIC: Delete both discuss files; remove the import + the discussInChat call remnants in panel.ts; reword the PiUISurface JSDoc (panel.ts:224-225: editor-preservation is the sanctioned writer now) and the discuss-era rationale comments (editor-preservation.ts:32, suspend.ts:22, panel.ts:326/:941, editor-preservation.test.ts:282-284); sweep every remaining src mention per the inventory. The discuss.test.ts R4 write-through coverage survives via editor-preservation.test.ts — add the successor pin: opening the chat stages NO drafts and never double-stages after a simulated resume. Full suite + typecheck green after deletion.\n4. OUTPUT: `discuss` appears in src/ ONLY at the coerceKeys alias site (P1.M1.T1.S2) — the final grep verification is P1.M3.T3.S2's job; here: src sweep clean.\n5. DOCS: [Mode A] the reworded comments ride with the deletion; README discuss-row removal is Mode B (P1.M3.T3).",
+                  "prd_selectors": [
+                    "h1.1/h2.8/h3.1",
+                    "h1.2/h2.14/h3.9",
+                    "h1.7/h2.80",
+                    "h1.2/h2.12"
+                  ]
                 }
               ]
             }
@@ -372,9 +530,16 @@
                   "title": "Clone the scanner pattern with the banned-API list over the side-chat module set",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M2.T6.S1"],
-                  "prd_selectors": ["h1.2/h2.16", "h1.6/h2.56", "h1.6/h2.54", "h1.7/h2.80"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md §Cache-isolation guard clone recipe — src/no-hardcoded-keys.test.ts anatomy: stripComments frame-stack scanner (:45-137), targeted file set (NOT repo-wide), per-name regexes with file:line messages, self-tests (:193-241: planted-literal-fails, comment-only-passes, interpolation pinning). Ban list confirmed against the real ExtensionAPI surface: sendMessage, sendUserMessage, setActiveTools, registerTool, setModel (identifier references catch both pi.* and ctx-borne uses).\n2. INPUT: final side-chat module set from P1.M2.T6.S1 — src/panel/sidechat.ts + src/panel/chat-view.ts plus any non-test helper modules the side-chat cluster grew (enumerate at implementation time; .test.ts files excluded).\n3. LOGIC: New test file (e.g. src/panel/sidechat-cache-isolation.test.ts): reuse/copy stripComments (string-aware comment stripping — comments and URLs must not trip it); TARGETED file set = the side-chat modules; scan comment-stripped source for the five banned identifiers; fail with file:line per hit; no allowlist carve-out expected (if one becomes necessary, follow the blankDefaultConfigBlock shape with a documented reason). Self-tests: a planted `sendMessage` literal in a fixture fails; a comment-only mention passes.\n4. OUTPUT: SIDECHAT-005 enforced statically — the binding architecture.md contract has a guard.\n5. DOCS: none — test-only; the contract text lives in spec (authority) and the module header blocks (Mode A, done)."
+                  "dependencies": [
+                    "P1.M2.T6.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md §Cache-isolation guard clone recipe — src/no-hardcoded-keys.test.ts anatomy: stripComments frame-stack scanner (:45-137), targeted file set (NOT repo-wide), per-name regexes with file:line messages, self-tests (:193-241: planted-literal-fails, comment-only-passes, interpolation pinning). Ban list confirmed against the real ExtensionAPI surface: sendMessage, sendUserMessage, setActiveTools, registerTool, setModel (identifier references catch both pi.* and ctx-borne uses).\n2. INPUT: final side-chat module set from P1.M2.T6.S1 — src/panel/sidechat.ts + src/panel/chat-view.ts plus any non-test helper modules the side-chat cluster grew (enumerate at implementation time; .test.ts files excluded).\n3. LOGIC: New test file (e.g. src/panel/sidechat-cache-isolation.test.ts): reuse/copy stripComments (string-aware comment stripping — comments and URLs must not trip it); TARGETED file set = the side-chat modules; scan comment-stripped source for the five banned identifiers; fail with file:line per hit; no allowlist carve-out expected (if one becomes necessary, follow the blankDefaultConfigBlock shape with a documented reason). Self-tests: a planted `sendMessage` literal in a fixture fails; a comment-only mention passes.\n4. OUTPUT: SIDECHAT-005 enforced statically — the binding architecture.md contract has a guard.\n5. DOCS: none — test-only; the contract text lives in spec (authority) and the module header blocks (Mode A, done).",
+                  "prd_selectors": [
+                    "h1.2/h2.16",
+                    "h1.6/h2.56",
+                    "h1.6/h2.54",
+                    "h1.7/h2.80"
+                  ]
                 }
               ]
             },
@@ -391,9 +556,19 @@
                   "title": "Scripted AC-17 scenario tests",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M2.T5.S1", "P1.M2.T5.S2", "P1.M2.T6.S1", "P1.M2.T7.S1"],
-                  "prd_selectors": ["h1.1/h2.10", "h1.6/h2.56", "h1.4/h2.38", "h1.1/h2.8/h3.1"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md §Suite gates — AUTOMATION-POLICY (plan/001): no live TUI sessions in automation; ACs are proven by scripted vitest tests over the same code paths (panel fixtures + fake pi surfaces per ac-panel.test.ts precedent); interactive-only checks defer to the human runbook.\n2. INPUT: the complete feature from P1.M2 (open path, discard hooks, apply seams, discuss deletion).\n3. LOGIC: Scripted coverage mapping AC-17 item-for-item: (1) `e` on q3 opens the chat view with NO suspend (host never suspends; main editor untouched); (2) a two-turn exchange streams in-view (fake model port emitting deltas) and `/clear` resets fresh on the current question; (3) `e` on q5 → the q3 chat is gone (singleton replaced wholesale); (4) converged ```answer block → confirm row → enter → identical delta/card BYTES vs a user-selection fixture, advance + auto-submit flow, chat vanishes; sideChatAutoApply: true skips the confirm; (5) answering q7 via the panel while its chat is open → chat gone; (6) esc-suspend + /interrogate → chat returns; restart simulation → no chat and NO session-file residue (no entries, no usage records, transcript shows nothing); (8-part) malformed ```answer JSON → in-view notice + chat stays open; esc while streaming aborts; `/usr/bin/env` types as a message (never a command). Plus the discuss successor pins from P1.M2.T7.S1 if not already landed there.\n4. OUTPUT: AC-17 evidence consumed by validation; each test cites the AC item it proves.\n5. DOCS: none — test code only."
+                  "dependencies": [
+                    "P1.M2.T5.S1",
+                    "P1.M2.T5.S2",
+                    "P1.M2.T6.S1",
+                    "P1.M2.T7.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md §Suite gates — AUTOMATION-POLICY (plan/001): no live TUI sessions in automation; ACs are proven by scripted vitest tests over the same code paths (panel fixtures + fake pi surfaces per ac-panel.test.ts precedent); interactive-only checks defer to the human runbook.\n2. INPUT: the complete feature from P1.M2 (open path, discard hooks, apply seams, discuss deletion).\n3. LOGIC: Scripted coverage mapping AC-17 item-for-item: (1) `e` on q3 opens the chat view with NO suspend (host never suspends; main editor untouched); (2) a two-turn exchange streams in-view (fake model port emitting deltas) and `/clear` resets fresh on the current question; (3) `e` on q5 → the q3 chat is gone (singleton replaced wholesale); (4) converged ```answer block → confirm row → enter → identical delta/card BYTES vs a user-selection fixture, advance + auto-submit flow, chat vanishes; sideChatAutoApply: true skips the confirm; (5) answering q7 via the panel while its chat is open → chat gone; (6) esc-suspend + /interrogate → chat returns; restart simulation → no chat and NO session-file residue (no entries, no usage records, transcript shows nothing); (8-part) malformed ```answer JSON → in-view notice + chat stays open; esc while streaming aborts; `/usr/bin/env` types as a message (never a command). Plus the discuss successor pins from P1.M2.T7.S1 if not already landed there.\n4. OUTPUT: AC-17 evidence consumed by validation; each test cites the AC item it proves.\n5. DOCS: none — test code only.",
+                  "prd_selectors": [
+                    "h1.1/h2.10",
+                    "h1.6/h2.56",
+                    "h1.4/h2.38",
+                    "h1.1/h2.8/h3.1"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -401,9 +576,17 @@
                   "title": "Full gates: suite, typecheck, lint, keymap-conflict re-verification",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M3.T1.S1", "P1.M3.T2.S1"],
-                  "prd_selectors": ["h1.6/h2.56", "h1.6/h2.54", "h1.4/h2.36", "h1.1/h2.10"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md — scripts/verify-keymap-conflicts.sh with `e` unchanged passes untouched (bare panel-owned key, no AVOIDED entry, no live claim); gates are npm test (vitest), typecheck, eslint (eslint.config.js).\n2. INPUT: guard from P1.M3.T1.S1 + AC suite from P1.M3.T2.S1 (and everything they depend on).\n3. LOGIC: Run and fix until green: full vitest suite (including the renamed keymap suites and keymap-guard exhaustiveness), typecheck, lint; re-run scripts/verify-keymap-conflicts.sh and record the result (expected: `e` unchanged, no new conflicts) — the recorded run feeds the README refresh (P1.M3.T3.S1).\n4. OUTPUT: green gates + the conflict-run record (date, result, expected-unchanged note) for consumption by P1.M3.T3.S1.\n5. DOCS: none — the README record is written by the Mode B task that consumes this output."
+                  "dependencies": [
+                    "P1.M3.T1.S1",
+                    "P1.M3.T2.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md — scripts/verify-keymap-conflicts.sh with `e` unchanged passes untouched (bare panel-owned key, no AVOIDED entry, no live claim); gates are npm test (vitest), typecheck, eslint (eslint.config.js).\n2. INPUT: guard from P1.M3.T1.S1 + AC suite from P1.M3.T2.S1 (and everything they depend on).\n3. LOGIC: Run and fix until green: full vitest suite (including the renamed keymap suites and keymap-guard exhaustiveness), typecheck, lint; re-run scripts/verify-keymap-conflicts.sh and record the result (expected: `e` unchanged, no new conflicts) — the recorded run feeds the README refresh (P1.M3.T3.S1).\n4. OUTPUT: green gates + the conflict-run record (date, result, expected-unchanged note) for consumption by P1.M3.T3.S1.\n5. DOCS: none — the README record is written by the Mode B task that consumes this output.",
+                  "prd_selectors": [
+                    "h1.6/h2.56",
+                    "h1.6/h2.54",
+                    "h1.4/h2.36",
+                    "h1.1/h2.10"
+                  ]
                 }
               ]
             },
@@ -420,9 +603,40 @@
                   "title": "README: Side chat section, keymap row, sample settings, limitations, conflict record",
                   "status": "Planned",
                   "story_points": 2,
-                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M1.T3.S1", "P1.M1.T3.S2", "P1.M1.T4.S1", "P1.M1.T4.S2", "P1.M1.T5.S1", "P1.M1.T5.S2", "P1.M1.T5.S3", "P1.M1.T6.S1", "P1.M1.T6.S2", "P1.M2.T1.S1", "P1.M2.T1.S2", "P1.M2.T2.S1", "P1.M2.T3.S1", "P1.M2.T4.S1", "P1.M2.T5.S1", "P1.M2.T5.S2", "P1.M2.T6.S1", "P1.M2.T7.S1", "P1.M3.T1.S1", "P1.M3.T2.S1", "P1.M3.T2.S2"],
-                  "prd_selectors": ["h1.4/h2.38", "h1.4/h2.36", "h1.6/h2.58", "h1.6/h2.54", "h1.4/h2.41"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md §README anchors — line-verified anchors at HEAD: usage paragraph :39, sample settings ~:148 (block 132-150), keymap table row :189 (table 178-192), R4 write-through sentence :237, ## Limitations :300, ### Keymap conflict re-verification :341/:364, ## Project structure :417 (structure handled in S2).\n2. INPUT: every implementing subtask above (this task is their documentation summary); the conflict-run record from P1.M3.T2.S2.\n3. LOGIC: README.md updates: (a) rewrite the :39 usage sentence — `e` opens the in-panel side chat; (b) NEW \"Side chat\" section: entry key (`keys.chat`, renamed from `keys.discuss` with the silent alias), singleton/replacement semantics, `/clear` and `/new`, the answer-block confirm row + `sideChatAutoApply`, usage-on-close notification, ephemerality (lost on restart, never persisted); (c) keymap table row → Side chat / `keys.chat` / `e`; (d) sample settings JSON: `\"chat\": \"e\"` + `sideChatModel` + `sideChatAutoApply` (mirror spec implementation-plan.md §Config reference JSONC); (e) ## Limitations += side-chat ephemerality + mid-chat snapshot staleness (accepted v1) + TUI-only; (f) reword the :237 write-through sentence for the new `e` exit gesture; (g) refresh the keymap-conflict re-verification record with the P1.M3.T2.S2 run (label `e (chat)`, date, expected-unchanged result). The name `discuss` must NOT appear anywhere in README.\n4. OUTPUT: a README that fully reflects the changeset; consumed by S2's final sweep.\n5. DOCS: [Mode B] this subtask IS the changeset-level documentation sync."
+                  "dependencies": [
+                    "P1.M1.T1.S1",
+                    "P1.M1.T1.S2",
+                    "P1.M1.T2.S1",
+                    "P1.M1.T3.S1",
+                    "P1.M1.T3.S2",
+                    "P1.M1.T4.S1",
+                    "P1.M1.T4.S2",
+                    "P1.M1.T5.S1",
+                    "P1.M1.T5.S2",
+                    "P1.M1.T5.S3",
+                    "P1.M1.T6.S1",
+                    "P1.M1.T6.S2",
+                    "P1.M2.T1.S1",
+                    "P1.M2.T1.S2",
+                    "P1.M2.T2.S1",
+                    "P1.M2.T3.S1",
+                    "P1.M2.T4.S1",
+                    "P1.M2.T5.S1",
+                    "P1.M2.T5.S2",
+                    "P1.M2.T6.S1",
+                    "P1.M2.T7.S1",
+                    "P1.M3.T1.S1",
+                    "P1.M3.T2.S1",
+                    "P1.M3.T2.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md §README anchors — line-verified anchors at HEAD: usage paragraph :39, sample settings ~:148 (block 132-150), keymap table row :189 (table 178-192), R4 write-through sentence :237, ## Limitations :300, ### Keymap conflict re-verification :341/:364, ## Project structure :417 (structure handled in S2).\n2. INPUT: every implementing subtask above (this task is their documentation summary); the conflict-run record from P1.M3.T2.S2.\n3. LOGIC: README.md updates: (a) rewrite the :39 usage sentence — `e` opens the in-panel side chat; (b) NEW \"Side chat\" section: entry key (`keys.chat`, renamed from `keys.discuss` with the silent alias), singleton/replacement semantics, `/clear` and `/new`, the answer-block confirm row + `sideChatAutoApply`, usage-on-close notification, ephemerality (lost on restart, never persisted); (c) keymap table row → Side chat / `keys.chat` / `e`; (d) sample settings JSON: `\"chat\": \"e\"` + `sideChatModel` + `sideChatAutoApply` (mirror spec implementation-plan.md §Config reference JSONC); (e) ## Limitations += side-chat ephemerality + mid-chat snapshot staleness (accepted v1) + TUI-only; (f) reword the :237 write-through sentence for the new `e` exit gesture; (g) refresh the keymap-conflict re-verification record with the P1.M3.T2.S2 run (label `e (chat)`, date, expected-unchanged result). The name `discuss` must NOT appear anywhere in README.\n4. OUTPUT: a README that fully reflects the changeset; consumed by S2's final sweep.\n5. DOCS: [Mode B] this subtask IS the changeset-level documentation sync.",
+                  "prd_selectors": [
+                    "h1.4/h2.38",
+                    "h1.4/h2.36",
+                    "h1.6/h2.58",
+                    "h1.6/h2.54",
+                    "h1.4/h2.41"
+                  ]
                 },
                 {
                   "type": "Subtask",
@@ -430,9 +644,15 @@
                   "title": "Project-structure update and the final `discuss` sweep",
                   "status": "Planned",
                   "story_points": 1,
-                  "dependencies": ["P1.M3.T3.S1"],
-                  "prd_selectors": ["h1.6/h2.55", "h1.2/h2.12", "h1.6/h2.54"],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md — ## Project structure anchor at README :417; the residual-mention sweep table lists every file that carried `discuss` at HEAD (all handled in M1/M2; this subtask verifies, not fixes).\n2. INPUT: the README state after P1.M3.T3.S1 and all implementing subtasks.\n3. LOGIC: README ## Project structure: add `panel/sidechat.ts` (singleton engine) and `panel/chat-view.ts` (view), drop `panel/discuss.ts`; then run the final sweep — `grep -ri discuss` across the repo (excluding node_modules, plan/, .git): the ONLY permitted occurrence in src/ is the coerceKeys alias site in src/config.ts (P1.M1.T1.S2), and ZERO occurrences in README/docs/spec-side marketing prose (spec/ files keep their historical decision-ledger mentions — those are the authority record, not changeset docs; verify no NEW mentions were introduced). Fix anything the sweep finds (or route back if an implementing subtask missed a site).\n4. OUTPUT: clean sweep — the changeset ships with coherent documentation.\n5. DOCS: [Mode B] completion of the changeset-level sync."
+                  "dependencies": [
+                    "P1.M3.T3.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/guards-tests-and-docs-surface.md — ## Project structure anchor at README :417; the residual-mention sweep table lists every file that carried `discuss` at HEAD (all handled in M1/M2; this subtask verifies, not fixes).\n2. INPUT: the README state after P1.M3.T3.S1 and all implementing subtasks.\n3. LOGIC: README ## Project structure: add `panel/sidechat.ts` (singleton engine) and `panel/chat-view.ts` (view), drop `panel/discuss.ts`; then run the final sweep — `grep -ri discuss` across the repo (excluding node_modules, plan/, .git): the ONLY permitted occurrence in src/ is the coerceKeys alias site in src/config.ts (P1.M1.T1.S2), and ZERO occurrences in README/docs/spec-side marketing prose (spec/ files keep their historical decision-ledger mentions — those are the authority record, not changeset docs; verify no NEW mentions were introduced). Fix anything the sweep finds (or route back if an implementing subtask missed a site).\n4. OUTPUT: clean sweep — the changeset ships with coherent documentation.\n5. DOCS: [Mode B] completion of the changeset-level sync.",
+                  "prd_selectors": [
+                    "h1.6/h2.55",
+                    "h1.2/h2.12",
+                    "h1.6/h2.54"
+                  ]
                 }
               ]
             }

@@ -86,7 +86,7 @@ const LETTER_BYTES: Record<KeyAction, string> = {
   elaborate: "t",
   batchNote: "m",
   submit: "\u0013",
-  discuss: "e",
+  chat: "e",
   externalEditor: "\u0007",
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
@@ -143,7 +143,7 @@ function makeActions(): RoutedActions & Record<string, Mock> {
     onOverview: vi.fn(),
     onElaborate: vi.fn(),
     onBatchNote: vi.fn(),
-    onDiscuss: vi.fn(),
+    onChat: vi.fn(),
     onExternalEditor: vi.fn(),
   } as unknown as RoutedActions & Record<string, Mock>;
 }
@@ -260,7 +260,7 @@ describe("AC-1 — two-tier dispatch/typing + surviving chords (delta_prd §3.1)
       expect(actions.onDeep).not.toHaveBeenCalled();
       expect(actions.onOverview).not.toHaveBeenCalled();
       expect(actions.onBatchNote).not.toHaveBeenCalled();
-      expect(actions.onDiscuss).not.toHaveBeenCalled();
+      expect(actions.onChat).not.toHaveBeenCalled();
     }
   });
 

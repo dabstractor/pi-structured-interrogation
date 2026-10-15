@@ -76,7 +76,7 @@ function mkConfig(keys: Partial<Record<string, string>> = {}): InterrogatorConfi
       elaborate: "t",
       batchNote: "m",
       submit: "ctrl+s",
-      discuss: "e",
+      chat: "e",
       externalEditor: "ctrl+g",
       prevQuestion: "tab",
       nextQuestion: "shift+tab",

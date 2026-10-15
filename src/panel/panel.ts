@@ -649,13 +649,15 @@ export class InterrogationPanel implements Component {
       // idempotent instead of mid-typing-closing the editor.
       if (p.focus !== "text") p.focusTextField(desiredTextDuty(p));
     };
-    // Host-side refinement of the discuss seam (P1.M6.T2.S2): discussInChat
+    // Host-side refinement of the chat seam (SIDECHAT): discussInChat
     // needs the PiUISurface to preload the editor (h2.35), so the closure
-    // is injected HERE — keys.ts stays UI-free. args.keys (host override)
-    // still wins wholesale below.
+    // is injected HERE — keys.ts stays UI-free. The body still routes to
+    // discussInChat until the side-chat view lands (P1.M2.T4.S1) and the
+    // engine is deleted (P1.M2.T7.S1). args.keys (host override) still
+    // wins wholesale below.
     if (args.pi !== undefined) {
       const pi = args.pi;
-      routed.onDiscuss = (p) => {
+      routed.onChat = (p) => {
         discussInChat(pi, p);
       };
     }

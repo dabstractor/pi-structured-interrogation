@@ -67,7 +67,7 @@ const ACTION_WORDS: Record<KeyAction, string> = {
   elaborate: "text",
   batchNote: "note",
   submit: "submit",
-  discuss: "discuss",
+  chat: "chat",
   externalEditor: "editor",
   prevQuestion: "prev",
   nextQuestion: "next",

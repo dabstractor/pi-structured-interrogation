@@ -420,14 +420,14 @@ describe("AC-1 — render proof at panel level (FR-1/FR-9)", () => {
 
 describe("AC-12 — remapped hotkeys relabel every surface (R5/h2.52)", () => {
   test("AC-12_remap_updates_footer_labels_widget_names_command_only", () => {
-    // Deep-merge style clone: remap deep (deepViewToggle) + discuss.
+    // Deep-merge style clone: remap deep (deepViewToggle) + chat.
     const config = {
       ...DEFAULT_CONFIG,
-      keys: { ...DEFAULT_CONFIG.keys, deep: "ctrl+shift+d", discuss: "ctrl+q" },
+      keys: { ...DEFAULT_CONFIG.keys, deep: "ctrl+shift+d", chat: "ctrl+q" },
     };
     const labels = resolveKeyLabels(config);
     expect(labels.deep).toBe("Ctrl+Shift+D");
-    expect(labels.discuss).toBe("Ctrl+Q");
+    expect(labels.chat).toBe("Ctrl+Q");
 
     const state = fixtureState();
     const snapshot = state.serialize();

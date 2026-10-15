@@ -92,7 +92,7 @@
  *      overview jump → deep accept → short accept)
  *   4. config intercepts, in this order (TWO-TIER — chords intercept in
  *      every focus; bare keys only from non-editor focus, else forward):
- *      deep, overview, elaborate, batchNote, submit, discuss,
+ *      deep, overview, elaborate, batchNote, submit, chat,
  *      externalEditor (editor focus, any duty: write-in, elaboration,
  *      note — BUG-002), prevQuestion,
  *      nextQuestion (view-aware: overview cursor movers).
@@ -117,7 +117,8 @@ import type { InterrogationPanel } from "./panel.js";
  * (actions.ts, P1.M3.T2.S2); `submit` receives a host-pre-bound
  * {@link SubmitDeps} wrapper (the deps never flow through keys.ts).
  * The `on*` callbacks mutate the panel directly and are replaced by their
- * owning tasks (M4 text editor / batch note, M5 ripple, M6 widget + discuss).
+ * owning tasks (M4 text editor / batch note, M5 ripple, M6 widget; onChat
+ * routes to discussInChat until the SIDECHAT view lands — P1.M2.T4.S1).
  */
 export interface RoutedActions {
   optionUp(p: InterrogationPanel): boolean;
@@ -140,9 +141,11 @@ export interface RoutedActions {
    * double-`esc` pair). Implemented by the default set.
    */
   onBatchNote(p: InterrogationPanel): void;
-  /** Discuss in chat. Wired host-side at panel.ts's router-construction
-   * site (P1.M6.T2.S2 — the closure needs the PiUISurface); default no-op. */
-  onDiscuss(p: InterrogationPanel): void;
+  /** Open the per-question side chat. Wired host-side at panel.ts's
+   * router-construction site (the closure needs the PiUISurface); still
+   * routes to discussInChat until SIDECHAT's own action lands
+   * (P1.M2.T4.S1); default no-op. */
+  onChat(p: InterrogationPanel): void;
   /** External editor (editor focus, any duty: write-in, elaboration, note). Wired by M4.T1.S3. */
   onExternalEditor(p: InterrogationPanel): void;
 }
@@ -369,10 +372,12 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
       // methods own the draft write-through bookkeeping.
       if (p.focus !== "note") p.enterNoteMode();
     },
-    onDiscuss: () => {
-      // Wired host-side: panel.ts refines this seam with discussInChat
-      // (./discuss.js — P1.M6.T2.S2); the closure needs the PiUISurface,
-      // so keys.ts itself stays UI-free. Default stays a no-op.
+    onChat: () => {
+      // SIDECHAT bridge: still routes to discussInChat (./discuss.js) until
+      // the side-chat view lands (P1.M2.T4.S1) and the engine is deleted
+      // (P1.M2.T7.S1). Wired host-side — panel.ts refines this seam; the
+      // closure needs the PiUISurface, so keys.ts itself stays UI-free.
+      // Default stays a no-op.
     },
     onExternalEditor: (p) => {
       // Wired by M4.T1.S3 (h2.31): fire-and-forget — the router is sync and
@@ -411,7 +416,7 @@ export function buildKeyRouter(
     elaborate: isBareBinding(b.elaborate),
     batchNote: isBareBinding(b.batchNote),
     submit: isBareBinding(b.submit),
-    discuss: isBareBinding(b.discuss),
+    chat: isBareBinding(b.chat),
     externalEditor: isBareBinding(b.externalEditor),
     prevQuestion: isBareBinding(b.prevQuestion),
     nextQuestion: isBareBinding(b.nextQuestion),
@@ -555,9 +560,9 @@ export function buildKeyRouter(
       if (bare.submit && editorFocused) return false; // tier 2: must type
       return actions.submit(panel);
     }
-    if (matchesKey(data, b.discuss)) {
-      if (bare.discuss && editorFocused) return false; // tier 2: must type
-      actions.onDiscuss(panel);
+    if (matchesKey(data, b.chat)) {
+      if (bare.chat && editorFocused) return false; // tier 2: must type
+      actions.onChat(panel);
       return true;
     }
     // externalEditor is editor-focus context, any duty (BUG-002 — one

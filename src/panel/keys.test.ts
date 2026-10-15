@@ -31,7 +31,7 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
   elaborate: "t",
   batchNote: "m",
   submit: "\u0013", // ctrl+s — load-bearing chord (decisions :113-115)
-  discuss: "e",
+  chat: "e",
   externalEditor: "\u0007", // ctrl+g — load-bearing chord
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
@@ -146,7 +146,7 @@ function makeActions() {
     onOverview: vi.fn((_p: InterrogationPanel) => undefined),
     onElaborate: vi.fn((_p: InterrogationPanel) => undefined),
     onBatchNote: vi.fn((_p: InterrogationPanel) => undefined),
-    onDiscuss: vi.fn((_p: InterrogationPanel) => undefined),
+    onChat: vi.fn((_p: InterrogationPanel) => undefined),
     onExternalEditor: vi.fn((_p: InterrogationPanel) => undefined),
   };
   const all: Mock[] = Object.values(spies);
@@ -259,8 +259,8 @@ describe("buildKeyRouter — default config dispatch (h2.34 table)", () => {
     spotRouter.route(DEFAULT_DATA.submit, makePanel());
     expect(spot.submit).toHaveBeenCalledTimes(1);
     expect(spot.onDeep).not.toHaveBeenCalled();
-    spotRouter.route(DEFAULT_DATA.discuss, makePanel());
-    expect(spot.onDiscuss).toHaveBeenCalledTimes(1);
+    spotRouter.route(DEFAULT_DATA.chat, makePanel());
+    expect(spot.onChat).toHaveBeenCalledTimes(1);
     spotRouter.route(DEFAULT_DATA.batchNote, makePanel());
     expect(spot.onBatchNote).toHaveBeenCalledTimes(1);
     spotRouter.route(DEFAULT_DATA.prevQuestion, makePanel());
@@ -324,7 +324,7 @@ describe("buildKeyRouter — two-tier intercept rule with focus === text (BAREKE
     // writing an answer; the composed editor must receive the byte.
     const fresh = makeActions();
     const freshRouter = makeRouter(DEFAULT_CONFIG, fresh);
-    for (const key of ["deep", "overview", "elaborate", "batchNote", "discuss"] as KeyAction[]) {
+    for (const key of ["deep", "overview", "elaborate", "batchNote", "chat"] as KeyAction[]) {
       expect(
         freshRouter.route(DEFAULT_DATA[key], makePanel({ focus: "text" })),
         `bare "${DEFAULT_CONFIG.keys[key]}" (${key}) must forward in text focus`,
@@ -386,11 +386,11 @@ describe("two-tier dispatch (BAREKEYS-001, h2.74)", () => {
       expect(route(DEFAULT_DATA.deep, panel), `d dispatches in ${view}`).toBe(true);
       expect(route(DEFAULT_DATA.overview, panel), `o dispatches in ${view}`).toBe(true);
       expect(route(DEFAULT_DATA.batchNote, panel), `m dispatches in ${view}`).toBe(true);
-      expect(route(DEFAULT_DATA.discuss, panel), `e dispatches in ${view}`).toBe(true);
+      expect(route(DEFAULT_DATA.chat, panel), `e dispatches in ${view}`).toBe(true);
       expect(actions.onDeep).toHaveBeenCalledTimes(1);
       expect(actions.onOverview).toHaveBeenCalledTimes(1);
       expect(actions.onBatchNote).toHaveBeenCalledTimes(1);
-      expect(actions.onDiscuss).toHaveBeenCalledTimes(1);
+      expect(actions.onChat).toHaveBeenCalledTimes(1);
     }
   });
 
@@ -401,7 +401,7 @@ describe("two-tier dispatch (BAREKEYS-001, h2.74)", () => {
       const actions = makeActions();
       const { route } = makeRouter(DEFAULT_CONFIG, actions);
       const panel = makePanel({ focus });
-      for (const key of ["deep", "overview", "elaborate", "batchNote", "discuss"] as KeyAction[]) {
+      for (const key of ["deep", "overview", "elaborate", "batchNote", "chat"] as KeyAction[]) {
         expect(
           route(DEFAULT_DATA[key], panel),
           `bare "${DEFAULT_CONFIG.keys[key]}" (${key}) forwards in ${focus} focus`,
@@ -748,14 +748,14 @@ describe("buildKeyRouter — collision + single-dispatch guarantees", () => {
   });
 
   test("test_collision_letter_vs_letter_first_resolution_order_wins", () => {
-    // BAREKEYS-001 letter-vs-letter: deep (earlier) vs discuss (later) both
+    // BAREKEYS-001 letter-vs-letter: deep (earlier) vs chat (later) both
     // on the bare `e` → deep wins, exactly one dispatch (the same documented
     // resolution order the chord collision above proves for tier-1 keys).
     const actions = makeActions();
     const { route } = makeRouter(configWithKeys({ deep: "e" }), actions);
     expect(route("e", makePanel())).toBe(true);
     expect(actions.onDeep).toHaveBeenCalledTimes(1);
-    expect(actions.onDiscuss).not.toHaveBeenCalled();
+    expect(actions.onChat).not.toHaveBeenCalled();
     expect(dispatchCount(actions)).toBe(1);
   });
 
@@ -811,7 +811,7 @@ describe("defaultRoutedActions — seam defaults", () => {
 
     // Wired seams: the batch-note toggle hits the panel methods (R3), the
     // wired external-editor seam fire-and-forgets into the panel method.
-    expect(() => actions.onDiscuss(panel)).not.toThrow();
+    expect(() => actions.onChat(panel)).not.toThrow();
     actions.onBatchNote(panel); // options focus → open
     expect(panel.enterNoteMode).toHaveBeenCalledTimes(1);
     expect(panel.exitNoteMode).not.toHaveBeenCalled();

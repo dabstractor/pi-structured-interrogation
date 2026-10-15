@@ -43,7 +43,7 @@ const ALL_ACTIONS: KeyAction[] = [
 	"elaborate",
 	"batchNote",
 	"submit",
-	"discuss",
+	"chat",
 	"externalEditor",
 	"prevQuestion",
 	"nextQuestion",

@@ -21,7 +21,7 @@
  * | elaborate       | t             | ctrl+y         | ✓      | n/a              | none rendered (no string names it)    | |
  * | batchNote       | m             | ctrl+shift+n   | ✓      | n/a              | none rendered (note header omits key) | |
  * | submit          | ctrl+s        | f9             | ✓      | n/a              | footer (every screen incl. narrow)    | load-bearing chord |
- * | discuss         | e             | ctrl+shift+p   | ✓      | n/a              | none rendered (discuss text omits key)| |
+ * | chat            | e             | ctrl+shift+p   | ✓      | n/a              | none rendered (chat text omits key)   | |
  * | externalEditor  | ctrl+g        | ctrl+u         | ✓      | n/a              | none rendered                         | text-focus gated; load-bearing chord |
  * | prevQuestion    | tab           | left           | ✓      | n/a              | none rendered                         | |
  * | nextQuestion    | shift+tab     | right          | ✓      | n/a              | none rendered                         | |
@@ -97,7 +97,7 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
   elaborate: "t",
   batchNote: "m",
   submit: "\u0013", // ctrl+s — load-bearing chord
-  discuss: "e",
+  chat: "e",
   externalEditor: "\u0007", // ctrl+g — load-bearing chord
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
@@ -114,7 +114,7 @@ const REMAPS: Record<KeyAction, { key: string; data: string }> = {
   elaborate: { key: "ctrl+y", data: "\u0019" }, // 0x19 = ctrl+y
   batchNote: { key: "ctrl+shift+n", data: "\u001b[110;6u" }, // kitty (n = 110)
   submit: { key: "f9", data: "\u001b[20~" },
-  discuss: { key: "ctrl+shift+p", data: "\u001b[112;6u" }, // kitty (p = 112)
+  chat: { key: "ctrl+shift+p", data: "\u001b[112;6u" }, // kitty (p = 112)
   externalEditor: { key: "ctrl+u", data: "\u0015" }, // 0x15 = ctrl+u
   // NOTE: prev/next deliberately do NOT remap to left/right — those are
   // FIXED keys now (question navigation); the remap must stay distinct so
@@ -136,7 +136,7 @@ const SPY_FOR: Record<KeyAction, Exclude<keyof ReturnType<typeof makeActions>, "
   elaborate: "onElaborate",
   batchNote: "onBatchNote",
   submit: "submit",
-  discuss: "onDiscuss",
+  chat: "onChat",
   externalEditor: "onExternalEditor",
   prevQuestion: "prevQuestion",
   nextQuestion: "nextQuestion",
@@ -149,7 +149,7 @@ const WORDS: Record<KeyAction, string> = {
   elaborate: "text",
   batchNote: "note",
   submit: "submit",
-  discuss: "discuss",
+  chat: "chat",
   externalEditor: "editor",
   prevQuestion: "prev",
   nextQuestion: "next",
@@ -215,7 +215,7 @@ function makeActions() {
     onOverview: vi.fn((_p: InterrogationPanel) => undefined),
     onElaborate: vi.fn((_p: InterrogationPanel) => undefined),
     onBatchNote: vi.fn((_p: InterrogationPanel) => undefined),
-    onDiscuss: vi.fn((_p: InterrogationPanel) => undefined),
+    onChat: vi.fn((_p: InterrogationPanel) => undefined),
     onExternalEditor: vi.fn((_p: InterrogationPanel) => undefined),
   };
   const all: Mock[] = Object.values(spies);
@@ -544,14 +544,14 @@ describe("invalid-config fallback sweep — all 9 actions (one warn each)", () =
   test("test_end_to_end_settings_file_loads_normalizes_and_falls_back_with_single_warn", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const p = await writeSettings(
-      JSON.stringify({ interrogator: { keys: { submit: "ctrl+", discuss: " Ctrl+Shift+P " } } }),
+      JSON.stringify({ interrogator: { keys: { submit: "ctrl+", chat: " Ctrl+Shift+P " } } }),
     );
     const cfg = await loadConfigFrom({ global: p });
     // Non-empty strings survive load verbatim (validation is the binding layer's job)…
-    expect(cfg.keys.discuss).toBe(" Ctrl+Shift+P ");
+    expect(cfg.keys.chat).toBe(" Ctrl+Shift+P ");
     // …the valid-but-unnormalized value binds identically to its normalized form…
     const bindings = resolveBindings(cfg); // resolve ONCE — each resolve warns per invalid action
-    expect(bindings.discuss).toBe("ctrl+shift+p");
+    expect(bindings.chat).toBe("ctrl+shift+p");
     // …and the invalid grammar falls back with exactly ONE warn (submit only).
     expect(bindings.submit).toBe(DEFAULT_CONFIG.keys.submit);
     expect(warn).toHaveBeenCalledTimes(1);

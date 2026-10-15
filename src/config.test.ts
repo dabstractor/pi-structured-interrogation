@@ -142,7 +142,7 @@ test("test_resolve_key_labels_covers_all_actions_with_default_config", async () 
   expect(labels.elaborate).toBe("T");
   expect(labels.batchNote).toBe("M");
   expect(labels.submit).toBe("Ctrl+S");
-  expect(labels.discuss).toBe("E");
+  expect(labels.chat).toBe("E");
   expect(labels.externalEditor).toBe("Ctrl+G");
   expect(labels.prevQuestion).toBe("Tab");
   expect(labels.nextQuestion).toBe("Shift+Tab");

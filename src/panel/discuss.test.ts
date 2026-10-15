@@ -567,7 +567,7 @@ describe("discuss gesture — R4/BUG-002 draft write-through (real panel)", () =
       pi: fakePi(setEditorText), // the constructor-refined discuss seam needs the carrier
       config: {
         ...DEFAULT_CONFIG,
-        keys: { ...DEFAULT_CONFIG.keys, discuss: "ctrl+shift+e" },
+        keys: { ...DEFAULT_CONFIG.keys, chat: "ctrl+shift+e" },
       },
     });
     panel.focusTextField("writein");

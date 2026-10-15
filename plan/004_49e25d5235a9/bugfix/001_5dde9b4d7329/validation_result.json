@@ -1,0 +1,1 @@
+{ "hasIssues": true, "issueCount": 1, "summary": "All three PRD bugs (WRITEIN-002 supersede re-bind, ctrl+g note duty, stale caps claims) verified fixed via 31 independent E2E probes plus green baseline (1337 tests, tsc clean); one minor tracker-drift issue found: tasks.json regressed completed BUG-002 milestones back to Ready." }

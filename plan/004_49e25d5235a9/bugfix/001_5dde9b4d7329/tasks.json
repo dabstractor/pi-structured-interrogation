@@ -165,14 +165,14 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "BUG-002 — ctrl+g external editor live in note duty (atomic gate + routing fix)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Make ctrl+g (configurable externalEditor chord, default \\u0007) open $VISUAL/$EDITOR from ALL three editor duties per the ui-spec hotkey table ('editor focus (any duty)', spec/ui-spec.md:84) — write-in and elaboration already work; note duty is gated off at keys.ts:566 and the apply side of openExternalEditor is hardwired to the question-draft path. Fork-first ordering keeps the changeset atomic in the safe direction: gate-only widening would corrupt the current question's draft with note text (research §(f) risk 2).",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Atomic note-duty fix: apply-side routing fork, then router gate widening, then E2E",
-              "status": "Ready",
+              "status": "Complete",
               "description": "One task, three sequenced subtasks: (1) fork openExternalEditor's completed-text routing on bufferOwner === 'note' (dormant until the gate widens); (2) widen the keys.ts:566 gate to the canonical editorFocused flag + sync its three stale comments + flip the router tests; (3) end-to-end AC round-trip through the real key router and a faked spawn.",
               "subtasks": [
                 {
@@ -209,7 +209,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S3",
                   "title": "End-to-end AC: note-duty ctrl+g round-trip (keymap-ac pattern)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S2"

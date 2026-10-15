@@ -129,7 +129,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S2",
                   "title": "Kind-flip no-op + non-custom supersede no-op scenarios",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"

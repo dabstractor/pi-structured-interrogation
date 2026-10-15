@@ -2526,6 +2526,78 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
       "nothing to submit — 1 question(s) have drafts awaiting an option or Other",
     );
   });
+
+  test("test_supersede_kind_flip_writein_equals_option_value_stages_nothing", () => {
+    // [Mode A] BUG-001 / P1.M1.T4.S2 — guard 3 kind-flip: a write-in
+    // byte-equal to the accepted option's value is a pure KIND flip (custom
+    // → option) with zero information change; staging it would ship
+    // "q1: Alpha — a" — the user's own value echoed back as fake
+    // elaboration. End-to-end through the wired accept path: nothing staged
+    // in either seam (panel slot or DraftStore), nothing shipped.
+    const state = seed(BASIC);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    commitWriteIn(panel, "a"); // byte-equals option "a"'s VALUE
+    expect(state.getQuestion("q1")?.answer?.custom).toBe(true);
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // VAL-002: commit consumed the slot
+
+    // Supersede: currentId re-seeds the cursor to the ✎ row (custom answer,
+    // ANSWER-PIN-001) — drive to option "a" explicitly. custom:true means
+    // the inert branch cannot fire; this is a genuine supersede accept.
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true);
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a");
+    expect(state.getQuestion("q1")?.answer?.custom).toBeUndefined(); // kind flipped
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // guard 3: nothing staged
+    expect(store.getDraft("q1")).toBeUndefined(); // neither seam
+
+    expect(submit(panel, deps)).toBe(true);
+    expect(state.getQuestion("q1")?.answer?.text).toBeUndefined(); // no elaboration attached
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toContain("q1: Alpha");
+    expect(msg.content).not.toContain("Alpha — a"); // the kind-flip duplication never ships
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // still nothing post-submit
+  });
+
+  test("test_supersede_non_custom_elaborated_answer_stages_nothing", () => {
+    // [Mode A] BUG-001 / P1.M1.T4.S2 — guard 1: only write-ins re-bind. An
+    // option→option switch carries no kept-text contract; the superseded
+    // answer's old elaboration (shipped `answer.text`) is rationale for the
+    // OLD option and is simply dropped — never staged as a ✎ draft, never
+    // resurrected at submit. The elaboration is seeded via state.applyAnswer
+    // (the raw primitive, what a prior submit leaves behind) because submit
+    // flushes ONLY the DraftStore — a gestured elaboration would leave the
+    // panel-local slot permanently defined (guard-4 territory, T4.S1).
+    const state = seed(BASIC);
+    state.applyAnswer("q1", { value: "a", text: "because of the latency profile", at: T0 });
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // precondition: no live slot
+
+    // Switch: currentId re-seeds the cursor to recorded "a"'s row 0 — drive
+    // to option "b" explicitly. Values differ → not inert → genuine apply.
+    panel.currentId = "q1";
+    panel.cursorIndex = 1;
+    expect(accept(panel)).toBe(true);
+    const a = state.getQuestion("q1")?.answer;
+    expect(a?.value).toBe("b");
+    expect(a?.text).toBeUndefined(); // applyAnswer REPLACED the whole answer — old elaboration dropped
+    expect(a?.custom).toBeUndefined();
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // guard 1: non-custom stages NOTHING
+    expect(store.getDraft("q1")).toBeUndefined();
+
+    expect(submit(panel, deps)).toBe(true);
+    expect(state.getQuestion("q1")?.answer?.text).toBeUndefined();
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toContain("q1: Beta");
+    expect(msg.content).not.toContain("because of the latency profile"); // dropped, never resurrected
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+  });
 });
 
 // ----------- AUTOSUBMIT-001 completeness hook (PRD h2.33, P2.M1.T1.S1)

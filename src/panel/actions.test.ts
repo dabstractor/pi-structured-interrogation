@@ -39,6 +39,7 @@ import {
   optionUp,
   panelActions,
   prevQuestion,
+  stageSupersededWriteIn,
   submit,
   writeInEnter,
   type SubmitDeps,
@@ -881,6 +882,69 @@ describe("write-in same-value — inert no-op + buffer consume (ANSWER-PIN-001 /
   });
 });
 
+
+// ------------------ stageSupersededWriteIn — WRITEIN-002 re-bind (BUG-001)
+
+describe("stageSupersededWriteIn — WRITEIN-002 re-bind guards", () => {
+  test("test_supersede_happy_path_stages_writein_text_as_draft", () => {
+    // BUG-001 "restore": consumeCommittedBuffer deletes the slot at write-in
+    // commit, so the user's words would vanish at a later supersede. The
+    // re-bind re-creates the slot FROM THE RECORDED ANSWER at supersede
+    // time; reconcileDraftsForSubmit attaches it as answer.text at submit.
+    const state = seed([{ id: "q1" }]);
+    const { panel } = makePanel(state);
+    stageSupersededWriteIn(panel, "q1", { value: "my own words", custom: true, at: T0 }, "alpha");
+    expect(panel.draftTextFor("q1")).toBe("my own words");
+  });
+
+  test("test_supersede_guard1_non_custom_or_missing_superseded_never_stages", () => {
+    // Only write-ins re-bind: a non-custom answer carries no superseded ✎
+    // text (and the ANSWER-PIN-001 inert branch means non-custom applies
+    // are no-ops anyway). undefined = nothing was recorded.
+    const state = seed([{ id: "q1" }]);
+    const { panel } = makePanel(state);
+    stageSupersededWriteIn(panel, "q1", { value: "alpha", at: T0 }, "beta");
+    stageSupersededWriteIn(panel, "q1", undefined, "beta");
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+  });
+
+  test("test_supersede_guard2_whitespace_value_never_stages", () => {
+    // Degenerate — no ✎ draft for whitespace-only write-ins.
+    const state = seed([{ id: "q1" }]);
+    const { panel } = makePanel(state);
+    stageSupersededWriteIn(panel, "q1", { value: "   ", custom: true, at: T0 }, "alpha");
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+  });
+
+  test("test_supersede_guard3_kind_flip_same_value_never_stages", () => {
+    // Write-in → its own option value would duplicate the words: staging
+    // "alpha" under an "alpha" answer renders "Alpha — Alpha" at the next
+    // submit. Never stage a kind-flip.
+    const state = seed([{ id: "q1" }]);
+    const { panel } = makePanel(state);
+    stageSupersededWriteIn(panel, "q1", { value: "alpha", custom: true, at: T0 }, "alpha");
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+  });
+
+  test("test_supersede_guard4_user_held_draft_wins", () => {
+    const state = seed([{ id: "q1" }]);
+    const { panel } = makePanel(state);
+    panel.commitTextDraft("q1", "user draft"); // a live user draft (public seam)
+    stageSupersededWriteIn(panel, "q1", { value: "my own words", custom: true, at: T0 }, "alpha");
+    expect(panel.draftTextFor("q1")).toBe("user draft");
+  });
+
+  test("test_supersede_guard4_delete_to_empty_draft_wins", () => {
+    // Stricter R4 reading: a deliberate delete-to-empty "" slot is DEFINED
+    // — the user erased the draft — and must never be resurrected by a
+    // supersede. Guard 4 compares against undefined, never truthiness.
+    const state = seed([{ id: "q1" }]);
+    const { panel } = makePanel(state);
+    panel.commitTextDraft("q1", ""); // deliberate delete-to-empty
+    stageSupersededWriteIn(panel, "q1", { value: "my own words", custom: true, at: T0 }, "alpha");
+    expect(panel.draftTextFor("q1")).toBe("");
+  });
+});
 
 describe("prevQuestion / nextQuestion — R1 free navigation", () => {
   const ALL_STATUSES: Array<{ id: string; overrides?: Partial<Question> }> = [

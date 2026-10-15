@@ -42,14 +42,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "stageSupersededWriteIn helper with the four re-bind guards",
-              "status": "Ready",
+              "status": "Complete",
               "description": "New exported helper in src/panel/actions.ts implementing the PRD's recommended mechanism: when an option accept supersedes a custom:true answer and no user-held draft exists, stage the old answer.value into the slot so reconcileDraftsForSubmit attaches it as answer.text at the next submit.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Implement stageSupersededWriteIn + unit tests for each guard",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -74,7 +74,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "acceptOptionIndex direct path + rewrite the manufactured test at actions.test.ts:2213",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"

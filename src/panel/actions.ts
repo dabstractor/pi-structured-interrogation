@@ -323,6 +323,50 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
 }
 
 /**
+ * [Mode A] WRITEIN-002 supersede re-bind (BUG-001, adjudicated "restore";
+ * decisions.md ruling "WRITEIN-002 supersede re-bind restored (BUG-001)" —
+ * P1.M1.T1.S1): when a committed write-in answer is superseded by a real
+ * option, the user's words must survive as `answer.text` (AC-2b/R4), not
+ * vanish. consumeCommittedBuffer's consume-at-commit (the VAL-002 fix)
+ * stays — the slot is re-created ONLY here, at supersede time, from the
+ * recorded answer's value, and ONLY when no user-held draft exists (a
+ * deliberate delete-to-empty "" slot is defined and wins — guard 4 compares
+ * against undefined, never truthiness). The staged slot is an ordinary
+ * role-less draft; reconcileDraftsForSubmit attaches it as `answer.text` at
+ * the next submit — no reconcile/submit/panel changes. Stages DRAFTS ONLY:
+ * never mutates answer state; the caller captures the PRE-apply recorded
+ * answer and passes it as `superseded`.
+ *
+ * Guards, in order: (1) custom-only — the ANSWER-PIN-001 inert branch makes
+ * every apply behind a custom:true answer a genuine supersede, so no
+ * value-change check is needed; (2) non-whitespace — no ✎ draft for
+ * degenerate write-ins; (3) no kind-flip — staging when value equals the
+ * new option value would render "Alpha — Alpha" at submit; (4) user-draft
+ * wins via the public seam. Staging goes through {@link commitTextDraft}
+ * (never the private slot map) — its blur is harmless in accept context
+ * (focus is already "options") and its EXPLAIN-003 cursor re-seed cannot
+ * fire from an accept gesture.
+ *
+ * DO NOT call from applyWriteInConfirm (write-in → write-in edits):
+ * reconcileDraftsForSubmit skips custom answers, so staging there is pure
+ * ✎-marker noise. Call sites land in P1.M1.T3.S1 (acceptOptionIndex) and
+ * P1.M1.T3.S2 (applyConfirmedEdit).
+ */
+export function stageSupersededWriteIn(
+  panel: InterrogationPanel,
+  questionId: string,
+  superseded: QuestionAnswer | undefined,
+  newValue: string,
+): void {
+  if (superseded === undefined || superseded.custom !== true) return; // 1: only write-ins re-bind
+  const text = superseded.value;
+  if (text.trim() === "") return; // 2: degenerate — no ✎ for whitespace
+  if (text === newValue) return; // 3: kind-flip — never "Alpha — Alpha"
+  if (panel.draftTextFor(questionId) !== undefined) return; // 4: user-held draft wins (incl. delete-to-empty "")
+  panel.commitTextDraft(questionId, text);
+}
+
+/**
  * [Mode A] Write-in enter (WRITEIN-001, FR-D1, Q14 parity): in write-in
  * duty, enter COMMITS the buffer as the answer — applyAnswer({ value: text,
  * custom: true }) → evaluateDependsOn → advanceAfterAccept — mirroring

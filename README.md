@@ -187,7 +187,7 @@ Remappable actions (`interrogator.keys.*`):
 | Batch note           | `keys.batchNote`      | `m`             | Attach a batch note shipped with the next submit; close via `enter` or double-`esc` |
 | Submit               | `keys.submit`         | `ctrl+s`        | Submit answers now (partial ok — also the deliberate override while the gate hold blocks auto-submit) |
 | Discuss in chat      | `keys.discuss`        | `e`             | Discuss the current question in chat          |
-| External editor      | `keys.externalEditor` | `ctrl+g`        | Open the draft in an external editor          |
+| External editor      | `keys.externalEditor` | `ctrl+g`        | Open the draft in an external editor — any editor duty (answer, elaboration, or note; in note duty the finished text lands in the batch note) |
 | Previous question    | `keys.prevQuestion`   | `tab`           | Move to the previous question                 |
 | Next question        | `keys.nextQuestion`   | `shift+tab`     | Move to the next question                     |
 
@@ -225,7 +225,10 @@ on a real option, the
 editor is the **elaboration** duty: the text attaches to whichever option
 you select and ships as the answer's text — an elaboration, not an answer
 of its own. Accepting an option after a committed write-in supersedes the
-answer and re-binds the kept slot text as elaboration. On `type:"text"`
+answer and re-binds the kept slot text as elaboration — the re-bound text
+is that question's draft (✎ marker; edit or clear it any time before it
+ships), and on an already-complete set the same gesture can auto-submit it
+verbatim, with no chance to edit first. On `type:"text"`
 questions the editor is likewise the answer. Selecting options stays
 available before/after elaborating. The editor's contents are
 **per-question** — opening it on another question starts blank (or that

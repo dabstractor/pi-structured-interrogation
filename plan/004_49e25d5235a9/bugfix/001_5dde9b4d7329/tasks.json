@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bugfix changeset 001 — restore WRITEIN-002 re-bind, activate ctrl+g in note duty, purge stale caps claims",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Three verified bugs from the adversarial post-P1 probe pass (PRD h2.0, baseline green at HEAD 16d9f65: 47 test files / 1321 tests, tsc clean). BUG-001 (Major): the WRITEIN-002 supersede re-bind contract (spec/ui-spec.md:37, product-requirements.md:84 AC-2b, README:225-228+:279) is structurally unreachable because consumeCommittedBuffer (panel.ts:982-991, the VAL-002 fix) deletes the write-in's carrier text at commit and acceptOptionIndex (actions.ts:268-321) re-stages nothing — adjudicated RESTORE (see architecture/overview-and-adjudication.md). BUG-002 (Minor): ctrl+g dead in note duty — keys.ts:566 gates the externalEditor intercept to focus===\"text\" only, and openExternalEditor (panel.ts:1306-1348) would misroute note text if the gate alone were widened; atomic fork-first fix. BUG-003 (Minor): two live stale 400-char-goal-cap references (README.md:113-116, src/state.ts:324-328) contradicting CAPS-OUT-001. Fixes land with tests (TDD implied per subtask), per-file docs ride with the work (Mode A), and a final Mode-B task sweeps changeset-level docs.",
       "milestones": [
         {
@@ -229,7 +229,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "BUG-003 stale caps purge + changeset-level documentation sync",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Delete the two live stale 400-char-goal-cap references (contradicting CAPS-OUT-001, the implementation, and the README's own Configuration section), then the final Mode-B task that sweeps changeset-level docs (README.md + spec coherence) across all three fixes — it runs last and depends on every implementing subtask.",
           "tasks": [
             {
@@ -273,14 +273,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Mode B final catch-all (SOW §5): the cross-cutting doc implications that only make sense once the whole changeset is in place — README.md's hotkey/editor/acceptance surfaces spanning all three fixes, and a spec coherence verification. Depends on EVERY implementing subtask; runs last.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "README.md changeset sweep — hotkey context rows, editor/AC-2b wording, no-caps coherence",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -312,7 +312,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S2",
                   "title": "Spec coherence verification — ui-spec WRITEIN-002/hotkey table, product-requirements AC-2b, decisions.md cross-refs",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

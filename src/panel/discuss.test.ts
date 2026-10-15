@@ -323,7 +323,7 @@ describe("discuss handoff wiring — keys.ts router → discussInChat", () => {
     };
     expect(panel.currentId).toBe("q3");
 
-    // ctrl+shift+e from the SHORT view: consumed, panel suspends…
+    // `e` from the SHORT view: consumed, panel suspends…
     expect(panel.handleInput(DISCUSS)).toBe(true);
     expect(firstCall(mock).done).toHaveBeenCalledTimes(1);
 
@@ -549,8 +549,9 @@ describe("discuss gesture — R4/BUG-002 draft write-through (real panel)", () =
   });
 
   test("test_discuss_key_dispatches_with_editor_focus_mid_write", async () => {
-    // keys.ts's step-4 intercept for ctrl+shift+e is deliberately UNGATED by
-    // editor focus — mid-write-in discuss is the intended UX. This documents
+    // keys.ts's step-4 intercept for the DISCUSS binding is deliberately
+    // UNGATED by editor focus WHEN it is a chord (tier 1) — the chord remap
+    // below is what makes mid-write-in discuss reachable. This documents
     // WHY the write-through must exist: the gesture fires mid-editing and
     // must carry the buffer along (no behavior change asserted here).
     // BAREKEYS-001: with the bare default `e` the discuss key FORWARDS from

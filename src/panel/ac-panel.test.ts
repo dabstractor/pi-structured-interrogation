@@ -450,7 +450,7 @@ describe("AC-12 — remapped hotkeys relabel every surface (R5/h2.52)", () => {
     const panel = new InterrogationPanel(panelArgsFor(state, { config }));
     panel.invalidate();
     expect(panel.render(120).at(-1)).toContain("Ctrl+Shift+D deep");
-    panel.handleInput(CTRL_L); // overview view (binding unchanged — ctrl+l)
+    panel.handleInput(CTRL_L); // overview view (`o` — bare default)
     expect(panel.render(120).at(-1)).toContain("Ctrl+Shift+D deep");
 
     // Widget level (breakOut removal): the suspend reminder takes NO labels —
@@ -616,7 +616,7 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
     state.upsertQuestion(deepQ("d2"));
     const panel = new InterrogationPanel(panelArgsFor(state, { focusQuestionId: "d1" }));
 
-    // Toggle into the deep view (ctrl+d binding) and measure the content.
+    // Toggle into the deep view (`d` binding) and measure the content.
     panel.handleInput(CTRL_D);
     expect(panel.view).toBe("deep");
     expect(panel.scrollOffset).toBe(0);
@@ -714,11 +714,11 @@ describe("AC-4 — suspend → widget → reopen: drafts survive (FR-14/R4)", ()
     const panel = mock.calls[0]!.component;
     expect(panel.currentId).toBe("t1");
 
-    // Panel-side draft: focus the text field (ctrl+t), type, ctrl+t again —
-    // the toggle-exit write-through (R4). WRITEIN-001 duty-follows-entry
-    // (P1.M2.T3.S1): ctrl+t on a text question opens WRITE-IN duty, whose
+    // Panel-side draft: focus the text field (`t`), type, exit via the
+    // double-esc pair (write-through, ESC-002). WRITEIN-001 duty-follows-entry
+    // (P1.M2.T3.S1): `t` on a text question opens WRITE-IN duty, whose
     // enter would COMMIT the answer (custom:true) — a DRAFT is saved by
-    // exiting (re-press), never by enter.
+    // exiting (double-esc), never by enter.
     panel.handleInput(CTRL_T);
     expect(panel.focus).toBe("text");
     (panel.textField.editor as unknown as { setText: Mock }).setText("draft alpha text");

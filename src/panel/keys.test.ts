@@ -729,6 +729,33 @@ describe("buildKeyRouter — collision + single-dispatch guarantees", () => {
     expect(actions.submit).not.toHaveBeenCalled();
     expect(dispatchCount(actions)).toBe(1); // never double-dispatch
   });
+
+  test("test_collision_letter_vs_letter_first_resolution_order_wins", () => {
+    // BAREKEYS-001 letter-vs-letter: deep (earlier) vs discuss (later) both
+    // on the bare `e` → deep wins, exactly one dispatch (the same documented
+    // resolution order the chord collision above proves for tier-1 keys).
+    const actions = makeActions();
+    const { route } = makeRouter(configWithKeys({ deep: "e" }), actions);
+    expect(route("e", makePanel())).toBe(true);
+    expect(actions.onDeep).toHaveBeenCalledTimes(1);
+    expect(actions.onDiscuss).not.toHaveBeenCalled();
+    expect(dispatchCount(actions)).toBe(1);
+  });
+
+  test("test_collision_letter_vs_hjkl_fixed_alias_shadows_config", () => {
+    // VIMNAV-001 letter-vs-hjkl: a config binding on a bare `l` is SHADOWED
+    // by the fixed right-alias (hjkl ride the arrow branches, checked before
+    // every config accelerator) — nextQuestion fires, the remaps never do.
+    const actions = makeActions();
+    const { route } = makeRouter(
+      configWithKeys({ overview: "l", nextQuestion: "l" }),
+      actions,
+    );
+    expect(route("l", makePanel())).toBe(true);
+    expect(actions.onOverview).not.toHaveBeenCalled();
+    expect(actions.nextQuestion).toHaveBeenCalledTimes(1);
+    expect(dispatchCount(actions)).toBe(1);
+  });
 });
 
 // ------------------------------------------------- default seam behaviors
@@ -1015,7 +1042,7 @@ describe("deep view routing gates (P1.M5.T1.S1)", () => {
   });
 
   test("test_ctrl_t_gate_does_not_break_deep_view_neighbor_bindings", () => {
-    // BUG-011 fall-through: ctrl+t in deep returns false WITHOUT dispatching,
+    // BUG-011 fall-through: `t` in deep returns false WITHOUT dispatching,
     // and the view-specific handlers downstream still work — enter here
     // still runs the acceptFromDeep path (accepts highlighted, → short).
     const actions = makeActions();
@@ -1223,7 +1250,7 @@ describe("buildKeyRouter — overview view-gating (P1.M5.T2.S1)", () => {
 
 describe("elaborate gated to the short view (BUG-011)", () => {
   test("test_ctrl_t_in_deep_view_falls_through_without_dispatching", () => {
-    // The editor renders only in the short view — ctrl+t in deep must be a
+    // The editor renders only in the short view — `t` in deep must be a
     // no-op FALL-THROUGH (return false), never a swallowed keystroke.
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);

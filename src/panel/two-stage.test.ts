@@ -6,7 +6,7 @@
  * stage-2 advance) was REMOVED: ONE enter now does the whole job, decided
  * by the editor's ACTIVE DUTY — write-in duty (type:"text" questions or
  * the ✎ Other row) COMMITS applyAnswer({value, custom: true}) + advances
- * (Q14 parity); elaboration duty (ctrl+t on a choice question) saves +
+ * (Q14 parity); elaboration duty (`t` on a choice question) saves +
  * blurs, never commits, never advances; note duty exits + saves the batch
  * note. There is no second enter: a follow-up enter after an elaboration
  * save is just the normal options accept. Newline requests (shift+enter /
@@ -24,7 +24,7 @@
  *
  * Two panel flavors per the seam contract (args.keys REPLACES the router
  * wholesale): the default flavor keeps the REAL config-driven router (so
- * ctrl+t / tab navigation / enter→accept behave like production), and the
+ * `t` / tab navigation / enter→accept behave like production), and the
  * keys-spy flavor exists only to assert dispatch ORDERING (the enter-per-
  * duty fork runs before the seam). The fake editor's handleInput mirrors
  * the stock Editor's behavior for the sequences under test (newline
@@ -188,7 +188,7 @@ describe("commit-at-enter — one enter does the whole job (WRITEIN-001, h2.32)"
   test("test_text_question_enter_commits_custom_answer_and_advances", () => {
     const state = seedOpenText(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
-    // Duty-follows-cursor (P1.M2.T3.S1): ctrl+t on a type:"text" question
+    // Duty-follows-cursor (P1.M2.T3.S1): `t` on a type:"text" question
     // opens WRITE-IN duty — the buffer IS the answer.
     elaborate(panel);
     expect(panel.textDuty).toBe("writein");
@@ -215,7 +215,7 @@ describe("commit-at-enter — one enter does the whole job (WRITEIN-001, h2.32)"
   test("test_elaboration_enter_on_choice_saves_blurs_no_commit_no_advance", () => {
     const state = seedOpen(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
-    elaborate(panel); // ctrl+t on an option cursor → elaboration duty
+    elaborate(panel); // `t` on an option cursor → elaboration duty
     expect(panel.textDuty).toBe("elaboration");
     panel.handleInput("my elaboration");
 
@@ -355,7 +355,7 @@ describe("two-stage enter — note mode (R3)", () => {
     const state = seedOpen(["q1"]);
     const { panel, drafts } = makePanel(state);
     panel.textField.setText("batch note text");
-    panel.focus = "note"; // P1.M4.T2.S2 owns the ctrl+shift+m open path
+    panel.focus = "note"; // P1.M4.T2.S2 owns the batch-note (`m`) open path
 
     expect(panel.handleInput("\r")).toBe(true);
 
@@ -382,7 +382,7 @@ describe("two-stage enter — note mode (R3)", () => {
     // exit writes through to the store, and re-entry re-seeds from it.
     const state = seedOpen(["q1"]);
     const { panel, drafts } = makePanel(state);
-    panel.enterNoteMode(); // ctrl+shift+m open path (P1.M4.T2.S2)
+    panel.enterNoteMode(); // batch-note (`m`) open path (P1.M4.T2.S2)
     expect(panel.focus).toBe("note");
     expect(panel.textField.focused).toBe(true);
     panel.textField.setText("cross-cutting context");

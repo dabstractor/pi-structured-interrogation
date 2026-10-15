@@ -498,7 +498,7 @@ describe("label propagation — full remap (h2.52: config-generated display stri
     const gate = gateWarningLine(3);
     expect(gate).toBe("⚠ 3 foundational unanswered — later answers may shift");
     expect(gate).not.toMatch(/ctrl|alt\+|super\+|shift\+|tab|\besc\b|\benter\b/i);
-    // Batch-note title names no keys (the ctrl+shift+m binding is never spelled out).
+    // Batch-note title names no keys (the batch-note binding is never spelled out).
     const note = renderNoteHeader(theme, 80);
     expect(note).toContain("NOTE — ships with next submission");
     expect(note).not.toMatch(/ctrl|alt\+|super\+|shift\+|tab/i);

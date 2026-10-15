@@ -465,7 +465,7 @@ describe("ripple confirm — text stage-1 gate", () => {
   });
 
   test("test_editor_exit_gate_defers_save_and_completes_on_confirm_enter", () => {
-    // ESC-002: the editor-exit gestures (ctrl+t toggle / double-esc) run
+    // ESC-002: the editor-exit gestures (direct focus entry + double-esc) run
     // the SAME FR-18 text gate — a back-out's deferred commit saves +
     // blurs like any text save (P1.M2.T4.S1 removed the arm differentiator).
     const state = seedTextChain();

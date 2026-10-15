@@ -417,7 +417,7 @@ describe("view switching (built-in S1 bindings)", () => {
     panel.handleInput(ESCAPE);
     expect(panel.view).toBe("short");
 
-    // Sticky path: deep → overview → ctrl+l restores deep (sticky).
+    // Sticky path: deep → overview → `o` restores deep (sticky).
     panel.handleInput(CTRL_D);
     expect(panel.view).toBe("deep");
     panel.handleInput(CTRL_L);
@@ -477,7 +477,7 @@ describe("view switching (built-in S1 bindings)", () => {
       panelArgsFor(state, { editorFactory: () => fakePanelEditor() }),
     );
 
-    // Elaboration default (ctrl+t path): editor focused, NO write-in label.
+    // Elaboration default (`t` path): editor focused, NO write-in label.
     panel.focusTextField();
     expect(panel.textDuty).toBe("elaboration");
     expect(panel.render(80).some((l) => l.includes("OTHER — this text is the answer"))).toBe(false);
@@ -1620,7 +1620,7 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     const panel = new InterrogationPanel(panelArgsFor(state));
 
     // WRITEIN-001: the ✎ Other row now opens the WRITE-IN editor (accept →
-    // commit duty), so the elaboration editor opens via ctrl+t's focus path.
+    // commit duty), so the elaboration editor opens via `t`'s focus path.
     panel.focusTextField();
     panel.textField.setText("because migration risk"); // (fake editor: no-op handleInput)
     panel.handleInput("\r"); // stage-1 save + blur (choice → no arm)
@@ -2153,7 +2153,8 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
 
   test("test_esc_exit_window_zero_disables_double_esc_in_note_mode", () => {
     // escExitWindowMs = 0: every esc forwards to the editor — the pair
-    // never fires (close via ctrl+shift+m re-press or enter instead).
+    // never fires (re-press is gone and double-esc is disabled: close via
+    // enter instead).
     const state = createInterrogationState("goal");
     state.upsertQuestion(choiceQ("q1"));
     const panel = new InterrogationPanel(
@@ -2190,7 +2191,8 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
   // ---------------------------------------- BUG-002 gesture 3: swap symmetry
 
   test("test_note_mode_swap_preserves_in_flight_question_draft", () => {
-    // Contract (a): ctrl+shift+m while a question answer is in flight must
+    // Contract (a): note-mode entry (bare `m` / enterNoteMode) while a
+    // question answer is in flight must
     // STAGE the question buffer (slot + DraftStore seam) before the note
     // seed overwrites the editor — the forward half of the symmetric swap.
     const state = createInterrogationState("goal");
@@ -2456,7 +2458,7 @@ describe("deep view (P1.M5.T1.S1)", () => {
     expect(panel.view).toBe("short");
     expect(panel.deepSticky).toBe(true); // sticky preserved for the session
     expect(panel.state.getQuestion("q1")?.status).toBe("open"); // nothing destroyed
-    // ctrl+l overview round-trip restores deep (deepSticky).
+    // `o` overview round-trip restores deep (deepSticky).
     panel.handleInput(CTRL_L);
     panel.handleInput(CTRL_L);
     expect(panel.view).toBe("deep");
@@ -2709,9 +2711,9 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
   });
 });
 
-// ------------------------------------------------------------------ ctrl+t duty
+// ------------------------------------------------- elaborate (`t`) duty
 
-describe("ctrl+t duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
+describe("elaborate duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
   const CTRL_T = "t"; // DEFAULT_CONFIG.keys.elaborate (BAREKEYS-001 bare default)
 
   /** Panel with the stateful fake composed editor (label/enter assertions). */

@@ -256,7 +256,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S1",
                   "title": "Flip residual scripted suites to the new keymap contract",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1",

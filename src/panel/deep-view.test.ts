@@ -860,7 +860,7 @@ describe("acceptFromDeep", () => {
 
   test("test_accept_without_sticky_returns_to_short", () => {
     // Defensive seam contract: deepSticky — not view==="deep" — decides the
-    // landing. Only real entry (ctrl+d) sets it; a direct setView("deep")
+    // landing. Only real entry (`d`) sets it; a direct setView("deep")
     // without it drops back to short after an accept (mirrors onOverview
     // and esc-from-overview). Unreachable via the key router.
     const panel = setup([choiceQ("q1"), choiceQ("q2")]);

@@ -11,11 +11,14 @@
  *      rebinding a default onto one of these fails CI here.
  *
  *      Deliberately NOT in the avoided list: pi's own panel-scoped built-ins
- *      (`ctrl+d/l/t/s/g`, `tab`, `shift+tab`). The panel reuses them ON
- *      PURPOSE — its `custom()` component intercepts input before pi's
- *      binding layer sees it (intercept-before-forward, src/panel/keys.ts),
- *      so the built-ins are shadowed only while the panel is open. Those are
- *      verified live by the shell script, not forbidden here.
+ *      (`ctrl+d/l/t/s/g`, `tab`, `shift+tab`). The panel intercepts them ON
+ *      PURPOSE while open — its `custom()` component intercepts input before
+ *      pi's binding layer sees it (intercept-before-forward,
+ *      src/panel/keys.ts), so the built-ins are shadowed only while the panel
+ *      is open. Post-BAREKEYS-001 the defaults reuse only `ctrl+s`/`ctrl+g`
+ *      of these (plus `tab`/`shift+tab`); the bare letters (`d o t m e`) claim
+ *      nothing pi owns. Those are verified live by the shell script, not
+ *      forbidden here.
  *
  *   2. Every default must be a syntactically valid accelerator — pi's
  *      lowercase "modifier+…+base" grammar (see `parseAccelerator` in

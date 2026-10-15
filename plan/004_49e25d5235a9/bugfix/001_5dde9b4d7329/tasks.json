@@ -165,14 +165,14 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "BUG-002 — ctrl+g external editor live in note duty (atomic gate + routing fix)",
-          "status": "Complete",
+          "status": "Ready",
           "description": "Make ctrl+g (configurable externalEditor chord, default \\u0007) open $VISUAL/$EDITOR from ALL three editor duties per the ui-spec hotkey table ('editor focus (any duty)', spec/ui-spec.md:84) — write-in and elaboration already work; note duty is gated off at keys.ts:566 and the apply side of openExternalEditor is hardwired to the question-draft path. Fork-first ordering keeps the changeset atomic in the safe direction: gate-only widening would corrupt the current question's draft with note text (research §(f) risk 2).",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Atomic note-duty fix: apply-side routing fork, then router gate widening, then E2E",
-              "status": "Complete",
+              "status": "Ready",
               "description": "One task, three sequenced subtasks: (1) fork openExternalEditor's completed-text routing on bufferOwner === 'note' (dormant until the gate widens); (2) widen the keys.ts:566 gate to the canonical editorFocused flag + sync its three stale comments + flip the router tests; (3) end-to-end AC round-trip through the real key router and a faked spawn.",
               "subtasks": [
                 {
@@ -209,7 +209,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S3",
                   "title": "End-to-end AC: note-duty ctrl+g round-trip (keymap-ac pattern)",
-                  "status": "Complete",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S2"
@@ -236,14 +236,14 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Purge the two live stale caps references",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Research (bug002-003 report §(e)) found EXACTLY two live stale references; all other 'cap' hits are legit ruling citations, pinning tests, render budgets, or frozen plan/ archives. Zero runtime surface — comment/doc edits only; suite must stay green untouched.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "README.md:113-116 — drop the 'capped at 400 characters' clause",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-ctrlg-and-stale-caps.md §(e) stale item 1 — README.md:113-116 (Model behavior note) claims the goal 'is capped at 400 characters and truncated with a warning beyond that', contradicting CAPS-OUT-001 (owner ruling 2026-10-08: spec/decisions.md:107, spec/tool-protocol.md:68-74 'No caps', product-requirements.md:53 FR-23), the implementation (tool.ts:201-204 stores goals verbatim; pinned by tool.test.ts:201/208), and README's OWN Configuration section (:130, :153-154).\n2. INPUT: The existing Model-behavior-note bullet; the correct no-caps wording already present in README's Configuration section (reuse its phrasing/CAPS-OUT-001 citation for consistency).\n3. LOGIC: Edit README.md:113-116 to drop the 'capped at 400 characters and truncated with a warning beyond that' clause, replacing it with verbatim-storage wording citing CAPS-OUT-001 (e.g. '— it is stored verbatim, with no length limits (CAPS-OUT-001) —'). Keep the surrounding sentences (goal may be updated on any upsert; post-completion upsert starts a fresh interrogation) untouched. Verify: grep 'capped at 400' across README.md/src/spec returns zero live hits (plan/ archives excepted).\n4. OUTPUT: README internally consistent on no-caps; the only remaining live stale reference is src/state.ts:327 (P1.M3.T1.S2).\n5. DOCS: Mode A — this subtask IS the README fix.",
@@ -257,7 +257,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S2",
                   "title": "src/state.ts:324-328 setGoal JSDoc — rewrite the stale 'enforced at the tool call-site' sentence",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-ctrlg-and-stale-caps.md §(e) stale item 2 (+ borderline item 3) — src/state.ts:324-328 setGoal JSDoc claims 'the 400-char cap (BUG-009) is enforced at the tool call-site (P1.M1.T1.S2)'; no such call-site enforcement exists (tool.ts:201-204 stores verbatim). tool.ts:201 carries a historical '(FR-30; BUG-001/BUG-009)' attribution immediately followed by the CORRECT no-caps statement — borderline, safe to leave but droppable for consistency.\n2. INPUT: The setGoal JSDoc block; FR-23 / CAPS-OUT-001 citations.\n3. LOGIC: Rewrite the stale sentence in src/state.ts:324-328 to state that no caps/validation exist anywhere — CAPS-OUT-001 deleted the caps engine; goals of any length are stored verbatim (FR-23). Optionally drop the '(BUG-009)' attribution in tool.ts:201 for consistency (research judges it historical, not a live claim; if kept it must not imply enforcement). Comment/JSDoc edits only — zero runtime change; run npm test to confirm nothing depended on the comment.\n4. OUTPUT: Zero live stale caps references repo-wide: grep '400-char cap|capped at 400|BUG-009' hits only plan/ archives and legit historical ruling texts.\n5. DOCS: Mode A — this subtask IS the comment fix (JSDoc on the exported state seam).",
@@ -280,7 +280,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "README.md changeset sweep — hotkey context rows, editor/AC-2b wording, no-caps coherence",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

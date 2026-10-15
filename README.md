@@ -111,8 +111,8 @@ current state with `{}` — full question content, so edits survive
 compaction — receives your submissions as delta messages, and gets one full
 completion record when the interrogation completes. Between submissions it
 reconciles contradictions and re-asks only the questions materially affected. The goal
-statement may be updated on any upsert — it is capped at 400 characters and
-truncated with a warning beyond that — and an upsert sent after completion
+statement may be updated on any upsert — it is stored verbatim, with no length
+limits (CAPS-OUT-001) — and an upsert sent after completion
 starts a fresh interrogation (the epoch restarts at 1; its first upsert may
 echo the previous epoch — accepted) that completes normally. You answer in
 the panel; you never invoke the tool.

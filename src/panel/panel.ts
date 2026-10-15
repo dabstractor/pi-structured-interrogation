@@ -1307,7 +1307,12 @@ export class InterrogationPanel implements Component {
    * $VISUAL → $EDITOR → nano (win32: notepad — see external-editor.ts)
    * with inherited stdio, and ONLY on a clean exit (code 0) replace the
    * field text (BOM-stripped, one trailing newline dropped) and sync the
-   * draft slot + DraftStore seam.
+   * draft slot + DraftStore seam. The apply is DUTY-ROUTED on
+   * `bufferOwner`: question duty (write-in/elaboration) syncs the h2.45
+   * draft slot + DraftStore draft seam and re-scopes the buffer to the
+   * question; NOTE duty (`bufferOwner === "note"`) writes the
+   * exitNoteMode-mirroring note pair (`batchNote` + `setNote`) and keeps
+   * the buffer note-scoped (BUG-002 — note text is never an answer draft).
    *
    * The `finally` ALWAYS restarts the TUI and repaints — a failed readback
    * or a rejected editor promise must never leave the terminal dead or the
@@ -1329,12 +1334,24 @@ export class InterrogationPanel implements Component {
         content: draft,
       });
       if (result.status === "complete") {
-        const id = this.currentId;
         this.textField.setText(result.content);
-        if (id !== undefined) {
-          this.draftSlots.set(id, { value: id, text: result.content });
-          this.drafts?.setDraft(id, result.content);
-          this.bufferOwner = id; // EXPLAIN-002: buffer now belongs to this question
+        if (this.bufferOwner === "note") {
+          // BUG-002 note duty: the buffer held the NOTE — route the edited
+          // text to the note write-through pair (mirrors exitNoteMode
+          // exactly: R4 persistence + the submit-read pair
+          // drafts.getNote() || batchNote). NEVER the question slot (note
+          // text is not an answer draft), and bufferOwner STAYS "note"
+          // (EXPLAIN-002: note duty suspends question scoping until
+          // exitNoteMode re-scopes).
+          this.batchNote = result.content;
+          this.drafts?.setNote(result.content);
+        } else {
+          const id = this.currentId;
+          if (id !== undefined) {
+            this.draftSlots.set(id, { value: id, text: result.content });
+            this.drafts?.setDraft(id, result.content);
+            this.bufferOwner = id; // EXPLAIN-002: buffer now belongs to this question
+          }
         }
         this.invalidate();
       }

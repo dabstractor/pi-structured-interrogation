@@ -1934,6 +1934,32 @@ describe("openExternalEditor — ctrl+g handoff (P1.M4.T1.S3)", () => {
     expect(h.panel.focus).toBe("text");
   });
 
+  test("test_note_duty_routes_edited_text_to_note_never_question_slot (BUG-002)", async () => {
+    const h = makeEditorHarness();
+    h.panel.enterNoteMode(); // focus "note", bufferOwner "note", seeded from getNote() → ""
+    h.editor.setText("note draft"); // AFTER enterNoteMode — its seed would overwrite
+    h.editor.setText.mockClear(); // the seed call above is not the panel's apply
+    editMock.mockResolvedValue({ status: "complete", content: "edited note" });
+
+    await h.panel.openExternalEditor();
+
+    // Note write-through pair (exitNoteMode mirror: R4 persistence + the
+    // submit-read pair drafts.getNote() || batchNote):
+    expect(h.drafts.setNote).toHaveBeenCalledWith("edited note");
+    expect((h.panel as unknown as { batchNote: string }).batchNote).toBe("edited note");
+    // NEVER the question slot — note text is not an answer draft:
+    expect(h.drafts.setDraft).not.toHaveBeenCalled();
+    expect(draftSlotsOf(h.panel).has("q1")).toBe(false);
+    // Duty state intact — bufferOwner stays note-scoped (EXPLAIN-002),
+    // focus follows:
+    expect((h.panel as unknown as { bufferOwner: string }).bufferOwner).toBe("note");
+    expect(h.panel.focus).toBe("note");
+    // Field replaced (h2.31) + duty-blind envelope unchanged:
+    expect(h.editor.setText).toHaveBeenCalledWith("edited note");
+    expect(h.tui.stop).toHaveBeenCalledTimes(1);
+    expect(h.tui.start).toHaveBeenCalledTimes(1);
+  });
+
   test("test_failed_edit_leaves_field_untouched_but_still_resumes_tui", async () => {
     const h = makeEditorHarness();
     h.editor.setText("draft text");

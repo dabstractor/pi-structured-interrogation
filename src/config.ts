@@ -202,7 +202,15 @@ function coerceKeys(raw: unknown, userKeys?: unknown): Record<KeyAction, string>
   const user = isPlainObject(userKeys) ? userKeys : {};
   const elaborateExplicit = typeof user.elaborate === "string" && user.elaborate.trim() !== "";
   const legacyValid = typeof src.focusText === "string" && src.focusText.trim() !== "";
-  const effSrc = !elaborateExplicit && legacyValid ? { ...src, elaborate: src.focusText } : src;
+  // Legacy alias (SIDECHAT-001 rename): a pre-rename keys.discuss binding
+  // silently feeds keys.chat when the user has not set the new name; never
+  // logged. Same presence-based contract as the focusText alias above — an
+  // explicit valid keys.chat ALWAYS wins, even when equal to the default.
+  const chatExplicit = typeof user.chat === "string" && user.chat.trim() !== "";
+  const discussValid = typeof src.discuss === "string" && src.discuss.trim() !== "";
+  let effSrc = src;
+  if (!elaborateExplicit && legacyValid) effSrc = { ...effSrc, elaborate: src.focusText };
+  if (!chatExplicit && discussValid) effSrc = { ...effSrc, chat: src.discuss };
   const out = {} as Record<KeyAction, string>;
   for (const action of KEY_ACTIONS) {
     const v = effSrc[action];

@@ -253,3 +253,91 @@ describe("focusText→elaborate legacy alias (BAREKEYS-001)", () => {
     expect(cfg.keys.submit).toBe("ctrl+enter"); // the project override still applies
   });
 });
+
+// ------------------ discuss→chat legacy alias (SIDECHAT-001 compat)
+
+describe("discuss→chat legacy alias (SIDECHAT-001)", () => {
+  test("test_alias_legacy_discuss_feeds_chat_when_new_name_absent", async () => {
+    const g = await writeSettings(JSON.stringify({ interrogator: { keys: { discuss: "ctrl+shift+d" } } }));
+    const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+    expect(cfg.keys.chat).toBe("ctrl+shift+d");
+    expect(resolveKeyLabels(cfg).chat).toBe("Ctrl+Shift+D"); // footer label inherits
+    // The raw legacy name never leaks into the resolved key surface.
+    expect((cfg.keys as Record<string, unknown>).discuss).toBeUndefined();
+  });
+
+  test("test_alias_explicit_chat_wins_over_discuss", async () => {
+    const g = await writeSettings(
+      JSON.stringify({ interrogator: { keys: { discuss: "ctrl+shift+d", chat: "ctrl+k" } } }),
+    );
+    const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+    expect(cfg.keys.chat).toBe("ctrl+k");
+    expect(resolveKeyLabels(cfg).chat).toBe("Ctrl+K");
+  });
+
+  test("test_alias_explicit_chat_equal_to_default_still_wins", async () => {
+    // PRESENCE-based (the whole reason userKeys is threaded): a user rebind
+    // of chat to exactly the default "e" is still an explicit new-name
+    // binding and beats a stale legacy discuss in the same settings —
+    // presence is read from the raw pre-DEFAULT-merge user map, where
+    // absence is observable.
+    const g = await writeSettings(
+      JSON.stringify({
+        interrogator: { keys: { discuss: "ctrl+shift+d", chat: DEFAULT_CONFIG.keys.chat } },
+      }),
+    );
+    const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+    expect(cfg.keys.chat).toBe(DEFAULT_CONFIG.keys.chat);
+    expect(resolveKeyLabels(cfg).chat).toBe(resolveKeyLabels(DEFAULT_CONFIG).chat);
+  });
+
+  test("test_alias_invalid_discuss_ignored_yields_default_chat", async () => {
+    // A blank/invalid legacy binding contributes nothing → the default.
+    for (const bad of ["", "   ", 42, null]) {
+      const g = await writeSettings(JSON.stringify({ interrogator: { keys: { discuss: bad } } }));
+      const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+      expect(cfg.keys.chat, `discuss=${JSON.stringify(bad)}`).toBe(DEFAULT_CONFIG.keys.chat);
+    }
+  });
+
+  test("test_chat_alias_is_silent_no_console_output", async () => {
+    // Silence is contractual (tolerant-coercion posture) — zero warns/logs.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const g = await writeSettings(
+        JSON.stringify({ interrogator: { keys: { discuss: "ctrl+shift+d" } } }),
+      );
+      await loadConfigFrom({ global: g, project: await missingPath() });
+      expect(warn).not.toHaveBeenCalled();
+      expect(info).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      info.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  test("test_chat_alias_applies_after_global_project_deep_merge", async () => {
+    // Merge-level: the alias runs on the DEEP-MERGED raw keys map, so a
+    // global legacy binding survives a project file that touches other keys.
+    const g = await writeSettings(JSON.stringify({ interrogator: { keys: { discuss: "ctrl+shift+d" } } }));
+    const p = await writeSettings(JSON.stringify({ interrogator: { keys: { submit: "ctrl+enter" } } }));
+    const cfg = await loadConfigFrom({ global: g, project: p });
+    expect(cfg.keys.chat).toBe("ctrl+shift+d");
+    expect(cfg.keys.submit).toBe("ctrl+enter"); // the project override still applies
+  });
+
+  test("test_both_aliases_compose_independently", async () => {
+    // The two aliases are INDEPENDENT per action: one settings file can
+    // carry both legacy bindings and each feeds its own new name.
+    const g = await writeSettings(
+      JSON.stringify({ interrogator: { keys: { focusText: "ctrl+j", discuss: "ctrl+shift+d" } } }),
+    );
+    const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+    expect(cfg.keys.elaborate).toBe("ctrl+j");
+    expect(cfg.keys.chat).toBe("ctrl+shift+d");
+  });
+});

@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Rename keys.discuss to keys.chat across config and consumers, with silent compat alias",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Behavior-preserving rename of the key action end-to-end (default stays \"e\", TIER-2 bare semantics unchanged), plus the silent deprecated alias so settings files still carrying keys.discuss keep working. The discuss-in-chat BEHAVIOR stays live through this task (the renamed onChat seam still calls discussInChat) until Milestone M2 swaps the handler — M1 must stay green mid-flight.",
               "subtasks": [
                 {
@@ -40,7 +40,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Add the silent discuss→chat compat alias in coerceKeys",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

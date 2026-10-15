@@ -1,0 +1,243 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Bugfix changeset 001 — restore WRITEIN-002 re-bind, activate ctrl+g in note duty, purge stale caps claims",
+      "status": "Ready",
+      "description": "Three verified bugs from the adversarial post-P1 probe pass (PRD h2.0, baseline green at HEAD 16d9f65: 47 test files / 1321 tests, tsc clean). BUG-001 (Major): the WRITEIN-002 supersede re-bind contract (spec/ui-spec.md:37, product-requirements.md:84 AC-2b, README:225-228+:279) is structurally unreachable because consumeCommittedBuffer (panel.ts:982-991, the VAL-002 fix) deletes the write-in's carrier text at commit and acceptOptionIndex (actions.ts:268-321) re-stages nothing — adjudicated RESTORE (see architecture/overview-and-adjudication.md). BUG-002 (Minor): ctrl+g dead in note duty — keys.ts:566 gates the externalEditor intercept to focus===\"text\" only, and openExternalEditor (panel.ts:1306-1348) would misroute note text if the gate alone were widened; atomic fork-first fix. BUG-003 (Minor): two live stale 400-char-goal-cap references (README.md:113-116, src/state.ts:324-328) contradicting CAPS-OUT-001. Fixes land with tests (TDD implied per subtask), per-file docs ride with the work (Mode A), and a final Mode-B task sweeps changeset-level docs.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "BUG-001 — WRITEIN-002 supersede re-bind restored end-to-end (adjudicated: restore)",
+          "status": "Planned",
+          "description": "Restore the promised contract: a committed write-in superseded by an option accept keeps its text, re-staged as a role-less draft at supersede time (never over a user-held slot), re-binding as answer.text at the next submit — via a guarded stageSupersededWriteIn helper wired into BOTH option-accept apply sites (direct + FR-18 modal), with the manufactured test converted into the real-flow regression, guard-matrix scenario coverage, VAL-002 pins untouched, and the adjudication recorded in spec/decisions.md.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Record the WRITEIN-002 restore adjudication in spec/decisions.md",
+              "status": "Planned",
+              "description": "decisions.md is the canonical owner-ruling ledger (conventions-and-testing.md §(c)); the PRD (h2.5) demands owner-level adjudication of restore-vs-amend. This plan adjudicates RESTORE — record it in the house ruling format so implementers, validators, and future readers have the authoritative disposition.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Append dated ruling section 'WRITEIN-002 supersede re-bind restored (BUG-001)'",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.2", "h2.2/h3.0", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/overview-and-adjudication.md (the adjudication + 5-point rationale) and architecture/bug001-writein-supersede.md §(c) VAL-002 history + §(b) verbatim contract quotes. House ruling format: dated section header '## YYYY-MM-DD interrogation — short topic (ID)' + '- ID — prose' bullets with verbatim quotes, numbered sub-rulings, supersedes/amends chains, PRD + test cross-refs; precedent = the 2026-10-05 ANSWER-PIN-001 amendment (itself a BUG-001-class spec-vs-implementation adjudication).\n2. INPUT: PRD sections h2.0/h2.2/h3.0/h2.5; contract texts already collected in bug001-writein-supersede.md §(b) (spec/ui-spec.md:37, spec/product-requirements.md:84, README.md:225-228 + :279).\n3. LOGIC: Append one new dated section to spec/decisions.md with bullet '- WRITEIN-002-RESTORE-001 —' covering: (1) the three contract texts promising the re-bind; (2) VAL-002 history — consume-at-commit correctly killed machine write-through but also destroyed the re-bind's carrier text with no doc amendment; (3) the ruling: restore via re-stage-at-supersede (stageSupersededWriteIn) guarded by never-over-a-user-held-draft; (4) VAL-002 protections explicitly UNCHANGED (consume-at-commit stays; machine write-throughs never become drafts); (5) the rejected alternative (amend spec/README/test to bless the drop) with rationale; (6) cross-refs: spec/ui-spec.md:37, spec/product-requirements.md AC-2b, src/panel/actions.ts (stageSupersededWriteIn), src/panel/actions.test.ts (supersede regression test). Do NOT edit ui-spec.md:37 or product-requirements.md:84 — they are already correct and become true again once P1.M1.T2/T3 land.\n4. OUTPUT: The new decisions.md section that P1.M1.T2/T3/T4 implementers cite in code comments and test headers.\n5. DOCS: Mode A — this subtask IS the documentation change (decisions.md ledger entry); no other doc edits."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "stageSupersededWriteIn helper with the four re-bind guards",
+              "status": "Planned",
+              "description": "New exported helper in src/panel/actions.ts implementing the PRD's recommended mechanism: when an option accept supersedes a custom:true answer and no user-held draft exists, stage the old answer.value into the slot so reconcileDraftsForSubmit attaches it as answer.text at the next submit.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "Implement stageSupersededWriteIn + unit tests for each guard",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.0", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-writein-supersede.md §(d) has the full helper design incl. exact code sketch + guard rationale; §(a) documents why re-bind is unreachable today (consumeCommittedBuffer at panel.ts:982-991 deletes slot AND store entry at commit, so draftTextFor returns undefined — exactly the post-consume state).\n2. INPUT: Existing public seams only: panel.draftTextFor(questionId) (panel.ts:1208-1210) and panel.commitTextDraft(questionId, text) (panel.ts:903-926 — the sanctioned staging primitive; its EXPLAIN-003 cursor re-seed is guarded by cursorIndex >= options.length so it cannot fire from an accept gesture; draftSlots is private, do not reach around it). Types: QuestionAnswer from the state module.\n3. LOGIC: Add exported function stageSupersededWriteIn(panel: InterrogationPanel, questionId: string, superseded: QuestionAnswer | undefined, newValue: string): void in src/panel/actions.ts with four guards, in order: (1) return unless superseded?.custom === true — only write-ins re-bind (ANSWER-PIN-001's inert branch at actions.ts:296 requires custom !== true, so every apply behind a custom answer is a genuine supersede; no extra value-change check needed); (2) return on empty/whitespace superseded.value; (3) return when superseded.value === newValue (kind-flip — never ship 'Alpha — Alpha'); (4) return when panel.draftTextFor(questionId) !== undefined — any user-held slot wins, INCLUDING a deliberate delete-to-empty '' (stricter R4 reading; do NOT use a trim-empty check). Otherwise panel.commitTextDraft(questionId, superseded.value). TDD: unit tests per guard + happy path using the house fixtures seed()/choiceQ() (actions.test.ts:64,82) — write failing tests first.\n4. OUTPUT: The exported helper, consumed by P1.M1.T3.S1 (acceptOptionIndex) and P1.M1.T3.S2 (applyConfirmedEdit). No behavior change yet (no call sites).\n5. DOCS: Mode A — JSDoc on stageSupersededWriteIn explaining the WRITEIN-002 re-bind, the VAL-002 interplay (consume-at-commit stays; the slot is re-created ONLY at supersede time, never over a user draft), citing the decisions.md ruling from P1.M1.T1.S1."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T3",
+              "title": "Wire the re-stage into both option-accept apply sites",
+              "status": "Planned",
+              "description": "The FR-18 seam splits option accepts into two apply paths — acceptOptionIndex (direct/zero-victim) and applyConfirmedEdit (modal, victims>0). Missing either leaves the bug alive on that path; wire both, and convert the manufactured test into the real-flow regression.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S1",
+                  "title": "acceptOptionIndex direct path + rewrite the manufactured test at actions.test.ts:2213",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T2.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-writein-supersede.md §(a) (acceptOptionIndex trace, actions.ts:268-321) + §(d) touch point 1 + §(e) test impact. The recorded answer is already captured at actions.ts:294 ('const recorded = q.answer;') for the ANSWER-PIN-001 inert check.\n2. INPUT: stageSupersededWriteIn from P1.M1.T2.S1; the existing 'recorded' capture at actions.ts:294.\n3. LOGIC: In acceptOptionIndex (src/panel/actions.ts:268-321), immediately after 'panel.state.applyAnswer(q.id, proposed)' (~line 313) insert 'stageSupersededWriteIn(panel, q.id, recorded, proposed.value);' BEFORE evaluateDependsOn/advanceAfterAccept (matches the file's commit-tail conventions; ordering also guarantees staging precedes maybeAutoSubmit). Then fix the manufactured test: src/panel/actions.test.ts:2213 test_submit_superseded_writein_rebinds_as_elaboration — DELETE line 2223 ('panel.commitTextDraft(\"q1\", \"my custom take\")' — it manually re-stages exactly what consumeCommittedBuffer deleted, a state no real gesture can produce). The existing assertions (:2230 slot kept; :2236-2242 submit ships 'q1: Alpha — my custom take' with answer.text === 'my custom take') must then pass through the fix alone: real commitWriteIn (helper at actions.test.ts:2161-2167 — real accept + real enter, i.e. the real consume) → real option accept → helper stages → submit attaches. TDD: flip the test first (red), then wire (green). Mock nothing — this is the real-modules scenario per house AUTOMATION-POLICY.\n4. OUTPUT: The zero-victim/direct supersede path restores WRITEIN-002; the regression test now guards the real flow that P1.M1.T4 scenario tests build on.\n5. DOCS: Mode A — extend the stale design comment at actions.ts:538 (reconcileDraftsForSubmit: 'slot text was KEPT (R4)' was half-true since VAL-002): name stageSupersededWriteIn as the KEPT-text mechanism so the next reader doesn't re-derive this bug."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S2",
+                  "title": "applyConfirmedEdit modal path (FR-18 victims>0) + modal supersede test",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T2.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-writein-supersede.md §(d) touch point 2 — the FR-18 modal defers the same apply via the confirmed-choice stash (ripple-confirm.ts:123-136) and bypasses acceptOptionIndex's body entirely; missing this site leaves the bug alive on every victims>0 supersede (research §(f) risk 1). ripple-confirm.ts already imports from ./actions.js (nextUnanswered) so importing the helper adds no cycle.\n2. INPUT: stageSupersededWriteIn from P1.M1.T2.S1; applyConfirmedEdit in src/panel/ripple-confirm.ts:142-166; cm.questionId / cm.proposed on the stash.\n3. LOGIC: In applyConfirmedEdit, capture 'const recorded = panel.state.getQuestion(cm.questionId)?.answer;' before the apply (~:158), and call 'stageSupersededWriteIn(panel, cm.questionId, recorded, cm.proposed.value);' right after it. TDD: new modal-path test per §(e) item 5 — commit a write-in on q1 that has a dependsOn victim answered, supersede via option (victims>0 → modal, 'veto' outcome), then enter to apply → slot staged; submit attaches the elaboration. Use the typed seamMock ripple fixtures (actions.test.ts:97 precedent).\n4. OUTPUT: BOTH option-accept apply sites (direct + modal) stage the superseded write-in; no coverage gap remains between them.\n5. DOCS: Mode A — one-line comment at the call site naming BUG-001/WRITEIN-002 and citing the decisions.md ruling (P1.M1.T1.S1); no other doc surface."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T4",
+              "title": "Stabilize edge-contract coverage for the restored re-bind",
+              "status": "Planned",
+              "description": "Pin the restored behavior's edges so future changes cannot silently regress the guards or the auto-submit path (house precedent: plan/003's 'Stabilize cross-cutting suites' task). These are contract-guard stabilizers on top of the TDD tests that landed with P1.M1.T2/T3 — if any fails, the implementation is wrong, not the test.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T4.S1",
+                  "title": "User-held-draft-wins + deleted-to-empty-wins scenarios",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.0", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-writein-supersede.md §(d) guard 4 rationale + §(e) new tests 2-3. Guard 4's '!== undefined' semantics honor a user's deliberate delete-to-empty ('') as user-held (no re-bind) — stricter and more R4-faithful than a trim-empty check; these tests PIN that choice.\n2. INPUT: The wired direct path from P1.M1.T3.S1; house fixtures seed()/choiceQ() (actions.test.ts:64,82); commitWriteIn helper (actions.test.ts:2161-2167).\n3. LOGIC: Two scenario tests in src/panel/actions.test.ts: (a) user-held draft wins — commitWriteIn, then 't' + type 'my reasons' + enter (genuine elaboration gesture), then accept an option → submit attaches answer.text === 'my reasons'; the old write-in value is NOT staged over it. (b) deleted-to-empty wins — commitWriteIn, enter the editor, clear the buffer, enter (stages ''), then accept an option → NO answer.text (guard 4 reads '' and skips staging). Real modules, no mocks beyond the house seams.\n4. OUTPUT: Guard-4 behavior pinned in the suite for P1.M3.T2's coherence sweep.\n5. DOCS: none — no user-facing/config/API surface change (test header cites this task ID per house convention)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T4.S2",
+                  "title": "Kind-flip no-op + non-custom supersede no-op scenarios",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.0", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-writein-supersede.md §(d) guards 1 + 3 rationale + §(e) new tests 4 + 6.\n2. INPUT: The wired direct path from P1.M1.T3.S1.\n3. LOGIC: Two scenario tests in src/panel/actions.test.ts: (a) kind-flip no-op — a write-in whose text byte-equals option 'a''s value, then accept 'a' → panel.draftTextFor stays undefined, and the shipped submission line contains no 'a — a' duplication. (b) non-custom supersede stages nothing — option 'a' answered (elaboration already shipped as text), switch to option 'b' → no slot appears (draftTextFor === undefined). Pin both no-op expectations exactly.\n4. OUTPUT: The no-op edges of the re-bind pinned — protects against future over-eager staging regressions.\n5. DOCS: none — no surface change (test header cites task ID)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T4.S3",
+                  "title": "Auto-submit same-gesture variant (AUTOSUBMIT-003 rule b)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T3.S1"],
+                  "prd_selectors": ["h2.2", "h2.2/h3.0", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-writein-supersede.md §(f) risk 3 — on a complete answer set the supersede edit itself triggers maybeAutoSubmit, so the re-bound elaboration ships in the SAME gesture; the contract's 'attaches at the next submit' includes the auto path. This test documents that intended UX instead of leaving it undefined.\n2. INPUT: The wired direct path from P1.M1.T3.S1 (staging precedes evaluateDependsOn/advanceAfterAccept, hence precedes maybeAutoSubmit); existing AUTOSUBMIT-003 test patterns in actions.test.ts (last-answerable narrowing + transition auto-submit, mocked sendMessage seam).\n3. LOGIC: Scenario test in src/panel/actions.test.ts: complete answer set; supersede a committed write-in as the final answerable edit → the same-gesture auto-submission carries 'q1: <Option> — <write-in text>' with state answer.text set. Assert BOTH the delivered message content and state. If the assertion fails because auto-submit ordering bypassed staging, fix the call order in acceptOptionIndex — do not weaken the test.\n4. OUTPUT: Auto-path coverage of WRITEIN-002; closes research §(f) risk 3.\n5. DOCS: none — no surface change (test header cites task ID)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "BUG-002 — ctrl+g external editor live in note duty (atomic gate + routing fix)",
+          "status": "Planned",
+          "description": "Make ctrl+g (configurable externalEditor chord, default \\u0007) open $VISUAL/$EDITOR from ALL three editor duties per the ui-spec hotkey table ('editor focus (any duty)', spec/ui-spec.md:84) — write-in and elaboration already work; note duty is gated off at keys.ts:566 and the apply side of openExternalEditor is hardwired to the question-draft path. Fork-first ordering keeps the changeset atomic in the safe direction: gate-only widening would corrupt the current question's draft with note text (research §(f) risk 2).",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Atomic note-duty fix: apply-side routing fork, then router gate widening, then E2E",
+              "status": "Planned",
+              "description": "One task, three sequenced subtasks: (1) fork openExternalEditor's completed-text routing on bufferOwner === 'note' (dormant until the gate widens); (2) widen the keys.ts:566 gate to the canonical editorFocused flag + sync its three stale comments + flip the router tests; (3) end-to-end AC round-trip through the real key router and a faked spawn.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "openExternalEditor note-duty fork: completed text routes to batchNote/setNote, never the question slot",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.3", "h2.3/h3.1", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-ctrlg-and-stale-caps.md §(b) — openExternalEditor (src/panel/panel.ts:1306-1348) seeds duty-blind (CORRECT: textField.getText() holds the note in note mode because enterNoteMode seeds the same TextField, panel.ts:1265-1271) but the apply side is HARDWIRED to the question-draft path: draftSlots.set(currentId) + drafts?.setDraft(currentId) + bufferOwner = currentId at ~L1334-1337. Routing note text there would corrupt the current question's draft and re-scope bufferOwner away from 'note'.\n2. INPUT: The bufferOwner discriminator ('note' | question id | undefined — panel.ts:435; the same discriminator writeThroughCurrentDraft uses at panel.ts:948-951); exitNoteMode's write-through precedent (panel.ts:1286-1291: 'this.batchNote = text; this.drafts?.setNote(text);'); the note submit read path (actions.ts:703 'panel.drafts?.getNote() || panel.batchNote') and post-ship clear (actions.ts:763-764).\n3. LOGIC: Inside openExternalEditor's 'if (result.status === \"complete\")' block, after this.textField.setText(result.content), branch: if (this.bufferOwner === \"note\") { this.batchNote = result.content; this.drafts?.setNote(result.content); } — leave bufferOwner === 'note' and do NOT touch draftSlots; else keep the existing question-draft block verbatim. Everything duty-blind (re-entrancy guard, tui stop/start envelope, catch/finally, invalidate) stays as-is. TDD (house layer-2 pattern): note-mode sibling of the clean-exit test in panel.test.ts:1905-1996 using makeEditorHarness (panel.test.ts:1881-1903, vi.mock('../external-editor.js')) — panel.enterNoteMode(), run the mocked round-trip, assert drafts.setNote called with the edited text, batchNote updated, drafts.setDraft NOT called, bufferOwner stays 'note', focus stays 'note'. Write the failing test first; it is testable directly on openExternalEditor without the gate change.\n4. OUTPUT: openExternalEditor is duty-correct in note mode BEFORE the gate widens (behavior dormant — ctrl+g still gated to text focus until P1.M2.T1.S2 lands, so no user-visible change and no corruption window).\n5. DOCS: Mode A — extend openExternalEditor's JSDoc (panel.ts:1306-1319) to name both routing targets (question draft vs note write-through mirroring exitNoteMode)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S2",
+                  "title": "Widen keys.ts:566 gate to editorFocused (any duty) + sync three stale comments + flip router tests",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M2.T1.S1"],
+                  "prd_selectors": ["h2.3", "h2.3/h3.1", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-ctrlg-and-stale-caps.md §(a) — keys.ts:566 'if (panel.focus === \"text\" && matchesKey(data, b.externalEditor))' is the ONLY config intercept not keyed off the canonical editorFocused flag (keys.ts:425: 'panel.focus === \"text\" || panel.focus === \"note\"' — the ESC-002 editor-focus definition; ui-spec hotkey row spec/ui-spec.md:84 says 'editor focus (any duty)'). In note focus today, \\u0007 falls through to step-5 (return false, keys.ts:588) and panel.handleInput:831-834 forwards the byte into the TextField where it is harmlessly ignored — the feature is dead, and no test pins the wrong forwarding.\n2. INPUT: The note-correct apply side from P1.M2.T1.S1 (activating the gate is safe only after it lands); editorFocused already in scope at keys.ts:425; DEFAULT_DATA.externalEditor = \"\\u0007\" fixture (keys.test.ts:35); the bare tier-2 guard at keys.ts:567 (a bare remap must type in BOTH duties — unchanged).\n3. LOGIC: Change keys.ts:566 to 'if (editorFocused && matchesKey(data, b.externalEditor)) {'. Update the three stale text-focus-only comments to 'editor focus (any duty: write-in, elaboration, note)': module resolution-order JSDoc (keys.ts:96), seam interface comment (keys.ts:145), gate comment (keys.ts:562-564). Flip the router tests in keys.test.ts: rename test_externalEditor_only_in_text_focus (:349-357) to any-duty semantics — KEEP the options-focus negative leg (false + no dispatch), keep the text-focus positive leg, ADD a note-focus positive leg (makePanel({focus: \"note\"}) → consumed + onExternalEditor dispatched exactly once). TDD: add the note leg first (red), then widen (green).\n4. OUTPUT: ctrl+g (or a remapped chord) opens $EDITOR from note duty through the real router; bare remaps still type in both duties; options focus still ignores the chord.\n5. DOCS: Mode A — the keys.ts comment updates above ARE this seam's doc sync; spec/ui-spec.md:84 already reads 'editor focus (any duty)' so NO spec edit is needed (verified in research §(a))."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S3",
+                  "title": "End-to-end AC: note-duty ctrl+g round-trip (keymap-ac pattern)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M2.T1.S2"],
+                  "prd_selectors": ["h2.3", "h2.3/h3.1", "h2.4"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-ctrlg-and-stale-caps.md §(d) layer 3 — the keymap-ac.test.ts end-to-end pattern: vi.hoisted spawnMock + vi.mock('node:child_process') with REAL fs (temp-dir lifecycle exercised), vi.stubEnv('VISUAL'/'EDITOR') with empty string = unset, CTRL_G = \"\\u0007\" (keymap-ac.test.ts:96), AC-1 precedent at :313-341 including awaiting the fire-and-forget router action via spy.mock.results[0].value.\n2. INPUT: The widened gate from P1.M2.T1.S2 + the note-correct apply fork from P1.M2.T1.S1.\n3. LOGIC: New AC test in src/panel/keymap-ac.test.ts: enter note mode ('m' via panel.handleInput or panel.enterNoteMode()), vi.stubEnv EDITOR='fakeed', spawnWrites('edited note\\n'), panel.handleInput(CTRL_G) → true; await the round-trip; assert: spawn args (fakeed, answer.md, stdio inherit), the seeded content is the note draft, editor.setText('edited note'), drafts.setNote('edited note'), batchNote updated, drafts.setDraft NOT called for the current question, tui stop/start envelope, focus still 'note'. Add the coverage row to the header table (keymap-ac.test.ts:22-23) citing this task ID.\n4. OUTPUT: Full-stack acceptance proof for BUG-002 — the guard P1.M3.T2's README sweep checks against.\n5. DOCS: none beyond the test header coverage-table row (house convention; no user-facing/config surface change beyond what P1.M2.T1.S2 documented)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M3",
+          "title": "BUG-003 stale caps purge + changeset-level documentation sync",
+          "status": "Planned",
+          "description": "Delete the two live stale 400-char-goal-cap references (contradicting CAPS-OUT-001, the implementation, and the README's own Configuration section), then the final Mode-B task that sweeps changeset-level docs (README.md + spec coherence) across all three fixes — it runs last and depends on every implementing subtask.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M3.T1",
+              "title": "Purge the two live stale caps references",
+              "status": "Planned",
+              "description": "Research (bug002-003 report §(e)) found EXACTLY two live stale references; all other 'cap' hits are legit ruling citations, pinning tests, render budgets, or frozen plan/ archives. Zero runtime surface — comment/doc edits only; suite must stay green untouched.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S1",
+                  "title": "README.md:113-116 — drop the 'capped at 400 characters' clause",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.3", "h2.3/h3.2", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-ctrlg-and-stale-caps.md §(e) stale item 1 — README.md:113-116 (Model behavior note) claims the goal 'is capped at 400 characters and truncated with a warning beyond that', contradicting CAPS-OUT-001 (owner ruling 2026-10-08: spec/decisions.md:107, spec/tool-protocol.md:68-74 'No caps', product-requirements.md:53 FR-23), the implementation (tool.ts:201-204 stores goals verbatim; pinned by tool.test.ts:201/208), and README's OWN Configuration section (:130, :153-154).\n2. INPUT: The existing Model-behavior-note bullet; the correct no-caps wording already present in README's Configuration section (reuse its phrasing/CAPS-OUT-001 citation for consistency).\n3. LOGIC: Edit README.md:113-116 to drop the 'capped at 400 characters and truncated with a warning beyond that' clause, replacing it with verbatim-storage wording citing CAPS-OUT-001 (e.g. '— it is stored verbatim, with no length limits (CAPS-OUT-001) —'). Keep the surrounding sentences (goal may be updated on any upsert; post-completion upsert starts a fresh interrogation) untouched. Verify: grep 'capped at 400' across README.md/src/spec returns zero live hits (plan/ archives excepted).\n4. OUTPUT: README internally consistent on no-caps; the only remaining live stale reference is src/state.ts:327 (P1.M3.T1.S2).\n5. DOCS: Mode A — this subtask IS the README fix."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S2",
+                  "title": "src/state.ts:324-328 setGoal JSDoc — rewrite the stale 'enforced at the tool call-site' sentence",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.3", "h2.3/h3.2", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-ctrlg-and-stale-caps.md §(e) stale item 2 (+ borderline item 3) — src/state.ts:324-328 setGoal JSDoc claims 'the 400-char cap (BUG-009) is enforced at the tool call-site (P1.M1.T1.S2)'; no such call-site enforcement exists (tool.ts:201-204 stores verbatim). tool.ts:201 carries a historical '(FR-30; BUG-001/BUG-009)' attribution immediately followed by the CORRECT no-caps statement — borderline, safe to leave but droppable for consistency.\n2. INPUT: The setGoal JSDoc block; FR-23 / CAPS-OUT-001 citations.\n3. LOGIC: Rewrite the stale sentence in src/state.ts:324-328 to state that no caps/validation exist anywhere — CAPS-OUT-001 deleted the caps engine; goals of any length are stored verbatim (FR-23). Optionally drop the '(BUG-009)' attribution in tool.ts:201 for consistency (research judges it historical, not a live claim; if kept it must not imply enforcement). Comment/JSDoc edits only — zero runtime change; run npm test to confirm nothing depended on the comment.\n4. OUTPUT: Zero live stale caps references repo-wide: grep '400-char cap|capped at 400|BUG-009' hits only plan/ archives and legit historical ruling texts.\n5. DOCS: Mode A — this subtask IS the comment fix (JSDoc on the exported state seam)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T2",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Mode B final catch-all (SOW §5): the cross-cutting doc implications that only make sense once the whole changeset is in place — README.md's hotkey/editor/acceptance surfaces spanning all three fixes, and a spec coherence verification. Depends on EVERY implementing subtask; runs last.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S1",
+                  "title": "README.md changeset sweep — hotkey context rows, editor/AC-2b wording, no-caps coherence",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T2.S1", "P1.M1.T3.S1", "P1.M1.T3.S2", "P1.M1.T4.S1", "P1.M1.T4.S2", "P1.M1.T4.S3", "P1.M2.T1.S1", "P1.M2.T1.S2", "P1.M2.T1.S3", "P1.M3.T1.S1", "P1.M3.T1.S2"],
+                  "prd_selectors": ["h2.0", "h2.2", "h2.2/h3.0", "h2.3", "h2.3/h3.1", "h2.3/h3.2", "h2.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/conventions-and-testing.md §(d) — README sections (Install/Usage/Configuration/Keymap/Acceptance criteria/Limitations/Development/Project structure) and the house README-sweep-after-behavior-change pattern (commit 7aca309 precedent: code+tests wave, then doc sweep). architecture/bug001-writein-supersede.md §(b) quotes the README re-bind sentences (:225-228, :279) this changeset makes true by code.\n2. INPUT: The complete landed changeset — restored WRITEIN-002 re-bind (P1.M1.T2/T3/T4), ctrl+g any-duty (P1.M2.T1), no-caps coherence (P1.M3.T1).\n3. LOGIC: Sweep README.md for changeset coherence, minimal edits only (the README already promises this behavior; do not rewrite sections): (a) Keymap/hotkey surfaces — wherever the external editor is described, its context must read 'editor focus (any duty)' or equivalent (if any spot still says text-focus-only, fix that one line); (b) Editor section (:225-228) and Acceptance list AC-2b (:279) — the re-bind sentences are now true; verify wording still matches the restored semantics (the staged slot is a visible ordinary draft: ✎ marker lights, editable/clearable before submit; on a complete set it can ship with the same-gesture auto-submit per P1.M1.T4.S3) and clarify at most one line if the visible-✎ nuance is missing; (c) Model behavior note — confirm no residual caps claims (P1.M3.T1.S1 already fixed the main one).\n4. OUTPUT: README consistent with the shipped changeset; grep 'text focus' in hotkey contexts returns nothing stale.\n5. DOCS: Mode B — this subtask IS the README sync; runs after all implementing subtasks."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S2",
+                  "title": "Spec coherence verification — ui-spec WRITEIN-002/hotkey table, product-requirements AC-2b, decisions.md cross-refs",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T2.S1", "P1.M1.T3.S1", "P1.M1.T3.S2", "P1.M1.T4.S1", "P1.M1.T4.S2", "P1.M1.T4.S3", "P1.M2.T1.S1", "P1.M2.T1.S2", "P1.M2.T1.S3", "P1.M3.T1.S1", "P1.M3.T1.S2", "P1.M3.T2.S1"],
+                  "prd_selectors": ["h2.2/h3.0", "h2.3/h3.1", "h2.3/h3.2", "h2.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-writein-supersede.md §(b) — the contract texts at spec/ui-spec.md:37 (WRITEIN-002), spec/product-requirements.md:84 (AC-2b), spec/ui-spec.md:84 (hotkey row 'editor focus (any duty)') are ALREADY correct and become true again once P1.M1/P1.M2 land; the adjudication ledger entry landed via P1.M1.T1.S1. Expected outcome: verification with zero-to-minimal edits.\n2. INPUT: The complete landed changeset (all implementing subtasks) + P1.M3.T2.S1's README sweep.\n3. LOGIC: Verification sweep of spec/: (a) ui-spec.md:37 WRITEIN-002 and product-requirements.md:84 AC-2b — confirm the restored behavior satisfies them verbatim (staged-slot-kept semantics, attach-at-next-submit including auto-submit); (b) ui-spec hotkey table external-editor row — confirm 'editor focus (any duty)' matches the widened gate; (c) decisions.md — confirm the WRITEIN-002-RESTORE-001 ruling's cross-references (file paths, test names) are accurate post-implementation. Any mismatch found → minimal spec amendment citing the ruling; record the check outcome in the PRP notes even when no edit is needed.\n4. OUTPUT: Spec suite verified coherent with the changeset (or minimally amended); zero spec-vs-code contradictions remain for BUG-001/002/003.\n5. DOCS: Mode B — this subtask IS the spec-side sync; runs last."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+# Bug Fix Requirements
+
+## Overview
+Baseline: the full suite (47 files, 1321 tests) and tsc --noEmit are green; the P1 keymap-trilogy deliverables check out - README grep gate (ctrl+t|ctrl+d|ctrl+l|focusText|digit) returns zero, the focusText->elaborate silent alias works (presence-based, explicit-new-name-wins), two-tier intercept classification follows remaps (bare keys type from editor focus, chords intercept everywhere), hjkl are fixed shadowing aliases with view-aware dispatch and editor typing, digits are inert at panel level, and the keymap-conflict script exits 0. I then ran 35+ adversarial out-of-repo probes (vitest harness over the real modules) covering: auto-submit AUTOSUBMIT-003 narrowing (last-answerable with moot tails, non-last edits ship nothing, moot gate questions do not hold), gate hold, write-in flows (empty buffer, byte-identical re-commits on answered/closed/reasked, moot/withdrawn accept no-ops), draft preservation (buffer scoping via shift+tab, upsert-while-open rule-2 re-asks, ctrl+c write-through), deep-view ripple veto, withdrawn re-add, status-line counting with withdrawn-with-answer, no-caps verbatim storage (100 questions x 50k chars), withdrawOmitted edges, rev/epoch guards, completion->new-interrogation epoch reset with goal retention, external-editor duties, and footer render contracts. Three real findings survived: (1) MAJOR - the WRITEIN-002 'superseded write-in re-binds as elaboration' contract (ui-spec:37, AC-2b tail, README) is structurally unreachable in real flows because consumeCommittedBuffer (the VAL-002 fix from the plan/002 validation pass) deletes the draft at write-in commit - the user's committed-but-unsubmitted words vanish with no model-visible trace, and the shipped test only passes by manually staging a slot state the real flow cannot produce (spec/README/test vs implementation self-contradiction needing adjudication); (2) MINOR - ctrl+g is dead in note duty despite the hotkey table's 'editor focus (any duty)' context; (3) MINOR - a stale README sentence claims a 400-char goal cap that CAPS-OUT-001 deleted. Everything else probed behaved spec-faithfully, including several initially-suspicious edge cases (empty-batch withdrawOmitted no-op and reopen-with-no-state throw are documented agent-facing designs).
+
+
+## Critical Issues (Must Fix)
+Issues that prevent core functionality from working.
+
+None.
+
+
+## Major Issues (Should Fix)
+Issues that significantly impact user experience or functionality.
+
+### Issue 1: WRITEIN-002 supersede re-bind is unreachable in real flows: a committed write-in superseded by an option accept silently loses the user's words
+**Severity**: Major
+**ID**: BUG-001
+**Location**: src/panel/actions.ts:460 (consumeCommittedBuffer in writeInEnter), src/panel/actions.ts:299 (acceptOptionIndex proposed answer), src/panel/panel.ts:982-990 (consumeCommittedBuffer clears slot + store)
+
+**Description**:
+The spec (spec/ui-spec.md:37 WRITEIN-002), the PRD acceptance criterion 2b tail (spec/product-requirements.md:84: 'accepting a real option after a committed write-in keeps the slot's text as elaboration'), and the README (AC-2b summary: 'a real option after a committed write-in re-binds the slot as elaboration') all promise that when a user commits a write-in and later supersedes it by accepting a real option, the slot's text is KEPT and re-binds as answer.text at the next submit. The implementation cannot do this in any real user flow: writeInEnter calls consumeCommittedBuffer (src/panel/actions.ts:460 -> src/panel/panel.ts:982-990), which deletes the draftSlots entry AND clears the DraftStore at commit time (the VAL-002 fix from plan/002_949db554a811/bugfix/001_c0ff03282c6f/validation_report.md Issue B), and acceptOptionIndex (src/panel/actions.ts:299) applies a fresh {value, at} answer without preserving the superseded custom answer's text as elaboration. Net effect: in the common single-pass flow (write-in committed on q1 while q2 still open -> user reconsiders and accepts an option on q1 -> answers q2 -> transition auto-submit), the submission renders 'q1: Alpha' with answer.text undefined and the write-in words never reach the model on any surface (the diff card shows a first-answered entry, not a change, because no prior submission carried the write-in). The shipped test test_submit_superseded_writein_rebinds_as_elaboration (src/panel/actions.test.ts:2213) only passes because it manually re-stages the slot via panel.commitTextDraft('q1', 'my custom take') (line 2223) - a state the real flow structurally cannot produce. NOTE FOR ADJUDICATION: this behavior was deliberately introduced by the plan/002 validation pass (VAL-002 judged the PRD-mandated re-bind a 'stale elaboration' bug), but the spec, README, and test suite were never amended to match - the repo currently contradicts itself, and per the original PRD scope this is a violation of AC-2b and R4's 'never destroyed' contract.
+
+**Steps to Reproduce**:
+1. State with two open choice questions q1, q2 (options alpha/beta). 2. Open the panel; on q1 move cursor to the '✎ Other' row and press enter; type 'my own words'; press enter (write-in commits; consumeCommittedBuffer deletes q1's slot in both draftSlots and the DraftStore). 3. Verify state: q1.answer = {value:'my own words', custom:true}. 4. Navigate back to q1, cursor to alpha, press enter (different-value edit, zero ripple victims -> applies directly; answer becomes {value:'alpha'}, text undefined). 5. Answer q2 -> transition auto-submit fires; the delivered message content is 'Submitted 2: q1: Alpha; q2: Alpha (state epoch 2)' with no trace of 'my own words', and state q1.answer.text is undefined. Expected per spec: submission carries 'q1: Alpha — my own words' with answer.text = 'my own words'.
+
+
+## Minor Issues (Nice to Fix)
+Small improvements or polish items.
+
+### Issue 1: ctrl+g external editor does nothing in note duty (should work for 'editor focus (any duty)')
+**Severity**: Minor
+**ID**: BUG-002
+**Location**: src/panel/keys.ts:566 (externalEditor gate `panel.focus === "text"`)
+
+**Description**:
+The ui-spec hotkey table (spec/ui-spec.md Hotkeys) specifies the external-editor binding's context as 'editor focus (any duty)' - the embedded editor serves three duties (write-in, elaboration, note) and ESC-002 defines editor focus as focus === 'text' OR 'note'. The router gates the externalEditor intercept to focus === 'text' only (src/panel/keys.ts:566), so while the batch-note editor holds focus (focus === 'note', entered via 'm'), pressing ctrl+g does not open $EDITOR - the BEL control byte falls through to step 5 and is forwarded into the note editor buffer (harmlessly ignored by the editor, but the feature is dead). The write-in and elaboration duties work. FR-12/h2.31 places the ctrl+g affordance in the free-text section that covers all three duties of the one editor.
+
+**Steps to Reproduce**:
+1. Panel open with at least one question. 2. Press 'm' (batch note mode; focus becomes 'note'). 3. Press ctrl+g (\u0007). Observed: nothing happens - editInExternalEditor is never called (verified with a mocked external-editor module and a full-panel handleInput probe). Expected per ui-spec: $VISUAL/$EDITOR opens seeded with the note draft. Cross-check: same keystroke from write-in duty (focus === 'text') opens the editor correctly.
+
+### Issue 2: README claims the goal is 'capped at 400 characters and truncated with a warning' - contradicts CAPS-OUT-001, the implementation, and the README's own config section
+**Severity**: Minor
+**ID**: BUG-003
+**Location**: README.md:114 (stale sentence); src/state.ts:327 (stale comment)
+
+**Description**:
+README.md:113-115 (Model behavior note) states: 'The goal statement may be updated on any upsert - it is capped at 400 characters and truncated with a warning beyond that'. CAPS-OUT-001 (2026-10-08 owner ruling, spec/tool-protocol.md 'No caps' / FR-23) deleted the entire caps engine including the goal cap; the implementation stores the goal verbatim (verified with a 50,000-char goal round-tripped through executeInterrogate - details.state.goal is byte-identical, no warning). The README's own Configuration section says 'No caps: question count, option count, and text lengths are all unlimited - nothing is truncated or dropped (CAPS-OUT-001)'. The stale sentence misleads users and model readers of the README about a limit that does not exist. Note: a code comment at src/state.ts:327 still references 'the 400-char cap (BUG-009) is enforced at the tool call-site' - also stale, since no call-site enforces it.
+
+**Steps to Reproduce**:
+1. Read README.md lines 113-115 (Model behavior note) vs the Configuration section's 'No caps' block. 2. Probe: executeInterrogate({goal: 'G'.repeat(50000), questions:[{id:'q1',prompt:'p',type:'text'}]}, tuiCtx) - result details.state.goal === the full 50,000-char string (verified passing probe). 3. grep -n 'capped at 400' README.md -> line 114.
+
+## Testing Summary
+- Total bugs found: 3
+- Critical: 0
+- Major: 1
+- Minor: 2
+
+## Recommendations
+- Adjudicate BUG-001 at the owner level: either restore the rebind (when acceptOptionIndex supersedes a custom:true answer and no user-held draft exists, stage the old answer.value into the slot so reconcileDraftsForSubmit attaches it as answer.text) or amend spec/ui-spec.md:37, spec/product-requirements.md AC-2b, the README AC-2b summary, and the test premise in actions.test.ts:2213 to document the VAL-002 drop behavior as intended.
+- Widen the externalEditor intercept gate in src/panel/keys.ts:566 to focus === 'text' || focus === 'note', and in openExternalEditor route the completed text to batchNote (not the current question's draft slot) while bufferOwner === 'note'.
+- Delete the stale 'capped at 400 characters' sentence in README.md:114 (and the stale src/state.ts:327 comment).

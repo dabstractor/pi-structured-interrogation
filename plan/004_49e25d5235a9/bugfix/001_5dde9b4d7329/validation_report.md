@@ -1,117 +1,139 @@
-# Validation Report — pi-interrogator (bugfix changeset 001_5dde9b4d7329)
+# Validation Report — pi-interrogator
 
-**Snapshot validated**: HEAD `cb4057e` (working tree; fixer pipeline for the
-PRD's three bugs had landed `e780a32`→`cb4057e`). Baseline suite 47 files /
-1337 tests green, `tsc --noEmit` clean, keymap-conflict script exits 0.
+**Date:** 2026-10-15 · **Validator:** comprehensive project validation (deep analysis + scripted gates + live E2E)
+**Repo:** `/home/dustin/projects/pi-structured-interrogation` · **pi runtime:** 1.0.2 · **node:** v26.10.0
 
-## Validation approach
+## What this project is
 
-1. **Baseline re-run** — full vitest suite (1337 tests, +16 over the PRD
-   baseline: the fix's own regressions), typecheck, `scripts/verify-keymap-conflicts.sh`,
-   README grep gate (`ctrl+t|ctrl+d|ctrl+l|focusText|digit` → zero hits).
-2. **Deep code review of the changed surfaces** — `stageSupersededWriteIn`
-   (src/panel/actions.ts:367) and both call sites (direct `acceptOptionIndex`
-   after `advanceAfterAccept`/before `maybeAutoSubmit`; modal
-   `applyConfirmedEdit` in src/panel/ripple-confirm.ts:165), the
-   `keys.ts` editorFocused gate widening, `openExternalEditor`'s
-   `bufferOwner === "note"` routing fork, and the caps-comment purge.
-3. **Independent adversarial E2E probes** (31 journeys, embedded in
-   `validate.sh` Phase 5b, generated at runtime into `.ival-probes/` and
-   auto-removed) driving the REAL modules through REAL gestures
-   (`panel.handleInput` raw key bytes, real ripple modal, real auto-submit
-   with delivery deps wired) — deliberately independent scenarios beyond
-   the shipped tests, in the PRD's out-of-repo probe style.
-4. **Doc-coherence sweep** — greps for stale caps claims, "text focus"-only
-   external-editor wording, re-bind contract passages vs implementation.
+A pi coding-agent extension (`pi-interrogator`) providing structured interrogation:
+an `interrogate` tool (upsert/read/reopen/record), a TUI answer panel (short/deep/overview
+views, embedded editor with write-in/elaboration/note duties, answer pinning, ripple
+confirms, auto-submit), submission-delta + completion-record delivery, staleness guards
+(rev/epoch), persistence/reconstruction, and a non-TUI markdown-digest fallback. The spec
+suite lives in `spec/*.md` with a decision ledger; plans/tasks live in `plan/`.
 
-## PRD bug-by-bug verdict
+## Validation performed
 
-### BUG-001 (Major) — WRITEIN-002 supersede re-bind: **FIXED**
-Verified through 13 real-flow journeys + 3 cross-cutting ones, all green:
-- PRD's exact repro (J1): write-in on q1 → supersede via option → answer q2 →
-  transition auto-submit delivers `q1: Alpha — my own words` with
-  `answer.text` set and `custom` cleared.
-- Same-gesture auto-submit on a complete set (rule b, J2) — exactly one
-  delivery, one epoch bump, re-bound text shipped.
-- FR-18 modal path (J3a keep applies + re-stages; J3b esc is zero-state-change,
-  no re-stage).
-- Guard matrix in real flows: user-held elaboration draft wins (J4),
-  deliberate delete-to-empty wins (J5), kind-flip no-op — no "Alpha — a"
-  echo (J6), closed/archived supersede re-binds (J7), reasked supersede
-  re-binds (J8), write-in→write-in edit never re-stages (J9).
-- VAL-002 consume-at-commit unregressed (J10: plain write-in commit leaves
-  no slot and no durable-store entry).
-- Post-ship lifecycle (J11): the re-bound draft ships, the durable store
-  drains (`shipDrafts`), FR-3d post-submit exit disposes the panel
-  (`done(null)`; the disposed panel consumes no input) — the shipped text
-  cannot re-ship from any surface.
-- R4 durability (J12): the re-staged draft survives `suspend()` in the store.
-- Cross-cutting (X1–X3): deep-view accept re-stages through the same seam; a
-  held batch note rides the re-bound submission (`NOTE:` line); gate hold
-  blocks auto-submit until the gate is answered, then releases with the
-  re-bound elaboration intact.
-- The PRD's demanded owner-level adjudication is recorded:
-  `spec/decisions.md:123` "WRITEIN-002 supersede re-bind restored (BUG-001)"
-  (ruling WRITEIN-002-RESTORE-001, restore-via-re-stage, VAL-002 protections
-  explicitly unchanged, rejected alternative documented).
+### Scripted — `./validate.sh` (20 checks, ALL GREEN, reproduced twice)
 
-### BUG-002 (Minor) — ctrl+g dead in note duty: **FIXED**
-Verified through 6 journeys (E1–E6), all green: ctrl+g from note focus opens
-the external editor seeded with the NOTE text and routes the completed text
-to `batchNote` + `setNote` (never a question draft; TUI stop/start exactly
-once; duty/focus unchanged); question duty still routes to the draft slot and
-a subsequent enter commits the edited buffer; options focus stays free; a
-failed round-trip mutates nothing; a bare remap types in editor focus and
-never intercepts anywhere (tier 2); a chord remap intercepts in both editor
-duties (tier 1) and still routes note text to the note. The shipped E2E
-round-trip (commit `1bf6817`, real filesystem temp file, faked child process)
-also passes.
+| Phase | Result |
+|---|---|
+| 0 Environment | node 26.10.0, node_modules present, pi 1.0.2 on PATH |
+| 1 Linting | ⚠ none configured (see Issue 4) |
+| 2 Type checking | ✅ `tsc --noEmit` clean (strict mode) |
+| 3 Style checking | ⚠ none configured (see Issue 4) |
+| 4 Unit testing | ✅ vitest: **47 files / 1337 tests passed** |
+| 5 Static guards | ✅ `verify-keymap-conflicts.sh` PASS · README free of removed-key vocabulary (ctrl+t/ctrl+d/ctrl+l/focusText/digit — task P1.M4.T2.S1 gate) · no `registerShortcut` in production source · no `digitQuickSelect`/caps residue in config · `DEFAULT_CONFIG` matches the locked BAREKEYS-001 keymap · demo script runs |
+| 6 E2E (headless pi) | ✅ 9/9 probes green (below) |
 
-### BUG-003 (Minor) — stale 400-char goal-cap claims: **FIXED**
-README:114 now states verbatim storage citing CAPS-OUT-001 (commit `7d2e032`);
-the stale `state.ts` setGoal JSDoc and the `tool.ts` BUG-009 attribution are
-corrected (commit `cb4057e`). Greps repo-wide find zero live stale claims.
-Verified behaviorally: 50,000- and 60,000-char goals round-trip byte-identical
-through `executeInterrogate` (create + follow-up upsert with epoch echo);
-8,000-char prompt/description and a 60-option set pass through verbatim.
+### Live E2E — real `pi -p` processes with the real extension loaded
 
-## Issues found
+Per `plan/001_0d6760db6bc5/AUTOMATION-POLICY.md`, automated runs must never open a TUI
+panel or wait on a human; the sanctioned E2E surface is headless one-shot `pi -p` probes
+(non-TUI fallback path). Each probe below launched a fresh real pi process, drove the
+model to call the real `interrogate` tool, and asserted tool-side invariants from the
+JSON event stream:
 
-### Issue 1 (Minor): tasks.json tracker regressed completed BUG-002 milestones back to "Ready"
-**ID**: VAL-004
-**Location**: `plan/004_49e25d5235a9/bugfix/001_5dde9b4d7329/tasks.json`
+- **E1 smoke** — extension loads under pi 1.0.2; tool registered with the resident
+  description; upsert returns the status line + digest.
+- **E2 fallback digest (FR-25)** — recommended option renders `★` + `Recommendation:` line.
+- **E3 record answers (AC-2 non-TUI)** — `answers[]` records both answers; epoch bumps 1→2.
+- **E4 completion record (AC-11/AC-14, FR-5)** — after settle, exactly one
+  `interrogation-completion` custom message injected with the full Q&A record, notes and
+  withdrawn/moot sections.
+- **E5 stale guard (AC-8)** — wrong-epoch record rejected: `isError:true` toolResult with
+  `STALE: session epoch is 1 (you sent 99)…Re-apply`; model self-heals with the correct
+  epoch and the re-apply succeeds.
+- **E6 TRUST-001 full fidelity** — a >200-char write-in recorded with `custom:true`
+  surfaces in the read result as BOTH the 60-char one-liner slice AND the full
+  untruncated `  answer:` detail line.
+- **E7 merge rules (FR-17/FR-19/FR-21)** — `dependsOn` moot evaluated instantly (q3 moot,
+  reason preserved); options-change upsert resets the answer and marks `reasked` (rev
+  bumps); `withdrawOmitted:true` withdraws the omitted non-moot id with a notice while
+  keeping its recorded answer; moot is deliberately non-withdrawable (documented design).
+- **E8 moot-completion amendment (2026-10-07 Issue-3)** — a standing moot does NOT block
+  the completion record; it is listed under `Withdrawn/moot: q2 (moot: q1=fs)`.
+- **E9 session restart (FR-28 read side / AC-9)** — a fresh pi process resuming a saved
+  session reconstructs goal, question statuses, and revs (verified via read), proving the
+  tool-result `details.state` persistence layer + reconstruction walk.
 
-Commit `1bf6817` marked P1.M2 / P1.M2.T1 / P1.M2.T1.S3 (the BUG-002 note-duty
-fix and its end-to-end AC) **Complete** — matching its landed deliverables
-(`ba90100`, `951ea10`, `1bf6817`). The immediately following commit `7d2e032`
-(the unrelated README caps fix) flipped those three entries back to **Ready**
-while advancing the P1.M3 items, and they remain "Ready" at HEAD. Effect: the
-fixer's tracker understates shipped work; an orchestrator resuming from
-tasks.json could redo the completed note-duty fix or wait on a task whose
-deliverable already exists. Process/bookkeeping inconsistency only — no code
-or user-facing impact (all functionality verified above). The in-flight
-documentation sweeps (P1.M3.T2.S1 "Ready" with an untracked research dir,
-P1.M3.T2.S2 "Planned") are pending-but-started work whose mandatory gates my
-probes confirm already hold.
+### Manual deep-review — code and spec cross-checks
 
-## Testing summary
+- TRUST-001 continuation-line logic in `delivery.ts` (code-point-safe cap, full-text
+  continuation) — implemented and unit-tested; verified E2E on the read side.
+- MIRROR-SILENT-001 — no entry renderer registered; comment-documented in `renderers.ts`.
+- Widget line format `{n} open · {m} answered — /interrogate to resume` — command-only,
+  no key chord (matches the naming contract).
+- Key router two-tier intercept (BAREKEYS-001), fixed hjkl branches (VIMNAV-001), digit
+  removal (DIGIT-OUT-001) — code inspected; behavior covered by the suite.
+- Status-line record-derived counting rule (2026-10-02 pin) — `isRecordAnswered`
+  implemented as specified.
+- Latest bugfix changeset (WRITEIN-002 re-bind restore, note-duty ctrl+g, caps purge) —
+  PRP claims verified against the tree (`stageSupersededWriteIn` wired at both apply
+  sites, tests present); all tasks marked Complete.
+- Spec coherence greps (caps contradictions, "text focus" scopes) — clean of live claims
+  in the authoritative docs; drift found only in the two planning docs (Issues 1–2).
+- `npm audit --omit=dev`: **0 production vulnerabilities**. Dev-chain findings
+  (vitest/vite/tinypool/esbuild transitives + pi 0.85.1's undici) affect the local
+  toolchain only.
 
-- Baseline: 47 test files / 1337 tests — all pass; `tsc --noEmit` clean.
-- Repo gates: keymap-conflict script PASS (exit 0, 9 keys checked);
-  README grep gate 0 hits.
-- E2E probes: 31/31 pass (13 supersede journeys, 6 external-editor journeys,
-  3 no-caps probes, 6 keymap-baseline gates, 3 cross-cutting journeys).
-- Total bugs found this pass: 1 (0 critical, 0 major, 1 minor).
+### Three probe-script bugs during validation (fixed in `validate.sh`, NOT codebase bugs)
 
-## Recommendations
+An ERE `ctrl+s` quantifier misparse, backtick command-substitution in a probe string, and
+a model-mangled `recommendation` placement (the tool correctly strips a `recommendation`
+hoisted inside an option object; honest tolerant-parse behavior). After fixing the script:
+20/20 green, twice.
 
-- Restore the P1.M2 / P1.M2.T1 / P1.M2.T1.S3 statuses to "Complete" in
-  `tasks.json` (or have the fixer's tracker reconciliation re-derive them
-  from landed commits) so resumption does not redo the BUG-002 work.
-- Land the two in-flight doc-sweep tasks (P1.M3.T2.S1/S2) as planned; their
-  verification gates already pass against HEAD.
+## Issue tracker
 
-*Validation artifacts: `validate.sh` (self-contained: phases 0/2/4/5 with the
-31 embedded E2E probes), this report, and `validation_result.json`. The probe
-scratch directory is generated under `.ival-probes/` at runtime and removed
-on exit; nothing else in the repo was modified.*
+No critical or major findings. **All functional paths validated green.** Six minor
+findings, five of them documentation/hygiene-level:
+
+### 1. [Minor · spec drift] `spec/architecture.md` contradicts MIRROR-SILENT-001
+- **Where:** `spec/architecture.md:22` (module table: "renderers.ts — registerMessageRenderer / registerEntryRenderer cards") and `spec/architecture.md:130` (API surface: "`pi.registerMessageRenderer` ×2, `pi.registerEntryRenderer` ×1").
+- **Reality:** The 2026-10-08 owner ruling MIRROR-SILENT-001 (`spec/decisions.md:105`) removed the state-mirror entry renderer; `spec/ui-spec.md:127` says "NO renderer"; the code registers **zero** entry renderers (verified by grep; the removal is comment-documented in `src/renderers.ts:263-269`).
+- **Impact:** A reader of architecture.md alone would expect a visible `· interrogation state @ epoch {n}` transcript marker that intentionally no longer exists.
+- **Fix:** One-line edits in architecture.md (spec is read-only to the dev agent; owner should sync). Code is correct per the later ruling.
+
+### 2. [Minor · spec drift] `spec/architecture.md` + `spec/implementation-plan.md` contradict CAPS-OUT-001
+- **Where:** architecture.md:10/12/31/43/151 still describe a caps pipeline ("enforces caps", "validate → caps → guards", "Config surface (all hotkeys + caps…)") and :131 claims `ctx.model.contextWindow` is used "for cap scaling". implementation-plan.md:13 ("caps truncate with warnings"), :41/:43 (checklist "caps"), :57 ("caps formula" in the test list), :82-83 (config reference still shows the deleted `"caps": { … }` block).
+- **Reality:** CAPS-OUT-001 (2026-10-08, `spec/decisions.md:107`) deleted the caps engine entirely; `spec/product-requirements.md` FR-23 and `spec/tool-protocol.md` §No caps record the deletion; the code has no caps module and no caps config.
+- **Impact:** Same as Issue 1 — stale planning docs; the authoritative PRD/protocol/ledger are consistent. The decisions ledger supersedes, so traceability survives.
+- **Fix:** Sweep the two planning docs for "caps" (spec sync by owner).
+
+### 3. [Minor · dead code] Vestigial `ExecutorContext.model` field in `src/tool.ts`
+- **Where:** `src/tool.ts:102-103` — `model?: { contextWindow?: number }` declared for "cap scaling"; its JSDoc claims "only `contextWindow` … is read".
+- **Reality:** Nothing reads it anywhere since the caps engine deletion (grep: the only two mentions are the declaration and its comment). The JSDoc claim is now false.
+- **Impact:** None functionally (optional field). Misleading to maintainers; invites reimplementing a cap.
+- **Fix:** Delete the field (and the `model?` mentions in JSDoc), or re-comment it as reserved. (Not fixed: validation agent must not modify source.)
+
+### 4. [Minor · tooling gap] No linter or formatter configured
+- **Where:** No `.eslintrc*`/`eslint.config.*`/`.prettierrc*`/biome config anywhere in the repo.
+- **Reality:** Code-quality gates are `tsc --noEmit` + vitest, plus two ad-hoc source-scan guard tests (`no-hardcoded-keys.test.ts`, `keymap-guard.test.ts`). validate.sh phases 1 and 3 can therefore only warn.
+- **Impact:** Style/idiom regressions and some bug classes (unused vars, `==` slips) are not machine-gated. Given the codebase's unusually high documentation discipline, risk is low — but an eslint (typescript-eslint recommended) pass would be cheap insurance.
+- **Fix:** Add eslint + a `npm run lint` script; wire into validate.sh phase 1.
+
+### 5. [Minor · repo hygiene] Uncommitted changeset bookkeeping
+- **Where:** `git status`: staged new file `plan/004_49e25d5235a9/bugfix/001_5dde9b4d7329/P1M3T2S2/PRP.md` + research note, and an unstaged `tasks.json` status flip for that subtask. Branch is 17 commits ahead of `origin/main`.
+- **Reality:** The last bugfix changeset's closing bookkeeping is complete on disk (all tasks Complete, suite green, spec-coherence verification recorded) but was never committed/pushed.
+- **Impact:** None at runtime; the record is not durable and the remote is stale.
+- **Fix:** Commit the staged plan changes and push.
+
+### 6. [Observation · dependency posture] devDeps pin pi ~0.85.1 while runtime pi is 1.0.2
+- **Where:** `package.json` devDependencies `@earendil-works/pi-*: ~0.85.1`; the installed pi binary is 1.0.2.
+- **Reality:** The extension is loaded at runtime via jiti against the **user's** pi tree (1.0.2) — all 9 E2E probes passed under 1.0.2, so compatibility is empirically verified. Typecheck/tests, however, run against the 0.85.1 type surface, which could theoretically mask a type-level incompatibility introduced by a future pi release.
+- **Impact:** None today. Watch on pi upgrades; consider bumping the dev pins when convenient.
+- **Fix:** None required (peerDependencies are `*` by design).
+
+## Verdict
+
+**PASS with 6 minor findings (0 critical, 0 major).** The codebase is functionally
+excellent: every scripted gate is green, the 1337-test suite covers the panel/state/
+delivery/persistence surface deeply, and nine live end-to-end probes in a real pi 1.0.2
+process confirmed the complete non-TUI user journey (upsert → digest → chat answers →
+record → completion injection) plus guards, merge rules, moot semantics, write-in
+fidelity, and cross-restart reconstruction. Interactive TUI behaviors (panel keymap,
+answer pinning, auto-submit, ripple confirms) are covered by the scripted AC suites and
+deferred to the human runbook (`plan/001_0d6760db6bc5/MANUAL-TUI-AC-RUNBOOK.md`) per the
+binding AUTOMATION-POLICY. The findings above are documentation drift, dead code, and
+hygiene — none affects production behavior.

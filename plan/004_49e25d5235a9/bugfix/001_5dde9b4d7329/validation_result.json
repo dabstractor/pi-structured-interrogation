@@ -1,1 +1,5 @@
-{ "hasIssues": true, "issueCount": 1, "summary": "All three PRD bugs (WRITEIN-002 supersede re-bind, ctrl+g note duty, stale caps claims) verified fixed via 31 independent E2E probes plus green baseline (1337 tests, tsc clean); one minor tracker-drift issue found: tasks.json regressed completed BUG-002 milestones back to Ready." }
+{
+  "hasIssues": true,
+  "issueCount": 6,
+  "summary": "PASS with 6 minor findings: all gates green (1337 tests, typecheck, static guards, 9 live pi E2E probes), but spec/architecture.md+implementation-plan.md drift from MIRROR-SILENT-001/CAPS-OUT-001 rulings, vestigial ExecutorContext.model field, no linter/formatter configured, and uncommitted changeset bookkeeping."
+}

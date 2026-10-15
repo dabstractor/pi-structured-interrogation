@@ -341,3 +341,65 @@ describe("discuss→chat legacy alias (SIDECHAT-001)", () => {
     expect(cfg.keys.chat).toBe("ctrl+shift+d");
   });
 });
+
+// ------------------------------------------- side chat settings (SIDECHAT-001…005)
+
+describe("side chat config — sideChatModel + sideChatAutoApply", () => {
+  test("test_sideChatAutoApply_coercion_matrix", async () => {
+    // Booleans pass; "true"/"false" strings coerce; anything ill-typed or
+    // absent falls back to the default false.
+    const cases: Array<[unknown, boolean]> = [
+      [true, true],
+      ["true", true],
+      [false, false],
+      ["false", false],
+      ["yes", false],
+      [1, false],
+    ];
+    for (const [value, expected] of cases) {
+      const p = await writeSettings(JSON.stringify({ interrogator: { sideChatAutoApply: value } }));
+      const cfg = await loadConfigFrom({ global: p, project: await missingPath() });
+      expect(cfg.sideChatAutoApply, `sideChatAutoApply=${JSON.stringify(value)}`).toBe(expected);
+    }
+    const absent = await loadConfigFrom({ global: await missingPath(), project: await missingPath() });
+    expect(absent.sideChatAutoApply).toBe(false);
+  });
+
+  test("test_sideChatModel_valid_string_passes_through_untrimmed", async () => {
+    // The ORIGINAL string is stored — only the blank CHECK trims, never the
+    // stored value.
+    const p = await writeSettings(
+      JSON.stringify({ interrogator: { sideChatModel: "anthropic/claude-sonnet-4" } }),
+    );
+    const cfg = await loadConfigFrom({ global: p, project: await missingPath() });
+    expect(cfg.sideChatModel).toBe("anthropic/claude-sonnet-4");
+  });
+
+  test("test_sideChatModel_whitespace_only_is_undefined", async () => {
+    const p = await writeSettings(JSON.stringify({ interrogator: { sideChatModel: "   " } }));
+    const cfg = await loadConfigFrom({ global: p, project: await missingPath() });
+    expect(cfg.sideChatModel).toBeUndefined();
+  });
+
+  test("test_sideChatModel_absent_is_undefined", async () => {
+    // The absence semantics are the POINT: DEFAULT_CONFIG carries NO
+    // sideChatModel key, so deep-merge + coercion leave it undefined —
+    // "use the session's current model at chat open".
+    const cfg = await loadConfigFrom({ global: await missingPath(), project: await missingPath() });
+    expect(cfg.sideChatModel).toBeUndefined();
+  });
+
+  test("test_sideChatModel_non_string_is_undefined", async () => {
+    const p = await writeSettings(JSON.stringify({ interrogator: { sideChatModel: 42 } }));
+    const cfg = await loadConfigFrom({ global: p, project: await missingPath() });
+    expect(cfg.sideChatModel).toBeUndefined();
+  });
+
+  test("test_sidechat_defaults_shape", () => {
+    // DEFAULT_CONFIG regression: the boolean default exists; the optional
+    // string must NOT (a defaulted key would defeat absent-vs-set via the
+    // deep merge — coerceConfig could never yield undefined).
+    expect(DEFAULT_CONFIG.sideChatAutoApply).toBe(false);
+    expect("sideChatModel" in DEFAULT_CONFIG).toBe(false);
+  });
+});

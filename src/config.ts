@@ -282,10 +282,11 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  *
  * Set overrides under a top-level `"interrogator"` object in either
  * `~/.pi/agent/settings.json` (global) or `<cwd>/.pi/settings.json` (project).
- * Nested objects merge per-key; scalars replace. 9 keys + 3 toggles
- * (gateWarnings/roundDetection/compactionPreservation) + editorMode +
- * escExitWindowMs + sideChatModel + sideChatAutoApply (defaults = PRD h2.52
- * as amended by the breakOut removal):
+ * Nested objects merge per-key; scalars replace. 9 keys + 4 toggles
+ * (gateWarnings/roundDetection/compactionPreservation/sideChatAutoApply) +
+ * editorMode + escExitWindowMs + sideChatModel (optional string — absent/
+ * blank/ill-typed → undefined) (defaults = PRD h2.52 as amended by the
+ * breakOut removal):
  *
  * ### keys — accelerator strings, pi lowercase form
  * | field           | default         | purpose                                        | label consumer |

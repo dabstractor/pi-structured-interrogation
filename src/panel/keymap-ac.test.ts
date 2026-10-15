@@ -21,6 +21,7 @@
  * | 1   | ctrl+s full submission FROM TEXT FOCUS (Style B)   | heartbeat test fires ctrl+s from OPTIONS focus | ✅ text-focus ctrl+s → real delivery, status flip, epoch bump |
  * | 1   | ctrl+g any-editor-duty both polarities (Style A)    | keys.test.ts test_externalEditor_in_editor_focus_any_duty | — |
  * | 1   | ctrl+g routed END-TO-END with mocked spawn         | panel.test.ts mocks editInExternalEditor (module seam), never child_process | ✅ $EDITOR spawn fake, await, replace-on-complete + options-focus negative |
+ * | 1   | ctrl+g note-duty E2E round-trip (BUG-002)          | keys.test.ts router legs (P1.M2.T1.S2) | ✅ full-stack round-trip → batchNote/setNote, never setDraft (P1.M2.T1.S3) |
  * | 2   | hjkl per view + clamping + editor forwarding + schema absence | keys.test.ts :482–:630 (real-panel variants included) | Style B byte-landing complement added; the rest audit-only |
  * | 3   | digits inert (Style A, all contexts) + types       | keys.test.ts :630/:639/:663/:918/:994 | — |
  * | 3   | digitQuickSelect absent from schema + silent drop  | config.test.ts DIGIT-OUT-001 test | — |
@@ -351,6 +352,46 @@ describe("AC-1 — two-tier dispatch/typing + surviving chords (delta_prd §3.1)
     expect(panel.handleInput(CTRL_G)).toBe(false); // unmatched → forwarded/ignored
     expect(spy).not.toHaveBeenCalled();
     expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("test_ac1_ctrl_g_note_duty_round_trips_into_the_batch_note_style_b", async () => {
+    // BUG-002 E2E (P1.M2.T1.S3): ctrl+g is editor focus ANY duty — from note
+    // duty the completed text must land in batchNote/drafts.setNote, NEVER the
+    // current question's draft slot (the pre-fix corruption mode).
+    const state = seedOpen(["q1"]);
+    const { panel, editor, drafts, tui } = makePanel(state);
+    panel.enterNoteMode(); // public seam — same as pressing 'm' (open-only)
+    expect(panel.focus).toBe("note");
+    editor.setText("note draft"); // seed the note buffer (typed-equivalent)
+
+    vi.stubEnv("VISUAL", ""); // empty = unset → $EDITOR wins
+    vi.stubEnv("EDITOR", "fakeed");
+    spawnWrites("edited note\n");
+
+    const spy = vi.spyOn(panel, "openExternalEditor");
+    expect(panel.handleInput(CTRL_G)).toBe(true); // editorFocused gate (P1.M2.T1.S2)
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    await spy.mock.results[0]!.value; // await the fire-and-forget round-trip
+
+    // spawn: resolved $EDITOR command + one temp answer file, inherit stdio.
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const [command, args, opts] = spawnMock.mock.calls[0] as [string, string[], { stdio: string }];
+    expect(command).toBe("fakeed");
+    expect(args).toHaveLength(1);
+    expect(args[0]).toMatch(/answer\.md$/);
+    expect(opts.stdio).toBe("inherit");
+    // Seeded with the NOTE draft (duty-blind seeding side), applied to the note.
+    expect(seededAtSpawn).toBe("note draft");
+    expect(editor.setText).toHaveBeenCalledWith("edited note");
+    expect(panel.textField.getText()).toBe("edited note"); // trailing \n stripped
+    expect(drafts.setNote).toHaveBeenCalledWith("edited note"); // note write-through
+    expect(panel.batchNote).toBe("edited note");
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // NEVER the question slot
+    // Envelope + duty preserved: stop before, start after; still note focus.
+    expect(tui.stop).toHaveBeenCalledTimes(1);
+    expect(tui.start).toHaveBeenCalledTimes(1);
+    expect(panel.focus).toBe("note");
   });
 });
 

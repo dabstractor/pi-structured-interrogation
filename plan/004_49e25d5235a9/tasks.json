@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Keymap trilogy — bare keys, hjkl, digit removal (VIMNAV-001 / BAREKEYS-001 / DIGIT-OUT-001)",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Close the implementation gap for the 2026-10-12 keymap rulings — the ONLY unshipped change in the PRD diff (spec synced at 8c5f870 with 'No source moves'). Bare-letter defaults (d/o/t/m/e) with the focusText→elaborate rename and a two-tier intercept rule; hjkl join the fixed key family as arrow aliases; digit quick-select is removed entirely; README synced; full suite + guards green. The other eleven bundled rulings are already shipped in source (TRUST-001 3779383, DEEP-PIN-002 6e383c2, DEEP-PIN-003 3779383, GOAL-OUT/MIRROR-SILENT/DEEP-FULL/CAPS-OUT e6e2f3a, DEEP-STICKY 2b174b1, DEEP-LAND 182f4ce, BUG wave via plan 003) — cite, do not rebuild, no re-verification beyond the suite staying green. No state-machine, lifecycle, rendering, delivery, persistence, or spec/*.md work. Research: plan/004_49e25d5235a9/architecture/ (config-surface.md, keys-and-actions.md, readme-and-test-flows.md, system_context.md).",
       "milestones": [
         {
@@ -242,7 +242,7 @@
           "type": "Milestone",
           "id": "P1.M4",
           "title": "Suite stabilization, gates, and changeset-level documentation",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Flip the cross-cutting scripted suites that only make sense once all three changes have landed, close the scripted AC coverage gaps, re-verify keymap conflicts, run the full gates, then sync README (final Mode B task).",
           "tasks": [
             {
@@ -308,14 +308,14 @@
               "type": "Task",
               "id": "P1.M4.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "FINAL Mode B task: rewrite README's keymap-facing sections to the new contract. Depends on every implementing subtask it summarizes; runs last.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T2.S1",
                   "title": "Rewrite README usage prose, sample settings, keymap tables, and conflict section",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",

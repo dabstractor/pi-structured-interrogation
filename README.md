@@ -32,31 +32,33 @@ materialize; runtime loads via jiti against pi's tree.
 1. Ask the agent to interrogate you (e.g. *"interrogate me about the migration
    plan"*). The model upserts questions through the `interrogate` tool and the
    panel **auto-opens** on the first upsert.
-2. Answer in the panel: move between questions with `tab` / `shift+tab`, pick
-   an option with digits `1`–`9` (real options only — the `✎ Other` row is
-   never digit-selectable) or arrows + `enter`, press `ctrl+t` to focus
-   the free-text editor (short view), `ctrl+d` for the deep-dive view, `ctrl+l` for the
-   overview, `ctrl+shift+m` to attach a batch note, `ctrl+g` to finish the
-   draft in an external editor. The editor's duty follows context: focused
+2. Answer in the panel: move between questions with `←` / `→` (or `h` / `l`,
+   `tab` / `shift+tab`), pick an option with `↑` / `↓` (or `k` / `j`) and
+   accept with `enter`; `d` opens the deep-dive view, `o` the overview, `t`
+   enters the free-text editor (short view), `m` attaches a batch note, `e`
+   discusses the current question in chat, `ctrl+g` finishes the draft in an
+   external editor, `ctrl+s` submits a partial set. The editor's duty follows
+   context: focused
    from a selected option it is the **elaboration** duty — `enter` saves the
-   text and returns to the options, and the option you then accept ships
-   with your explanation attached; on the `✎ Other — write your own` row
-   (and on `type:"text"` questions) it is the **write-in** duty — the text
-   IS the answer and `enter` commits it immediately. On a `type:"text"`
+   text and returns to the options (double-`esc` also closes the editor — a
+   re-pressed `t` just types the letter), and the option you then accept
+   ships with your explanation attached; on the `✎ Other — write your own`
+   row (and on `type:"text"` questions) it is the **write-in** duty — the
+   text IS the answer and `enter` commits it immediately. On a `type:"text"`
    question, `enter` on the `✎ answer…` affordance itself opens the editor
-   in the write-in duty — `ctrl+t` is not the only entry.
+   in the write-in duty — `t` is not the only entry.
    Revisits are answer-first: on any question that already carries an answer,
    the caret and highlight sit on that recorded answer in every view — the
    ★ recommendation stays visible on its own row but never owns the caret
-   once an answer exists — and `enter` or a digit on the recorded value
+   once an answer exists — and `enter` on the recorded value
    just moves you along — no state change, no resubmission, no confirm.
    Re-asks are the exception: when the agent re-asks a question, re-selecting
-   your answer re-confirms it — the same value (`enter`, a digit, or a
+   your answer re-confirms it — the same value (`enter`, or a
    byte-identical write-in) on an unchanged option list, or a re-answer
    after the options changed — and the re-confirmed answer ships; a
    re-asked question never strands.
-   Changing an answer takes an explicit different choice (another row, a
-   different digit, edited write-in text), which raises the invalidation
+   Changing an answer takes an explicit different choice (another row,
+   edited write-in text), which raises the invalidation
    confirm when it would moot dependent questions — any edited question
    with a recorded answer counts, archived (closed) ones included. A
    write-in answer pins
@@ -136,23 +138,22 @@ All settings live under a top-level `"interrogator"` key in either
 ```jsonc
 {
   "interrogator": {
-    // Accelerators, in pi's lowercase form (e.g. "ctrl+shift+m").
+    // Accelerators, in pi's lowercase form (bare letters or chords like "ctrl+s").
     "keys": {
-      "deep": "ctrl+d",             // open the deep-dive (ramification) view
-      "overview": "ctrl+l",         // open the question overview list
-      "focusText": "ctrl+t",        // focus the free-text editor (short view)
-      "batchNote": "ctrl+shift+m",  // attach a batch note
-      "submit": "ctrl+s",           // submit answers / close the panel
-      "discuss": "ctrl+shift+e",    // discuss the current question in chat
-      "externalEditor": "ctrl+g",   // open the draft in an external editor
-      "prevQuestion": "tab",        // previous question
-      "nextQuestion": "shift+tab"   // next question
+      "deep": "d",                // open the deep-dive (ramification) view
+      "overview": "o",            // open the question overview list
+      "elaborate": "t",           // enter the editor (elaboration / write-in duty)
+      "batchNote": "m",           // attach a batch note
+      "submit": "ctrl+s",         // submit answers (partial ok; gate-hold override)
+      "discuss": "e",             // discuss the current question in chat
+      "externalEditor": "ctrl+g", // open the draft in an external editor
+      "prevQuestion": "tab",      // previous question
+      "nextQuestion": "shift+tab" // next question
     },
     // No caps: question count, option count, and text lengths are all
     // unlimited — nothing is truncated or dropped (CAPS-OUT-001).
     "gateWarnings": true,           // FR-9: gate warnings — the submit-time "later answers may shift" line AND the auto-submit hold line (display-only, never blocks)
     "roundDetection": true,         // detect interrogation rounds from plain chat text (TUI)
-    "digitQuickSelect": true,       // allow 1–9 to quick-select an option
     "compactionPreservation": true, // prepend preservation instructions to mid-interrogation compaction summaries
     "editorMode": "composed"        // "composed" (panel's own editor) or "stock" (pi's stock editor)
   }
@@ -169,6 +170,10 @@ All settings live under a top-level `"interrogator"` key in either
 - **Labels follow config**: every displayed string that names a key — footer,
   widget, dialogs — is generated from the resolved config, so a remap shows up
   consistently everywhere.
+- **Renamed key, silent alias**: the editor action's config key is now
+  `elaborate` (it enters the editor for elaboration/write-in duty). A
+  pre-rename `focus`-text binding from an older config is silently honored as
+  `keys.elaborate` when the new name is not rebound.
 
 ## Keymap
 
@@ -176,12 +181,12 @@ Remappable actions (`interrogator.keys.*`):
 
 | Action               | Config key            | Default         | Effect                                        |
 | -------------------- | --------------------- | --------------- | --------------------------------------------- |
-| Deep-dive view       | `keys.deep`           | `ctrl+d`        | Open/close the ramification view              |
-| Overview list        | `keys.overview`       | `ctrl+l`        | Open the question overview list               |
-| Focus text editor    | `keys.focusText`      | `ctrl+t`        | Toggle the free-text editor: focus it (duty follows context — elaboration on a selected option, write-in on the `✎ Other` row or a text question), or (already focused) close it — draft saved, back to options |
-| Batch note           | `keys.batchNote`      | `ctrl+shift+m`  | Attach a batch note shipped with the next submit |
+| Deep-dive view       | `keys.deep`           | `d`             | Open the deep-dive (ramification) view        |
+| Overview list        | `keys.overview`       | `o`             | Open the question overview list               |
+| Elaborate            | `keys.elaborate`      | `t`             | Enter the editor — duty follows context (elaboration on a selected option, write-in on the `✎ Other` row or a text question); close via `enter` or double-`esc` (a re-pressed `t` types the letter) |
+| Batch note           | `keys.batchNote`      | `m`             | Attach a batch note shipped with the next submit; close via `enter` or double-`esc` |
 | Submit               | `keys.submit`         | `ctrl+s`        | Submit answers now (partial ok — also the deliberate override while the gate hold blocks auto-submit) |
-| Discuss in chat      | `keys.discuss`        | `ctrl+shift+e`  | Discuss the current question in chat          |
+| Discuss in chat      | `keys.discuss`        | `e`             | Discuss the current question in chat          |
 | External editor      | `keys.externalEditor` | `ctrl+g`        | Open the draft in an external editor          |
 | Previous question    | `keys.prevQuestion`   | `tab`           | Move to the previous question                 |
 | Next question        | `keys.nextQuestion`   | `shift+tab`     | Move to the next question                     |
@@ -193,15 +198,23 @@ Fixed keys (not configurable):
 | `enter`  | Accept + advance; confirm dialogs; on a text question's `✎ answer…` affordance it opens the editor (write-in duty); in the editor, per duty: COMMIT the answer (write-in on `✎ Other` / text questions — commit-at-enter), save + return to options (elaboration/note) |
 | `esc`    | Back / suspend — descends, never destroys. While the text/note editor is focused, a single `esc` goes to the editor (vim modes); `esc` twice in a row (within `escExitWindowMs`, default 500 ms, `0` disables) closes the editor only |
 | `ctrl+c` | Closes the prompt (suspend) — the in-flight text is written to its question's draft first (R4) — and stays unconsumed; pi's own ctrl+c flow (clear editor; double-press shuts down) resumes on the restored editor |
-| `↑` `↓`  | Move among options; scroll. In the editor: caret movement |
-| `←` `→`  | Previous / next question — the FULL list (every status navigable, clamped at the ends), view-aware (overview: cursor row); not intercepted in text/note focus (the editor caret owns them there) |
-| `1`–`9`  | Quick-select an option (when `digitQuickSelect` is on) — real options only: the `✎ Other` row is never digit-selectable |
+| `↑` `↓` (+ `k` / `j`) | Move among options; scroll — view-aware (short option cursor including the `✎ Other` row; deep: selection; overview: cursor row). In the editor `↑`/`↓` move the caret; `k`/`j` type |
+| `←` `→` (+ `h` / `l`) | Previous / next question — the FULL list (every status navigable, clamped at the ends), view-aware (overview: cursor row). In the editor `←`/`→` move the caret; `h`/`l` type |
+
+The fixed family — `↑`/`↓`/`←`/`→` and their `h`/`j`/`k`/`l` aliases,
+`enter`, `esc`, `ctrl+c` — is not configurable (R5 as amended: all NON-fixed
+keys are remappable; the fixed family is the documented exception). hjkl
+mirror the arrows exactly — identical view-aware navigation, identical
+editor-focus forwarding. Remapping a config key ONTO a fixed key (e.g.
+`"deep": "j"`) is deterministically shadowed by the fixed branch — choose a
+free key.
 
 Non-key option: `"escExitWindowMs": 500` under `"interrogator"` in settings —
 the double-esc window for closing the embedded editor without suspending.
 
 Every choice question's option list ends in a synthetic `✎ Other — write
-your own` row (fixed last row — arrows reach it, digits never do). Accepting
+your own` row (fixed last row — arrows reach it; number keys never select
+it). Accepting
 it puts the editor in the **write-in** duty (region labeled `OTHER — this
 text is the answer`): what you type IS the answer — `enter` commits it as
 `answer.value` with `custom: true`, and every surface that shows the answer
@@ -228,9 +241,14 @@ above). Suspending is `esc`; resuming is `/interrogate` (invoke-only — never
 a toggle, never a key combo).
 
 While the panel is open, panel keys are intercepted before the embedded
-editor sees them; everything else forwards to the editor. While the editor
-is focused, `esc` (single) and `↑`/`↓` also forward to the editor — vim
-users keep their keys.
+editor sees them — in two tiers. Modifier-bearing config keys (`ctrl+s`,
+`ctrl+g`) intercept everywhere, including while the editor holds focus: a
+chord is never a typed character. Bare config keys (`d`, `o`, `t`, `m`, `e`)
+and the fixed `h`/`j`/`k`/`l` are printable: they intercept only from
+non-editor focus and always type while the editor holds focus — typing `t`
+in an answer must insert a `t`. Number keys do nothing at panel level; they
+only ever type inside the editor. A single `esc` and `↑`/`↓` forward to the
+focused editor (caret movement, pi-vim mode exit).
 
 ### Subcommands (one command, no autocomplete noise)
 
@@ -258,7 +276,7 @@ the spec for the full text and the scripted tests proving each):
 1. Model upserts questions across groups with one gate group → panel opens; gate focused; other groups dimmed but answerable.
 2. Partial `ctrl+s` → compact delta + reminder; epoch bumps; remainder stays open.
 2a. **Write-in (WRITEIN-001)**: accept `✎ Other`, type, `enter` → `answer.value = <text>`, `custom: true`, no option selected; card/delta render `✎ {text}`.
-2b. **Elaboration (WRITEIN-001/002)**: `ctrl+t`, type, `enter` → draft saved, still unanswered; option accept attaches it as `answer.text`; a real option after a committed write-in re-binds the slot as elaboration.
+2b. **Elaboration (WRITEIN-001/002)**: `t`, type, `enter` → draft saved, still unanswered; option accept attaches it as `answer.text`; a real option after a committed write-in re-binds the slot as elaboration.
 2c. **Auto-submit (AUTOSUBMIT-001)**: answering the LAST question ships with no keypress beyond the answer (`submitted — {n} answer(s)`); editing while complete ships the edit immediately.
 2d. **Gate hold (AUTOSUBMIT-002)**: with a gate question unanswered, commits show `⚠ … foundational unanswered` and do NOT auto-submit; answering it releases the next commit; `ctrl+s` submits anyway.
 3. Agent reply closes answered questions / re-asks preserve drafts; a re-asked question re-confirms on same-value `enter`.
@@ -274,7 +292,7 @@ the spec for the full text and the scripted tests proving each):
 13. Editing an archived answer re-marks it pending; a different choice raises the same invalidation confirm as a live edit; the next diff card highlights the change.
 14. All questions closed → completion record injected once; recap card in transcript.
 15. **Reads never surface (SURFACE-001)**: a model `interrogate({})` read completes → panel stays closed, editor untouched — for live, all-answered, and completed states alike.
-16. **Answer pinning (ANSWER-PIN-001)**: revisit an answered question → caret + highlight sit on the recorded answer (★ visible on its own row, never owning the caret); `enter`/digit on the recorded value is a zero-state-change advance and a byte-identical write-in re-commit is inert — except on a re-asked question, where same-value `enter`/digit (or a byte-identical write-in) re-confirms and ships; a DIFFERENT choice raises the FR-18 invalidation confirm.
+16. **Answer pinning (ANSWER-PIN-001)**: revisit an answered question → caret + highlight sit on the recorded answer (★ visible on its own row, never owning the caret); `enter` on the recorded value is a zero-state-change advance and a byte-identical write-in re-commit is inert — except on a re-asked question, where same-value `enter` (or a byte-identical write-in) re-confirms and ships; a DIFFERENT choice raises the FR-18 invalidation confirm.
 
 ## Limitations
 
@@ -319,35 +337,40 @@ Human acceptance runbook:
 
 ### Keymap conflict re-verification
 
-Re-verified at build time on **2026-09-13** against pi **0.85.1**
+Re-verified at build time on **2026-10-14** against pi **1.0.2**
 (`~/.local/lib/node_modules/@earendil-works/pi-coding-agent/docs/keybindings.md`),
 all installed extension trees (`~/.pi/agent/npm/node_modules`, `~/.pi/agent/git`,
 `~/.pi/extensions`), and the user rebinds in `~/.pi/agent/keybindings.json`
-(cursor-left/right, pageUp rebinds only — none touch our keys). Result: **no
-default collides with a genuinely global claim**. Drift since the planning
-baseline: pi-patty-bg-tasks' shortcut lines moved (`shortcuts.ts:27-44` →
-`:28-49`) and **pi-subagents now registers a global shortcut** (`ctrl+alt+f`,
-fleet open — `src/shared/shortcuts.ts:3`, registered in
-`src/slash/slash-commands.ts:978`); neither overlaps any interrogator key.
+(cursor-left/right and pageUp rebinds only — none touch our keys). Method:
+`bash scripts/verify-keymap-conflicts.sh` — exit 0, all 9 defaults clear (the
+run this section records). Result: **no default collides with a genuinely
+global claim**. Drift since the 2026-09-13 record: the only string-literal
+global registrations in the extension trees remain pi-patty-bg-tasks' five
+(`src/shortcuts.ts:28-49`); pi-subagents' fleet-open shortcut is still
+registered variable-indirectly (invisible to the string-literal grep —
+re-checked manually; overlaps no interrogator key).
 
 Verified defaults (`src/config.ts` `DEFAULT_CONFIG.keys`):
 
 | Key (action)                                   | Status             | Owner / evidence                                                                                       |
 | ---------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
-| `ctrl+d` (`deep`)                              | panel-safe reuse   | pi: `tui.editor.deleteCharForward`, `app.exit`, `app.session.delete`, `app.tree.filter.default` (keybindings.md:53,127,144,176) |
-| `ctrl+l` (`overview`)                          | panel-safe reuse   | pi: `app.model.select`, `app.tree.filter.labeledOnly` (keybindings.md:151,179)                          |
-| `ctrl+t` (`focusText`)                         | panel-safe reuse   | pi: `app.thinking.toggle`, `app.tree.filter.noTools` (keybindings.md:157,177)                           |
-| `ctrl+s` (`submit`)                            | panel-safe reuse   | pi: `app.session.toggleSort`, `app.models.save`, `app.thinking.save` (keybindings.md:141,154,156)       |
-| `ctrl+g` (`externalEditor`)                    | panel-safe reuse   | pi: `app.editor.external`, `tui.altScreen.searchNext` (keybindings.md:115,129)                          |
-| `ctrl+shift+m` (`batchNote`)                   | free               | no pi default, no extension claim                                                                       |
-| `ctrl+shift+e` (`discuss`)                     | free               | no pi default, no extension claim                                                                       |
-| `tab` (`prevQuestion`)                         | fixed/nav (panel)  | pi: `tui.input.tab` (keybindings.md:65) — consumed inside the panel only                                |
-| `shift+tab` (`nextQuestion`)                   | panel-safe reuse   | pi: `app.thinking.cycle` (keybindings.md:155) — shadowed by the panel                                   |
+| `d` (`deep`)                                   | panel-owned        | bare letter — no global claim possible: the panel owns the whole keyboard while open, and bare keys never intercept in editor focus |
+| `o` (`overview`)                               | panel-owned        | bare letter — same construction: collides with nothing in pi's or extensions' global vocabulary        |
+| `t` (`elaborate`)                              | panel-owned        | bare letter — same construction                                                                        |
+| `m` (`batchNote`)                              | panel-owned        | bare letter — same construction                                                                        |
+| `e` (`discuss`)                                | panel-owned        | bare letter — same construction                                                                        |
+| `ctrl+s` (`submit`)                            | panel-safe reuse   | pi: `app.session.toggleSort`, `app.models.save`, `app.thinking.save` (keybindings.md:141,154,156) — stays a chord: submit must fire from text focus, where a bare key could never be typed |
+| `ctrl+g` (`externalEditor`)                    | panel-safe reuse   | pi: `app.editor.external`, `tui.altScreen.searchNext` (keybindings.md:115,129) — stays a chord: its only valid context is editor focus, where a bare key would have to type, never act |
+| `tab` (`prevQuestion`)                         | fixed/nav (panel)  | pi: `tui.input.tab` (keybindings.md:65) — consumed inside the panel only                               |
+| `shift+tab` (`nextQuestion`)                   | panel-safe reuse   | pi: `app.thinking.cycle` (keybindings.md:155) — shadowed by the panel                                  |
 
-Fixed panel keys (`enter` / `esc` / arrows / digits `1`-`9`) are not config
-keys — they are consumed only while the panel is open (digits have no pi
-default; arrows/enter/esc are core navigation pi regains as soon as the panel
-suspends).
+Fixed panel keys (`enter` / `esc` / `ctrl+c` / arrows + `hjkl` aliases) are
+not config keys — they are consumed only while the panel is open (core
+navigation pi regains as soon as the panel suspends). There is NO global
+shortcut registration: the historical `breakOut` chord (`ctrl+shift+q`, via
+`pi.registerShortcut`) was removed entirely — on many desktop environments
+the window manager claims that chord to close windows before the terminal
+ever sees the bytes.
 
 Avoided keys — a default must never be set to any of these:
 
@@ -359,17 +382,16 @@ Avoided keys — a default must never be set to any of these:
 | `ctrl+shift+f`                               | pi built-in        | `tui.altScreen.search` — transcript search (keybindings.md:114) |
 | `ctrl+shift+up` / `ctrl+shift+down`          | pi built-in        | `tui.altScreen.previousPrompt` / `nextPrompt` — transcript nav (keybindings.md:112,113) |
 
-**Panel-intercept rationale**: the panel-scoped defaults deliberately reuse pi
-built-ins (`ctrl+d/l/t/s/g`, `ctrl+g` also text-focus, plus the fixed
-enter/esc/arrows/digits/tab). This is safe because the panel owns raw keyboard
-focus via `ctx.ui.custom()` and intercepts config keys BEFORE forwarding —
-including in text focus — so pi's binding layer never sees those keystrokes
-while the panel is open (`src/panel/keys.ts` header, "Mode A — the intercept
-rule"; wiring in `src/index.ts`). Collisions therefore exist only while the
-panel is open and vanish on suspend. There is NO global registration: the
-historical `breakOut` chord (`ctrl+shift+q`, via `pi.registerShortcut`) was
-removed entirely — on many desktop environments the window manager claims
-that chord to close windows before the terminal ever sees the bytes.
+**Panel-intercept rationale**: interception is two-tier. Modifier-bearing
+config keys (`ctrl+s`, `ctrl+g`, `shift+tab`) intercept everywhere in-panel —
+pi's binding layer never sees them while the panel is open — so their
+panel-safe reuse of pi built-ins costs nothing outside the panel. Bare
+config keys (`d` `o` `t` `m` `e`) intercept only from non-editor focus and
+always type in the editor, so they are panel-scope-only by construction —
+and the panel owns the whole keyboard while open regardless
+(`ctx.ui.custom()` raw-input dispatch; `src/panel/keys.ts` header, "Mode A —
+the intercept rule"; wiring in `src/index.ts`). Collisions therefore exist
+only while the panel is open and vanish on suspend.
 
 **Regression guard** — before adding or rebinding any default key:
 
@@ -377,7 +399,8 @@ that chord to close windows before the terminal ever sees the bytes.
 bash scripts/verify-keymap-conflicts.sh   # grep-based guard; exits nonzero on a taken key
 ```
 
-The script re-parses `DEFAULT_CONFIG.keys`, checks them against the avoided
+The script re-parses `DEFAULT_CONFIG.keys` (bare letters and chords alike),
+checks them against the avoided
 list above AND a live grep for `pi.registerShortcut("<key>"` string literals
 across the installed extension trees (pi's own docs/examples excluded). It
 degrades to a warning — not a failure — when `docs/keybindings.md` is not

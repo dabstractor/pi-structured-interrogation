@@ -2275,16 +2275,19 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
   });
 
   test("test_submit_superseded_writein_rebinds_as_elaboration", () => {
-    // AC-2b tail: write-in committed, then a REAL option accepted — the slot
-    // survives the accept (R4: accept never touches the draft store) and
-    // re-binds as elaboration at submit (value = option, custom cleared).
+    // AC-2b tail: write-in committed, then a REAL option accepted — the
+    // supersede re-stages the write-in's text as an ordinary draft
+    // (stageSupersededWriteIn; the KEPT-text mechanism since VAL-002's
+    // consume deletes the slot at commit) and it re-binds as elaboration at
+    // submit (value = option, custom cleared). Real gestures only — this
+    // test IS the fix's regression.
     const state = seed(BASIC);
     const store = new DraftStore();
     const { panel } = makePanel(state, { drafts: store });
     const { deps, sendMessage } = makeDeps(true);
 
     commitWriteIn(panel, "my custom take");
-    panel.commitTextDraft("q1", "my custom take"); // kept slot text (R4)
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // VAL-002: the real commit consumed the slot
 
     // Supersede: back to q1 — and accept the real option. FR-35 note: the
     // currentId setter now re-seeds the cursor to the recorded answer's row
@@ -2297,7 +2300,7 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
     const superseded = state.getQuestion("q1")?.answer;
     expect(superseded?.value).toBe("a");
     expect(superseded?.custom).toBeUndefined(); // accept replaced the write-in
-    expect(panel.draftTextFor("q1")).toBe("my custom take"); // slot KEPT (R4)
+    expect(panel.draftTextFor("q1")).toBe("my custom take"); // re-staged by the supersede path
 
     expect(submit(panel, deps)).toBe(true);
 

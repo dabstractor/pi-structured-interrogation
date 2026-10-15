@@ -67,14 +67,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Wire the re-stage into both option-accept apply sites",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The FR-18 seam splits option accepts into two apply paths — acceptOptionIndex (direct/zero-victim) and applyConfirmedEdit (modal, victims>0). Missing either leaves the bug alive on that path; wire both, and convert the manufactured test into the real-flow regression.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "acceptOptionIndex direct path + rewrite the manufactured test at actions.test.ts:2213",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"
@@ -89,7 +89,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "applyConfirmedEdit modal path (FR-18 victims>0) + modal supersede test",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1"
@@ -113,7 +113,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "User-held-draft-wins + deleted-to-empty-wins scenarios",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"

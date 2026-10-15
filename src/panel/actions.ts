@@ -318,6 +318,18 @@ export function acceptOptionIndex(panel: InterrogationPanel, q: Question, option
   // mootered questions must not be advance targets).
   evaluateDependsOn(panel.state);
   advanceAfterAccept(panel);
+  // WRITEIN-002 re-bind (BUG-001, direct/zero-victim path): re-stage the
+  // superseded write-in's text as an ordinary draft — guards live in the
+  // helper; the modal path (FR-18 victims > 0) is ripple-confirm.ts, S2.
+  // ORDERING (verified by the :2277 regression): this MUST follow
+  // advanceAfterAccept — the advance's syncBufferToQuestion write-through
+  // honors the consumed (seeded-"") buffer as a delete-to-empty over any
+  // existing slot and would wipe a pre-advance staging; staging AFTER the
+  // write-through (and BEFORE maybeAutoSubmit, whose same-gesture delivery
+  // must find the slot staged) is the only order that survives. The
+  // helper's commitTextDraft is currentId-agnostic (EXPLAIN-003 re-seed
+  // no-ops once the advance moved off the question).
+  stageSupersededWriteIn(panel, q.id, recorded, proposed.value);
   maybeAutoSubmit(panel, undefined, { wasUnanswered, questionId: q.id }); // AUTOSUBMIT-001/003 — transition-gated completeness check
   return "accept";
 }
@@ -579,11 +591,17 @@ function stepQuestion(panel: InterrogationPanel, delta: number): boolean {
  * - Choice questions, answered from a REAL option (`answer.custom !==
  *   true`): the draft is an elaboration of the chosen option — attach it
  *   as `answer.text` on the pending (answered) set only, value unchanged.
- *   Spreading the CURRENT answer re-binds superseded write-ins for free: a
- *   write-in later superseded by an option accept replaced the answer with
- *   the option's value and cleared `custom`, while the slot text was KEPT
- *   (R4 — accept never touches the draft store), so this branch attaches
- *   the kept text as elaboration at the next ctrl+s.
+ *   Spreading the CURRENT answer re-binds superseded write-ins: a write-in
+ *   later superseded by an option accept replaced the answer with the
+ *   option's value and cleared `custom`, and the supersede path
+ *   (acceptOptionIndex's stageSupersededWriteIn call; the FR-18 modal twin
+ *   lands in ripple-confirm.ts, P1.M1.T3.S2) explicitly RE-STAGES the
+ *   superseded write-in's value as an ordinary role-less draft — the old
+ *   "slot text was KEPT (R4 — accept never touches the draft store)" claim
+ *   was a half-truth once VAL-002's consumeCommittedBuffer began deleting
+ *   the slot at commit, so the re-stage is the KEPT-text mechanism, and a
+ *   user-held draft always wins (helper guard 4). This branch then attaches
+ *   the staged text as elaboration at the next ctrl+s.
  * - Choice questions, answered from a committed write-in
  *   (`answer.custom === true`): SKIPPED — the write-in already shipped its
  *   value at commit (writeInEnter); attaching the slot text as

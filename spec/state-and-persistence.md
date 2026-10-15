@@ -126,6 +126,10 @@ Panel-local `{questionId → {value, text}}` + `batchNote`. Preserved across nav
 
 Role binding (WRITEIN-002): a slot's text is elaboration (`answer.text`) when its question's answer is a real option, and the answer itself (`answer.value`, `custom: true`) when the answer came via Other or the question is `type:"text"`; the binding is evaluated at commit/submit time from the current selection. Superseding a write-in with an option accept keeps the slot (R4) and re-binds it as elaboration.
 
+## Side chat (ephemeral by design — SIDECHAT-002)
+
+The side chat lives in NONE of the three storage layers: no `InterrogationState` fields, no tool-result `details`, no custom entries — reconstruction never sees it and restart loses it silently. It is a module-memory singleton `{questionId, messages, usage, …}` (architecture.md §Side chat) with exactly two exits: replacement (opening a chat on another question) and discard (its question answered/closed by any path, `/clear` / `/new`, or pi shutdown). Compaction instructions (FR-29) need no amendment: side-chat content is never conversation content. No transcript renderer exists or may exist for it.
+
 ## Completion record format (the one full injection)
 
 ```

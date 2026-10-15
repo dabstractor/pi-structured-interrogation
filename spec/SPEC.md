@@ -1,6 +1,6 @@
 # pi-interrogator — SPEC
 
-Structured interrogation for the pi coding agent: the model asks dozens of planning questions through a single `interrogate` tool; the user answers them in a persistent bottom-dock panel that never scrolls away, submits partial answers any time, breaks out for side conversations, and edits answers as understanding evolves. The extension is the source of truth for question/answer state; the model reads and updates it through guards that make stale views fail loudly (like `edit`'s oldText and `write`'s read-before-write).
+Structured interrogation for the pi coding agent: the model asks dozens of planning questions through a single `interrogate` tool; the user answers them in a persistent bottom-dock panel that never scrolls away, submits partial answers any time, breaks out for side conversations, discusses a single question in an in-panel side chat that never touches the main conversation, and edits answers as understanding evolves. The extension is the source of truth for question/answer state; the model reads and updates it through guards that make stale views fail loudly (like `edit`'s oldText and `write`'s read-before-write).
 
 **Package:** `pi-interrogator` · **Tool:** `interrogate` · **Command:** `/interrogate`
 
@@ -14,6 +14,7 @@ Structured interrogation for the pi coding agent: the model asks dozens of plann
 6. **Drafts are sacred** — typed-but-unsubmitted text survives question navigation, agent re-asks (upserts), suspend/resume, and view toggles. Never destroyed except by explicit user action. (Hard-won lesson: the ask_user extension loses drafts on tab switches — disqualifying.) Every choice question ends in a synthetic `✎ Other — write your own` row whose committed text IS the answer (write-in, `custom`); `t` elaboration attaches to the selection instead (WRITEIN-001/002). Completeness auto-submits: every answer commit ships immediately while zero questions remain unanswered (AUTOSUBMIT-001/002) — no required hotkey.
 7. **All non-fixed hotkeys configurable.** The fixed family — `↑`/`↓`/`←`/`→` + `h`/`j`/`k`/`l`, `enter`, `esc`, `ctrl+c` — is the documented exception (VIMNAV-001). Defaults chosen against pi built-ins and popular extensions (ctrl+b is taken by patty-bg-tasks; ctrl+m sends `\r`); bare-letter defaults (`d` `o` `t` `m` `e`) collide with nothing and never intercept in editor focus (BAREKEYS-001).
 8. **The user's answer is the user's work — nothing re-proposes or displaces it (ANSWER-PIN-001).** Once a question carries an answer (any status), the caret/highlight sits on that answer in every view and on every revisit: the option row matching `answer.value`, the `✎ Other` row for write-ins, the text affordance for text questions. `enter` or a digit on the already-recorded value is a state no-op (advance only) — never a re-proposal, never the FR-18 modal, never an `answer.at` rewrite, never a submission trigger. The ★ recommendation is display-only after an answer exists; ★ preselect applies only to unanswered questions. Changing an answered question requires an explicit, different user choice. No exceptions.
+9. **Side chats never touch the main conversation (SIDECHAT-001/005).** The per-question side chat (`e`) runs on nested model calls inside the panel — no messages, entries, tool-set, system-prompt, or model changes ever reach the session from it. It is one in-memory singleton, discarded when its question is answered and lost on restart; answers it proposes apply through the ordinary accept seams and are indistinguishable from user selections in every model-facing record. Cache preservation for the main conversation is structural: its request bytes are unchanged by any chat activity.
 
 ## Deliverable files
 
@@ -42,7 +43,7 @@ Decision traceability: every requirement traces to a decision in spec/decisions.
 
 ## Non-goals (confirmed)
 
-Answering by parsing chat text while the panel is open · multiple concurrent interrogations · images in answers · mouse input · cross-restart draft persistence (documented limitation) · modifying pi core (public extension APIs only) · per-request state injection (vetoed).
+Answering by parsing chat text while the panel is open · multiple concurrent interrogations · images in answers · mouse input · cross-restart draft persistence (documented limitation) · side-chat persistence or transcript visibility (ephemeral by design, SIDECHAT-002) · modifying pi core (public extension APIs only) · per-request state injection (vetoed).
 
 @./SPEC.md
 @./product-requirements.md

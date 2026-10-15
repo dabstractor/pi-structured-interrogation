@@ -16,6 +16,8 @@ pi-interrogator/
 │   ├── deep-view.ts          # scrollable deep view rendering
 │   ├── overview.ts           # `o` list
 │   ├── text-field.ts         # embedded editor wrapper (factory composition)
+│   ├── chat-view.ts          # side-chat view rendering (SIDECHAT-001)
+│   ├── sidechat.ts           # singleton chat store + nested LLM loop + answer parser
 │   └── keys.ts               # key routing: config-driven, panel-intercept rules
 ├── fallback.ts             # non-TUI digest + chat answer recording
 ├── lifecycle.ts              # auto-close on agent_settled, reopen, suspend/resume, widget
@@ -31,6 +33,7 @@ pi-interrogator/
 | `tool.ts` | Validates params, enforces rev/epoch guards, mutates state via `state.ts`, returns result text + `details` (full state snapshot) |
 | `state.ts` | Single in-memory source of truth. Never touches UI. Emits change events for panel/widget/renderers |
 | `panel/*` | The bottom-dock UI while open. Owns drafts (typed-not-submitted answers + batch note), the Other write-in row + two editor duties (WRITEIN-001), and the completeness auto-submit hook (AUTOSUBMIT-001) |
+| `panel/sidechat.ts` | The ONE live side chat (SIDECHAT-001): singleton store, one-shot branch snapshot + system-prompt builder, nested `modelRegistry` loop with abort, ` ```answer ` parser, usage tally. Never touches the session (cache-isolation contract below) |
 | `delivery.ts` | Builds delta custom messages (`interrogation-submission`) and the one-time completion record |
 | `lifecycle.ts` | Panel open/suspend/resume orchestration, `agent_settled` auto-close, suspend widget, reopen handling |
 | `persistence.ts` | Mirrors state to `interrogation-state` custom entries (debounced); reconstructs on `session_start` |
@@ -69,6 +72,21 @@ model → interrogate({})
   returns: goal, epoch, group summary, per-question {id, title, status, rev, answer?}, ~1 line each
 ```
 
+### Side chat (SIDECHAT-001; replaces discuss-in-chat)
+```
+e (panel, non-editor focus) → sidechat.ts singleton ← {questionId, branch snapshot, system prompt}
+  live chat on this question → reuse (view opens on it)
+  chat on another/no question → replace/create (branch snapshot taken NOW, once)
+enter (chat input) → modelRegistry.complete/streamSimple(model, {system, branch+turns})
+  streamed into chat-view.ts · esc aborts (AbortController) · /clear|/new resets the singleton
+reply ends with fenced ```answer block → parse (LAST block, strict JSON, value byte-match)
+  confirm row (sideChatAutoApply bypasses) → acceptOptionIndex / write-in seam
+  → ordinary ripple/advance/auto-submit · chat discards (question answered)
+question answered/closed by ANY path → singleton discarded, view closes
+```
+NO write ever reaches the session from this path: no sendMessage, no appendEntry,
+no transcript entries, no usage records. (discuss.ts + its setEditorText seam: DELETED)
+
 ### Stale guard rejection
 ```
 model upsert carries rev 2 / epoch 4; actual rev 5 / epoch 9
@@ -94,7 +112,7 @@ esc (view-descent terminus) or completion dismissal → panel.done(null) (suspen
    open → silent no-op (never suspends) · suspended ∧ live → resume · closed ∧ live state → fresh open
 resume: re-instantiate panel from state + preserved drafts
 agent {reopen:true} → same resume path (no guard; judgment trusted)
-discuss-in-chat: like suspend, plus setEditorText with quoted question + options
+side chat survives suspend like drafts do (module memory — §Side chat cache-isolation contract)
 ```
 
 ### Restart / resume session
@@ -125,10 +143,15 @@ session_tree → same reconstruction walk against the new branch
 - `pi.registerCommand` ("/interrogate": invoke panel — open/resume, never toggle; no live state → notify)
 - (no `pi.registerShortcut` — the ctrl+shift+q global chord was removed: window managers claim it to close windows on many desktop environments)
 - `pi.on`: `session_start`, `session_tree` (silent reconstruction — never a surface), `agent_settled`, `tool_execution_end` (detect upserts for auto-close), `session_before_compact`, `session_shutdown`
-- `ctx.ui.custom` (panel host), `ctx.ui.setWidget` (suspend reminder), `ctx.ui.getEditorComponent` (compose user's editor), `ctx.ui.setEditorText` (discuss handoff), `ctx.ui.notify`
+- `ctx.ui.custom` (panel host), `ctx.ui.setWidget` (suspend reminder), `ctx.ui.getEditorComponent` (compose user's editor — the answer duties AND the side-chat input), `ctx.ui.notify`
+- `ctx.modelRegistry` (side chat ONLY — provider-neutral nested model calls), `ctx.sessionManager.getBranch()` + `sessionEntryToContextMessages` (one-shot branch snapshot for the chat context)
 - `pi.sendMessage` (submission/completion custom messages), `pi.appendEntry` (state mirror)
 - `pi.registerMessageRenderer` ×2 (submission delta + completion recap cards); NO entry renderer — the `interrogation-state` mirror entries stay durable but transcript-invisible (MIRROR-SILENT-001)
 - `ctx.mode` / `ctx.hasUI` guards throughout; `ctx.model` for compaction model resolution
+
+## Side chat cache-isolation contract (SIDECHAT-005 — binding)
+
+The side chat talks to the model exclusively through nested `ctx.modelRegistry` calls. It MUST NOT call `pi.sendMessage` / `pi.sendUserMessage`, register or activate tools (`registerTool` / `setActiveTools`), change the system prompt, or switch the session model; discarding a chat is a plain in-memory delete. Rationale: pi re-sends the full conversation per turn and providers cache by exact prefix (anthropic-style `cache_control` at system / last tool / tail); the main conversation's cached prefix breaks only via message-prefix mutation, system/tool-set change, model switch, or idle TTL — a nested call stream does none of those, so the main session's next request is byte-identical and cache preservation is structural, not probabilistic. The chat runs under its own system prompt (deliberately no prefix share with the main conversation): the first turn of each new chat pays full input for the replayed branch and writes its own small prefix cache; later turns hit it. The main conversation is idle whenever the panel is open regardless (the tool returns immediately; submissions are the only turn trigger), so the side chat adds no idle-TTL risk. A static guard test (the `no-hardcoded-keys.test.ts` pattern) enforces the ban list: side-chat modules contain no `sendMessage` / `sendUserMessage` / `setActiveTools` / `registerTool` / `setModel` reference.
 
 ## Event subscriptions table
 
@@ -150,4 +173,4 @@ session_tree → same reconstruction walk against the new branch
 
 ## Config surface (all hotkeys + toggles)
 
-Loaded from pi `settings.json` under `"interrogator"` key; deep-merged over defaults. See ui-spec.md §Config for the full reference including every keymap entry and toggle flags (`gateWarnings`, `roundDetection`).
+Loaded from pi `settings.json` under `"interrogator"` key; deep-merged over defaults. See ui-spec.md §Config for the full reference including every keymap entry and toggle flags (`gateWarnings`, `roundDetection`). Side chat: `keys.chat` (renamed from `keys.discuss`), `sideChatModel`, `sideChatAutoApply`.

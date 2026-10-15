@@ -20,7 +20,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 **M5 — Deep view, overview, gate, ripples.** `deep-view.ts` (scrollable pane, sticky option headers, select-from-deep), `overview.ts`, group dimming + gate warnings, `dependsOn` evaluator + moot marks + ripple confirm. Verify AC-5, 6, 7.
 
-**M6 — Suspend/resume ecosystem.** `esc` suspend + invoke-only `/interrogate` (immediate in every scenario) + widget naming `/interrogate`, reopen action, discuss-in-chat handoff with `setEditorText`, editor-text preservation across suspend. The `ctrl+shift+q` chord and its global shortcut were removed (window managers claim it on many desktops). Verify AC-4.
+**M6 — Suspend/resume ecosystem.** `esc` suspend + invoke-only `/interrogate` (immediate in every scenario) + widget naming `/interrogate`, reopen action, editor-text preservation across suspend. The discuss-in-chat handoff (`setEditorText`) was REPLACED by the M10 side chat (SIDECHAT-001). The `ctrl+shift+q` chord and its global shortcut were removed (window managers claim it on many desktops). Verify AC-4.
 
 **M7 — Persistence + polish.** `persistence.ts` (mirror, reconstruction; auto-open removed per SURFACE-002 — widget line only), compaction instructions, message/entry renderers (cards), round detection (FR-26), terminal fallbacks (<24/<12 rows, <60 cols), config reference, README. Verify AC-8, 9, 10, 11, 12.
 
@@ -35,6 +35,8 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 **M9 — Answer pinning (ANSWER-PIN-001, 2026-10-04 interrogation).** `panel/short-view.ts` `initialCursorIndex`: a recorded answer (any status carrying `answer`) pins the cursor — display row of `answer.value`, `options.length` (✎ row) for `custom`, 0 for text; ★ preselect only when no answer; stale value → clamp to row 0 (never the recommendation). All three seed sites inherit it (panel.ts `currentId` setter + the EXPLAIN-003 editor-close re-seed; deep-view.ts `deepSeedCursorIndex`). `panel/actions.ts` `acceptOptionIndex` + `writeInEnter`: same-value short-circuit BEFORE the ripple seam — no applyAnswer, no `answer.at` rewrite, no maybeAutoSubmit; advance only. `panel/layout.ts`: answered marker (★) on the short-view question line — parity with the overview's answered rows. Purge every "answers never pin the cursor"/status-agnostic-preselect comment (short-view/panel/actions/deep-view/keys/tool-schema) and flip the tests asserting them (short-view, two-stage, deep-view, overview, ac-panel, actions, panel, ac-scripted, regression-phantom). Verify AC-16.
 
+**M10 — Side chat (SIDECHAT-001…005, 2026-10-15).** `panel/sidechat.ts` (singleton store; branch snapshot via `sessionEntryToContextMessages`; system-prompt builder; nested `modelRegistry` loop with AbortController; ` ```answer ` parser; usage tally), `panel/chat-view.ts` (transcript + input + confirm row), `keys.chat` (renamed from `keys.discuss`, silent alias) routed in keys.ts, config `sideChatModel` / `sideChatAutoApply`; DELETE `panel/discuss.ts` and its `setEditorText` seam consumer; static cache-guard test (side-chat modules contain no `sendMessage`/`sendUserMessage`/`setActiveTools`/`registerTool`/`setModel` — the no-hardcoded-keys pattern); README + keymap-conflict re-verification refresh. Verify AC-17.
+
 ## File checklist
 
 - [ ] `index.ts` — factory; registers tool/command/shortcut/events/renderers; mode guards
@@ -44,6 +46,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 - [ ] `panel/panel.ts` — `ctx.ui.custom` host, view switching, focus model, draft store
 - [ ] `panel/short-view.ts`, `deep-view.ts`, `overview.ts`
 - [ ] `panel/text-field.ts` — editor composition, `$EDITOR`
+- [ ] `panel/sidechat.ts` + `panel/chat-view.ts` — singleton side chat, nested LLM loop, answer parser (M10)
 - [ ] `panel/keys.ts` — config-driven routing; intercept-before-forward rule
 - [ ] `delivery.ts` — delta messages, completion record, reminder line
 - [ ] `lifecycle.ts` — open/suspend/resume/reopen, widget, auto-close, completion trigger
@@ -57,7 +60,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 - **Unit (node/tsx script or vitest)**: state machine transitions; merge rules 1–4; rev/epoch guard math; dependsOn closure (transitive ripples); reconstruction from fixture entries (tool-result details + deltas + entry-mirror fallback); delta digest formatting.
 - **Integration (launch `pi -e .`)**: scripted model turns are unreliable — drive the tool directly via a debug command (`/interrogate-debug-upsert <json>`) that invokes the same code path as the tool; then manual verification per the AC runbook below.
   - **AUTOMATION AMENDMENT (binding, supersedes the above in automated runs — see plan/001_0d6760db6bc5/AUTOMATION-POLICY.md)**: automated pipeline runs NEVER launch a live `pi -e .` TUI session, NEVER call the `interrogate` tool for real, and NEVER wait for user answers. Automation drives the same code paths via vitest integration tests over `executeInterrogate`/the debug handlers plus headless `pi -p` one-shot probes. "Launch `pi -e .`" and "manual verification" above describe the HUMAN test procedure (recorded in MANUAL-TUI-AC-RUNBOOK.md), not an automated step.
-- **AC runbook**: execute acceptance criteria 1–15 (incl. 2a–2d) from product-requirements.md in order; each cites the FR it proves. AC-12 (rebinding) proves R5; AC-15 (reads never surface) proves R6/SURFACE-001. AC-4 includes verifying the *main editor's* draft survives panel suspend/resume. In automation, ACs are proven by scripted tests; interactive-only ACs are deferred to the human runbook and never block the pipeline.
+- **AC runbook**: execute acceptance criteria 1–17 (incl. 2a–2d) from product-requirements.md in order; each cites the FR it proves. AC-12 (rebinding) proves R5; AC-15 (reads never surface) proves R6/SURFACE-001. AC-4 includes verifying the *main editor's* draft survives panel suspend/resume. In automation, ACs are proven by scripted tests; interactive-only ACs are deferred to the human runbook and never block the pipeline.
 - **Regression guard**: keymap conflict re-verification (grep installed extensions' `registerShortcut` + pi `keybindings.md`) recorded in README.
 
 ## Risks
@@ -70,6 +73,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 | Compaction dropping tool-result details | Entry-mirror fallback path (tested via fixture) |
 | Ctrl+shift+m/e terminal variability | Config-rebindable; documented; `\r` collision avoided |
 | Model ignores "end your turn" instruction | Harmless (instruction-only, Q28=B); never `terminate` |
+| Side-chat nested calls (auth, cost, runaway replies) | `modelRegistry` resolves auth (qna.ts pattern); usage tallied + shown on close; `esc` aborts; singleton + one-shot snapshot cap the blast radius; feature-inert without the seam |
 
 ## Config reference (settings.json → `"interrogator"`)
 
@@ -77,10 +81,11 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 {
   "keys": { "deep": "d", "overview": "o", "elaborate": "t",
             "batchNote": "m", "submit": "ctrl+s",
-            "discuss": "e", "externalEditor": "ctrl+g",
+            "chat": "e", "externalEditor": "ctrl+g",
             "prevQuestion": "tab", "nextQuestion": "shift+tab" },
   "gateWarnings": true, "roundDetection": true,
-  "editorMode": "composed"
+  "editorMode": "composed",
+  "sideChatModel": "anthropic/claude-sonnet-4-5", "sideChatAutoApply": false
 }
 ```
 

@@ -346,15 +346,37 @@ describe("buildKeyRouter — two-tier intercept rule with focus === text (BAREKE
     expect(dispatchCount(fresh)).toBe(0);
   });
 
-  test("test_externalEditor_only_in_text_focus", () => {
+  test("test_externalEditor_in_editor_focus_any_duty", () => {
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
-    // Options focus: ctrl+g is NOT consumed (kept free elsewhere).
+    // Options focus: ctrl+g is NOT consumed (kept free in every non-editor
+    // context — editorFocused is false there).
     expect(route(DEFAULT_DATA.externalEditor, makePanel({ focus: "options" }))).toBe(false);
     expect(actions.onExternalEditor).not.toHaveBeenCalled();
-    // Text focus: consumed (its h2.34 context).
+    // Editor focus, ANY duty (BUG-002 router half): text (h2.34, unchanged)…
     expect(route(DEFAULT_DATA.externalEditor, makePanel({ focus: "text" }))).toBe(true);
     expect(actions.onExternalEditor).toHaveBeenCalledTimes(1);
+    // …and note: one embedded editor, three duties — the gate keys off the
+    // canonical editorFocused flag, so ctrl+g opens $EDITOR from batch-note
+    // mode too (S1's apply-side fork routes the result back to the note).
+    expect(route(DEFAULT_DATA.externalEditor, makePanel({ focus: "note" }))).toBe(true);
+    expect(actions.onExternalEditor).toHaveBeenCalledTimes(2);
+  });
+
+  test("test_externalEditor_bare_remap_forwards_in_both_editor_duties", () => {
+    // TIER-2 stay-green (BAREKEYS-001): externalEditor's ONLY valid context
+    // is editor focus, where a bare key must TYPE — a bare remap therefore
+    // never intercepts, in BOTH text and note duty. The BUG-002 gate
+    // widening must not change the bare tier.
+    const actions = makeActions();
+    const { route } = makeRouter(configWithKeys({ externalEditor: "g" }), actions);
+    for (const focus of ["text", "note"] as PanelFocus[]) {
+      expect(
+        route("g", makePanel({ focus })),
+        `bare "g" externalEditor must forward in ${focus} focus`,
+      ).toBe(false);
+    }
+    expect(dispatchCount(actions)).toBe(0);
   });
 });
 

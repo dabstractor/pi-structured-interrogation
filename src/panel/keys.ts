@@ -93,7 +93,8 @@
  *   4. config intercepts, in this order (TWO-TIER — chords intercept in
  *      every focus; bare keys only from non-editor focus, else forward):
  *      deep, overview, elaborate, batchNote, submit, discuss,
- *      externalEditor (only when focus === "text"), prevQuestion,
+ *      externalEditor (editor focus, any duty: write-in, elaboration,
+ *      note — BUG-002), prevQuestion,
  *      nextQuestion (view-aware: overview cursor movers).
  *   5. no match → return false (forward to embedded editor / default nav)
  *
@@ -142,7 +143,7 @@ export interface RoutedActions {
   /** Discuss in chat. Wired host-side at panel.ts's router-construction
    * site (P1.M6.T2.S2 — the closure needs the PiUISurface); default no-op. */
   onDiscuss(p: InterrogationPanel): void;
-  /** External editor (text-focus context only). Wired by M4.T1.S3. */
+  /** External editor (editor focus, any duty: write-in, elaboration, note). Wired by M4.T1.S3. */
   onExternalEditor(p: InterrogationPanel): void;
 }
 
@@ -559,11 +560,13 @@ export function buildKeyRouter(
       actions.onDiscuss(panel);
       return true;
     }
-    // externalEditor is text-focus context (h2.34) — gated so ctrl+g stays
-    // free in every other context. TIER: its only valid context is editor
-    // focus, where a bare key must type — a bare remap therefore never
-    // intercepts (decisions :113-115; keep the chord).
-    if (panel.focus === "text" && matchesKey(data, b.externalEditor)) {
+    // externalEditor is editor-focus context, any duty (BUG-002 — one
+    // embedded editor, three duties: write-in, elaboration, note; ui-spec
+    // "editor focus (any duty)"). Gated so ctrl+g stays free in every
+    // non-editor context. TIER: its only valid context is editor focus,
+    // where a bare key must type — a bare remap therefore never intercepts
+    // (decisions :113-115; keep the chord) — in BOTH text and note duty.
+    if (editorFocused && matchesKey(data, b.externalEditor)) {
       if (bare.externalEditor) return false; // tier 2 in its only context
       actions.onExternalEditor(panel);
       return true;

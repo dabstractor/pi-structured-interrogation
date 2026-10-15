@@ -19,7 +19,7 @@
  * | 1   | letters TYPE through the full panel (Style B)      | `t` (panel.test.ts re-press test), `m` in note focus only | ✅ d/o/t/m/e each reach the editor fake verbatim in text focus |
  * | 1   | ctrl+s intercepts in text focus (Style A)          | keys.test.ts :316/:413 | — |
  * | 1   | ctrl+s full submission FROM TEXT FOCUS (Style B)   | heartbeat test fires ctrl+s from OPTIONS focus | ✅ text-focus ctrl+s → real delivery, status flip, epoch bump |
- * | 1   | ctrl+g text-only both polarities (Style A)         | keys.test.ts test_externalEditor_only_in_text_focus | — |
+ * | 1   | ctrl+g any-editor-duty both polarities (Style A)    | keys.test.ts test_externalEditor_in_editor_focus_any_duty | — |
  * | 1   | ctrl+g routed END-TO-END with mocked spawn         | panel.test.ts mocks editInExternalEditor (module seam), never child_process | ✅ $EDITOR spawn fake, await, replace-on-complete + options-focus negative |
  * | 2   | hjkl per view + clamping + editor forwarding + schema absence | keys.test.ts :482–:630 (real-panel variants included) | Style B byte-landing complement added; the rest audit-only |
  * | 3   | digits inert (Style A, all contexts) + types       | keys.test.ts :630/:639/:663/:918/:994 | — |

@@ -186,6 +186,22 @@ describe("focusText→elaborate legacy alias (BAREKEYS-001)", () => {
     expect(resolveKeyLabels(cfg).elaborate).toBe("Ctrl+K");
   });
 
+  test("test_alias_explicit_elaborate_equal_to_default_still_wins", async () => {
+    // The alias contract is PRESENCE-based ("an explicit keys.elaborate
+    // always wins"), not value-based: a user rebind to exactly the default
+    // is still an explicit new-name binding and beats a stale legacy
+    // focusText in the same settings (presence is read from the raw
+    // pre-DEFAULT-merge user map, where absence is observable).
+    const g = await writeSettings(
+      JSON.stringify({
+        interrogator: { keys: { focusText: "ctrl+j", elaborate: DEFAULT_CONFIG.keys.elaborate } },
+      }),
+    );
+    const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
+    expect(cfg.keys.elaborate).toBe(DEFAULT_CONFIG.keys.elaborate);
+    expect(resolveKeyLabels(cfg).elaborate).toBe("T");
+  });
+
   test("test_alias_invalid_elaborate_does_not_win_over_focusText", async () => {
     // An INVALID new-name value never beats a valid legacy binding.
     for (const bad of ["", "   ", 42, null]) {

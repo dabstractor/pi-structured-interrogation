@@ -54,11 +54,11 @@
  * FR-9, clamped at the ends) and are view-aware exactly like the config
  * prev/next keys (overview: cursor row; short/deep: current question); they
  * are NOT intercepted in text/note focus, where the editor caret owns them.
- * `enter` interception applies
- * only when focus is on the options region; in text/note focus `enter`
- * FORWARDS so the embedded field (P1.M4.T1.S2) can implement its two-stage
- * save — this is the single exception to the intercept rule (note focus is
- * intercepted even earlier, at the panel level: stage-1 saves + exits).
+ * `enter` NEVER reaches this router in text/note focus: panel.handleInput
+ * intercepts it earlier — WRITEIN-001 commit-at-enter (note exit /
+ * write-in commit / elaboration save+blur) — so the enter branch below
+ * fires only from options focus (its `focus !== "text"` guard is
+ * defensive).
  *
  * EDITOR-FOCUS FORWARDING (ESC-002): while the embedded editor holds focus
  * (`focus === "text"` OR `"note"` — the SAME composed editor, pi-vim
@@ -493,8 +493,9 @@ export function buildKeyRouter(
       return false; // single esc → the editor
     }
 
-    // 3. Fixed enter — options focus only. In text focus enter FORWARDS so
-    // the embedded text field implements its two-stage save (P1.M4.T1.S2).
+    // 3. Fixed enter — options focus only. In text/note focus enter never
+    // reaches the router: panel.handleInput intercepts it first (WRITEIN-001
+    // commit-at-enter), so this branch cannot see an editor-focus enter.
     // Overview (P1.M5.T2.S1): enter JUMPS to the selected question in the
     // short form (overviewJump — restores options focus; the currentId
     // setter re-seeds the cursor per ANSWER-PIN-001 — recorded answer

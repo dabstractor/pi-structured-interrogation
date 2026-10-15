@@ -189,20 +189,20 @@ function coerceBoolean(value: unknown, fallback: boolean): boolean {
 }
 
 /** Coerce the keys map: non-string or empty accelerators fall back to the default for that action. */
-function coerceKeys(raw: unknown): Record<KeyAction, string> {
+function coerceKeys(raw: unknown, userKeys?: unknown): Record<KeyAction, string> {
   const src = isPlainObject(raw) ? raw : {};
   // Legacy alias (BAREKEYS-001 rename): a pre-rename keys.focusText binding
-  // silently feeds keys.elaborate when the user has not rebound the new name;
-  // never logged. "User-absent" is only observable as "still equals the
-  // default" here — coerceKeys sees the DEFAULT-merged map (loadConfigFrom
-  // deep-merges DEFAULT_CONFIG first), so an explicit user rebind is exactly
-  // a valid value differing from the default, and it always wins.
-  const elaborateValid =
-    typeof src.elaborate === "string" &&
-    src.elaborate.trim() !== "" &&
-    src.elaborate !== DEFAULT_CONFIG.keys.elaborate;
+  // silently feeds keys.elaborate when the user has not set the new name;
+  // never logged. Presence is checked on userKeys — the RAW pre-merge user
+  // map threaded through coerceConfig — because loadConfigFrom deep-merges
+  // DEFAULT_CONFIG first, so the merged map cannot distinguish "absent"
+  // from "explicitly rebound to the default". The alias contract
+  // (P1.M1.T1.S2) is presence-based: an explicit valid keys.elaborate
+  // ALWAYS wins, even when it happens to equal the default.
+  const user = isPlainObject(userKeys) ? userKeys : {};
+  const elaborateExplicit = typeof user.elaborate === "string" && user.elaborate.trim() !== "";
   const legacyValid = typeof src.focusText === "string" && src.focusText.trim() !== "";
-  const effSrc = !elaborateValid && legacyValid ? { ...src, elaborate: src.focusText } : src;
+  const effSrc = !elaborateExplicit && legacyValid ? { ...src, elaborate: src.focusText } : src;
   const out = {} as Record<KeyAction, string>;
   for (const action of KEY_ACTIONS) {
     const v = effSrc[action];
@@ -222,10 +222,10 @@ function coerceEditorMode(value: unknown): EditorMode {
  * ill-typed (bad booleans, unknown editorMode, non-object
  * sections). Guarantees the returned value always satisfies InterrogatorConfig.
  */
-function coerceConfig(raw: unknown): InterrogatorConfig {
+function coerceConfig(raw: unknown, userRaw?: unknown): InterrogatorConfig {
   const src = isPlainObject(raw) ? raw : {};
   return {
-    keys: coerceKeys(src.keys),
+    keys: coerceKeys(src.keys, isPlainObject(userRaw) ? userRaw.keys : undefined),
     gateWarnings: coerceBoolean(src.gateWarnings, DEFAULT_CONFIG.gateWarnings),
     roundDetection: coerceBoolean(src.roundDetection, DEFAULT_CONFIG.roundDetection),
     compactionPreservation: coerceBoolean(src.compactionPreservation, DEFAULT_CONFIG.compactionPreservation),
@@ -252,7 +252,11 @@ export interface ConfigPaths {
 export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorConfig> {
   const global = paths.global !== undefined ? await tryReadInterrogator(paths.global) : {};
   const project = paths.project !== undefined ? await tryReadInterrogator(paths.project) : {};
-  return coerceConfig(deepMerge(deepMerge(DEFAULT_CONFIG, global), project));
+  // The raw user map (pre-DEFAULT merge) rides along so coerceKeys can
+  // distinguish "keys.elaborate absent" from "explicitly set to the
+  // default" — the legacy focusText alias contract is presence-based.
+  const user = deepMerge(global, project);
+  return coerceConfig(deepMerge(DEFAULT_CONFIG, user), user);
 }
 
 /**

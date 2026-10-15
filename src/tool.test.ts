@@ -52,7 +52,7 @@ const PRD_H2_24_DESCRIPTION =
 const PRD_H2_24_GUIDELINES = [
   "Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.",
   "After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.",
-  "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords). If the tool result warns a deep-view field is thin, re-upsert it expanded with the current rev.",
+  "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords).",
   "Omission never withdraws: edit surgically by resending only the questions you are changing (with their current revs). Prune deliberately by resending the kept set with withdrawOmitted: true.",
 ];
 

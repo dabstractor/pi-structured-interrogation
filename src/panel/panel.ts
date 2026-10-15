@@ -112,9 +112,12 @@ export type PanelFocus = "options" | "text" | "note";
 
 /**
  * Panel-local draft record — the {value, text} shape per the h2.45 drafts
- * lifecycle. Written by stage-1 enter (two-stage, h2.31); reconciled into
- * the real DraftStore by P1.M4.T2.S1. The map is the always-fresh source
- * for refocus seeding during the panel's lifetime.
+ * lifecycle. Written by the WRITEIN-001 commit-at-enter gestures (the
+ * elaboration enter via {@link saveTextDraft} and the double-esc editor
+ * exit via {@link exitTextField}, through the shared stageText core — the
+ * h2.31 two-stage arming machinery is gone); reconciled into the real
+ * DraftStore by P1.M4.T2.S1. The map is the always-fresh source for
+ * refocus seeding during the panel's lifetime.
  */
 interface TextDraft {
   value: string;

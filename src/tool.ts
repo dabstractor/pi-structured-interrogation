@@ -64,12 +64,17 @@ export const INTERROGATE_TOOL_DESCRIPTION =
  * global-guidelines API exists, and none is needed since the description is
  * always resident for active tools). Third bullet added by the 2026-09-15
  * deep-view quality pin (spec/decisions.md): it is the enforceable half of
- * the expand-don't-compress contract in the schema field descriptions.
+ * the expand-don't-compress contract in the schema field descriptions. The
+ * bullet originally ended with a self-heal sentence ("if the tool result
+ * warns a deep-view field is thin, re-upsert it expanded"); the sentence
+ * was removed when CAPS-OUT-001 (2026-10-08) deleted the caps engine and
+ * its minimum-floor lints — the tool-result warnings channel now carries
+ * withdrawal notices only, so that warning can never fire.
  */
 export const INTERROGATE_PROMPT_GUIDELINES: string[] = [
   "Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.",
   "After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.",
-  "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords). If the tool result warns a deep-view field is thin, re-upsert it expanded with the current rev.",
+  "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords).",
   "Omission never withdraws: edit surgically by resending only the questions you are changing (with their current revs). Prune deliberately by resending the kept set with withdrawOmitted: true.",
 ];
 

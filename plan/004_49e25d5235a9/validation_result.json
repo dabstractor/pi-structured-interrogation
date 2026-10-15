@@ -1,0 +1,5 @@
+{
+  "hasIssues": true,
+  "issueCount": 3,
+  "summary": "PASS with 3 minor issues (2 doc/comment residue, 1 contrived config-alias corner); zero functional defects — 1320 tests, typecheck, keymap guard, static spec gates, real-runtime probes, and a 54-assertion factory E2E journey all green."
+}

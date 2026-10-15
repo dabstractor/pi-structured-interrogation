@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "BUG-001 — WRITEIN-002 supersede re-bind restored end-to-end (adjudicated: restore)",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Restore the promised contract: a committed write-in superseded by an option accept keeps its text, re-staged as a role-less draft at supersede time (never over a user-held slot), re-binding as answer.text at the next submit — via a guarded stageSupersededWriteIn helper wired into BOTH option-accept apply sites (direct + FR-18 modal), with the manufactured test converted into the real-flow regression, guard-matrix scenario coverage, VAL-002 pins untouched, and the adjudication recorded in spec/decisions.md.",
           "tasks": [
             {
@@ -106,7 +106,7 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "Stabilize edge-contract coverage for the restored re-bind",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Pin the restored behavior's edges so future changes cannot silently regress the guards or the auto-submit path (house precedent: plan/003's 'Stabilize cross-cutting suites' task). These are contract-guard stabilizers on top of the TDD tests that landed with P1.M1.T2/T3 — if any fails, the implementation is wrong, not the test.",
               "subtasks": [
                 {
@@ -145,7 +145,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S3",
                   "title": "Auto-submit same-gesture variant (AUTOSUBMIT-003 rule b)",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -179,7 +179,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "openExternalEditor note-duty fork: completed text routes to batchNote/setNote, never the question slot",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-ctrlg-and-stale-caps.md §(b) — openExternalEditor (src/panel/panel.ts:1306-1348) seeds duty-blind (CORRECT: textField.getText() holds the note in note mode because enterNoteMode seeds the same TextField, panel.ts:1265-1271) but the apply side is HARDWIRED to the question-draft path: draftSlots.set(currentId) + drafts?.setDraft(currentId) + bufferOwner = currentId at ~L1334-1337. Routing note text there would corrupt the current question's draft and re-scope bufferOwner away from 'note'.\n2. INPUT: The bufferOwner discriminator ('note' | question id | undefined — panel.ts:435; the same discriminator writeThroughCurrentDraft uses at panel.ts:948-951); exitNoteMode's write-through precedent (panel.ts:1286-1291: 'this.batchNote = text; this.drafts?.setNote(text);'); the note submit read path (actions.ts:703 'panel.drafts?.getNote() || panel.batchNote') and post-ship clear (actions.ts:763-764).\n3. LOGIC: Inside openExternalEditor's 'if (result.status === \"complete\")' block, after this.textField.setText(result.content), branch: if (this.bufferOwner === \"note\") { this.batchNote = result.content; this.drafts?.setNote(result.content); } — leave bufferOwner === 'note' and do NOT touch draftSlots; else keep the existing question-draft block verbatim. Everything duty-blind (re-entrancy guard, tui stop/start envelope, catch/finally, invalidate) stays as-is. TDD (house layer-2 pattern): note-mode sibling of the clean-exit test in panel.test.ts:1905-1996 using makeEditorHarness (panel.test.ts:1881-1903, vi.mock('../external-editor.js')) — panel.enterNoteMode(), run the mocked round-trip, assert drafts.setNote called with the edited text, batchNote updated, drafts.setDraft NOT called, bufferOwner stays 'note', focus stays 'note'. Write the failing test first; it is testable directly on openExternalEditor without the gate change.\n4. OUTPUT: openExternalEditor is duty-correct in note mode BEFORE the gate widens (behavior dormant — ctrl+g still gated to text focus until P1.M2.T1.S2 lands, so no user-visible change and no corruption window).\n5. DOCS: Mode A — extend openExternalEditor's JSDoc (panel.ts:1306-1319) to name both routing targets (question draft vs note write-through mirroring exitNoteMode).",
@@ -193,7 +193,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "Widen keys.ts:566 gate to editorFocused (any duty) + sync three stale comments + flip router tests",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1"

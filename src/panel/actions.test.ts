@@ -2598,6 +2598,53 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
     expect(msg.content).not.toContain("because of the latency profile"); // dropped, never resurrected
     expect(panel.draftTextFor("q1")).toBeUndefined();
   });
+
+  test("test_supersede_writein_same_gesture_auto_submit_ships_rebound_elaboration", () => {
+    // [Mode A] BUG-001 / P1.M1.T4.S3 — AUTOSUBMIT-003 rule (b): superseding
+    // a committed write-in on the LAST answerable question of a complete set
+    // fires maybeAutoSubmit in the SAME gesture; the auto path's submit must
+    // find the slot staged (acceptOptionIndex orders staging BEFORE
+    // maybeAutoSubmit, after advanceAfterAccept) and attach it — "attaches at
+    // the next submit" includes the auto path (architecture §(f) risk 3,
+    // intended UX, not silent data loss). Pinned invariant: the delivered
+    // message carries `q2: Alpha — my custom take` AND answer.text is held
+    // in state. NO manual submit() call — the auto-submission is the point.
+    const state = seed([
+      { id: "q1", overrides: { status: "answered" } }, // {value:"a", at:T0} via seed's applyAnswer
+      { id: "q2", overrides: { status: "answered" } },
+    ]);
+    // The committed write-in residue on the LAST answerable question — seeded
+    // via state.applyAnswer (writeInSeed house pattern): the real commit
+    // consumed the slot, so only the answer remains (VAL-002).
+    state.applyAnswer("q2", { value: "my custom take", custom: true, at: T0 });
+    const store = new DraftStore();
+    const { deps, sendMessage } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps, drafts: store });
+
+    expect(state.getQuestion("q2")?.answer?.custom).toBe(true); // recorded WRITE-IN
+    expect(panel.draftTextFor("q2")).toBeUndefined(); // no user-held draft — guard 4 must not fire
+
+    // Supersede: currentId re-seeds the cursor to the ✎ row (custom answer,
+    // ANSWER-PIN-001) — drive to option "a" explicitly. custom:true means
+    // the inert branch cannot fire; this is a genuine supersede accept.
+    panel.currentId = "q2";
+    panel.cursorIndex = 0; // option "a"
+    expect(accept(panel)).toBe(true);
+
+    // SAME GESTURE — no manual submit() anywhere; rule (b) fired inside accept:
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.epoch).toBe(2); // one firing = one epoch bump (FR-D4)
+    expect(state.getQuestion("q1")?.status).toBe("submitted"); // the whole pending set ships
+    expect(state.getQuestion("q2")?.status).toBe("submitted");
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toContain("q2: Alpha — my custom take"); // the re-bound elaboration DELIVERED
+    expect(msg.content).toContain("q1: Alpha");
+    expect(panel.footerFlash?.text).toBe("submitted — 2 answer(s)");
+    const a = state.getQuestion("q2")?.answer;
+    expect(a?.value).toBe("a");
+    expect(a?.text).toBe("my custom take"); // AND held in STATE
+    expect(a?.custom).toBeUndefined(); // custom cleared by the supersede applyAnswer
+  });
 });
 
 // ----------- AUTOSUBMIT-001 completeness hook (PRD h2.33, P2.M1.T1.S1)

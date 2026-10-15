@@ -2312,6 +2312,88 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
     expect(msg.content).toContain("q1: Alpha — my custom take");
   });
 
+  test("test_submit_superseded_writein_rebinds_through_fR18_modal", () => {
+    // BUG-001 2/2 (P1.M1.T3.S2): the FR-18 MODAL twin of the direct-path
+    // supersede re-bind. With a dependsOn victim answered, the option
+    // supersede defers through the REAL keep/cancel modal
+    // (createRippleConfirm stash → applyConfirmedEdit) — which must ALSO
+    // re-stage the superseded write-in (spec/decisions.md P1.M1.T1.S1
+    // restore ruling). Real gestures only; the delivery seam is the only
+    // mock (AUTOMATION-POLICY). No seamMock: a mocked veto never stashes
+    // panel.confirmMode, so this test exercises the real stash → enter flow.
+    const state = seed([
+      { id: "q1", overrides: { recommendation: "a" } },
+      { id: "q2", overrides: { dependsOn: [{ id: "q1", notEquals: "a" }], status: "answered" } },
+    ]);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    // Real write-in commit on q1 (VAL-002: the commit consumes the slot).
+    commitWriteIn(panel, "my own words");
+    expect(state.getQuestion("q1")?.answer?.custom).toBe(true);
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+
+    // Supersede: accept the real option "a" — q2 (answered, dependsOn
+    // notEquals "a") is a VICTIM, so the REAL default seam (panel.ts:
+    // createRippleConfirm default) stashes the modal instead of applying.
+    panel.currentId = "q1";
+    panel.cursorIndex = 0; // option "a" row
+    expect(accept(panel)).toBe(true); // consumed — but vetoed into the modal
+    expect(panel.confirmMode?.kind).toBe("choice");
+    expect(panel.confirmMode?.questionId).toBe("q1");
+    expect(panel.confirmMode?.victims).toEqual(["q2"]);
+    expect(panel.confirmMode?.proposed?.value).toBe("a");
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // nothing staged while pending
+    expect(state.getQuestion("q1")?.answer?.custom).toBe(true); // not yet applied
+
+    // enter = keep → the DEFERRED apply must re-stage the superseded
+    // write-in (the modal-path twin of acceptOptionIndex's stage call).
+    panel.handleInput("\r");
+    expect(panel.confirmMode).toBeNull();
+    const superseded = state.getQuestion("q1")?.answer;
+    expect(superseded?.value).toBe("a");
+    expect(superseded?.custom).toBeUndefined(); // option replaced the write-in
+    expect(panel.draftTextFor("q1")).toBe("my own words"); // THE FIX (red before wiring)
+    expect(store.getDraft("q1")).toBe("my own words"); // DraftStore seam holds it
+    expect(state.getQuestion("q2")?.status).toBe("moot"); // ripple ran (FR-17)
+
+    expect(submit(panel, deps)).toBe(true);
+    const a = state.getQuestion("q1")?.answer;
+    expect(a?.value).toBe("a"); // the option won the value
+    expect(a?.text).toBe("my own words"); // kept write-in re-bound as elaboration
+    expect(a?.custom).toBeUndefined();
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toContain("q1: Alpha — my own words");
+  });
+
+  test("test_supersede_modal_esc_stages_nothing_and_keeps_state", () => {
+    // BUG-001 negative: esc (cancelConfirmedEdit) is the guaranteed
+    // zero-mutation path — no apply, NO re-stage, no moot flip.
+    const state = seed([
+      { id: "q1", overrides: { recommendation: "a" } },
+      { id: "q2", overrides: { dependsOn: [{ id: "q1", notEquals: "a" }], status: "answered" } },
+    ]);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+
+    commitWriteIn(panel, "my own words");
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true); // modal stashed
+    expect(panel.confirmMode?.kind).toBe("choice");
+
+    panel.handleInput("\u001b"); // esc = cancel
+    expect(panel.confirmMode).toBeNull();
+    const a = state.getQuestion("q1")?.answer;
+    expect(a?.value).toBe("my own words"); // write-in survives untouched
+    expect(a?.custom).toBe(true);
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // NOTHING staged
+    expect(store.getDraft("q1")).toBeUndefined();
+    expect(state.getQuestion("q2")?.status).toBe("answered"); // no moot flip
+    expect(panel.cursorIndex).toBe(0); // write-in not findable → priorCursorIndex fallback
+  });
+
   test("test_submit_text_draft_ships_with_custom_marker", () => {
     // NEW: the reconciled text answer carries custom: true (h2.42) — the
     // draft is user-typed text, never an option value.

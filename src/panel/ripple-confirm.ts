@@ -62,7 +62,7 @@
  * them; there is deliberately no config surface (AC-12 unaffected).
  */
 import { computeRipple, evaluateDependsOn } from "../depends-on.js";
-import { maybeAutoSubmit, nextUnanswered, type RippleConfirmFn } from "./actions.js";
+import { maybeAutoSubmit, nextUnanswered, stageSupersededWriteIn, type RippleConfirmFn } from "./actions.js";
 import type { InterrogationPanel } from "./panel.js";
 
 /**
@@ -139,7 +139,9 @@ export function createRippleConfirm(): RippleConfirmFn {
 /**
  * Confirm-enter for a choice edit (the deferred commit). Clears the mode
  * FIRST, then mirrors acceptOptionIndex's tail EXACTLY ONCE — never
- * re-invoking the seam: applyAnswer (status → answered), evaluateDependsOn
+ * re-invoking the seam: applyAnswer (status → answered), the superseded
+ * write-in re-stage (BUG-001/WRITEIN-002 — the modal twin of
+ * acceptOptionIndex's direct-path call), evaluateDependsOn
  * (FR-17: victims flip to moot with h2.29 reasons instantly — one `changed`
  * per flip through the panel's existing subscription), then the standard
  * accept-advance via the exported nextUnanswered primitive (stays put when
@@ -155,7 +157,12 @@ export function applyConfirmedEdit(panel: InterrogationPanel): void {
   const cm = panel.confirmMode;
   panel.confirmMode = null;
   if (cm === null || cm.kind !== "choice" || cm.proposed === undefined) return;
+  const recorded = panel.state.getQuestion(cm.questionId)?.answer; // BEFORE apply — holds the superseded write-in
   panel.state.applyAnswer(cm.questionId, cm.proposed);
+  // BUG-001 / WRITEIN-002 re-bind (decisions.md P1.M1.T1.S1 restore ruling): the
+  // modal defers the same supersede the direct path (actions.ts acceptOptionIndex) stages —
+  // guards live inside stageSupersededWriteIn (custom-only, non-blank, no kind-flip, user-draft wins).
+  stageSupersededWriteIn(panel, cm.questionId, recorded, cm.proposed.value);
   evaluateDependsOn(panel.state); // FR-17/AC-6: instant moot greying
   const ordered = panel.state.orderedQuestions();
   const from = ordered.findIndex((q) => q.id === panel.currentId);

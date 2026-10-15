@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { StaleError, assertFresh, buildStaleMessage } from "./guards.js";
 import { takeSnapshot } from "./snapshots.js";
 import { createInterrogationState, type InterrogationState, type Question } from "./state.js";
-import type { ParsedAction, QuestionInput } from "./tool-schema.js";
+import type { ParsedAction } from "./tool-schema.js";
 
 const T0 = "2025-01-01T00:00:00.000Z";
 

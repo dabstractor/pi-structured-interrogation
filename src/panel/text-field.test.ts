@@ -23,7 +23,6 @@ import {
   createEditorComponent,
   DEFAULT_TEXT_LINES,
   TextField,
-  type EditorFactory,
 } from "./text-field.js";
 
 // ------------------------------------------------------------------ fixtures

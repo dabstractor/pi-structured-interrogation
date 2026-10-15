@@ -172,11 +172,6 @@ function expectMatches(data: string, keyId: KeyId, label: string): void {
 function makeRouter(config: InterrogatorConfig, actions: RoutedActions) {
   return { route: buildKeyRouter(config, actions), actions };
 }
-/** Router whose action spies are reachable with full Mock typing. */
-function makeSpiedRouter(config: InterrogatorConfig) {
-  const actions = makeActions();
-  return { route: buildKeyRouter(config, actions), actions };
-}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -239,7 +234,7 @@ describe("buildKeyRouter — default config dispatch (h2.34 table)", () => {
     }
 
     const actions = makeActions();
-    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    makeRouter(DEFAULT_CONFIG, actions);
 
     // Fixed arrows + enter (options focus) round-trip too.
     expectMatches(UP, Key.up, "up");

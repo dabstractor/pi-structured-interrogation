@@ -113,7 +113,7 @@ const BLOCKING: ReadonlySet<QuestionStatus> = new Set([
 export function attemptCompletion(
   pi: Pick<ExtensionAPI, "sendMessage">,
   opts: CompletionTriggerOptions,
-  result: ClosePassResult,
+  _result: ClosePassResult,
 ): CompletionResult {
   // 1. No state → nothing to complete, nothing to throw about.
   const state = (opts.getState ?? getState)();

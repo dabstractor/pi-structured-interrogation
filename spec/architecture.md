@@ -7,9 +7,9 @@ Single pi extension (TypeScript, jiti-loaded), TUI-first with graceful non-TUI f
 ```
 pi-interrogator/
 ├── index.ts                  # factory: registers tool, command, events, renderers
-├── config.ts                 # defaults + settings load (keymap, caps, toggles)
+├── config.ts                 # defaults + settings load (keymap, toggles)
 ├── state.ts                  # InterrogationState: questions, answers, drafts, rev/epoch, snapshots
-├── tool.ts                   # interrogate tool: schema, guards, actions, caps, fallback formatting
+├── tool.ts                   # interrogate tool: schema, guards, actions, fallback formatting
 ├── panel/
 │   ├── panel.ts              # InterrogationPanel component (ctx.ui.custom host)
 │   ├── short-view.ts         # short form rendering
@@ -19,7 +19,7 @@ pi-interrogator/
 │   └── keys.ts               # key routing: config-driven, panel-intercept rules
 ├── fallback.ts             # non-TUI digest + chat answer recording
 ├── lifecycle.ts              # auto-close on agent_settled, reopen, suspend/resume, widget
-├── renderers.ts              # registerMessageRenderer / registerEntryRenderer cards
+├── renderers.ts              # registerMessageRenderer cards (submission + completion); NO entry renderer (MIRROR-SILENT-001)
 ├── persistence.ts            # details mirroring, session_start reconstruction
 └── detect.ts                 # plain-text question-round heuristic + notify (FR-26)
 ```
@@ -28,7 +28,7 @@ pi-interrogator/
 
 | Component | Responsibility |
 |---|---|
-| `tool.ts` | Validates params, enforces caps + rev/epoch guards, mutates state via `state.ts`, returns result text + `details` (full state snapshot) |
+| `tool.ts` | Validates params, enforces rev/epoch guards, mutates state via `state.ts`, returns result text + `details` (full state snapshot) |
 | `state.ts` | Single in-memory source of truth. Never touches UI. Emits change events for panel/widget/renderers |
 | `panel/*` | The bottom-dock UI while open. Owns drafts (typed-not-submitted answers + batch note), the Other write-in row + two editor duties (WRITEIN-001), and the completeness auto-submit hook (AUTOSUBMIT-001) |
 | `delivery.ts` | Builds delta custom messages (`interrogation-submission`) and the one-time completion record |
@@ -40,7 +40,7 @@ pi-interrogator/
 ### Ask (non-blocking)
 ```
 model → interrogate({goal, questions[]})
-  tool.ts: validate → caps → guards (rev/epoch on updates) → state.upsert (merge rules)
+  tool.ts: validate → guards (rev/epoch on updates) → state.upsert (merge rules)
          → mirror to custom entry
   lifecycle.ts: open panel (TUI) / mark pending (non-TUI)
   tool returns: "Questions visible to the user. {status line}
@@ -127,8 +127,8 @@ session_tree → same reconstruction walk against the new branch
 - `pi.on`: `session_start`, `session_tree` (silent reconstruction — never a surface), `agent_settled`, `tool_execution_end` (detect upserts for auto-close), `session_before_compact`, `session_shutdown`
 - `ctx.ui.custom` (panel host), `ctx.ui.setWidget` (suspend reminder), `ctx.ui.getEditorComponent` (compose user's editor), `ctx.ui.setEditorText` (discuss handoff), `ctx.ui.notify`
 - `pi.sendMessage` (submission/completion custom messages), `pi.appendEntry` (state mirror)
-- `pi.registerMessageRenderer` ×2, `pi.registerEntryRenderer` ×1
-- `ctx.mode` / `ctx.hasUI` guards throughout; `ctx.model.contextWindow` for cap scaling
+- `pi.registerMessageRenderer` ×2 (submission delta + completion recap cards); NO entry renderer — the `interrogation-state` mirror entries stay durable but transcript-invisible (MIRROR-SILENT-001)
+- `ctx.mode` / `ctx.hasUI` guards throughout; `ctx.model` for compaction model resolution
 
 ## Event subscriptions table
 
@@ -148,6 +148,6 @@ session_tree → same reconstruction walk against the new branch
 - `Draft` (panel-local): `{ value, text }` per question + `batchNote`
 - Submission message `details`: `{ changed: [{id, from, to}], note?, epoch, card: FullCardData }`
 
-## Config surface (all hotkeys + caps + toggles)
+## Config surface (all hotkeys + toggles)
 
-Loaded from pi `settings.json` under `"interrogator"` key; deep-merged over defaults. See ui-spec.md §Config for the full reference including every keymap entry, cap formula parameters, and toggle flags (`gateWarnings`, `roundDetection`).
+Loaded from pi `settings.json` under `"interrogator"` key; deep-merged over defaults. See ui-spec.md §Config for the full reference including every keymap entry and toggle flags (`gateWarnings`, `roundDetection`).

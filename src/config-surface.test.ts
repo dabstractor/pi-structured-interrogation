@@ -74,7 +74,7 @@ import {
   type KeyAction,
 } from "./config.js";
 import { registerInterrogateCommand } from "./command.js";
-import { buildKeyRouter, parseAccelerator, resolveBindings, type RoutedActions } from "./panel/keys.js";
+import { buildKeyRouter, parseAccelerator, resolveBindings } from "./panel/keys.js";
 import { renderConfirmFooter, renderFooter, renderNoteHeader, type ScreenKind } from "./panel/layout.js";
 import type { PanelFocus, PanelHost, PanelView, InterrogationPanel } from "./panel/panel.js";
 import { gateWarningLine } from "./panel/gate.js";

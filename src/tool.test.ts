@@ -11,7 +11,7 @@
  *
  * No pi runtime is started: the registered render hooks are called directly
  * with a stub theme (todo.ts pattern), and the executor receives the minimal
- * ExecutorContext stub ({ mode, hasUI, model.contextWindow }).
+ * ExecutorContext stub ({ mode, hasUI }).
  */
 import * as fs from "node:fs";
 import { beforeEach, describe, expect, test } from "vitest";
@@ -19,7 +19,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Box, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { attemptCompletion } from "./completion.js";
-import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
+import { DEFAULT_CONFIG } from "./config.js";
 import { evaluateDependsOn } from "./depends-on.js";
 import { RELAY_INSTRUCTION } from "./fallback.js";
 import { StaleError } from "./guards.js";
@@ -75,12 +75,12 @@ function seedQ(st: InterrogationState, id: string): void {
 
 /** TUI executor stub: panel-capable. */
 function tuiCtx(): ExecutorContext {
-  return { mode: "tui", hasUI: true, model: { contextWindow: 200_000 } };
+  return { mode: "tui", hasUI: true };
 }
 
 /** Non-TUI executor stub (h2.26 fallback): print mode, no UI. */
 function printCtx(): ExecutorContext {
-  return { mode: "print", hasUI: false, model: { contextWindow: 200_000 } };
+  return { mode: "print", hasUI: false };
 }
 
 /** Identity theme for renderer assertions (stub per PRP). */

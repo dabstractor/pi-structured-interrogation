@@ -62,7 +62,7 @@ import type { Lifecycle } from "./lifecycle.js";
  * /interrogate panel was built for; one or two are stray questions that
  * plain chat handles fine, and nudging on them would be noise (FR-26).
  */
-export const ROUND_LINE_RE = /^\s*(?:Q?\d+[\).:]|[❓\-•*])\s+.+\?/;
+export const ROUND_LINE_RE = /^\s*(?:Q?\d+[).:]|[❓\-•*])\s+.+\?/;
 
 /**
  * h2.27 notify message, VERBATIM (byte-identical; em dash, not hyphen).

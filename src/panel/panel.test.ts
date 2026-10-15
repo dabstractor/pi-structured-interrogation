@@ -537,7 +537,6 @@ describe("view switching (built-in S1 bindings)", () => {
 
   // ------------------------------------------------ overview (P1.M5.T2.S1)
 
-  const UP = "\u001b[A";
   const DOWN = "\u001b[B";
   const ENTER = "\r";
 
@@ -1378,7 +1377,7 @@ describe("embedded editor — construction + wiring (P1.M4.T1.S1)", () => {
   });
 
   test("test_openPanel_captures_editor_factory_once_per_open", () => {
-    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();
     const factory = vi.fn(() => fakePanelEditor());
     const pi = {
@@ -2986,16 +2985,6 @@ describe("navigation duty re-derivation — BUG-004 (WRITEIN-001 cursor-follow)"
   function makeDutyPanel(state: InterrogationState): InterrogationPanel {
     return new InterrogationPanel(
       panelArgsFor(state, { editorFactory: () => fakePanelEditor() }),
-    );
-  }
-
-  /** Same, with an explicit initial focus question (ladder rung 1). */
-  function makeDutyPanelFocused(
-    state: InterrogationState,
-    focusQuestionId: string,
-  ): InterrogationPanel {
-    return new InterrogationPanel(
-      panelArgsFor(state, { editorFactory: () => fakePanelEditor(), focusQuestionId }),
     );
   }
 

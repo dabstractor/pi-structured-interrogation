@@ -234,7 +234,6 @@ function groupSummaryLines(state: SerializedState): string[] {
 function questionBlock(q: Question): string[] {
   // Titles are short by contract — never truncated. Only the prompt
   // fallback gets the 60-char plain slice (no ellipsis).
-  const label = q.title ?? q.prompt.slice(0, 60);
   const lines = [questionLine(q)];
   // Full answer fidelity: the one-liner slices write-ins to 60 chars for
   // scanability, but the user's words must reach the model INTACT — the

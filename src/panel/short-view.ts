@@ -323,7 +323,7 @@ function textAffordanceLine(cursorIndex: number, theme: Theme, budget: number, d
  * previewable answer — the line is never rendered empty, and plain option
  * values are never previewed (option rows carry the selection).
  */
-function answerPreviewLine(q: Question, theme: Theme, budget: number, dimAll: boolean): string | undefined {
+function answerPreviewLine(q: Question, theme: Theme, budget: number, _dimAll: boolean): string | undefined {
   // BUG-005 part 2: write-in (custom: true) and text answers commit to
   // answer.value; elaborations ride answer.text. Read whichever field the
   // recorded answer actually used — same vocabulary as overview markerParts

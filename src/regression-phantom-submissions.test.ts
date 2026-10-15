@@ -33,7 +33,7 @@ import { DraftStore } from "./draft-store.js";
 import { renderHeader } from "./panel/layout.js";
 import { InterrogationPanel, type InterrogationPanelArgs } from "./panel/panel.js";
 import { buildSuspendWidgetLine } from "./panel/suspend.js";
-import { createLifecycle, type Lifecycle } from "./lifecycle.js";
+import { createLifecycle } from "./lifecycle.js";
 import { getState, resetState } from "./state.js";
 import { executeInterrogate, type ExecutorContext } from "./tool.js";
 
@@ -77,7 +77,7 @@ function makePiHarness() {
 }
 
 function tuiCtx(): ExecutorContext {
-  return { mode: "tui", hasUI: true, model: { contextWindow: 200_000 } };
+  return { mode: "tui", hasUI: true };
 }
 
 beforeEach(() => {
@@ -147,8 +147,7 @@ function choiceQ(id: string) {
 
 function makeWalkthrough() {
   const h = makePiHarness();
-  let lifecycle: Lifecycle;
-  lifecycle = createLifecycle(h.pi, {
+  const lifecycle = createLifecycle(h.pi, {
     onAfterClosePass: createCompletionTrigger(h.pi, {
       lifecycle: { dismissPanel: () => lifecycle.dismissPanel() },
       ctx: { isIdle: () => true },

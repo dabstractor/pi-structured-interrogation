@@ -38,7 +38,7 @@ import { createDebugSubcommands } from "./debug-commands.js";
 import { drainBatchNotes } from "./delivery.js";
 import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
-import { createLifecycle, type Lifecycle } from "./lifecycle.js";
+import { createLifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen, openPanel } from "./panel/panel.js";
 import { hasResumableQuestions, resumePanel } from "./panel/suspend.js";
 import { createStateMirror } from "./persistence.js";
@@ -62,10 +62,10 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // Circularity note: the trigger needs the lifecycle (dismissPanel) and the
   // engine needs the trigger (onAfterClosePass). Resolved with a late-binding
   // shim — the shim closure reads the `lifecycle` binding lazily at call
-  // time, by which point the assignment below has completed (no close pass
-  // can run before this factory returns, so the binding is never undefined).
-  let lifecycle: Lifecycle;
-  lifecycle = createLifecycle(pi, {
+  // time, by which point the initialization below has completed (no close
+  // pass can run before this factory returns, so the binding is never
+  // undefined).
+  const lifecycle = createLifecycle(pi, {
     onAfterClosePass: createCompletionTrigger(pi, {
       lifecycle: {
         dismissPanel: () => lifecycle.dismissPanel(),
@@ -82,7 +82,7 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // P1.M7.T4.S1 — plain-text round detection (FR-26, h2.27): TUI-only,
   // config-gated (roundDetection), throttled once per 3 turns; never
   // transforms content — notifies only.
-  const roundDetector = createRoundDetector(pi, { config, lifecycle });
+  createRoundDetector(pi, { config, lifecycle });
 
   // P1.M7.T1.S1 — storage layer 3 (h2.40, FR-27): mirror every state mutation
   // into `interrogation-state` custom entries — an append-only audit trail

@@ -168,7 +168,7 @@ export function createLifecycle(pi: Pick<ExtensionAPI, "on">, opts?: LifecycleOp
   const resolveState = (): InterrogationState | undefined =>
     opts?.getState !== undefined ? opts.getState() : getState();
 
-  let reaskedThisRun = new Set<string>();
+  const reaskedThisRun = new Set<string>();
   let submittedRun = false;
   const pendingToolArgs = new Map<string, unknown>();
   let panelDismissCb: (() => void) | undefined;

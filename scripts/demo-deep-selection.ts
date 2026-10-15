@@ -147,6 +147,7 @@ function wrap(text: string, budget: number): string[] {
 
 // ------------------------------------------------------------ SGR filters
 
+// eslint-disable-next-line no-control-regex -- the ANSI ESC byte (0x1b) IS the match target
 const SGR = /\x1b\[[0-9;]*m/g;
 
 /** True when an SGR parameter list sets fg/bg COLOR (not an attribute). */

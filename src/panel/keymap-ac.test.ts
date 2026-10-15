@@ -41,7 +41,6 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { EventEmitter } from "node:events";
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { createInterrogationState, type InterrogationState, type Question } from "../state.js";
@@ -81,7 +80,6 @@ function choiceQ(id: string, overrides: Partial<Question> = {}): Question {
 }
 
 /** The bare-letter/chord default data (mirrors keys.test.ts DEFAULT_DATA). */
-const LETTER_ACTIONS = ["deep", "overview", "elaborate", "batchNote", "discuss"] as const;
 const LETTER_BYTES: Record<KeyAction, string> = {
   deep: "d",
   overview: "o",

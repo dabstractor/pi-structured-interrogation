@@ -37,7 +37,7 @@ import type { TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "./config.js";
 import { createCompletionTrigger } from "./completion.js";
 import { DraftStore } from "./draft-store.js";
-import { createLifecycle, type Lifecycle } from "./lifecycle.js";
+import { createLifecycle } from "./lifecycle.js";
 import { InterrogationPanel, type InterrogationPanelArgs } from "./panel/panel.js";
 import { getState, resetState } from "./state.js";
 import { executeInterrogate, type ExecutorContext } from "./tool.js";
@@ -86,7 +86,7 @@ function makePiHarness() {
 }
 
 function tuiCtx(): ExecutorContext {
-  return { mode: "tui", hasUI: true, model: { contextWindow: 200_000 } };
+  return { mode: "tui", hasUI: true };
 }
 
 beforeEach(() => {
@@ -120,8 +120,7 @@ function q1Status(): string | undefined {
 
 function makeWalkthrough() {
   const h = makePiHarness();
-  let lifecycle: Lifecycle;
-  lifecycle = createLifecycle(h.pi, {
+  const lifecycle = createLifecycle(h.pi, {
     onAfterClosePass: createCompletionTrigger(h.pi, {
       lifecycle: { dismissPanel: () => lifecycle.dismissPanel() },
       ctx: { isIdle: () => true },

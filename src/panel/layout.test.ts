@@ -17,7 +17,6 @@ import type { InterrogatorConfig } from "../config.js";
 import { resolveKeyLabels } from "../config.js";
 import type { Question, QuestionStatus, SerializedState } from "../state.js";
 import {
-  firstSentence,
   renderConfirmFooter,
   renderFlashLine,
   renderFooter,

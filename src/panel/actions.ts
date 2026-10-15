@@ -33,7 +33,7 @@ import type { Question, QuestionAnswer, SerializedState } from "../state.js";
 import { countUnansweredGate, gateGroupNames } from "./gate.js";
 import type { InterrogationPanel } from "./panel.js";
 import { beginWriteInConfirm, rippleVictims } from "./ripple-confirm.js";
-import { initialCursorIndex, displayOptions } from "./short-view.js";
+import { displayOptions } from "./short-view.js";
 
 // ------------------------------------------------------------------- types
 

@@ -91,7 +91,7 @@ export const INTERROGATE_PROMPT_SNIPPET =
 /**
  * The slice of pi's ExtensionContext the executor reads — nothing else.
  * Structural: the real execute() hands its full ExtensionContext straight
- * through, and tests stub this shape ({ mode, hasUI, model.contextWindow }).
+ * through, and tests stub this shape ({ mode, hasUI }).
  * Deliberately carries NO UI surface: the executor cannot touch it.
  */
 export interface ExecutorContext {
@@ -99,14 +99,14 @@ export interface ExecutorContext {
   mode: string;
   /** Whether dialog-capable UI is available (h2.26 fallback guard input). */
   hasUI: boolean;
-  /** Current model; only `contextWindow` (tokens) is read, defensively. */
-  model?: { contextWindow?: number } | undefined;
 }
 
 /**
  * Config seam for {@link executeInterrogate}: set once by
  * {@link createInterrogateTool} at factory time (index.ts loads config once,
- * synchronously thereafter). Explicit third argument always wins.
+ * synchronously thereafter). The executor itself currently reads no config —
+ * keymap/panel behavior is deps-injected — so the third argument is a
+ * reserved call-shape seam (`_config`, intentionally unconsumed).
  */
 let activeConfig: InterrogatorConfig = DEFAULT_CONFIG;
 
@@ -219,7 +219,7 @@ function inlineEnvelope(state: SerializedState, action: ResultAction, statusLine
 export function executeInterrogate(
   args: unknown,
   ctx: ExecutorContext,
-  config: InterrogatorConfig = activeConfig,
+  _config: InterrogatorConfig = activeConfig,
   deps: ToolDeps = {},
 ): InterrogateResult {
   // 1. Parse + route — before ANY state work (malformed input never mutates).

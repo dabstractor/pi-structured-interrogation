@@ -19,7 +19,7 @@ import { describe, expect, test, vi } from "vitest";
 // instead, this simulation drives the real modules directly.
 
 import { DEFAULT_CONFIG } from "./config.js";
-import { InterrogationState, getState, resetState, setState } from "./state.js";
+import { InterrogationState, resetState, setState } from "./state.js";
 import { DraftStore } from "./draft-store.js";
 import {
   createPanelHost,

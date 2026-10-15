@@ -77,7 +77,6 @@ import {
   type PanelHost,
   type PiUISurface,
 } from "./panel.js";
-import { editInExternalEditor } from "../external-editor.js";
 
 /**
  * P1.M4.T1.S3 — the external-editor round-trip is mocked at the module
@@ -305,9 +304,6 @@ function makeMockLifecycle(): {
 // ------------------------------------------------------------------ helpers
 
 const flush = (): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, 0));
-
-/** Stateful fake composed editor (panel.test.ts structural contract). */
-null
 
 /** Stateful fake composed editor (panel.test.ts structural contract). */
 function fakePanelEditor(): EditorComponent & { setText: Mock } {

@@ -123,12 +123,12 @@ const ts = (): string => new Date().toISOString();
 
 /** TUI executor stub: panel-capable session (tool.test.ts convention). */
 function tuiCtx(): ExecutorContext {
-  return { mode: "tui", hasUI: true, model: { contextWindow: 200_000 } };
+  return { mode: "tui", hasUI: true };
 }
 
 /** Non-TUI executor stub (h2.26 fallback): print mode, no UI. */
 function printCtx(): ExecutorContext {
-  return { mode: "print", hasUI: false, model: { contextWindow: 200_000 } };
+  return { mode: "print", hasUI: false };
 }
 
 // -------------------------------------------------------------------- stubs
@@ -179,8 +179,7 @@ function makePiHarness() {
  * onAfterClosePass seam, idle delivery probe.
  */
 function wireLifecycle(h: ReturnType<typeof makePiHarness>): Lifecycle {
-  let lifecycle: Lifecycle;
-  lifecycle = createLifecycle(h.pi, {
+  const lifecycle = createLifecycle(h.pi, {
     onAfterClosePass: createCompletionTrigger(h.pi, {
       lifecycle: {
         dismissPanel: () => lifecycle.dismissPanel(),

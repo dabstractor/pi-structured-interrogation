@@ -13,7 +13,6 @@ import {
   STATE_MIRROR_DEBOUNCE_MS,
   createStateMirror,
   type InterrogationStateEntryData,
-  type StateMirror,
 } from "./persistence.js";
 import {
   createInterrogationState,

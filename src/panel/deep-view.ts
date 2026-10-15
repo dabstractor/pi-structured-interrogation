@@ -140,9 +140,8 @@ const INSET = "  ";
  * ramification pipes render `┃` (heavy) instead of `│` — same 3 visible
  * cols, so the amended-6 indent geometry is untouched. Color treatment
  * unchanged: the glyphs are an ADDITIVE channel, not a replacement.
+ * (amendment 9's per-row character signal).
  */
-/** Recommendation mark inserted before the title label (short-view.ts). */
-const STAR = "★ ";
 /**
  * Explanation-row pipe indent: 1 space + │/┃ + space (3 visible cols; bar
  * at col 3, text col 4 — amended 6 indent). Bars PRIMARY (theme text); the

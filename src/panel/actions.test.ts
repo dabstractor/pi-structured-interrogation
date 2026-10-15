@@ -14,7 +14,6 @@
  */
 import type {
   ExtensionAPI,
-  KeybindingsManager,
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
@@ -2471,7 +2470,7 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
     const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
     const store = new DraftStore();
     const { panel } = makePanel(state, { drafts: store });
-    const { deps, sendMessage } = makeDeps(true);
+    const { deps } = makeDeps(true);
 
     store.setDraft("t1", "my detailed answer");
     expect(submit(panel, deps)).toBe(true);

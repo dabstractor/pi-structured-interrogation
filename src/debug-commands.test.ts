@@ -22,7 +22,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "./config.js";
 import { createDebugSubcommands } from "./debug-commands.js";
 import { buildStatusLine } from "./results.js";
-import { createInterrogationState, getState, resetState } from "./state.js";
+import { getState, resetState } from "./state.js";
 import { executeInterrogate } from "./tool.js";
 
 // ------------------------------------------------------------------ fixtures

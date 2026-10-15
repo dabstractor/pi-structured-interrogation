@@ -4,7 +4,6 @@
  * only — no state, no UI.
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import {
   InterrogateParams,
   OptionSchema,

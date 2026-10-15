@@ -136,7 +136,6 @@ import {
   resetState,
   setState,
   type InterrogationState as LiveState,
-  type SerializedState,
 } from "./state.js";
 
 /**

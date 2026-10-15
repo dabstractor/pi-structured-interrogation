@@ -8,10 +8,10 @@
  * The mock surface gains a setWidget(key, content) RECORDER — widget
  * assertions are exact-string, per the h2.3 contract.
  */
-import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi, type Mock } from "vitest";
-import { DEFAULT_CONFIG, resolveKeyLabels } from "../config.js";
+import { DEFAULT_CONFIG } from "../config.js";
 import { DraftStore } from "../draft-store.js";
 import { createInterrogationState, type InterrogationState, type Question } from "../state.js";
 import { createPanelHost, openPanel, type OpenPanelOptions, type PiUISurface } from "./panel.js";
@@ -481,7 +481,7 @@ describe("resumePanel — widget clear + fresh instance + focus restore", () => 
   });
 
   test("test_resumePanel_falls_back_to_first_active_when_focus_withdrawn", async () => {
-    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();
     const state = makeState(2, 1);
     openPanel(mock.pi, optsFor(state, { focusQuestionId: "q2" }));
@@ -502,7 +502,7 @@ describe("resumePanel — widget clear + fresh instance + focus restore", () => 
     //   2. a reasked question counts as unanswered (advance algorithm's
     //      UNANSWERED_STATUSES);
     //   3. with nothing unanswered, the pre-suspend focus is restored.
-    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    createPanelHost(makeMockLifecycle().lifecycle);
     const mock = makeMockPi();
 
     // Rung 1 + 2: order [answered, reasked, open]; pre-suspend focus is the

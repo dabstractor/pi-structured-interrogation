@@ -36,7 +36,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi, type Mock } from "vitest";
-import { DEFAULT_CONFIG, type InterrogatorConfig } from "../config.js";
+import { DEFAULT_CONFIG } from "../config.js";
 import { createInterrogationState, type InterrogationState, type Question } from "../state.js";
 import type { DraftStore, InterrogationPanelArgs } from "./panel.js";
 import { InterrogationPanel } from "./panel.js";

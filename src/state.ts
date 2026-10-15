@@ -170,6 +170,7 @@ export interface StateEvents {
  * types for the four domain events while the raw `EventEmitter` surface
  * remains available underneath.
  */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging -- deliberate: this interface IS the typed event surface merged onto the class below
 export interface InterrogationState {
   on<K extends keyof StateEvents>(event: K, listener: (...args: StateEvents[K]) => void): this;
   once<K extends keyof StateEvents>(event: K, listener: (...args: StateEvents[K]) => void): this;
@@ -234,6 +235,7 @@ export interface InterrogationState {
  * - `serialize()` deep-copies (structuredClone), so its output is safe to
  *   hand to tool results, snapshots, and persistence.
  */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging -- deliberate: merges the typed event interface above onto the runtime class
 export class InterrogationState extends EventEmitter {
   private _goal: string;
 

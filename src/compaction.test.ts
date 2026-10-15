@@ -8,7 +8,7 @@
  * pattern), so every case drives its own fixture state.
  */
 import type { ExtensionAPI, ExtensionContext, SessionBeforeCompactEvent } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
+import { afterEach, expect, test, vi, type Mock } from "vitest";
 import {
   buildPreservationPrompt,
   createCompactionGuard,

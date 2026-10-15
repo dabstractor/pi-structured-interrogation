@@ -31,7 +31,7 @@ import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import { interrogateInvokeAction, registerInterrogateCommand } from "./command.js";
 import type { DebugSubcommandHandler } from "./debug-commands.js";
 import { createPanelHost, openPanel, type OpenPanelOptions, type PanelHost } from "./panel/panel.js";
-import { createInterrogationState, getState, resetState, setState, type InterrogationState, type Question } from "./state.js";
+import { createInterrogationState, resetState, setState, type InterrogationState, type Question } from "./state.js";
 
 // ------------------------------------------------- S1 seam mock (delegating)
 
@@ -447,7 +447,6 @@ describe("/interrogate command handler", () => {
     setState(state);
     openOnSurface(state);
 
-    const first = makeCtx();
     suspendPanel(host); // esc-equivalent suspend, NOT the command
     expect(host.isSuspended()).toBe(true);
 
@@ -611,7 +610,7 @@ describe("/interrogate — invoke idempotency", () => {
  * Executor ctx for the reopen path (tool.test.ts tuiCtx shape): TUI with UI,
  * so the {reopen:true} branch actually consults deps.onReopen.
  */
-const REOPEN_TUI_CTX = { mode: "tui", hasUI: true, model: { contextWindow: 200_000 } };
+const REOPEN_TUI_CTX = { mode: "tui", hasUI: true };
 
 /** Tool-definition execute wraps the executor string in a text block. */
 function resultText(result: { content: Array<{ type: string; text: string }> }): string {

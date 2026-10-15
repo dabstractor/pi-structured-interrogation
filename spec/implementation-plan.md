@@ -10,7 +10,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 ## Milestones
 
-**M1 — Tool + state core (no UI).** `config.ts`, `state.ts`, `tool.ts`, `index.ts` registration. Verify: in a scratch session the model upserts questions, reads state, gets merge-rule behavior and rev/epoch rejections; caps truncate with warnings; `details` carries full state. Non-TUI fallback digest renders in `-p` mode.
+**M1 — Tool + state core (no UI).** `config.ts`, `state.ts`, `tool.ts`, `index.ts` registration. Verify: in a scratch session the model upserts questions, reads state, gets merge-rule behavior and rev/epoch rejections; `details` carries full state. Non-TUI fallback digest renders in `-p` mode.
 
 **M2 — Delivery + lifecycle.** `delivery.ts`, `lifecycle.ts` (auto-close on `agent_settled`, completion injection), renderers for tool rows. Verify with acceptance criteria 2, 3, 13, 14 (state-level, without panel: submissions still deliver from fallback path in `-p`).
 
@@ -38,9 +38,9 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 ## File checklist
 
 - [ ] `index.ts` — factory; registers tool/command/shortcut/events/renderers; mode guards
-- [ ] `config.ts` — defaults + settings load; keymap table (ui-spec §Hotkeys), caps (tool-protocol §Caps), toggles (`gateWarnings`, `roundDetection`)
+- [ ] `config.ts` — defaults + settings load; keymap table (ui-spec §Hotkeys), toggles (`gateWarnings`, `roundDetection`)
 - [ ] `state.ts` — state machine, rev/epoch, snapshots, change events, dependsOn evaluator
-- [ ] `tool.ts` — schema, guards, merge rules, caps, fallback formatting, status line
+- [ ] `tool.ts` — schema, guards, merge rules, fallback formatting, status line
 - [ ] `panel/panel.ts` — `ctx.ui.custom` host, view switching, focus model, draft store
 - [ ] `panel/short-view.ts`, `deep-view.ts`, `overview.ts`
 - [ ] `panel/text-field.ts` — editor composition, `$EDITOR`
@@ -54,7 +54,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 ## Testing
 
-- **Unit (node/tsx script or vitest)**: state machine transitions; merge rules 1–4; rev/epoch guard math; dependsOn closure (transitive ripples); caps formula; reconstruction from fixture entries (tool-result details + deltas + entry-mirror fallback); delta digest formatting.
+- **Unit (node/tsx script or vitest)**: state machine transitions; merge rules 1–4; rev/epoch guard math; dependsOn closure (transitive ripples); reconstruction from fixture entries (tool-result details + deltas + entry-mirror fallback); delta digest formatting.
 - **Integration (launch `pi -e .`)**: scripted model turns are unreliable — drive the tool directly via a debug command (`/interrogate-debug-upsert <json>`) that invokes the same code path as the tool; then manual verification per the AC runbook below.
   - **AUTOMATION AMENDMENT (binding, supersedes the above in automated runs — see plan/001_0d6760db6bc5/AUTOMATION-POLICY.md)**: automated pipeline runs NEVER launch a live `pi -e .` TUI session, NEVER call the `interrogate` tool for real, and NEVER wait for user answers. Automation drives the same code paths via vitest integration tests over `executeInterrogate`/the debug handlers plus headless `pi -p` one-shot probes. "Launch `pi -e .`" and "manual verification" above describe the HUMAN test procedure (recorded in MANUAL-TUI-AC-RUNBOOK.md), not an automated step.
 - **AC runbook**: execute acceptance criteria 1–15 (incl. 2a–2d) from product-requirements.md in order; each cites the FR it proves. AC-12 (rebinding) proves R5; AC-15 (reads never surface) proves R6/SURFACE-001. AC-4 includes verifying the *main editor's* draft survives panel suspend/resume. In automation, ACs are proven by scripted tests; interactive-only ACs are deferred to the human runbook and never block the pipeline.
@@ -79,8 +79,6 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
             "batchNote": "m", "submit": "ctrl+s",
             "discuss": "e", "externalEditor": "ctrl+g",
             "prevQuestion": "tab", "nextQuestion": "shift+tab" },
-  "caps": { "description": 1200, "ramification": 600, "options": 7,
-            "questions": 40, "goal": 400, "contextBudgetPct": 4 },
   "gateWarnings": true, "roundDetection": true,
   "editorMode": "composed"
 }

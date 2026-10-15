@@ -323,9 +323,10 @@ export class InterrogationState extends EventEmitter {
 
   /**
    * Updates the interrogation goal (agent re-upserts with a changed goal —
-   * FR-30). Not a rev/epoch transition. Emits `changed`. No caps/validation
-   * here — the 400-char cap (BUG-009) is enforced at the tool call-site
-   * (P1.M1.T1.S2).
+   * FR-30). Not a rev/epoch transition. Emits `changed`. NO CAPS OR
+   * VALIDATION anywhere (FR-23 / CAPS-OUT-001, 2026-10-08): the caps engine
+   * is deleted; goals of any length are stored verbatim — same as the tool
+   * call-site (see tool.ts setGoal plumbing, pinned by tool.test.ts).
    */
   setGoal(goal: string): void {
     this._goal = goal;

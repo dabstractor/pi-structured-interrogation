@@ -198,7 +198,7 @@ function inlineEnvelope(state: SerializedState, action: ResultAction, statusLine
  *   goal; record → plain Error; reopen → plain Error.
  * - a parsed `goal` applies on upsert whenever present: the create path
  *   constructs with it and later upserts update it via
- *   `state.setGoal(...)` (FR-30; BUG-001/BUG-009); an omitted goal
+ *   `state.setGoal(...)` (FR-30; BUG-001); an omitted goal
  *   leaves the stored one unchanged. NO CAPS (CAPS-OUT-001, 2026-10-08):
  *   nothing truncates the goal or any question text — the caps engine is
  *   deleted.

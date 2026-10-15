@@ -236,7 +236,7 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Purge the two live stale caps references",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Research (bug002-003 report §(e)) found EXACTLY two live stale references; all other 'cap' hits are legit ruling citations, pinning tests, render budgets, or frozen plan/ archives. Zero runtime surface — comment/doc edits only; suite must stay green untouched.",
               "subtasks": [
                 {
@@ -257,7 +257,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S2",
                   "title": "src/state.ts:324-328 setGoal JSDoc — rewrite the stale 'enforced at the tool call-site' sentence",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-ctrlg-and-stale-caps.md §(e) stale item 2 (+ borderline item 3) — src/state.ts:324-328 setGoal JSDoc claims 'the 400-char cap (BUG-009) is enforced at the tool call-site (P1.M1.T1.S2)'; no such call-site enforcement exists (tool.ts:201-204 stores verbatim). tool.ts:201 carries a historical '(FR-30; BUG-001/BUG-009)' attribution immediately followed by the CORRECT no-caps statement — borderline, safe to leave but droppable for consistency.\n2. INPUT: The setGoal JSDoc block; FR-23 / CAPS-OUT-001 citations.\n3. LOGIC: Rewrite the stale sentence in src/state.ts:324-328 to state that no caps/validation exist anywhere — CAPS-OUT-001 deleted the caps engine; goals of any length are stored verbatim (FR-23). Optionally drop the '(BUG-009)' attribution in tool.ts:201 for consistency (research judges it historical, not a live claim; if kept it must not imply enforcement). Comment/JSDoc edits only — zero runtime change; run npm test to confirm nothing depended on the comment.\n4. OUTPUT: Zero live stale caps references repo-wide: grep '400-char cap|capped at 400|BUG-009' hits only plan/ archives and legit historical ruling texts.\n5. DOCS: Mode A — this subtask IS the comment fix (JSDoc on the exported state seam).",
@@ -280,7 +280,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "README.md changeset sweep — hotkey context rows, editor/AC-2b wording, no-caps coherence",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

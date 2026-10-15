@@ -169,14 +169,14 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "DIGIT-OUT-001 — digit quick-select removed entirely",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Delete the digit quick-select path end-to-end: keys.ts resolution branch and routing, the actions.ts digit action and FR-35 comment residue, and the digitQuickSelect config field — digits become inert at panel level and only ever type.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Remove the digit quick-select path end-to-end",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Three ordered slices — keys routing, actions implementation + comment purge, config field — sequenced so typecheck stays green at every subtask boundary (actions.ts:195 reads config.digitQuickSelect and must die before the config field does).",
               "subtasks": [
                 {
@@ -201,7 +201,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T1.S2",
                   "title": "Delete actions.digit and purge digit-accept comments",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1"
@@ -249,7 +249,7 @@
               "type": "Task",
               "id": "P1.M4.T1",
               "title": "Stabilize integration suites, close AC coverage, and record keymap-conflict re-verification",
-              "status": "Researching",
+              "status": "Ready",
               "description": "The implementing subtasks flipped their seam-owning tests; this task sweeps the residual scripted suites to the new contract, adds scripted acceptance coverage per PRD §3, re-runs the conflict checker, and lands the full green gates.",
               "subtasks": [
                 {
@@ -281,7 +281,7 @@
                   "type": "Subtask",
                   "id": "P1.M4.T1.S2",
                   "title": "Scripted AC coverage, keymap-conflict re-verification, and full gates",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M4.T1.S1",

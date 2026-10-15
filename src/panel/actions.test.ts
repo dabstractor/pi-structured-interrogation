@@ -2312,6 +2312,77 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
     expect(msg.content).toContain("q1: Alpha — my custom take");
   });
 
+  test("test_supersede_userheld_elaboration_draft_wins_over_restage", () => {
+    // [Mode A] BUG-001 / P1.M1.T4.S1 — guard 4, non-empty half: a GENUINE
+    // elaboration typed after the write-in commit is user-held; the
+    // supersede accept must NOT re-stage the old write-in value over it.
+    const state = seed(BASIC);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    commitWriteIn(panel, "my custom take");
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // VAL-002: the real commit consumed the slot
+
+    // User-held draft: a real elaboration gesture on the answered question.
+    panel.currentId = "q1"; // cursor seeds to the ✎ row (ANSWER-PIN-001)
+    panel.focusTextField("elaboration");
+    panel.textField.setText("my reasons");
+    expect(panel.handleInput("\r")).toBe(true); // elaboration enter → stageText → commitTextDraft
+    expect(panel.draftTextFor("q1")).toBe("my reasons");
+
+    // Supersede with option "a": guard 4 sees the DEFINED slot and skips
+    // staging — the user's reasons win over the old write-in value.
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true);
+    expect(panel.draftTextFor("q1")).toBe("my reasons"); // NOT clobbered
+    expect(state.getQuestion("q1")?.answer?.value).toBe("a");
+
+    expect(submit(panel, deps)).toBe(true);
+    const a = state.getQuestion("q1")?.answer;
+    expect(a?.text).toBe("my reasons"); // user-held draft re-bound as elaboration
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toContain("q1: Alpha — my reasons");
+    expect(msg.content).not.toContain("my custom take"); // old write-in never resurrected
+  });
+
+  test("test_supersede_deleted_to_empty_slot_wins_no_restage", () => {
+    // [Mode A] BUG-001 / P1.M1.T4.S1 — guard 4, "" half: a deliberate
+    // delete-to-empty committed in the write-in editor stages a DEFINED ""
+    // slot; the supersede accept must NOT resurrect the old write-in value
+    // over it (guard 4 compares !== undefined, never truthiness/trim).
+    const state = seed(BASIC);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+
+    commitWriteIn(panel, "my custom take");
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // VAL-002: the real commit consumed the slot
+
+    // Deliberate delete-to-empty: ✎-row re-entry (cursor seeds there per
+    // ANSWER-PIN-001), clear the buffer, enter — writeInEnter's empty-first
+    // branch saves the draft ("" stays DEFINED), never commits.
+    panel.currentId = "q1";
+    expect(accept(panel)).toBe(true); // ✎ row → write-in editor
+    panel.textField.setText("");
+    expect(panel.handleInput("\r")).toBe(true); // empty enter → commitTextDraft("q1", "")
+    expect(panel.draftTextFor("q1")).toBe(""); // defined empty — the user's state
+
+    // Supersede with option "a": guard 4 reads "" (defined) and skips
+    // staging — the deletion is honored, nothing resurrects.
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true);
+    expect(panel.draftTextFor("q1")).toBe("");
+
+    expect(submit(panel, deps)).toBe(true);
+    const a = state.getQuestion("q1")?.answer;
+    expect(a?.value).toBe("a");
+    expect(a?.text).toBeUndefined(); // reconcile skips the empty draft — no elaboration
+    const msg = sendMessage.mock.calls[0][0] as { content: string };
+    expect(msg.content).toContain("q1: Alpha");
+    expect(msg.content).not.toContain("my custom take");
+  });
+
   test("test_submit_superseded_writein_rebinds_through_fR18_modal", () => {
     // BUG-001 2/2 (P1.M1.T3.S2): the FR-18 MODAL twin of the direct-path
     // supersede re-bind. With a dependsOn victim answered, the option

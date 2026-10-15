@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "BUG-001 — WRITEIN-002 supersede re-bind restored end-to-end (adjudicated: restore)",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Restore the promised contract: a committed write-in superseded by an option accept keeps its text, re-staged as a role-less draft at supersede time (never over a user-held slot), re-binding as answer.text at the next submit — via a guarded stageSupersededWriteIn helper wired into BOTH option-accept apply sites (direct + FR-18 modal), with the manufactured test converted into the real-flow regression, guard-matrix scenario coverage, VAL-002 pins untouched, and the adjudication recorded in spec/decisions.md.",
           "tasks": [
             {
@@ -106,14 +106,14 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "Stabilize edge-contract coverage for the restored re-bind",
-              "status": "Planned",
+              "status": "Researching",
               "description": "Pin the restored behavior's edges so future changes cannot silently regress the guards or the auto-submit path (house precedent: plan/003's 'Stabilize cross-cutting suites' task). These are contract-guard stabilizers on top of the TDD tests that landed with P1.M1.T2/T3 — if any fails, the implementation is wrong, not the test.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "User-held-draft-wins + deleted-to-empty-wins scenarios",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -129,7 +129,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S2",
                   "title": "Kind-flip no-op + non-custom supersede no-op scenarios",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -145,7 +145,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S3",
                   "title": "Auto-submit same-gesture variant (AUTOSUBMIT-003 rule b)",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"

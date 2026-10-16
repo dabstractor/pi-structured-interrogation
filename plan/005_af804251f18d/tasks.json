@@ -168,7 +168,7 @@
               "type": "Task",
               "id": "P1.M1.T5",
               "title": "Nested LLM loop with abort and usage tally",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The SIDECHAT-005-compliant model loop: model resolution (sideChatModel override, invalid → notify + session model), turn dispatch over the injected nested-call seam, streaming consumption with stop/error/abort handling, and the per-chat usage tally with the compact close notification.",
               "subtasks": [
                 {
@@ -196,7 +196,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S2",
                   "title": "Streaming consumption: deltas, stop reasons, abort, auth errors",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T5.S1"
@@ -213,7 +213,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S3",
                   "title": "Per-chat usage tally and compact close notification",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T5.S2"
@@ -238,7 +238,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T6.S1",
                   "title": "Parse the LAST fenced ```answer block (strict JSON, byte-match)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-004 — LAST block in a COMPLETED reply (streaming partials never parse), strict JSON, choice values must BYTE-match an option value, malformed → in-view notice + chat stays open.\n2. INPUT: frozen assistant reply text from P1.M1.T5.S2 + the question's option value set (from the same state shapes the panel renders).\n3. LOGIC: `parseAnswerBlock(replyText, optionValues)`: find ALL fenced blocks whose info string is exactly `answer`; take the LAST; strict JSON.parse of the body; `{\"value\": v}` valid iff v byte-matches (===) an option value; `{\"text\": t}` valid for write-in/text questions (non-empty); anything else (missing block, malformed JSON, unknown shape, non-matching value) → `{kind:\"none\", reason}` where reason feeds the in-view notice (P1.M2.T1.S2). Pure function — no engine state. Tests: last-block-wins with multiple blocks; byte-match strictness (case/whitespace mismatch → none); malformed JSON → none+reason; empty text → none; valid value and valid text shapes.\n4. OUTPUT: ParsedAnswer union consumed by P1.M1.T6.S2.\n5. DOCS: none — pure internal function; the protocol text itself lives in the system prompt (P1.M1.T4.S2).",

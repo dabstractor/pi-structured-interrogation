@@ -1,10 +1,13 @@
 /**
- * src/panel/sidechat-engine.test.ts — P1.M1.T5.S1 unit tests for the
- * side-chat engine: the resolveSideChatModel matrix (override / invalid →
- * notify+fallback / unset → session model / nothing → undefined), the
- * inert snapshot map, context-assembly order, AbortController lifecycle,
- * per-record sessionId stability, guards, and the synchronous auth-throw →
- * notice path. Fake port/registry/notify ONLY — no provider, no ctx (the
+ * src/panel/sidechat-engine.test.ts — unit tests for the side-chat engine:
+ * the resolveSideChatModel matrix (override / invalid → notify+fallback /
+ * unset → session model / nothing → undefined), the inert snapshot map,
+ * context-assembly order, AbortController lifecycle, per-record sessionId
+ * stability, guards, the synchronous auth-throw → notice path (T5.S1), and
+ * the FULL stream-consumption routing table — delta buffer accumulation,
+ * freeze, abort rollback (error-event / done-stopReason / promise shapes),
+ * error/auth notices, parser isolation — over a fake async-iterable stream
+ * (T5.S2). Fake port/registry/notify ONLY — no provider, no ctx (the
  * injected-port seam is the whole point; SIDECHAT-005 nested-calls-only).
  *
  * Conventions follow sidechat.test.ts: fake dep bags, resetSidechatForTests()
@@ -15,6 +18,7 @@ import {
   createAssistantMessageEventStream,
   type Api,
   type AssistantMessage,
+  type AssistantMessageEvent,
   type AssistantMessageEventStream,
   type Context,
   type Message,
@@ -102,9 +106,42 @@ function pendingStream(): AssistantMessageEventStream {
 /** Typed fake port so mock.calls[i][2].sessionId is checked, not cast. */
 function fakePort(behavior: () => AssistantMessageEventStream | Promise<AssistantMessage>) {
   return vi.fn(
-    (_model: Model<Api>, _context: Context, options: { signal: AbortSignal; sessionId: string }) =>
+    (_model: Model<Api>, _context: Context, _options: { signal: AbortSignal; sessionId: string }) =>
       behavior(),
   );
+}
+
+/** Structurally complete AssistantMessage with overrides (T5.S2 harness):
+ * `text` builds the single text part; `stopReason`/`errorMessage` ride on
+ * top of the S1 {@link assistantReply} defaults. */
+function fakeAssistantMessage(
+  overrides: { text?: string; stopReason?: AssistantMessage["stopReason"]; errorMessage?: string } = {},
+): AssistantMessage {
+  const base = assistantReply(overrides.text ?? "reply");
+  return {
+    ...base,
+    ...(overrides.stopReason !== undefined ? { stopReason: overrides.stopReason } : {}),
+    ...(overrides.errorMessage !== undefined ? { errorMessage: overrides.errorMessage } : {}),
+  };
+}
+
+/** Fake AssistantMessageEventStream (T5.S2): a plain async-iterable
+ * mirroring the EventStream shape — [Symbol.asyncIterator] yields the
+ * scripted events in order and ends after the terminal. There is NO
+ * result() the engine could lean on; done.message is the result. `observe`
+ * runs AFTER each yield has been processed by the engine — the hook the
+ * buffer-accumulation and parser-isolation rows snapshot through. */
+function fakeStream(
+  events: AssistantMessageEvent[],
+  observe?: () => void,
+): AssistantMessageEventStream {
+  async function* iterate(): AsyncGenerator<AssistantMessageEvent> {
+    for (const event of events) {
+      yield event;
+      observe?.();
+    }
+  }
+  return { [Symbol.asyncIterator]: iterate } as unknown as AssistantMessageEventStream;
 }
 
 /** The frozen branch-snapshot replay the record opens with (SIDECHAT-003). */
@@ -243,7 +280,8 @@ describe("createSidechatEngine — dispatch & context assembly (T5.S1)", () => {
     expect(record.streamState).toBe("idle");
     expect(record.messages).toEqual([
       { role: "user", text: "why is sqlite recommended here?", at: expect.any(String) },
-      { role: "assistant", text: "answer text", at: expect.any(String) }, // joined text frozen
+      // joined text frozen + stop reason recorded (P1.M1.T5.S2)
+      { role: "assistant", text: "answer text", at: expect.any(String), stopReason: "stop" },
     ]);
   });
 
@@ -256,7 +294,7 @@ describe("createSidechatEngine — dispatch & context assembly (T5.S1)", () => {
     expect(record.streamState).toBe("idle");
     expect(record.messages).toEqual([
       { role: "user", text: "hi", at: expect.any(String) },
-      { role: "assistant", text: "promised", at: expect.any(String) },
+      { role: "assistant", text: "promised", at: expect.any(String), stopReason: "stop" },
     ]);
   });
 });
@@ -379,6 +417,268 @@ describe("createSidechatEngine — failure paths never block the panel (T5.S1)",
 
   test("abort() without a record is a no-op", () => {
     expect(() => engineOverRecord().abort()).not.toThrow();
+  });
+});
+
+describe("createSidechatEngine — stream consumption routing table (T5.S2)", () => {
+  test("happy path: buffer accumulates per event, done freezes canonical text + stopReason", async () => {
+    openOrReplace("q1", rebindDeps());
+    const buffers: string[] = [];
+    const events: AssistantMessageEvent[] = [
+      { type: "start", partial: assistantReply("") },
+      { type: "text_delta", contentIndex: 0, delta: "He", partial: assistantReply("He") },
+      // partial is cumulative — note "Hello" ≠ "He"+"llo world" delta concat
+      { type: "text_delta", contentIndex: 0, delta: "llo", partial: assistantReply("Hello") },
+      // canonical done text differs from the last partial: freeze must read done.message
+      {
+        type: "done",
+        reason: "stop",
+        message: fakeAssistantMessage({ text: "Hello world" }),
+      },
+    ];
+    const engine = engineOverRecord({
+      port: fakePort(() => fakeStream(events, () => buffers.push(get()!.streamingText))),
+    });
+    expect(engine.sendTurn("hi")).toBe(true);
+    await flush();
+    const record = get()!;
+    // "" after start, "He", "Hello" after each delta. No 4th observation:
+    // the engine returns from the loop at the terminal (settle is inline),
+    // so the iterator closes before the generator could observe again — the
+    // post-settle clear is asserted via record.streamingText below.
+    expect(buffers).toEqual(["", "He", "Hello"]);
+    expect(record.streamingText).toBe("");
+    expect(record.streamState).toBe("idle");
+    expect(record.messages).toEqual([
+      { role: "user", text: "hi", at: expect.any(String) },
+      { role: "assistant", text: "Hello world", at: expect.any(String), stopReason: "stop" },
+    ]);
+    expect(record.notices).toEqual([]);
+  });
+
+  test("abort via error{reason:'aborted'} → FULL rollback: user turn popped, no notice", async () => {
+    openOrReplace("q1", rebindDeps());
+    const roles: string[][] = [];
+    const buffers: string[] = [];
+    const events: AssistantMessageEvent[] = [
+      { type: "text_delta", contentIndex: 0, delta: "par", partial: assistantReply("par") },
+      {
+        type: "error",
+        reason: "aborted",
+        error: fakeAssistantMessage({ text: "par", stopReason: "aborted" }),
+      },
+    ];
+    const engine = engineOverRecord({
+      port: fakePort(() =>
+        fakeStream(events, () => {
+          roles.push(get()!.messages.map((m) => m.role));
+          buffers.push(get()!.streamingText);
+        }),
+      ),
+    });
+    engine.sendTurn("fleeting question");
+    await flush();
+    // Mid-stream: user turn present, partial text in the buffer.
+    expect(roles[0]).toEqual(["user"]);
+    expect(buffers[0]).toBe("par");
+    const record = get()!;
+    expect(record.messages).toEqual([]); // "the turn never happened"
+    expect(record.streamingText).toBe("");
+    expect(record.streamState).toBe("idle");
+    expect(record.notices).toEqual([]); // esc is deliberate — NO notice
+  });
+
+  test("abort via done carrying terminal stopReason 'aborted' → identical rollback", async () => {
+    openOrReplace("q1", rebindDeps());
+    const events = [
+      { type: "text_delta", contentIndex: 0, delta: "par", partial: assistantReply("par") },
+      {
+        type: "done",
+        reason: "aborted",
+        message: fakeAssistantMessage({ text: "par", stopReason: "aborted" }),
+      },
+    ] as unknown as AssistantMessageEvent[]; // off-union: real streams signal abort via error
+    const engine = engineOverRecord({ port: fakePort(() => fakeStream(events)) });
+    engine.sendTurn("hi");
+    await flush();
+    const record = get()!;
+    expect(record.messages).toEqual([]); // user POPPED, no assistant row
+    expect(record.streamingText).toBe("");
+    expect(record.streamState).toBe("idle");
+    expect(record.notices).toEqual([]);
+  });
+
+  test("abort via promise branch (resolved stopReason 'aborted') → identical rollback", async () => {
+    openOrReplace("q1", rebindDeps());
+    const engine = engineOverRecord({
+      port: fakePort(async () => fakeAssistantMessage({ stopReason: "aborted" })),
+    });
+    engine.sendTurn("hi");
+    await flush();
+    const record = get()!;
+    expect(record.messages).toEqual([]); // user POPPED
+    expect(record.streamingText).toBe(""); // promise branch: buffer never set, stays ""
+    expect(record.streamState).toBe("idle");
+    expect(record.notices).toEqual([]);
+  });
+
+  test("other error event → error notice, user turn KEPT, no assistant row, idle", async () => {
+    openOrReplace("q1", rebindDeps());
+    const events = [
+      { type: "text_delta", contentIndex: 0, delta: "par", partial: assistantReply("par") },
+      {
+        type: "error",
+        reason: "rate_limited",
+        error: fakeAssistantMessage({ text: "par" }),
+      },
+    ] as unknown as AssistantMessageEvent[]; // off-union reason: any non-aborted failure
+    const engine = engineOverRecord({ port: fakePort(() => fakeStream(events)) });
+    engine.sendTurn("hi");
+    await flush();
+    const record = get()!;
+    expect(record.streamState).toBe("idle");
+    expect(record.streamingText).toBe("");
+    expect(record.messages.map((m) => m.role)).toEqual(["user"]); // user turn kept
+    expect(record.messages).toHaveLength(1); // NO assistant row
+    expect(record.notices).toEqual([
+      { kind: "error", text: "rate_limited", at: expect.any(String) },
+    ]);
+  });
+
+  test("done with stopReason 'error' + errorMessage → notice (text = errorMessage), no freeze", async () => {
+    openOrReplace("q1", rebindDeps());
+    const events = [
+      {
+        type: "done",
+        reason: "error",
+        message: fakeAssistantMessage({ text: "half", stopReason: "error", errorMessage: "boom" }),
+      },
+    ] as unknown as AssistantMessageEvent[]; // off-union: done never carries 'error' in real streams
+    const engine = engineOverRecord({ port: fakePort(() => fakeStream(events)) });
+    engine.sendTurn("hi");
+    await flush();
+    const record = get()!;
+    expect(record.streamState).toBe("idle");
+    expect(record.messages.map((m) => m.role)).toEqual(["user"]); // NO freeze
+    expect(record.notices).toEqual([{ kind: "error", text: "boom", at: expect.any(String) }]);
+  });
+
+  test("parser isolation: mid-stream record.messages has no assistant row; after abort none; after done exactly one", async () => {
+    openOrReplace("q1", rebindDeps());
+    const roleSets: string[][] = [];
+    const abortEvents: AssistantMessageEvent[] = [
+      { type: "text_delta", contentIndex: 0, delta: "par", partial: assistantReply("par") },
+      {
+        type: "error",
+        reason: "aborted",
+        error: fakeAssistantMessage({ stopReason: "aborted" }),
+      },
+    ];
+    const abortEngine = engineOverRecord({
+      port: fakePort(() => fakeStream(abortEvents, () => roleSets.push(get()!.messages.map((m) => m.role)))),
+    });
+    abortEngine.sendTurn("first");
+    await flush();
+    // Mid-stream: the user turn is visible, NO assistant row ever appeared.
+    expect(roleSets.every((roles) => roles.every((r) => r === "user"))).toBe(true);
+    expect(get()!.messages).toEqual([]); // after abort: none
+
+    const doneEngine = engineOverRecord({ port: fakePort(() => doneStream("final")) });
+    doneEngine.sendTurn("second");
+    await flush();
+    expect(get()!.messages.map((m) => m.role)).toEqual(["user", "assistant"]); // exactly one
+    expect(get()!.messages.filter((m) => m.role === "assistant")).toEqual([
+      { role: "assistant", text: "final", at: expect.any(String), stopReason: "stop" },
+    ]);
+  });
+
+  test("chat stays usable: after an error notice the next sendTurn dispatches and freezes", async () => {
+    openOrReplace("q1", rebindDeps());
+    let call = 0;
+    const port = fakePort(() => {
+      call += 1;
+      return call === 1
+        ? fakeStream([
+            { type: "error", reason: "error", error: fakeAssistantMessage({ stopReason: "error" }) },
+          ])
+        : doneStream("recovered");
+    });
+    const engine = engineOverRecord({ port });
+    engine.sendTurn("first");
+    await flush();
+    expect(get()!.notices).toEqual([expect.objectContaining({ kind: "error" })]);
+    expect(get()!.streamState).toBe("idle"); // settle unblocked the guard
+
+    expect(engine.sendTurn("again")).toBe(true); // port called again
+    await flush();
+    expect(port).toHaveBeenCalledTimes(2);
+    const record = get()!;
+    expect(record.messages.map((m) => m.role)).toEqual(["user", "user", "assistant"]);
+    expect(record.messages[2]).toMatchObject({ text: "recovered", stopReason: "stop" });
+    expect(record.streamState).toBe("idle");
+  });
+
+  test("defensible pop: abort when the tail is NOT this turn's user entry → pop skipped, no crash", async () => {
+    openOrReplace("q1", rebindDeps());
+    const events: AssistantMessageEvent[] = [
+      { type: "text_delta", contentIndex: 0, delta: "par", partial: assistantReply("par") },
+      { type: "error", reason: "aborted", error: fakeAssistantMessage({ stopReason: "aborted" }) },
+    ];
+    const engine = engineOverRecord({ port: fakePort(() => fakeStream(events)) });
+    engine.sendTurn("hi");
+    // Simulate a foreign append racing the stream: the tail is no longer the
+    // turn's user entry, so the reference-checked pop MUST skip it.
+    get()!.messages.push({ role: "assistant", text: "foreign tail", at: "T" });
+    await flush();
+    const record = get()!;
+    expect(record.messages).toEqual([
+      { role: "user", text: "hi", at: expect.any(String) }, // user turn untouched
+      { role: "assistant", text: "foreign tail", at: "T" },
+    ]);
+    expect(record.streamState).toBe("idle"); // settled, not crashed
+    expect(record.streamingText).toBe("");
+  });
+
+  test("stream closed without a terminal → error notice, user kept, idle (no stranded 'streaming')", async () => {
+    openOrReplace("q1", rebindDeps());
+    const engine = engineOverRecord({
+      port: fakePort(() =>
+        fakeStream([
+          { type: "text_delta", contentIndex: 0, delta: "par", partial: assistantReply("par") },
+        ]),
+      ),
+    });
+    engine.sendTurn("hi");
+    await flush();
+    const record = get()!;
+    expect(record.streamState).toBe("idle");
+    expect(record.streamingText).toBe("");
+    expect(record.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(record.notices).toEqual([
+      { kind: "error", text: "stream ended before a reply", at: expect.any(String) },
+    ]);
+  });
+
+  test("unexpected throw mid-iteration → error notice + idle (consumption wrapped)", async () => {
+    openOrReplace("q1", rebindDeps());
+    const engine = engineOverRecord({
+      port: fakePort(() => {
+        async function* explode(): AsyncGenerator<AssistantMessageEvent> {
+          yield { type: "text_delta", contentIndex: 0, delta: "x", partial: assistantReply("x") };
+          throw new Error("harness explosion");
+        }
+        return { [Symbol.asyncIterator]: explode } as unknown as AssistantMessageEventStream;
+      }),
+    });
+    engine.sendTurn("hi");
+    await flush();
+    const record = get()!;
+    expect(record.streamState).toBe("idle"); // never stranded "streaming"
+    expect(record.streamingText).toBe("");
+    expect(record.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(record.notices).toEqual([
+      { kind: "error", text: expect.stringContaining("harness explosion"), at: expect.any(String) },
+    ]);
   });
 });
 

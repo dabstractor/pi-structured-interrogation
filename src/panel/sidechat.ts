@@ -56,6 +56,17 @@
  * The panel NEVER blocks on an engine failure: every failure path appends a
  * notice and settles the record back to `"idle"`.
  *
+ * Streaming consumption (P1.M1.T5.S2, SIDECHAT-001/002/005): while a turn
+ * is in flight the engine accumulates the reply into `streamingText` — the
+ * VIEW's polling buffer (P1.M2.T1.S1 renders the streaming cursor off it;
+ * the engine renders nothing). It is refreshed from every stream event's
+ * cumulative `partial` and cleared on EVERY settle. `done` freezes the
+ * assistant ChatMessage (canonical text from `done.message`, `stopReason`
+ * recorded). An aborted turn rolls back FULLY — the user turn is POPPED
+ * ("the turn never happened"), no assistant record, no notice, zero usage
+ * residue. Only completed replies ever enter `messages`, so the answer
+ * parser (P1.M1.T6.S1) structurally never sees partial text.
+ *
  * Consumers (all inject their builders — no config/ctx knowledge here):
  * T3.S2 reset commands, T4.S1/S2 branch builders, T5.S1 model resolution
  * (the deps bag is their injection seam), M2.T4.S1 open path,
@@ -63,12 +74,20 @@
  * (finer states) — never narrowed.
  */
 
-/** One chat turn. Assistant stop-reason/usage live on the record's tally,
- * not per-message; T5's loop owns freezing turns into this shape. */
+/** Terminal stop reasons for assistant ChatMessages (P1.M1.T5.S2).
+ * Hand-written pi-free string union — ZERO pi imports in this module is
+ * load-bearing (M3.T1 cache-isolation guard). "pending" is deliberately
+ * omitted: records freeze TERMINAL outcomes only, never an in-flight one. */
+export type ChatStopReason = "stop" | "length" | "toolUse" | "error" | "aborted" | "deferred";
+
+/** One chat turn. Assistant rows carry the terminal `stopReason`
+ * (P1.M1.T5.S2); usage lives on the record's tally (T5.S3's accumulation,
+ * fed by the frozen rows' source messages — not stored per-message here). */
 export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   at: string;
+  stopReason?: ChatStopReason;
 }
 
 /** Stream lifecycle of the record. Start "idle"; T5.S2 may EXTEND the union. */
@@ -119,7 +138,8 @@ export interface SidechatRebindDeps {
 
 /** The single side-chat record. `systemPrompt`/`branchSnapshot` extend
  * SIDECHAT-002's list to carry the SIDECHAT-003 once-at-creation freeze;
- * `notices` (T5.S1) adds the engine's non-fatal event log. */
+ * `notices` (T5.S1) adds the engine's non-fatal event log;
+ * `streamingText` (T5.S2) adds the in-flight display buffer. */
 export interface SidechatRecord {
   questionId: string;
   messages: ChatMessage[];
@@ -131,6 +151,12 @@ export interface SidechatRecord {
   usage: ChatUsage;
   /** Non-fatal engine notices (auth throws, inert-dispatch refusals), oldest first. */
   notices: SidechatNotice[];
+  /** The VIEW's polling buffer (P1.M1.T5.S2): the in-flight reply's text,
+   * refreshed from every stream event's cumulative `partial` while
+   * `streamState === "streaming"` (P1.M2.T1.S1 renders the cursor off it);
+   * cleared on EVERY settle. Display-only — frozen assistant messages take
+   * their canonical text from the stream's done message, never from here. */
+  streamingText: string;
 }
 
 // Module scope is LOAD-BEARING: the panel instance dies on suspend, so only
@@ -180,6 +206,7 @@ function buildFresh(questionId: string, deps: SidechatRebindDeps): SidechatRecor
     branchSnapshot: deps.buildBranchSnapshot(),
     usage: { input: 0, output: 0, totalCost: 0 },
     notices: [], // T5.S1: every record creation path gets the empty log
+    streamingText: "", // T5.S2: the display buffer starts (and restarts) empty
   };
 }
 

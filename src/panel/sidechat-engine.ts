@@ -21,15 +21,26 @@
  *   Promise<AssistantMessage>. pi-ai throws SYNCHRONOUSLY on missing auth —
  *   the invocation is wrapped; EVERY failure path appends a SidechatNotice
  *   and settles the record back to "idle" (the panel never blocks).
+ * - STREAM CONSUMPTION (P1.M1.T5.S2): every event's cumulative `partial`
+ *   refreshes record.streamingText — the VIEW's polling buffer (P1.M2.T1.S1
+ *   renders the cursor; the engine renders nothing). Terminal routing
+ *   (SIDECHAT-002/003): `done` freezes the assistant ChatMessage from
+ *   done.message's canonical content with its stop reason; aborted — an
+ *   error{reason:"aborted"} event OR a terminal "aborted" stop reason —
+ *   rolls the turn back FULLY (pop the user entry, no assistant record, no
+ *   notice, zero usage residue: "the turn never happened"); every other
+ *   failure appends a notice and KEEPS the user turn (the chat stays
+ *   usable). Only completed replies ever enter record.messages, so the
+ *   T6.S1 parser structurally never sees partial text.
  * - Frozen context (SIDECHAT-003): the branch snapshot is cast through
  *   branch-snapshot.ts's BranchSnapshotMessages type and NEVER re-read
  *   mid-chat — this module has no session knowledge at all.
  *
  * Wiring boundaries: the production port binding (streamSimplePort) is
  * exported but UNWIRED — the open path is P1.M2.T4.S1, sendTurn/abort key
- * routing is P1.M2.T3.S1. Streaming-delta/stop-reason consumption is
- * refined by T5.S2 (this task owns the settle LIFECYCLE only); usage
- * tallying is T5.S3; answer-block parsing is T6.S1.
+ * routing is P1.M2.T3.S1. Usage tallying is T5.S3; answer-block parsing is
+ * T6.S1; mid-stream close hooks call abort() through this exact seam
+ * (P1.M2.T5.S1).
  */
 import { randomUUID } from "node:crypto";
 import type {
@@ -39,6 +50,7 @@ import type {
   Context,
   Message,
   Model,
+  StopReason,
 } from "@earendil-works/pi-ai";
 // streamSimple is a STANDALONE provider-neutral pi-ai export (the compat
 // subpath), NOT a ModelRegistry method — this module is the only side-chat
@@ -50,8 +62,8 @@ import type { BranchSnapshotMessages } from "./branch-snapshot.js";
 import {
   get as getRecord,
   type ChatMessage,
+  type ChatStopReason,
   type ModelSnapshot,
-  type SidechatNotice,
   type SidechatRecord,
 } from "./sidechat.js";
 
@@ -148,9 +160,9 @@ function toPiMessage(m: ChatMessage): Message {
   if (m.role === "user") {
     return { role: "user", content: [{ type: "text", text: m.text }], timestamp: Date.parse(m.at) };
   }
-  // S1 skeleton: assistant turns are re-materialized as text-only Messages
-  // (metadata is not round-tripped through ChatMessage); T5.S2 freezes full
-  // AssistantMessages instead of this approximation.
+  // Assistant turns are re-materialized as text-only Messages (metadata is
+  // not round-tripped through ChatMessage — stopReason/usage stay frozen on
+  // the record side); the T6.S1 parser reads the frozen rows, not these.
   return {
     role: "assistant",
     content: [{ type: "text", text: m.text }],
@@ -158,9 +170,11 @@ function toPiMessage(m: ChatMessage): Message {
   } as unknown as AssistantMessage;
 }
 
-/** Join an AssistantMessage's text parts (the S1 reply text). */
-function textOf(message: AssistantMessage): string {
-  return message.content
+/** Join a message content's text parts — the ONLY text extractor in this
+ * module: the streaming buffer reads event.partial.content through it,
+ * freeze reads done.message.content through it (P1.M1.T5.S2). */
+function joinTextParts(content: AssistantMessage["content"]): string {
+  return content
     .filter((part): part is { type: "text"; text: string } => part.type === "text")
     .map((part) => part.text)
     .join("");
@@ -178,15 +192,26 @@ function textOf(message: AssistantMessage): string {
  *   snapshot via the injected registry (empty snapshot → inert refusal:
  *   turn recorded, error notice, idle, no dispatch), assemble the frozen
  *   Context (SIDECHAT-003 snapshot FIRST, then turns; never tools), invoke
- *   the port, and hand the result to the async settle skeleton.
+ *   the port, and hand the result to the async settle consumer
+ *   (P1.M1.T5.S2's full stream consumption).
  * - `abort()`: signals the record's LIVE controller (no-op without a
  *   record; replacement/discard deliberately never abort — SIDECHAT-002).
  *
- * Settle skeleton (T5.S2 refines; S1 owns lifecycle): stream `done` →
- * freeze the joined assistant reply + idle; stream `error`/async rejection
- * → idle with NO assistant message; a SYNCHRONOUS port throw (pi-ai's
- * missing-auth behavior) → auth notice + idle. A reply landing after the
- * record was replaced/discarded touches nothing (SIDECHAT-002).
+ * Terminal routing (P1.M1.T5.S2 — {@link route}; every terminal lands
+ * "idle" with `streamingText` cleared, so no path strands "streaming"):
+ * - done with stop|length|toolUse|deferred → FREEZE the assistant row from
+ *   done.message's canonical content + its stop reason; buffer cleared.
+ * - aborted (error{reason:"aborted"} event, a terminal "aborted" stop
+ *   reason on the done message, or the promise branch) → FULL ROLLBACK:
+ *   pop THIS turn's user entry (reference-checked), no assistant row, NO
+ *   notice (esc is deliberate), zero usage residue for T5.S3.
+ * - any other error (error event with a non-aborted reason, done with
+ *   stopReason "error", stream closed early, unexpected throw) → error
+ *   notice, user turn KEPT — the chat stays usable.
+ * - a synchronous port throw (pi-ai's missing-auth behavior) → auth
+ *   notice + idle (unchanged from S1).
+ * A reply landing after the record was replaced/discarded touches nothing
+ * (SIDECHAT-002).
  */
 export function createSidechatEngine(deps: SidechatEngineDeps): {
   sendTurn(text: string): boolean;
@@ -205,30 +230,102 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
     return sessionId;
   };
 
+  /** Terminal router (P1.M1.T5.S2; the whole task in one function — see the
+   * createSidechatEngine docblock's routing table). Settles FIRST (idle +
+   * cleared buffer) so no path can strand "streaming", then routes by stop
+   * reason. */
+  function route(
+    record: SidechatRecord,
+    turnUser: ChatMessage,
+    stopReason: StopReason | undefined,
+    message: AssistantMessage | undefined,
+    rawReason?: unknown,
+  ): void {
+    record.streamingText = ""; // the display buffer NEVER survives a settle
+    record.streamState = "idle";
+    // SIDECHAT-002/003 (P1.M1.T5.S2): aborted = "the turn never happened".
+    // Pop THIS turn's user entry (reference-checked: only the tail we
+    // appended at dispatch) so the next Context rebuild carries no dangling
+    // unanswered user turn past the snapshot; leave no assistant record, no
+    // notice (esc is deliberate silence), nothing for T5.S3 to tally. This
+    // asymmetry with the error paths (they KEEP the user turn so the
+    // failure stays visible and the chat stays usable) is the contract.
+    if (stopReason === "aborted" || rawReason === "aborted") {
+      if (record.messages[record.messages.length - 1] === turnUser) record.messages.pop();
+      return;
+    }
+    if (stopReason === "error") {
+      // Failed replies NEVER freeze: notice only, user turn kept.
+      record.notices.push({
+        kind: "error",
+        text: message?.errorMessage ?? String(rawReason ?? "stream error"),
+        at: new Date().toISOString(),
+      });
+      return;
+    }
+    if (message !== undefined) {
+      // stop|length|toolUse|deferred → FREEZE from done.message content
+      // (canonical), never from the display buffer. Usage untouched here —
+      // T5.S3 tallies it, fed by what this freeze records.
+      record.messages.push({
+        role: "assistant",
+        text: joinTextParts(message.content),
+        at: new Date().toISOString(),
+        stopReason: stopReason as ChatStopReason,
+      });
+    }
+  }
+
+  /** Consume the port result to its terminal (P1.M1.T5.S2). The stream is
+   * an AsyncIterable: a terminal event ENDS iteration; `result()` is the
+   * promise-fallback for callers without iteration and is never called on
+   * the event path. The whole consumption is wrapped so an unexpected
+   * throw cannot strand "streaming". */
   async function settle(
     record: SidechatRecord,
     result: ReturnType<SidechatModelPort>,
+    turnUser: ChatMessage,
   ): Promise<void> {
-    let reply: string | undefined;
     try {
       if (result instanceof Promise) {
-        reply = textOf(await result);
-      } else {
-        for await (const event of result) {
-          if (event.type === "done") {
-            reply = textOf(event.message);
-            break;
-          }
-          if (event.type === "error") break; // aborted|error → idle, NO assistant message
+        // Promise-port branch: no events → the buffer stays ""; route the
+        // resolved AssistantMessage by its stop reason through the same table.
+        const message = await result;
+        if (getRecord() !== record) return; // replaced/discarded mid-flight
+        route(record, turnUser, message.stopReason, message, message.stopReason);
+        return;
+      }
+      for await (const event of result) {
+        if (getRecord() !== record) return; // dead record is never touched (SIDECHAT-002)
+        // Every non-terminal event carries the cumulative response-so-far
+        // `partial` — refresh the view's polling buffer from it, NEVER from
+        // the delta payload field (version-proof against delta naming).
+        if ("partial" in event) record.streamingText = joinTextParts(event.partial.content);
+        if (event.type === "done") {
+          route(record, turnUser, event.message.stopReason, event.message, event.reason);
+          return;
+        }
+        if (event.type === "error") {
+          // The event's `reason` is authoritative for error events
+          // ("aborted" | "error"); the error AssistantMessage only supplies
+          // the notice text (its errorMessage) — never its stop reason.
+          route(
+            record,
+            turnUser,
+            event.reason === "aborted" ? "aborted" : "error",
+            event.error,
+            event.reason,
+          );
+          return;
         }
       }
-    } catch {
-      reply = undefined; // async rejection after dispatch → settle idle (S2 refines notice wiring)
-    }
-    if (getRecord() !== record) return; // replaced/discarded mid-flight — the dead record is never touched
-    record.streamState = "idle";
-    if (reply !== undefined) {
-      record.messages.push({ role: "assistant", text: reply, at: new Date().toISOString() });
+      // Stream closed without a terminal → same contract as any other error.
+      if (getRecord() !== record) return;
+      route(record, turnUser, "error", undefined, "stream ended before a reply");
+    } catch (err) {
+      // Unexpected throw mid-iteration → settle, never strand "streaming".
+      if (getRecord() !== record) return;
+      route(record, turnUser, "error", undefined, err);
     }
   }
 
@@ -236,8 +333,12 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
     const record = getRecord();
     if (record === undefined) return false; // SIDECHAT-002: no chat → nothing to send
     if (record.streamState !== "idle") return false; // no queueing, no double-controller
-    record.messages.push({ role: "user", text, at: new Date().toISOString() });
+    // Capture THIS turn's user entry by reference — the abort rollback pops
+    // exactly this object, and only if it is still the tail (P1.M1.T5.S2).
+    const turnUser: ChatMessage = { role: "user", text, at: new Date().toISOString() };
+    record.messages.push(turnUser);
     record.abortController = new AbortController(); // fresh EVERY turn
+    record.streamingText = ""; // the view's polling buffer restarts every turn
     record.streamState = "streaming";
     // Re-derive the Model<Api> from the FROZEN snapshot via the injected registry —
     // never ctx, never a mid-chat re-resolution (SIDECHAT-003 freeze).
@@ -270,7 +371,7 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
       record.streamState = "idle";
       return true;
     }
-    void settle(record, result); // lifecycle skeleton; T5.S2 refines consumption
+    void settle(record, result, turnUser); // full stream consumption (P1.M1.T5.S2)
     return true;
   }
 

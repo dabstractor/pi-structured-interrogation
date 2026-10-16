@@ -13,8 +13,18 @@
  * test re-arms it via createPanelHost(...) first.
  */
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import {
+  createAssistantMessageEventStream,
+  type Api,
+  type AssistantMessage,
+  type AssistantMessageEventStream,
+  type Model,
+} from "@earendil-works/pi-ai";
 import type { Component, EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_CONFIG, resolveKeyLabels, type InterrogatorConfig } from "../config.js";
 import { evaluateDependsOn } from "../depends-on.js";
 import {
@@ -29,6 +39,7 @@ import {
   InterrogationPanel,
   maybeAutoOpen,
   openPanel,
+  resumeOpenPanel,
   type DraftStore,
   type InterrogationPanelArgs,
   type OpenPanelOptions,
@@ -40,11 +51,13 @@ import { accept, acceptOptionIndex, panelActions, writeInEnter } from "./actions
 import { desiredTextDuty } from "./keys.js";
 import { renderShortViewOptions } from "./short-view.js";
 import {
+  discard as discardChat,
   formatChatCloseNotice,
   get as getSidechat,
   openOrReplace,
   resetSidechatForTests,
 } from "./sidechat.js";
+import { createSidechatEngine } from "./sidechat-engine.js";
 import {
   editInExternalEditor,
   type ExternalEditorResult,
@@ -3748,5 +3761,330 @@ describe("sidechat discard hooks — terminal-for-chat teardown (P1.M2.T5.S1)", 
     expect(getSidechat()).toBeUndefined();
     expect(notify).toHaveBeenCalledTimes(1);
     expect(panel.view).toBe("short"); // no view change — chat was not open
+  });
+});
+
+// ------- suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)
+
+describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", () => {
+  const srcDir = path.dirname(fileURLToPath(import.meta.url));
+  /** Source of a sibling module — the byte-pinned constants' authority. */
+  const readSrc = (f: string): string => fs.readFileSync(path.join(srcDir, f), "utf8");
+
+  /** The BYTE-PINNED inert banner text, extracted from chat-view.ts's own
+   * constant — never hand-copied into this file (the pinning rule). */
+  const pinnedInertBanner = (): string => {
+    const match = readSrc("./chat-view.ts").match(/const INERT_BANNER =\s*"([^"]+)"/);
+    expect(match).not.toBeNull();
+    return match![1]!;
+  };
+
+  /** Builder-counting deps double — the once-only snapshot rule's observability. */
+  const countingDeps = () => ({
+    resolveModelSnapshot: vi.fn(() => ({ provider: "test", modelId: "test-model" })),
+    buildSystemPrompt: vi.fn(() => "system prompt"),
+    buildBranchSnapshot: vi.fn(() => [] as never),
+  });
+
+  let modelSeq = 0;
+  /** Structurally complete Model<Api> (mirrors sidechat-engine.test.ts's fake). */
+  const fakeModel = (): Model<Api> => {
+    modelSeq += 1;
+    return {
+      id: "test-model",
+      name: `test/test-model #${modelSeq}`,
+      api: "anthropic-messages",
+      provider: "test",
+      baseUrl: "https://example.test/v1",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 8192,
+      maxTokens: 1024,
+    };
+  };
+
+  /** Structurally complete AssistantMessage carrying one text part. */
+  const assistantReply = (text: string): AssistantMessage => ({
+    role: "assistant",
+    content: [{ type: "text", text }],
+    api: "anthropic-messages",
+    provider: "prov",
+    model: "mdl-1",
+    usage: {
+      input: 1,
+      output: 2,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 3,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  });
+
+  /** A pre-completed stream: pushes `done` and ends — settle() freezes the reply. */
+  const completedStream = (text: string): AssistantMessageEventStream => {
+    const stream = createAssistantMessageEventStream();
+    stream.push({ type: "done", reason: "stop", message: assistantReply(text) });
+    stream.end();
+    return stream;
+  };
+
+  /** Real engine over a scripted port; the registry resolves the "test" snapshot. */
+  const realEngine = (streamFactory: () => AssistantMessageEventStream) =>
+    createSidechatEngine({
+      port: vi.fn(streamFactory),
+      registry: {
+        find: vi.fn((provider: string, modelId: string) =>
+          provider === "test" && modelId === "test-model" ? fakeModel() : undefined,
+        ),
+        getAvailable: vi.fn(() => []),
+      },
+      notify: vi.fn(),
+    });
+
+  /** Host + mock pi + 2-question state opened with EXPLICIT sidechat seams. */
+  function makeSuspendHost(extra: Partial<OpenPanelOptions> = {}): {
+    host: PanelHost;
+    mock: ReturnType<typeof makeMockPi>;
+    state: InterrogationState;
+    deps: ReturnType<typeof countingDeps>;
+  } {
+    const host = createPanelHost(makeMockLifecycle().lifecycle);
+    const mock = makeMockPi();
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const deps = countingDeps();
+    openPanel(mock.pi, optsFor(state, { chatRebindDeps: deps, ...extra }));
+    return { host, mock, state, deps };
+  }
+
+  beforeEach(() => resetSidechatForTests());
+  afterEach(() => resetSidechatForTests());
+
+  test("test_suspend_resume_chat_survives_and_rebinds", async () => {
+    const engine = realEngine(() => completedStream("assistant reply"));
+    const { host, mock, deps } = makeSuspendHost({ sidechatEngine: engine });
+    const panel1 = firstCall(mock).component;
+
+    panel1.handleInput("e"); // open the chat on q1 — snapshot built once
+    const before = getSidechat();
+    expect(before).toBeDefined();
+    expect(engine.sendTurn("hi")).toBe(true); // one settled turn pre-suspend
+    await flush();
+    expect(before!.messages).toHaveLength(2);
+    const transcript = before!.messages.map((m) => ({ ...m }));
+    expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(1);
+
+    firstCall(mock).done(null); // esc-suspend: the panel instance dies
+    await flush();
+    expect(host.isSuspended()).toBe(true);
+
+    expect(resumeOpenPanel(mock.pi)).toBe(true);
+    expect(mock.calls).toHaveLength(2);
+    const panel2 = mock.calls[1]!.component;
+    expect(panel2).not.toBe(panel1); // FRESH instance
+    expect(panel2.view).toBe("short"); // RESUME-001: lands on what needs answering
+    // Unsent-buffer loss is DESIGNED: the fresh panel's chat input starts
+    // EMPTY — the resume path has no preload (chatField.setText exists only
+    // in sendChatInput's clear; there is no restore call anywhere).
+    expect(panel2.chatField.getText()).toBe("");
+
+    panel2.handleInput("e"); // re-`e` on the record's question → rebind
+    expect(panel2.view).toBe("chat");
+    expect(getSidechat()).toBe(before); // BYTE-UNCHANGED reuse — same object
+    expect(getSidechat()!.messages).toEqual(transcript); // transcript intact
+    // Builders NOT invoked on the reuse branch (SIDECHAT-003).
+    expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(1);
+    expect(deps.buildSystemPrompt).toHaveBeenCalledTimes(1);
+    expect(deps.buildBranchSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_resume_reuses_host_derived_seams_once_per_host", async () => {
+    createPanelHost(makeMockLifecycle().lifecycle);
+    const mock = makeMockPi();
+    // Ctx-flavored surface (registry present, NO models): the derived path
+    // produces real seams, and the chat it opens is INERT (empty marker) —
+    // the model-less tolerance verified through the HOST wiring itself.
+    (mock.pi as unknown as { modelRegistry: unknown }).modelRegistry = {
+      find: () => undefined,
+      getAvailable: () => [],
+    };
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    expect(openPanel(mock.pi, optsFor(state))).toBe(true);
+    const panel1 = firstCall(mock).component;
+    expect(panel1.sidechatEngine).toBeDefined();
+    expect(panel1.chatRebindDeps).toBeDefined();
+    panel1.handleInput("e");
+    expect(getSidechat()!.modelSnapshot).toEqual({ provider: "", modelId: "" });
+
+    firstCall(mock).done(null);
+    await flush();
+    expect(resumeOpenPanel(mock.pi)).toBe(true);
+    const panel2 = mock.calls[1]!.component;
+    // ONE engine per host across suspend → resume (T5.S2 placement) —
+    // per-openPanel construction would mint fresh instances here.
+    expect(panel2.sidechatEngine).toBe(panel1.sidechatEngine);
+    expect(panel2.chatRebindDeps).toBe(panel1.chatRebindDeps);
+  });
+
+  test("test_suspend_midstream_settle_reaches_fresh_panel", async () => {
+    let stream: AssistantMessageEventStream | undefined;
+    const engine = realEngine(() => {
+      stream = createAssistantMessageEventStream(); // open — completes LATER
+      return stream;
+    });
+    const { host, mock, deps } = makeSuspendHost({ sidechatEngine: engine });
+    firstCall(mock).component.handleInput("e");
+    expect(engine.sendTurn("hello")).toBe(true);
+    expect(getSidechat()!.streamState).toBe("streaming");
+
+    firstCall(mock).done(null); // suspend MID-STREAM — deliberately NO abort
+    await flush();
+    expect(host.isSuspended()).toBe(true);
+    expect(getSidechat()!.streamState).toBe("streaming"); // survival, not abort
+
+    expect(resumeOpenPanel(mock.pi)).toBe(true);
+    const panel2 = mock.calls[1]!.component;
+    panel2.handleInput("e"); // the user re-`e`s the still-streaming question
+    expect(panel2.view).toBe("chat");
+
+    // The pre-suspend turn completes AFTER resume: the old engine's settle
+    // writes the frozen row into the surviving record, and the FRESH panel
+    // renders it (the engine's invalidate forwarding targets the module
+    // record's LIVE panel — currentPanel — not the dead instance).
+    stream!.push({ type: "done", reason: "stop", message: assistantReply("late reply") });
+    stream!.end();
+    await flush();
+
+    const record = getSidechat();
+    expect(record!.streamState).toBe("idle");
+    expect(record!.messages).toHaveLength(2);
+    expect(record!.messages[1]).toMatchObject({ role: "assistant", text: "late reply" });
+    panel2.invalidate();
+    expect(panel2.render(100).join("\n")).toContain("late reply");
+    expect(deps.buildBranchSnapshot).toHaveBeenCalledTimes(1); // no rebind rebuilds
+  });
+
+  test("test_restart_simulation_leaves_no_residue", async () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const before = state.serialize();
+
+    // A FULL chat lifecycle around the real state: open → one settled turn
+    // (real engine, fake port) → discard. Everything stays in memory.
+    const engine = realEngine(() => completedStream("assistant reply"));
+    openOrReplace("q1", countingDeps());
+    expect(engine.sendTurn("hi")).toBe(true);
+    await flush();
+    expect(getSidechat()!.messages).toHaveLength(2);
+    discardChat();
+    await flush();
+
+    // Runtime absence: the state singleton is untouched by the whole chat.
+    expect(state.serialize()).toEqual(before);
+    // Simulated pi restart (fresh module load): the singleton is GONE.
+    // There is no tombstone to assert — absence IS the contract.
+    resetSidechatForTests();
+    expect(getSidechat()).toBeUndefined();
+  });
+
+  test("test_sidechat_module_set_writes_nothing_persistent", () => {
+    const joined = ["./sidechat.ts", "./sidechat-engine.ts", "./chat-view.ts"]
+      .map(readSrc)
+      .join("\n");
+
+    // Persistence/renderer surfaces — SHAPE-scoped patterns that cannot
+    // appear in prose comments (the module headers NAME what they avoid).
+    expect(joined).not.toMatch(/from "\.\.\/persistence\.js"/);
+    expect(joined).not.toMatch(/from "\.\.\/renderers\.js"/);
+    expect(joined).not.toMatch(/from "@earendil-works\/pi-coding-agent"/);
+    expect(joined).not.toMatch(/upsertEntry\s*\(/); // session custom entries
+    expect(joined).not.toMatch(/\bsessionManager\s*\??\./); // session surface
+    expect(joined).not.toMatch(/registerRenderer\s*\(|renderers\.register/);
+    expect(joined).not.toMatch(/\bdetails\s*[:=]/); // tool-result details payload
+
+    // Non-TUI stays inert BY CONSTRUCTION: exactly ONE mode guard in the
+    // whole panel module — openPanel's first line, never duplicated.
+    expect(readSrc("./panel.ts").match(/pi\.mode !== "tui"/g) ?? []).toHaveLength(1);
+
+    // Record-lifecycle call sites live ONLY in the panel layer (onChat
+    // default + chat routing) and the store itself — no other non-test file.
+    const srcRoot = path.dirname(srcDir);
+    const offenders = fs
+      .readdirSync(srcRoot, { recursive: true })
+      .map(String)
+      .filter((f) => f.endsWith(".ts") && !f.includes(".test."))
+      .filter((f) => !f.endsWith("sidechat.ts") && !f.endsWith("panel.ts"))
+      .filter((f) =>
+        /\b(openOrReplace|resetChat)\s*\(/.test(
+          fs.readFileSync(path.join(srcRoot, f), "utf8"),
+        ),
+      );
+    expect(offenders).toEqual([]);
+  });
+
+  test("test_non_tui_open_and_resume_are_inert", () => {
+    createPanelHost(makeMockLifecycle().lifecycle);
+    const mock = makeMockPi("rpc");
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    // The panel never mounts → the router is unreachable → `e` cannot
+    // dispatch; and no non-panel code path may create a record.
+    expect(openPanel(mock.pi, optsFor(state))).toBe(false);
+    expect(mock.custom).not.toHaveBeenCalled();
+    expect(resumeOpenPanel(mock.pi)).toBe(false);
+    expect(getSidechat()).toBeUndefined();
+  });
+
+  test("test_no_model_seam_opens_inert_and_refuses_sends", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    // The model-less seam: EMPTY marker snapshot (production's !ctx.model
+    // shape) + an engine whose registry resolves nothing and whose port
+    // MUST NOT be reached.
+    const deps = {
+      resolveModelSnapshot: vi.fn(() => ({ provider: "", modelId: "" })),
+      buildSystemPrompt: vi.fn(() => "system prompt"),
+      buildBranchSnapshot: vi.fn(() => [] as never),
+    };
+    let dispatched = false;
+    const engine = createSidechatEngine({
+      port: vi.fn(() => {
+        dispatched = true;
+        throw new Error("inert record must not dispatch");
+      }),
+      registry: { find: vi.fn(() => undefined), getAvailable: vi.fn(() => []) },
+      notify: vi.fn(),
+    });
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { chatRebindDeps: deps, sidechatEngine: engine }),
+    );
+
+    expect(panel.handleInput("e")).toBe(true); // consumed; the view opens
+    expect(panel.view).toBe("chat");
+    expect(getSidechat()!.modelSnapshot).toEqual({ provider: "", modelId: "" });
+
+    // The inert banner renders — asserted against the BYTE-PINNED constant
+    // extracted from chat-view.ts's source, never hand-copied here.
+    const pinned = pinnedInertBanner();
+    expect(panel.render(100).join("\n")).toContain(pinned);
+
+    // A send is REFUSED: turn recorded, error notice (the SAME pinned text —
+    // the byte-pin held on both sides of the duplication), settled idle —
+    // no throw, no dispatch, panel alive.
+    expect(engine.sendTurn("hello")).toBe(true);
+    const record = getSidechat();
+    expect(dispatched).toBe(false);
+    expect(record!.streamState).toBe("idle");
+    expect(record!.messages).toHaveLength(1); // user turn kept
+    expect(record!.notices).toHaveLength(1);
+    expect(record!.notices[0]!.kind).toBe("error");
+    expect(record!.notices[0]!.text).toBe(pinned);
+    expect(panel.view).toBe("chat"); // panel never blocked
+    expect(panel.render(100).length).toBeGreaterThan(0);
   });
 });

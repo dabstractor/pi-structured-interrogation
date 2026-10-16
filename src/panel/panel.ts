@@ -424,8 +424,8 @@ function settleInvalidatingPort(port: SidechatModelPort, fire: () => void): Side
 
 /**
  * SIDECHAT-001 host seams (P1.M2.T4.S1): derive the REAL side-chat rebind
- * deps + engine from THIS open surface, once per openPanel — the exact
- * surfaceSubmitDeps precedent (the surface at runtime is an
+ * deps + engine from THIS open surface — the surfaceSubmitDeps
+ * precedent (the surface at runtime is an
  * ExtensionContext carrying modelRegistry / model / sessionManager; test
  * fakes and RPC surfaces lack them → undefined, leaving `e` inert and the
  * chat unable to send — graceful, never throwing).
@@ -442,6 +442,15 @@ function settleInvalidatingPort(port: SidechatModelPort, fire: () => void): Side
  * surface argument (the engine/prompt/branch modules stay ctx-free —
  * injected-port testability rule; the M3.T1 guard's banned surfaces appear
  * nowhere: the registry port exposes only find/getAvailable reads).
+ *
+ * PLACEMENT (P1.M2.T5.S2, AC-17.6): the CALL SITE is
+ * {@link resolveSidechatHostSeamsOncePerHost} — construction happens once
+ * per (host, surface, config), NOT once per openPanel. The sidechat ENGINE
+ * may not live on the panel instance (it dies on suspend): one engine per
+ * host keeps the stable per-record sessionId (SIDECHAT-003) and the settle
+ * wiring alive across suspend → resume, and its port wrapper forwards
+ * settles to `currentPanel?.invalidate()` — the module record's LIVE panel,
+ * so a pre-suspend stream's settle reaches the FRESH panel.
  */
 function resolveSidechatHostSeams(
   surface: PiUISurface,
@@ -2212,6 +2221,31 @@ let openedAt = 0;
 let openSeq = 0;
 
 /**
+ * SIDECHAT-001 host seams — the ONE per-host construction site (P1.M2.T5.S2
+ * engine placement, AC-17.6 suspend/resume survival). Memoized by
+ * surface+config IDENTITY: the resume path reopens on the SAME surface via
+ * lastOpts (cache hit — one engine across suspend → resume, so the stable
+ * per-record sessionId survives); a different surface or config re-derives
+ * (fresh registry/notify/model seam). resetHostRecord clears the memo with
+ * the rest of the host record — it NEVER touches the sidechat record (the
+ * record's only exits are replace/discard, sidechat.ts).
+ */
+let sidechatSeamsSurface: PiUISurface | undefined;
+let sidechatSeamsConfig: InterrogatorConfig | undefined;
+let sidechatSeams: ReturnType<typeof resolveSidechatHostSeams> | undefined;
+
+function resolveSidechatHostSeamsOncePerHost(
+  pi: PiUISurface,
+  config: InterrogatorConfig,
+): ReturnType<typeof resolveSidechatHostSeams> {
+  if (sidechatSeamsSurface === pi && sidechatSeamsConfig === config) return sidechatSeams;
+  sidechatSeamsSurface = pi;
+  sidechatSeamsConfig = config;
+  sidechatSeams = resolveSidechatHostSeams(pi, config);
+  return sidechatSeams;
+}
+
+/**
  * STUCK-OPEN DETECTION (cold-resume fix): `phase === "open"` is set as soon
  * as custom() returns a promise, but the panel only truly exists once the
  * custom() BODY runs (it assigns `currentPanel`). On a cold `--session`
@@ -2335,6 +2369,13 @@ function resetHostRecord(): void {
   activePi = undefined;
   lastOpts = undefined;
   lastFocusId = undefined;
+  // T5.S2 engine placement: the host-derived sidechat seams die with the
+  // host (a new host re-derives from its own surface). The sidechat RECORD
+  // is deliberately NOT touched here — replace/discard are its only exits
+  // (sidechat.ts); a record live across a host reset keeps surviving.
+  sidechatSeams = undefined;
+  sidechatSeamsSurface = undefined;
+  sidechatSeamsConfig = undefined;
 }
 
 /**
@@ -2457,7 +2498,7 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   // SIDECHAT-001 (P1.M2.T4.S1): explicit opts win; otherwise derive the real
   // seams from THIS surface (needs a ctx-flavored surface — modelRegistry /
   // model / sessionManager; test fakes without them leave the chat inert).
-  const sidechatDerived = resolveSidechatHostSeams(pi, opts.config);
+  const sidechatDerived = resolveSidechatHostSeamsOncePerHost(pi, opts.config);
   const resolvedOpts: OpenPanelOptions = {
     ...opts,
     delivery,

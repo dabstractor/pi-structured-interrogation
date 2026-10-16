@@ -274,7 +274,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "View + integration + discuss removal (R3, R4, R6)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Key objective: the visible feature — src/panel/chat-view.ts (transcript, second editor, esc ladder, confirm row), PanelView \"chat\" with open/replace/discard hooks, suspend survival and non-TUI inertness, apply through the ordinary seams, and the end-to-end deletion of discuss-in-chat.",
           "tasks": [
             {
@@ -411,7 +411,7 @@
               "type": "Task",
               "id": "P1.M2.T5",
               "title": "Discard hooks, suspend survival, non-TUI inertness",
-              "status": "Ready",
+              "status": "Complete",
               "description": "R4: the chat discards when its question is answered or closed by ANY path (mid-stream aborts first), survives panel suspend/resume in module memory, and is inert outside TUI or without a model seam.",
               "subtasks": [
                 {
@@ -437,7 +437,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T5.S2",
                   "title": "Suspend/resume survival and non-TUI / no-model-seam inertness",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T4.S1"
@@ -457,14 +457,14 @@
               "type": "Task",
               "id": "P1.M2.T6",
               "title": "Apply from the confirm row through the ordinary seams",
-              "status": "Planned",
+              "status": "Ready",
               "description": "SIDECHAT-004 wiring half: enter on the confirm row (or immediately with sideChatAutoApply) routes the parsed answer verbatim through acceptOptionIndex / the write-in commit path — ripple confirms, ANSWER-PIN-001 no-ops, advance, and auto-submit behave exactly as for a user selection, with byte-identical records and no provenance marker.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T6.S1",
                   "title": "Confirm-row apply/decline and autoApply bypass routed via acceptOptionIndex / write-in commit",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S2",
@@ -486,14 +486,14 @@
               "type": "Task",
               "id": "P1.M2.T7",
               "title": "Delete discuss-in-chat end-to-end",
-              "status": "Planned",
+              "status": "Ready",
               "description": "R6: remove the discuss handoff completely — files, host wiring, and residual mentions — while the esc break-out main-conversation flow and the setEditorText seam used by editor-preservation stay untouched.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T7.S1",
                   "title": "Delete discuss.ts + discuss.test.ts + host wiring; sweep residual mentions",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T4.S1"

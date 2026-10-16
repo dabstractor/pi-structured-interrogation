@@ -58,14 +58,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Add sideChatModel and sideChatAutoApply config fields",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Two new non-key config fields with interface entries, defaults, coercion, and JSDoc rows: sideChatModel?: string (default: the session model at chat open) and sideChatAutoApply: boolean (default false).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Interface fields, defaults, coercion, and JSDoc rows for the two side-chat settings",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

@@ -168,7 +168,7 @@
               "type": "Task",
               "id": "P1.M1.T5",
               "title": "Nested LLM loop with abort and usage tally",
-              "status": "Ready",
+              "status": "Complete",
               "description": "The SIDECHAT-005-compliant model loop: model resolution (sideChatModel override, invalid → notify + session model), turn dispatch over the injected nested-call seam, streaming consumption with stop/error/abort handling, and the per-chat usage tally with the compact close notification.",
               "subtasks": [
                 {
@@ -213,7 +213,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S3",
                   "title": "Per-chat usage tally and compact close notification",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T5.S2"

@@ -70,8 +70,9 @@
  * Consumers (all inject their builders — no config/ctx knowledge here):
  * T3.S2 reset commands, T4.S1/S2 branch builders, T5.S1 model resolution
  * (the deps bag is their injection seam), M2.T4.S1 open path,
- * M2.T5.S1 discard hooks. `ChatStreamState` is open to extension by T5.S2
- * (finer states) — never narrowed.
+ * M2.T5.S1 discard hooks (fire `formatChatCloseNotice(record.usage)` on
+ * every close/discard path). `ChatStreamState` is open to extension by
+ * T5.S2 (finer states) — never narrowed.
  */
 
 /** Terminal stop reasons for assistant ChatMessages (P1.M1.T5.S2).
@@ -93,7 +94,13 @@ export interface ChatMessage {
 /** Stream lifecycle of the record. Start "idle"; T5.S2 may EXTEND the union. */
 export type ChatStreamState = "idle" | "streaming";
 
-/** Running token/cost tally for the chat. Zeroed at creation; T5.S3 accumulates. */
+/** Running token/cost tally for the chat: zeroed at creation and on every
+ * reset, accumulated per COMPLETED turn at the engine's freeze site
+ * (P1.M1.T5.S3). Aborted turns ("the turn never happened"), error turns
+ * (never freeze) and replaced/dead records (liveness guard precedes the
+ * freeze) contribute nothing — structurally, with no compensation logic.
+ * The ONLY usage home in the module set (SIDECHAT-005): read by
+ * `formatChatCloseNotice`, never by anything else. */
 export interface ChatUsage {
   input: number;
   output: number;
@@ -264,6 +271,30 @@ export function resetChat(questionId: string, deps: SidechatRebindDeps): Sidecha
  */
 export function discard(): void {
   current = undefined;
+}
+
+/**
+ * The spec-pinned compact close notice (ui-spec §Side chat "Usage & close",
+ * verbatim: `chat closed · 12.4K in · 3.1K out · $0.07`), fed by the
+ * record's `ChatUsage` tally. Pure: ChatUsage (plain numbers) in → string
+ * out, zero pi imports, zero side effects — the engine translates the
+ * nested pi-ai usage into these numbers; this module never sees a pi type.
+ *
+ * Humanization rules (pinned byte-exact): tokens < 1000 → plain digits
+ * ("0", "999"); ≥ 1000 → one decimal via `(n / 1000).toFixed(1)` with a
+ * trailing ".0" stripped (1000 → "1K", never "1.0K"; 12499 → "12.5K";
+ * no "M" tier — side chats are short). Cost ALWAYS two decimals via
+ * toFixed(2) ("$0.00", "$1.20", never "$1.2"); accumulated-fp noise is
+ * absorbed by this display-only rounding, deliberately no cent-rounding
+ * arithmetic. Separator is ` · ` (space, U+00B7, space).
+ *
+ * NOT fired anywhere in this module — the discard/close hooks (P1.M2.T5.S1)
+ * own every close path that shows it.
+ */
+export function formatChatCloseNotice(usage: ChatUsage): string {
+  const tokens = (n: number): string =>
+    n < 1000 ? String(n) : `${(n / 1000).toFixed(1).replace(/\.0$/, "")}K`;
+  return `chat closed · ${tokens(usage.input)} in · ${tokens(usage.output)} out · $${usage.totalCost.toFixed(2)}`;
 }
 
 /** Test-only seam: module-scope reset for vitest beforeEach (state.ts `resetState` precedent). */

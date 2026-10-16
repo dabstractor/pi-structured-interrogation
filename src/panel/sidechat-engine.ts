@@ -265,14 +265,26 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
     }
     if (message !== undefined) {
       // stop|length|toolUse|deferred → FREEZE from done.message content
-      // (canonical), never from the display buffer. Usage untouched here —
-      // T5.S3 tallies it, fed by what this freeze records.
+      // (canonical), never from the display buffer. This is the ONE place a
+      // completed turn's canonical AssistantMessage lands in the live
+      // record — so it is also the tally site (P1.M1.T5.S3): completed
+      // turns ONLY, reached after settle()'s liveness guard, so aborted
+      // (rolled back above), error (returned above) and replaced/dead
+      // records (guard returned) contribute zero BY CONSTRUCTION — no
+      // compensation logic exists or belongs anywhere (SIDECHAT-005).
       record.messages.push({
         role: "assistant",
         text: joinTextParts(message.content),
         at: new Date().toISOString(),
         stopReason: stopReason as ChatStopReason,
       });
+      // Usage tally (P1.M1.T5.S3, SIDECHAT-005): the record's ChatUsage is
+      // the ONLY usage home — never session stats, entries, or tool results
+      // (the module set has no such write surface). NAME MAP: pi-ai nests
+      // cost — read message.usage.cost.total, write ChatUsage.totalCost.
+      record.usage.input += message.usage.input;
+      record.usage.output += message.usage.output;
+      record.usage.totalCost += message.usage.cost.total;
     }
   }
 

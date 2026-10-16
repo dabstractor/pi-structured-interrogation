@@ -9,10 +9,12 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   classifyChatCommand,
   discard,
+  formatChatCloseNotice,
   get,
   openOrReplace,
   resetChat,
   resetSidechatForTests,
+  type ChatUsage,
   type SidechatRebindDeps,
 } from "./sidechat.js";
 
@@ -196,5 +198,54 @@ describe("resetChat — SIDECHAT-003 refresh valve (P1.M1.T3.S2)", () => {
     expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(1);
     expect(deps.buildSystemPrompt).toHaveBeenCalledTimes(1);
     expect(deps.buildBranchSnapshot).toHaveBeenCalledTimes(1);
+  });
+});
+
+// P1.M1.T5.S3 — the close-notice formatter. The string is SPEC-PINNED
+// (ui-spec §Side chat "Usage & close", verbatim authority via
+// sidechat-contracts.md §SIDECHAT-005: "any close/discard notifies
+// compactly (`chat closed · 12.4K in · 3.1K out · $0.07`)"), so the rows
+// below are byte-exact vectors, not property assertions: the sub-1000 /
+// trailing-.0 / cost-padding / rounding edge rules are pinned here because
+// the spec's single example leaves them open. Pure function — no store,
+// no pi types (ChatUsage is plain numbers); the spec example doubles as a
+// vector row.
+describe("formatChatCloseNotice — spec-pinned close string (P1.M1.T5.S3)", () => {
+  const u = (input: number, output: number, totalCost: number): ChatUsage => ({
+    input,
+    output,
+    totalCost,
+  });
+
+  test("the spec example: 12400/3100/$0.07 → `chat closed · 12.4K in · 3.1K out · $0.07`", () => {
+    expect(formatChatCloseNotice(u(12400, 3100, 0.07))).toBe(
+      "chat closed · 12.4K in · 3.1K out · $0.07",
+    );
+  });
+
+  test("zero chat: 0/0/$0 → `0 in · 0 out · $0.00` (plain digit zeros, padded cost)", () => {
+    expect(formatChatCloseNotice(u(0, 0, 0))).toBe("chat closed · 0 in · 0 out · $0.00");
+  });
+
+  test("sub-1000 boundary: 999/999/$0.006 → `999 in · 999 out · $0.01` (no K, no padding)", () => {
+    expect(formatChatCloseNotice(u(999, 999, 0.006))).toBe(
+      "chat closed · 999 in · 999 out · $0.01",
+    );
+  });
+
+  test("exact 1000 strips the trailing .0: `1K`, never `1.0K`; $1.2 pads to `$1.20`", () => {
+    expect(formatChatCloseNotice(u(1000, 1000, 1.2))).toBe("chat closed · 1K in · 1K out · $1.20");
+  });
+
+  test("toFixed rounds: 12499→`12.5K`, 2801→`2.8K`, $0.066→`$0.07`", () => {
+    expect(formatChatCloseNotice(u(12499, 2801, 0.066))).toBe(
+      "chat closed · 12.5K in · 2.8K out · $0.07",
+    );
+  });
+
+  test("asymmetric usage: 123456 in / 0 out / $0 → `123.5K in · 0 out · $0.00`", () => {
+    expect(formatChatCloseNotice(u(123456, 0, 0))).toBe(
+      "chat closed · 123.5K in · 0 out · $0.00",
+    );
   });
 });

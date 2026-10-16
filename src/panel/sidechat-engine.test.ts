@@ -33,7 +33,13 @@ import {
   type SidechatEngineDeps,
   type SidechatRegistryPort,
 } from "./sidechat-engine.js";
-import { get, openOrReplace, resetSidechatForTests, type SidechatRebindDeps } from "./sidechat.js";
+import {
+  formatChatCloseNotice,
+  get,
+  openOrReplace,
+  resetSidechatForTests,
+  type SidechatRebindDeps,
+} from "./sidechat.js";
 
 let seq = 0;
 
@@ -69,8 +75,15 @@ function cfg(sideChatModel?: string): Pick<InterrogatorConfig, "sideChatModel"> 
   return sideChatModel === undefined ? {} : { sideChatModel };
 }
 
-/** Structurally complete AssistantMessage carrying one text part. */
-function assistantReply(text: string): AssistantMessage {
+/** Structurally complete AssistantMessage carrying one text part. `usage`
+ * (P1.M1.T5.S3 harness) overrides the tally-relevant fields only —
+ * {input, output, total} maps onto pi-ai's nested Usage (cost.total);
+ * omitted → the S1 defaults {1, 2, $0} so pre-S3 rows keep their semantics. */
+function assistantReply(
+  text: string,
+  usage?: { input: number; output: number; total: number },
+): AssistantMessage {
+  const u = usage ?? { input: 1, output: 2, total: 0 };
   return {
     role: "assistant",
     content: [{ type: "text", text }],
@@ -78,22 +91,26 @@ function assistantReply(text: string): AssistantMessage {
     provider: "prov",
     model: "mdl-1",
     usage: {
-      input: 1,
-      output: 2,
+      input: u.input,
+      output: u.output,
       cacheRead: 0,
       cacheWrite: 0,
-      totalTokens: 3,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      totalTokens: u.input + u.output,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: u.total },
     },
     stopReason: "stop",
     timestamp: Date.now(),
   };
 }
 
-/** A completed stream: pushes `done` and ends — settle() freezes the reply. */
-function doneStream(text: string): AssistantMessageEventStream {
+/** A completed stream: pushes `done` and ends — settle() freezes the reply.
+ * `usage` rides through to the frozen message (T5.S3 accumulation rows). */
+function doneStream(
+  text: string,
+  usage?: { input: number; output: number; total: number },
+): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream();
-  stream.push({ type: "done", reason: "stop", message: assistantReply(text) });
+  stream.push({ type: "done", reason: "stop", message: assistantReply(text, usage) });
   stream.end();
   return stream;
 }
@@ -685,5 +702,175 @@ describe("createSidechatEngine — stream consumption routing table (T5.S2)", ()
 describe("streamSimplePort — production binding (exported, UNWIRED)", () => {
   test("the binding exists as a function; wiring is P1.M2.T4.S1's", () => {
     expect(typeof streamSimplePort).toBe("function");
+  });
+});
+
+// P1.M1.T5.S3 — usage tally at the freeze site + the close-notice string.
+// Contract (ui-spec §Side chat "Usage & close" via sidechat-contracts.md
+// §SIDECHAT-005): each COMPLETED turn's usage accumulates into the record
+// tally; aborted/error turns contribute zero BY CONSTRUCTION (they never
+// reach the freeze — no compensation logic exists); replaced/dead records
+// never accumulate (liveness guard precedes freeze). The tally is the ONLY
+// usage home; `formatChatCloseNotice(record.usage)` is the ONLY reader
+// (fired by M2.T5.S1's close hooks — never by this engine).
+describe("createSidechatEngine — usage tally & close notice (T5.S3)", () => {
+  test("two completed stream turns accumulate: 12400/3100/$0.07 → the SPEC EXAMPLE string", async () => {
+    openOrReplace("q1", rebindDeps());
+    const streams = [
+      doneStream("first", { input: 1200, output: 300, total: 0.03 }),
+      doneStream("second", { input: 11200, output: 2800, total: 0.04 }),
+    ];
+    const engine = engineOverRecord({ port: fakePort(() => streams.shift()!) });
+    expect(engine.sendTurn("one")).toBe(true);
+    await flush();
+    expect(engine.sendTurn("two")).toBe(true);
+    await flush();
+    const record = get()!;
+    expect(record.messages).toHaveLength(4); // 2 user + 2 assistant — tally rides the freeze
+    // IEEE754: 0.03 + 0.04 === 0.07000000000000001 — absorbed DISPLAY-ONLY
+    // by the formatter's toFixed(2); deliberately NO cent-rounding arithmetic.
+    expect(record.usage.input).toBe(12400);
+    expect(record.usage.output).toBe(3100);
+    expect(record.usage.totalCost).toBeCloseTo(0.07, 12);
+    expect(formatChatCloseNotice(record.usage)).toBe(
+      "chat closed · 12.4K in · 3.1K out · $0.07",
+    );
+  });
+
+  test("abort after a completed turn → tally UNCHANGED (deep-equal), user turn popped", async () => {
+    openOrReplace("q1", rebindDeps());
+    let calls = 0;
+    const engine = engineOverRecord({
+      port: fakePort(() => {
+        calls += 1;
+        return calls === 1
+          ? doneStream("kept", { input: 1200, output: 300, total: 0.03 })
+          : fakeStream([
+              { type: "text_delta", contentIndex: 0, delta: "par", partial: assistantReply("par") },
+              {
+                type: "error",
+                reason: "aborted",
+                error: fakeAssistantMessage({ text: "par", stopReason: "aborted" }),
+              },
+            ]);
+      }),
+    });
+    engine.sendTurn("finish me");
+    await flush();
+    engine.sendTurn("fleeting question");
+    await flush();
+    const record = get()!;
+    // ONLY the aborted turn rolled back — turn 1's completed pair remains.
+    expect(record.messages).toEqual([
+      { role: "user", text: "finish me", at: expect.any(String) },
+      { role: "assistant", text: "kept", at: expect.any(String), stopReason: "stop" },
+    ]);
+    expect(record.usage).toEqual({ input: 1200, output: 300, totalCost: 0.03 }); // zero residue
+    expect(record.notices).toEqual([]); // esc is deliberate silence
+  });
+
+  test("abort-only chat (fresh record, single aborted turn) → usage stays zeroed", async () => {
+    openOrReplace("q1", rebindDeps());
+    const engine = engineOverRecord({
+      port: fakePort(() =>
+        fakeStream([
+          {
+            type: "error",
+            reason: "aborted",
+            error: fakeAssistantMessage({ text: "par", stopReason: "aborted" }),
+          },
+        ]),
+      ),
+    });
+    engine.sendTurn("esc immediately");
+    await flush();
+    const record = get()!;
+    expect(record.messages).toEqual([]);
+    expect(record.usage).toEqual({ input: 0, output: 0, totalCost: 0 });
+  });
+
+  test("error turns (rate_limited event, done stopReason 'error') → no accumulation, notices grow", async () => {
+    openOrReplace("q1", rebindDeps());
+    const events: AssistantMessageEvent[][] = [
+      [
+        { type: "text_delta", contentIndex: 0, delta: "par", partial: assistantReply("par") },
+        {
+          type: "error",
+          reason: "rate_limited",
+          error: fakeAssistantMessage({ text: "par" }),
+        },
+      ] as unknown as AssistantMessageEvent[], // off-union reason: any non-aborted failure
+      [
+        // Off-union (same convention as S2's done-abort row): pi-ai's done
+        // event reason excludes "error" (real streams signal failure via
+        // error events) — a done carrying terminal stopReason "error" is
+        // still routable, and route() treats it as a notice-only failure.
+        {
+          type: "done",
+          reason: "error",
+          message: fakeAssistantMessage({ text: "boom", stopReason: "error", errorMessage: "boom" }),
+        },
+      ] as unknown as AssistantMessageEvent[],
+    ];
+    const engine = engineOverRecord({ port: fakePort(() => fakeStream(events.shift()!)) });
+    engine.sendTurn("first");
+    await flush();
+    engine.sendTurn("second");
+    await flush();
+    const record = get()!;
+    // User turns KEPT (error asymmetry), no assistant rows → nothing froze,
+    // so the tally is untouched; each failure logged a notice instead.
+    expect(record.messages.map((m) => m.role)).toEqual(["user", "user"]);
+    expect(record.usage).toEqual({ input: 0, output: 0, totalCost: 0 });
+    expect(record.notices).toHaveLength(2);
+    expect(record.notices.every((n) => n.kind === "error")).toBe(true);
+  });
+
+  test("promise-branch port tallies identically to the stream branch", async () => {
+    openOrReplace("q1", rebindDeps());
+    let calls = 0;
+    const engine = engineOverRecord({
+      port: fakePort(() => {
+        calls += 1;
+        return calls === 1
+          ? doneStream("streamed", { input: 1200, output: 300, total: 0.03 })
+          : Promise.resolve(assistantReply("resolved", { input: 11200, output: 2800, total: 0.04 }));
+      }),
+    });
+    engine.sendTurn("one");
+    await flush();
+    engine.sendTurn("two");
+    await flush();
+    const record = get()!;
+    expect(record.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(record.usage.input).toBe(12400);
+    expect(record.usage.output).toBe(3100);
+    expect(record.usage.totalCost).toBeCloseTo(0.07, 12);
+    expect(formatChatCloseNotice(record.usage)).toBe(
+      "chat closed · 12.4K in · 3.1K out · $0.07",
+    );
+  });
+
+  test("record replaced mid-flight, old stream resolves done → NEW record's tally stays zeroed", async () => {
+    openOrReplace("q1", rebindDeps());
+    const stream = pendingStream();
+    const engine = engineOverRecord({ port: fakePort(() => stream) });
+    engine.sendTurn("slow");
+    await flush();
+    expect(get()!.streamState).toBe("streaming");
+    const replacement = openOrReplace("q2", rebindDeps()); // wholesale replace, old record dead
+    // The OLD stream resolves late — the liveness guard must return BEFORE
+    // freeze + tally, so this usage lands NOWHERE.
+    stream.push({
+      type: "done",
+      reason: "stop",
+      message: assistantReply("late", { input: 1200, output: 300, total: 0.03 }),
+    });
+    stream.end();
+    await flush();
+    expect(replacement.usage).toEqual({ input: 0, output: 0, totalCost: 0 });
+    expect(replacement.messages).toEqual([]);
+    expect(replacement.streamState).toBe("idle"); // the live record never saw the turn
+    expect(get()).toBe(replacement);
   });
 });

@@ -1489,14 +1489,17 @@ describe("embedded editor — construction + wiring (P1.M4.T1.S1)", () => {
       }),
     );
 
-    // Exactly ONE instantiation, with the constructor's live tui/theme/kb.
-    expect(factory).toHaveBeenCalledTimes(1);
+    // Exactly TWO instantiations from the one captured factory — the answer
+    // editor + the SIDECHAT-001 chat input (architecture ruling: two factory
+    // calls per panel is the sanctioned pattern) — with the constructor's
+    // live tui/theme/kb.
+    expect(factory).toHaveBeenCalledTimes(2);
     expect(factory).toHaveBeenCalledWith(tui, expect.any(Object), keybindings);
-    // Repeated renders/keystrokes never re-instantiate (one per lifetime).
+    // Repeated renders/keystrokes never re-instantiate (two per lifetime).
     panel.render(80);
     panel.handleInput("x");
     panel.render(80);
-    expect(factory).toHaveBeenCalledTimes(1);
+    expect(factory).toHaveBeenCalledTimes(2);
   });
 
   test("test_openPanel_captures_editor_factory_once_per_open", () => {
@@ -1511,10 +1514,11 @@ describe("embedded editor — construction + wiring (P1.M4.T1.S1)", () => {
     state.upsertQuestion(choiceQ("q1"));
 
     expect(openPanel(pi, optsFor(state))).toBe(true);
-    // Captured at openPanel time, invoked once inside the custom() body.
-    expect(factory).toHaveBeenCalledTimes(1);
+    // Captured at openPanel time, invoked twice inside the custom() body —
+    // answer editor + SIDECHAT-001 chat input (sanctioned second instance).
+    expect(factory).toHaveBeenCalledTimes(2);
     mock.calls[0]?.component.render(80);
-    expect(factory).toHaveBeenCalledTimes(1); // renders never re-instantiate
+    expect(factory).toHaveBeenCalledTimes(2); // renders never re-instantiate
   });
 });
 

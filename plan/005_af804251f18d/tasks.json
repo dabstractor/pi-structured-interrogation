@@ -281,14 +281,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "chat-view.ts render module: transcript, footer, notices, confirm row",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The SIDECHAT-001 view rendering following the deep-view/overview discipline: one-line header, scrollable transcript with streaming cursor, footer with abort/exit hints, in-view notices, the answer confirm row, and the inert no-model notice.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Header, transcript, scroll window, footer, render budget",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S1",
@@ -307,7 +307,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S2",
                   "title": "In-view notices, answer confirm row, inert notice",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1",
@@ -326,14 +326,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Second editor instance (the chat input)",
-              "status": "Planned",
+              "status": "Researching",
               "description": "A second composed-editor instance from the same getEditorComponent() factory: enter sends, shift+enter/ctrl+j newline, separate focus state, no buffer/draft scoping, history untouched.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "Second TextField via the shared EditorFactory with chat-focus discipline",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/panel-view-integration.md §Second editor — the panel builds ONE TextField in its constructor (panel.ts:615-629) via createEditorComponent (text-field.ts:88-95) from the factory captured once per openPanel (:1884); a second instance with the same factory is the sanctioned pattern; one-editor-per-panel-lifetime is load-bearing (panel.ts:611-614, BUG-011 invisible-editor note keys.ts:534-538) — focus the chat editor ONLY while view===\"chat\"; the embedded editor's history API is never invoked (panel.ts:758-759) — same for chat.\n2. INPUT: args.editorFactory + config + tui/theme/keybindings already on the panel constructor path.\n3. LOGIC: Construct a second TextField in the InterrogationPanel constructor (same createEditorComponent path); add a distinct chat-editor focus state beside PanelFocus (panel.ts:111) without disturbing the existing three duties; wire input: `enter` sends (consumed by P1.M2.T3.S1's interception), `shift+enter`/`ctrl+j` newline (stock editor behavior — verify forwarding); NO draft/buffer scoping (messages are sent, not drafted — nothing enters the DraftStore); up/down arrows forward to the chat editor while it holds focus (ESC-002-family discipline); blur handling never suspends the panel. Tests: second instance construction from a fake factory, focus flag exclusive to view===\"chat\", enter does not commit a draft, up/down forwarded to the editor not the transcript while focused.\n4. OUTPUT: chat input component + focus state consumed by P1.M2.T3.S1 (key routing) and P1.M2.T4.S1 (view render embeds it).\n5. DOCS: [Mode A] panel.ts focus-model doc note (fourth focus target: chat input; SIDECHAT contract reference).",

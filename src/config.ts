@@ -85,6 +85,16 @@ export interface InterrogatorConfig {
   /** Which editor the panel composes for text entry. Default "composed". */
   editorMode: EditorMode;
   escExitWindowMs: number;
+  /**
+   * Side-chat model override, "provider/model-id" (SIDECHAT-003). Absent,
+   * blank, or ill-typed → undefined → the session's current model at chat
+   * open. Deliberately NOT in DEFAULT_CONFIG: a defaulted key would defeat
+   * absent-vs-set detection through the deep merge (coerceConfig could
+   * never yield undefined).
+   */
+  sideChatModel?: string;
+  /** Side-chat answer proposals apply without the inline confirm (SIDECHAT-004). Default false. */
+  sideChatAutoApply: boolean;
 }
 
 /** All KeyActions in a stable iteration order (drives coercion + label maps). */
@@ -121,6 +131,7 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
   compactionPreservation: true,
   editorMode: "composed",
   escExitWindowMs: 500,
+  sideChatAutoApply: false,
 };
 
 /** The settings.json key under which this extension's config lives (open-schema; stable). */
@@ -239,6 +250,11 @@ function coerceConfig(raw: unknown, userRaw?: unknown): InterrogatorConfig {
     compactionPreservation: coerceBoolean(src.compactionPreservation, DEFAULT_CONFIG.compactionPreservation),
     editorMode: coerceEditorMode(src.editorMode),
     escExitWindowMs: Math.max(0, coerceNumber(src.escExitWindowMs, DEFAULT_CONFIG.escExitWindowMs)),
+    sideChatModel:
+      typeof src.sideChatModel === "string" && src.sideChatModel.trim() !== ""
+        ? src.sideChatModel
+        : undefined,
+    sideChatAutoApply: coerceBoolean(src.sideChatAutoApply, DEFAULT_CONFIG.sideChatAutoApply),
   };
 }
 

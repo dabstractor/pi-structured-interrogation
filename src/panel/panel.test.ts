@@ -39,6 +39,7 @@ import { renderFooter, renderHeader, renderHintLine, renderQuestionLine } from "
 import { panelActions } from "./actions.js";
 import { desiredTextDuty } from "./keys.js";
 import { renderShortViewOptions } from "./short-view.js";
+import { get as getSidechat, openOrReplace, resetSidechatForTests } from "./sidechat.js";
 import {
   editInExternalEditor,
   type ExternalEditorResult,
@@ -3211,5 +3212,209 @@ describe("navigation duty re-derivation — BUG-004 (WRITEIN-001 cursor-follow)"
 
     panel.focusTextField("writein"); // explicit entry declaration
     expect(panel.textDuty).toBe("writein"); // …and the entry path wins
+  });
+});
+
+// -------------------------------------- chat send + pendingConfirm routing
+
+describe("chat send + pendingConfirm routing (SIDECHAT-001, P1.M2.T3.S1)", () => {
+  const CTRL_C = "\u0003";
+
+  /** Fresh deps double — resetChat's branch-snapshot machinery, faked. */
+  function rebindDeps() {
+    return {
+      resolveModelSnapshot: () => ({ provider: "test", modelId: "test-model" }),
+      buildSystemPrompt: () => "system prompt",
+      buildBranchSnapshot: () => [] as never,
+    };
+  }
+
+  /** Panel in the chat view with a focused chat input + engine/deps doubles. */
+  function makeChatPanel(extra: Partial<InterrogationPanelArgs> = {}): {
+    panel: InterrogationPanel;
+    state: InterrogationState;
+    engine: { sendTurn: Mock; abort: Mock };
+  } {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const engine = { sendTurn: vi.fn(() => true), abort: vi.fn() };
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, {
+        editorFactory: () => fakePanelEditor(),
+        sidechatEngine: engine,
+        chatRebindDeps: rebindDeps(),
+        ...extra,
+      }),
+    );
+    panel.view = "chat";
+    panel.focusChatInput(); // view === "chat" → focus lands on the chat input
+    return { panel, state, engine };
+  }
+
+  beforeEach(() => {
+    resetSidechatForTests();
+  });
+  afterEach(() => {
+    resetSidechatForTests();
+  });
+
+  test("enter_slash_clear_resets_the_record_and_clears_the_field", () => {
+    const { panel, engine } = makeChatPanel();
+    openOrReplace("q1", panel.chatRebindDeps!);
+    getSidechat()!.messages.push({ role: "user", text: "earlier", at: "t" });
+
+    panel.chatField.setText("  /clear  "); // leading whitespace — token scan
+    expect(panel.handleInput("\r")).toBe(true);
+
+    // Wholesale replace: a FRESH record for the same question.
+    expect(getSidechat()!.questionId).toBe("q1");
+    expect(getSidechat()!.messages).toHaveLength(0);
+    expect(panel.chatField.getText()).toBe(""); // input cleared
+    expect(engine.sendTurn).not.toHaveBeenCalled(); // a command never sends
+  });
+
+  test("enter_slash_new_opens_a_fresh_record_without_a_prior_one", () => {
+    const { panel } = makeChatPanel();
+
+    panel.chatField.setText("/new");
+    expect(panel.handleInput("\r")).toBe(true);
+
+    expect(getSidechat()).toBeDefined();
+    expect(getSidechat()!.questionId).toBe("q1");
+    expect(panel.chatField.getText()).toBe("");
+  });
+
+  test("enter_with_text_sends_a_turn_and_clears_the_field", () => {
+    const { panel, engine } = makeChatPanel();
+    openOrReplace("q1", panel.chatRebindDeps!);
+
+    panel.chatField.setText("why sqlite?");
+    expect(panel.handleInput("\r")).toBe(true);
+
+    expect(engine.sendTurn).toHaveBeenCalledTimes(1);
+    expect(engine.sendTurn).toHaveBeenCalledWith("why sqlite?");
+    expect(panel.chatField.getText()).toBe("");
+  });
+
+  test("enter_with_empty_buffer_is_a_consumed_no_op", () => {
+    const { panel, engine } = makeChatPanel();
+
+    panel.chatField.setText("   "); // whitespace-only reads as empty
+    expect(panel.handleInput("\r")).toBe(true); // consumed
+
+    expect(engine.sendTurn).not.toHaveBeenCalled();
+    expect(panel.chatField.getText()).toBe("");
+  });
+
+  test("chat_enter_never_answers_or_stages_a_draft", () => {
+    const { panel, state } = makeChatPanel();
+
+    panel.chatField.setText("just talking");
+    panel.handleInput("\r");
+
+    expect(state.getQuestion("q1")?.status).toBe("open");
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // no draftSlots write
+    expect(panel.focus).toBe("chat"); // no blur-to-options either
+  });
+
+  test("send_turn_refused_while_streaming_still_consumes_and_clears", () => {
+    const { panel, engine } = makeChatPanel();
+    engine.sendTurn.mockReturnValue(false); // the engine's own streaming guard
+
+    panel.chatField.setText("double send");
+    expect(panel.handleInput("\r")).toBe(true);
+
+    expect(engine.sendTurn).toHaveBeenCalledTimes(1);
+    expect(panel.chatField.getText()).toBe("");
+  });
+
+  test("pendingConfirm_enter_applies_via_the_seam_and_esc_declines", () => {
+    const { panel } = makeChatPanel();
+    openOrReplace("q1", panel.chatRebindDeps!);
+    const record = getSidechat()!;
+    record.pendingConfirm = { seam: "acceptOptionIndex", optionIndex: 1 };
+    panel.blurChatInput(); // the confirm row is interactive OUTSIDE the editor
+    const apply = vi.fn();
+    panel.onApplyConfirm = apply;
+
+    expect(panel.handleInput("\r")).toBe(true); // enter → the apply seam
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledWith({ seam: "acceptOptionIndex", optionIndex: 1 });
+    // ROUTING only — the seam owns semantics; the row persists until the
+    // real handler (T6.S1) settles it.
+    expect(record.pendingConfirm).toBeDefined();
+
+    expect(panel.handleInput("\u001b")).toBe(true); // esc → decline
+    expect(record.pendingConfirm).toBeUndefined();
+    expect(record.lastRejection).toBeUndefined();
+    // The decline never descends the esc ladder — still in the chat view.
+    expect(panel.view).toBe("chat");
+  });
+
+  test("pendingConfirm_is_not_intercepted_in_chat_editor_focus", () => {
+    const { panel, engine } = makeChatPanel();
+    openOrReplace("q1", panel.chatRebindDeps!);
+    getSidechat()!.pendingConfirm = { seam: "writeIn", text: "suggested" };
+    const apply = vi.fn();
+    panel.onApplyConfirm = apply;
+
+    panel.chatField.setText("still typing");
+    expect(panel.handleInput("\r")).toBe(true); // the SEND branch, not the row
+
+    expect(engine.sendTurn).toHaveBeenCalledWith("still typing");
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  test("ctrl_c_from_every_chat_state_suspends_and_stays_unconsumed", () => {
+    const scenarios: Array<"chat-view" | "chat-editor" | "pendingConfirm"> = [
+      "chat-view",
+      "chat-editor",
+      "pendingConfirm",
+    ];
+    for (const scenario of scenarios) {
+      const done = vi.fn();
+      const state = createInterrogationState("goal");
+      state.upsertQuestion(choiceQ("q1"));
+      state.upsertQuestion(choiceQ("q2"));
+      const suspended = new InterrogationPanel({
+        ...panelArgsFor(state, {
+          editorFactory: () => fakePanelEditor(),
+          sidechatEngine: { sendTurn: vi.fn(() => true), abort: vi.fn() },
+          chatRebindDeps: rebindDeps(),
+        }),
+        done,
+      });
+      suspended.view = "chat";
+      suspended.focusChatInput();
+      if (scenario === "pendingConfirm") {
+        openOrReplace("q1", suspended.chatRebindDeps!);
+        getSidechat()!.pendingConfirm = { seam: "acceptOptionIndex", optionIndex: 0 };
+        suspended.blurChatInput();
+      }
+
+      expect(suspended.handleInput(CTRL_C)).toBe(false); // unconsumed for pi
+      expect(done).toHaveBeenCalledWith(null); // suspend, never destroy
+      expect(suspended.isResolved()).toBe(true);
+    }
+  });
+
+  test("ripple_confirm_modal_takes_precedence_over_the_chat_view", () => {
+    const { panel, state, engine } = makeChatPanel();
+    panel.blurChatInput(); // options focus in the chat view
+    panel.confirmMode = {
+      questionId: "q1",
+      kind: "choice",
+      proposed: { value: "a", at: "t" },
+      victims: ["q2"],
+      priorCursorIndex: 0,
+    };
+
+    // enter is consumed by the MODAL (keep), never by any chat branch.
+    expect(panel.handleInput("\r")).toBe(true);
+    expect(panel.confirmMode).toBeNull(); // the modal resolved it
+    expect(engine.sendTurn).not.toHaveBeenCalled();
+    expect(state.getQuestion("q1")?.answer).toBeDefined(); // the kept edit applied
   });
 });

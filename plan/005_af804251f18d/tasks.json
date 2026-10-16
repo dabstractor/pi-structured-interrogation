@@ -350,14 +350,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Chat-view key routing and the esc ladder rung",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Wire the chat view into keys.ts and panel.handleInput: ↑/↓ transcript scroll, enter send (with /clear /new classification first) and confirm-row apply/decline, and the new esc rung — streaming aborts first, idle exits the view (chat retained).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Routing branches, enter interception, and the streaming-abort esc rung",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S2",

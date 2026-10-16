@@ -54,15 +54,34 @@
  * FR-9, clamped at the ends) and are view-aware exactly like the config
  * prev/next keys (overview: cursor row; short/deep: current question); they
  * are NOT intercepted in text/note focus, where the editor caret owns them.
- * `enter` NEVER reaches this router in text/note focus: panel.handleInput
+ * `enter` NEVER reaches this router in editor focus: panel.handleInput
  * intercepts it earlier — WRITEIN-001 commit-at-enter (note exit /
- * write-in commit / elaboration save+blur) — so the enter branch below
- * fires only from options focus (its `focus !== "text"` guard is
- * defensive).
+ * write-in commit / elaboration save+blur) and the SIDECHAT-001 chat send
+ * (P1.M2.T3.S1: classifyChatCommand → /clear·/new reset | sendTurn |
+ * empty no-op — a chat message is never an answer) — so the enter branch
+ * below fires only from options focus (its guard is defensive).
  *
- * EDITOR-FOCUS FORWARDING (ESC-002): while the embedded editor holds focus
- * (`focus === "text"` OR `"note"` — the SAME composed editor, pi-vim
- * etc.), `up`/`down` and SINGLE `esc` FORWARD to the editor instead of
+ * ## Mode A — the chat view (SIDECHAT-001, P1.M2.T3.S1)
+ *
+ * The chat view joins the fixed-key branches as a third view-aware family:
+ * while `view === "chat"` and NO editor holds focus, ↑/↓ scroll the
+ * transcript (chatScrollUp/chatScrollDown — the panel-owned offset clamped
+ * via clampChatScroll against the render-fed line count; k/j ride the same
+ * branches) and esc descends the NEW chat rung of the esc ladder:
+ * streaming → abort the live reply (fire-and-forget — the engine pops the
+ * aborted turn; the panel stays in the chat view, a second esc exits) and
+ * idle → exit to the PRIOR view (panel.chatReturnView, seeded by the open
+ * path) with the transcript RETAINED — the sidechat record is never
+ * discarded from the ladder (discard is P1.M2.T5.S1's hook). The
+ * pendingConfirm confirm row is NOT routed here: its enter/esc are
+ * intercepted at panel level BEFORE the router (apply seam / decline), so
+ * a confirm-enter can never double-fire as an options accept.
+ *
+ * EDITOR-FOCUS FORWARDING (ESC-002): while ANY embedded editor holds focus
+ * (`focus === "text"`, `"note"`, or — since SIDECHAT-001 — the chat
+ * input `"chat"`; the first two share one composed editor, the chat input
+ * is the second TextField), `up`/`down` and SINGLE `esc` FORWARD to the
+ * editor instead of
  * driving the panel: arrows move the editor caret (not the option cursor)
  * and esc is the editor's own key (vim insert-mode exit). The esc-descent
  * ladder runs only from options focus. Closing the editor region WITHOUT
@@ -106,7 +125,7 @@
  */
 import { Key, matchesKey, type KeyId } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
-import { panelActions, type SubmitDeps } from "./actions.js";
+import { chatScrollDown, chatScrollUp, panelActions, type SubmitDeps } from "./actions.js";
 import { acceptFromDeep, deepSelectionDown, deepSelectionUp } from "./deep-view.js";
 import { overviewDown, overviewJump, overviewUp } from "./overview.js";
 import type { InterrogationPanel } from "./panel.js";
@@ -277,6 +296,19 @@ export function resolveBindings(config: InterrogatorConfig): Record<KeyAction, K
  * (double-esc, ESC-002); see the module JSDoc's editor-focus forwarding.
  */
 function escapeDescend(panel: InterrogationPanel): void {
+  // SIDECHAT-001 chat rung (P1.M2.T3.S1, h3.9) — FIRST, before the view
+  // descent: streaming → abort ONLY (fire-and-forget; the engine pops the
+  // aborted turn, the panel stays in the chat view — a second esc then
+  // exits); idle → exit to the PRIOR view (chatReturnView, seeded by the
+  // open path; "short" fallback). The record is RETAINED across the exit
+  // (the chat key reopens onto the same transcript); the singleton is never
+  // discarded here (discard is P1.M2.T5.S1's hook). Both halves are panel
+  // methods — keys.ts stays free of sidechat imports.
+  if (panel.view === "chat") {
+    if (panel.abortChatStream()) return;
+    panel.exitChatView();
+    return;
+  }
   if (panel.view === "deep") {
     panel.setView("short");
   } else if (panel.view === "overview") {
@@ -298,6 +330,7 @@ function escapeDescend(panel: InterrogationPanel): void {
 function escExitEditor(panel: InterrogationPanel): void {
   panel.lastEscAt = undefined;
   if (panel.focus === "note") panel.exitNoteMode();
+  else if (panel.focus === "chat") panel.blurChatInput(); // close the chat box only (ESC-002, SIDECHAT-001)
   else panel.exitTextField();
 }
 
@@ -425,10 +458,13 @@ export function buildKeyRouter(
   return function route(data: string, panel: InterrogationPanel): boolean {
     if (panel.isResolved()) return false; // defensive; handleInput already guards
 
-    // Editor-focus flag (ESC-002): the embedded editor (text or note duty)
-    // owns the fixed NAVIGATION keys while focused — same class of exception
-    // as enter below (h2.34's single documented exception, now a family).
-    const editorFocused = panel.focus === "text" || panel.focus === "note";
+    // Editor-focus flag (ESC-002): the embedded editors (text/note duty AND
+    // the chat input — SIDECHAT-001, P1.M2.T3.S1) own the fixed NAVIGATION
+    // keys while focused — same class of exception as enter below (h2.34's
+    // single documented exception, now a family). Uniform across ALL tier-2
+    // bare keys: a bare binding must TYPE in whichever editor holds focus.
+    const editorFocused =
+      panel.focus === "text" || panel.focus === "note" || panel.focus === "chat";
     // Double-esc window reset (ESC-002): "esc twice in a row" is STRICT — any
     // non-esc input (letters, arrows, enter, config keys…) clears the anchor.
     // Arrow sequences (ESC-prefixed bytes) parse as up/down/left/right, not
@@ -444,11 +480,19 @@ export function buildKeyRouter(
     //    editor (caret movement) — the option cursor never moves while the
     //    user types.
     if (!editorFocused && (matchesKey(data, Key.up) || data === "k")) {
+      // SIDECHAT-001 chat view (P1.M2.T3.S1): ↑ scrolls the TRANSCRIPT
+      // (clamped via the render-fed line count) — never the option cursor
+      // (there are no option rows in the chat view). While the CHAT EDITOR
+      // holds focus this branch is skipped (editorFocused) and the arrow
+      // forwards to the editor as a caret key. `k` follows the same branch
+      // structure (same alias family as overview/deep).
+      if (panel.view === "chat") return chatScrollUp(panel);
       if (panel.view === "overview") return overviewUp(panel);
       if (panel.view === "deep") return deepSelectionUp(panel);
       return actions.optionUp(panel);
     }
     if (!editorFocused && (matchesKey(data, Key.down) || data === "j")) {
+      if (panel.view === "chat") return chatScrollDown(panel);
       if (panel.view === "overview") return overviewDown(panel);
       if (panel.view === "deep") return deepSelectionDown(panel);
       return actions.optionDown(panel);
@@ -457,12 +501,14 @@ export function buildKeyRouter(
     // 1b. Fixed ←/→ — question navigation through the FULL list (R1/FR-9:
     // every status navigable, clamped — stepQuestion), view-aware exactly
     // like the config prev/next keys: overview moves the CURSOR ROW, short
-    // and deep move currentId. NOT intercepted in text/note focus — there
-    // the embedded editor owns horizontal caret movement (the same
-    // editor-forwarding contract as every non-intercept key). Checked with
-    // the other fixed arrows, BEFORE esc: left/right sequences are
+    // and deep move currentId. NOT intercepted in editor focus (text/
+    // note/chat — P1.M2.T3.S1 adds chat): there the focused editor owns
+    // horizontal caret movement (the same editor-forwarding contract as
+    // every non-intercept key) — `!editorFocused` is exactly that
+    // exclusion, uniform across the three editors. Checked with the
+    // other fixed arrows, BEFORE esc: left/right sequences are
     // ESC-prefixed and the esc ladder must not eat them.
-    if (panel.focus !== "text" && panel.focus !== "note") {
+    if (!editorFocused) {
       if (matchesKey(data, Key.left) || data === "h") {
         if (panel.view === "overview") return overviewUp(panel);
         return actions.prevQuestion(panel);
@@ -499,9 +545,11 @@ export function buildKeyRouter(
       return false; // single esc → the editor
     }
 
-    // 3. Fixed enter — options focus only. In text/note focus enter never
-    // reaches the router: panel.handleInput intercepts it first (WRITEIN-001
-    // commit-at-enter), so this branch cannot see an editor-focus enter.
+    // 3. Fixed enter — options focus only. In editor focus (text/note AND
+    // chat — P1.M2.T3.S1) enter never reaches the router: panel.handleInput
+    // intercepts it first (WRITEIN-001 commit-at-enter; chat send routing —
+    // a chat message is never an answer), so this branch cannot see an
+    // editor-focus enter; the guard is belt-and-braces.
     // Overview (P1.M5.T2.S1): enter JUMPS to the selected question in the
     // short form (overviewJump — restores options focus; the currentId
     // setter re-seeds the cursor per ANSWER-PIN-001 — recorded answer
@@ -509,7 +557,7 @@ export function buildKeyRouter(
     // highlighted option and lands per deepSticky (acceptFromDeep — stays
     // deep on the advanced-to question while sticky, DEEP-STICKY-ADVANCE;
     // text/moot/withdrawn are consumed no-ops there).
-    if (panel.focus !== "text" && matchesKey(data, Key.enter)) {
+    if (!editorFocused && matchesKey(data, Key.enter)) {
       if (panel.view === "overview") return overviewJump(panel);
       if (panel.view === "deep") return acceptFromDeep(panel);
       return actions.accept(panel);

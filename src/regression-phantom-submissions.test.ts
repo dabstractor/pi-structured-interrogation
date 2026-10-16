@@ -154,8 +154,7 @@ function makeWalkthrough() {
     }),
   });
 
-  let editor: ReturnType<typeof fakeEditor> | undefined;
-  const panelOf = () => {
+  let editor: ReturnType<typeof fakeEditor> | undefined;  const panelOf = () => {
     const state = getState()!;
     return new InterrogationPanel({
       tui: { requestRender: vi.fn() } as unknown as TUI,
@@ -179,7 +178,12 @@ function makeWalkthrough() {
     panel.currentId = id;
     panel.cursorIndex = getState()!.getQuestion(id)!.options!.length; // ✎ Other row
     panel.handleInput(ENTER);
-    editor!.setText(text);
+    // SIDECHAT-001 (P1.M2.T2.S1): the editorFactory now constructs TWO
+    // editors (answer textField + chat input) — the captured `editor` is
+    // whichever was built LAST (the chat field). The ANSWER editor is
+    // addressed through the panel's textField wrapper, which is the surface
+    // writeInEnter reads.
+    (panel.textField.editor as unknown as { setText: (t: string) => void }).setText(text);
     panel.handleInput(ENTER);
   };
   return { h, lifecycle, panelOf, writeIn };

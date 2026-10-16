@@ -33,6 +33,7 @@ import type { Question, QuestionAnswer, SerializedState } from "../state.js";
 import { countUnansweredGate, gateGroupNames } from "./gate.js";
 import type { InterrogationPanel } from "./panel.js";
 import { beginWriteInConfirm, rippleVictims } from "./ripple-confirm.js";
+import { clampChatScroll } from "./chat-view.js";
 import { displayOptions } from "./short-view.js";
 
 // ------------------------------------------------------------------- types
@@ -953,3 +954,28 @@ export const panelActions: PanelActions = {
   nextQuestion,
   submit,
 };
+
+// ------------------------------------------------- chat transcript scrolling
+
+/**
+ * Scroll the side-chat transcript up one line (SIDECHAT-001, P1.M2.T3.S1) —
+ * the fixed ↑/↓ chat-view branch's action, mirroring overviewUp/overviewDown.
+ * Moves the panel-owned `chatScrollOffset` clamped through
+ * `clampChatScroll` against the render-fed transcript size
+ * (`panel.chatTranscriptLines` — totalLines from the render state, per
+ * chat-view.ts's "clamp it through clampChatScroll before storing").
+ * ROUTING ONLY: mutates the offset + invalidates; never touches the
+ * sidechat record. Returns true (consumed) so the router stops.
+ */
+export function chatScrollUp(panel: InterrogationPanel): boolean {
+  panel.chatScrollOffset = clampChatScroll(panel.chatTranscriptLines, panel.chatScrollOffset - 1);
+  panel.invalidate();
+  return true;
+}
+
+/** Scroll the side-chat transcript down one line (see {@link chatScrollUp}). */
+export function chatScrollDown(panel: InterrogationPanel): boolean {
+  panel.chatScrollOffset = clampChatScroll(panel.chatTranscriptLines, panel.chatScrollOffset + 1);
+  panel.invalidate();
+  return true;
+}

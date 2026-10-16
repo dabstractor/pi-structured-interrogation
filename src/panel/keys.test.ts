@@ -13,6 +13,7 @@ import { Key, matchesKey, type KeyId } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { createInterrogationState, type Question } from "../state.js";
+import { clampChatScroll } from "./chat-view.js";
 import {
   buildKeyRouter,
   defaultRoutedActions,
@@ -58,6 +59,12 @@ function configWithKeys(keys: Partial<Record<KeyAction, string>>): InterrogatorC
 interface PanelStub extends InterrogationPanel {
   resolvedFlag: boolean;
   suspendCalls: number;
+  // SIDECHAT-001 chat routing (P1.M2.T3.S1) — the esc rung + scroll helpers
+  // read/mutate these; tests seed them directly.
+  chatScrollOffset: number;
+  chatTranscriptLines: number;
+  abortChatStream: Mock;
+  exitChatView: Mock;
 }
 
 function makePanel(
@@ -91,6 +98,15 @@ function makePanel(
     // Wired default action (M4.T1.S3) calls this — a resolved async stub so
     // the fire-and-forget `void p.openExternalEditor()` never rejects.
     openExternalEditor: vi.fn(async () => {}),
+    // SIDECHAT-001 chat routing (P1.M2.T3.S1): the esc rung calls exactly
+    // these two panel methods (streaming → abortChatStream, idle →
+    // exitChatView); the scroll helpers mutate the offset fields. Tests
+    // seed chatTranscriptLines and override abortChatStream's return to
+    // pick the rung half.
+    chatScrollOffset: 0,
+    chatTranscriptLines: 0,
+    abortChatStream: vi.fn(() => false),
+    exitChatView: vi.fn(),
   };
   return panel as unknown as PanelStub;
 }
@@ -1293,5 +1309,82 @@ describe("elaborate gated to the short view (BUG-011)", () => {
     // Text focus (BAREKEYS-001 tier 2 — the bare `t` must type): forwards.
     expect(route(DEFAULT_DATA.elaborate, makePanel({ focus: "text" }))).toBe(false);
     expect(actions.onElaborate).toHaveBeenCalledTimes(1); // unchanged
+  });
+});
+
+// ------------------------------------------------- chat view routing (SIDECHAT-001)
+
+describe("chat view routing — fixed arrows + esc rung (P1.M2.T3.S1)", () => {
+  const UP = JSON.parse('"\\u001b[A"') as string;
+  const DOWN = JSON.parse('"\\u001b[B"') as string;
+  const ESC = "\u001b";
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("test_chat_view_up_down_scroll_the_transcript_clamped", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ view: "chat" });
+    panel.chatTranscriptLines = 30; // render-fed totalLines
+
+    // ↓ moves toward the bottom, clamped by clampChatScroll.
+    panel.chatScrollOffset = 0;
+    expect(route(DOWN, panel)).toBe(true);
+    expect(panel.chatScrollOffset).toBe(1);
+    panel.chatScrollOffset = 100; // past the end → clamps to the max window
+    expect(route(DOWN, panel)).toBe(true);
+    expect(panel.chatScrollOffset).toBe(clampChatScroll(30, 101));
+
+    // ↑ moves toward the head; negative clamps to 0 (head).
+    panel.chatScrollOffset = 3;
+    expect(route(UP, panel)).toBe(true);
+    expect(panel.chatScrollOffset).toBe(2);
+    panel.chatScrollOffset = 0;
+    expect(route(UP, panel)).toBe(true);
+    expect(panel.chatScrollOffset).toBe(0);
+  });
+
+  test("test_chat_editor_focus_forwards_arrows_never_scrolls", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ view: "chat", focus: "chat" });
+    panel.chatTranscriptLines = 30;
+    panel.chatScrollOffset = 4;
+
+    expect(route(UP, panel)).toBe(false); // forwarded to the chat editor
+    expect(route(DOWN, panel)).toBe(false);
+    expect(panel.chatScrollOffset).toBe(4); // untouched
+  });
+
+  test("test_esc_chat_streaming_aborts_only_view_retained", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ view: "chat" });
+    panel.abortChatStream.mockReturnValue(true); // the record is streaming
+
+    expect(route(ESC, panel)).toBe(true);
+    expect(panel.abortChatStream).toHaveBeenCalledTimes(1);
+    expect(panel.exitChatView).not.toHaveBeenCalled(); // abort rung stops the ladder
+    expect(panel.view).toBe("chat"); // a second esc exits
+  });
+
+  test("test_esc_chat_idle_exits_to_the_return_view_record_retained", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    const panel = makePanel({ view: "chat" });
+    panel.abortChatStream.mockReturnValue(false); // idle
+
+    expect(route(ESC, panel)).toBe(true);
+    expect(panel.exitChatView).toHaveBeenCalledTimes(1);
+    expect(panel.abortChatStream).toHaveBeenCalledTimes(1); // rung tried abort first
+  });
+
+  test("test_bare_e_in_chat_editor_focus_forwards_types", () => {
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    expect(route("e", makePanel({ view: "chat", focus: "chat" }))).toBe(false); // tier 2: must type
+    expect(actions.onChat).not.toHaveBeenCalled();
   });
 });

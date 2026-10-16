@@ -72,6 +72,14 @@ import {
   type RippleConfirmState,
 } from "./ripple-confirm.js";
 import { discussInChat } from "./discuss.js";
+import {
+  classifyChatCommand,
+  clearPendingConfirm,
+  get as getSidechatRecord,
+  resetChat,
+  type ApplyDecision,
+  type SidechatRebindDeps,
+} from "./sidechat.js";
 import { buildKeyRouter, defaultRoutedActions, desiredTextDuty } from "./keys.js";
 import { createEditorComponent, TextField, type EditorFactory } from "./text-field.js";
 import {
@@ -84,6 +92,7 @@ import {
   renderHintLine,
   renderNoteHeader,
   renderQuestionLine,
+  type ScreenKind,
 } from "./layout.js";
 import {
   effectiveGroup,
@@ -104,8 +113,15 @@ import {
 
 // --------------------------------------------------------------------- types
 
-/** Panel view modes (h2.29). deepSticky is per panel session, not global. */
-export type PanelView = "short" | "deep" | "overview";
+/** Panel view modes (h2.29). deepSticky is per panel session, not global.
+ *
+ * `"chat"` is the SIDECHAT-001 side-chat view — added to the union
+ * MINIMALLY by P1.M2.T3.S1 so the routing branches (fixed ↑/↓, the
+ * esc-ladder chat rung, focusChatInput's guard) can reference it without a
+ * cast. P1.M2.T4.S1 owns the open path (setView("chat") + seeding
+ * chatReturnView + scroll state); nothing else about the view integration
+ * changes here. */
+export type PanelView = "short" | "deep" | "overview" | "chat";
 
 /**
  * Focus region inside the panel. "chat" is the SIDECHAT-001 input target
@@ -119,6 +135,22 @@ export type PanelView = "short" | "deep" | "overview";
  * sidechat-contracts.md).
  */
 export type PanelFocus = "options" | "text" | "note" | "chat";
+
+/**
+ * The side-chat engine surface the panel ROUTES through (SIDECHAT-001,
+ * P1.M2.T3.S1) — the return shape of createSidechatEngine
+ * (sidechat-engine.ts). Structural so tests inject plain doubles; the real
+ * instance is wired by the open path (P1.M2.T4.S1). The panel never
+ * constructs an engine and never mutates the sidechat record after an
+ * abort() (the engine settles asynchronously).
+ */
+export interface SidechatEngine {
+  /** Queue one user turn. `false` = refused (no live record / already
+   * streaming — the esc rung aborts instead; the input clears either way). */
+  sendTurn(text: string): boolean;
+  /** Abort the live stream (fire-and-forget; the aborted turn is popped). */
+  abort(): void;
+}
 
 /**
  * Panel-local draft record — the {value, text} shape per the h2.45 drafts
@@ -337,6 +369,21 @@ export interface InterrogationPanelArgs {
    * the router-construction site: keys.ts itself stays UI-free.
    */
   pi?: PiUISurface;
+  /**
+   * SIDECHAT-001 engine seam (P1.M2.T3.S1) — the `{ sendTurn, abort }`
+   * pair from createSidechatEngine (sidechat-engine.ts). ROUTING ONLY: the
+   * panel calls it, never constructs it; the open path wires the real
+   * engine (P1.M2.T4.S1). Absent → chat enter consumes without sending
+   * (tests inject doubles through this arg).
+   */
+  sidechatEngine?: SidechatEngine;
+  /**
+   * SIDECHAT-001 rebind deps (P1.M2.T3.S1) — resetChat's branch-snapshot
+   * machinery (SidechatRebindDeps), wired by the open path. `/clear` ·
+   * `/new` route through it; absent → the command still clears the input
+   * (graceful no-op reset) so record-less tests stay deterministic.
+   */
+  chatRebindDeps?: SidechatRebindDeps;
 }
 
 /**
@@ -583,6 +630,50 @@ export class InterrogationPanel implements Component {
    * (handleInput) so it can never answer a question or stage a draft.
    */
   readonly chatField: TextField;
+  /**
+   * SIDECHAT-001 engine seam (P1.M2.T3.S1) — routing only; the open path
+   * wires the real engine (P1.M2.T4.S1). See {@link SidechatEngine}.
+   */
+  readonly sidechatEngine: SidechatEngine | undefined;
+  /**
+   * SIDECHAT-001 rebind deps (P1.M2.T3.S1) — `/clear` · `/new` reset
+   * machinery (branch snapshots). Undefined → the commands still clear the
+   * input (graceful no-op reset).
+   */
+  readonly chatRebindDeps: SidechatRebindDeps | undefined;
+  /**
+   * Chat transcript scroll offset (SIDECHAT-001, P1.M2.T3.S1) — the
+   * panel-owned offset chat-view.ts's contract describes ("the panel-owned
+   * offset navigates via clampChatScroll"). Moved ONLY by the fixed ↑/↓
+   * chat branch through chatScrollUp/chatScrollDown (actions.ts), clamped
+   * against {@link chatTranscriptLines}; the chat render (P1.M2.T4.S1's
+   * view wiring) consumes it.
+   */
+  chatScrollOffset = 0;
+  /**
+   * Total transcript line count as last rendered — totalLines for the
+   * scroll clamp, fed FROM THE RENDER STATE (P1.M2.T4.S1's chat wiring
+   * stores the rendered transcript size here on every chat render; 0 until
+   * then, which clamps every offset to 0 — the head). Mirrors
+   * chat-view.ts:86's "clamp it through clampChatScroll before storing".
+   */
+  chatTranscriptLines = 0;
+  /**
+   * The view the chat esc rung returns to (P1.M2.T3.S1) — the open path
+   * (P1.M2.T4.S1) seeds it with the pre-chat view; the default "short" is
+   * the ladder's fallback. Exiting the chat view NEVER discards the
+   * sidechat record (retention is the contract; discard is P1.M2.T5.S1).
+   */
+  chatReturnView: PanelView = "short";
+  /**
+   * Apply seam for the pendingConfirm confirm row (P1.M2.T3.S1 ROUTING
+   * stub — P1.M2.T6.S1 replaces it with the real acceptOptionIndex /
+   * write-in commit routing). Nullable: unset → confirm-enter is a consumed
+   * no-op. Fires ONLY from the pendingConfirm enter branch (focus outside
+   * the chat editor); tests assert the routing (the stub fires with the
+   * decision), never apply semantics.
+   */
+  onApplyConfirm?: (decision: ApplyDecision) => void;
   /** The config-driven dispatcher — always present (router is the default). */
   private readonly keys: KeyHandler;
   /**
@@ -674,6 +765,10 @@ export class InterrogationPanel implements Component {
       theme: args.theme,
       onInvalidate: () => this.invalidate(),
     });
+    // SIDECHAT-001 seams (P1.M2.T3.S1) — routing-only injection points; the
+    // open path (P1.M2.T4.S1) wires the real engine + rebind deps.
+    this.sidechatEngine = args.sidechatEngine;
+    this.chatRebindDeps = args.chatRebindDeps;
 
     // Key dispatch ALWAYS flows through the config-driven router (keys.ts,
     // P1.M3.T3.S1): the seam default wires the named actions + view-toggle
@@ -767,8 +862,9 @@ export class InterrogationPanel implements Component {
    * order inside this method is:
    *
    *   resolved guard → ctrl+c → CONFIRM-MODE CHECK (modal, FR-18) →
-   *   gate-warning dismissal → enter-per-duty fork → keys seam → textField
-   *   forwarding.
+   *   gate-warning dismissal → pendingConfirm routing (chat confirm row) →
+   *   enter-per-duty fork (text/note duties + chat send) → keys seam →
+   *   editor forwarding.
    *
    * There are NO arming stages: the h2.31 two-stage machinery (the
    * one-shot advance flag and the armed stage-2 advance) was REMOVED
@@ -853,6 +949,28 @@ export class InterrogationPanel implements Component {
     // never a stage transition — legacy parseKey resolves it to "enter", so
     // the raw byte is excluded here (kitty mode already yields "shift+enter").
     const enter = key === "enter" && data !== "\n";
+    // SIDECHAT-001 pendingConfirm confirm row (P1.M2.T3.S1): interactive
+    // while focus is OUTSIDE the chat editor (the row replaces the chat
+    // view's footer hints). enter → the apply seam (onApplyConfirm — the
+    // ROUTING stub; P1.M2.T6.S1 owns the real handler), esc → decline
+    // (clearPendingConfirm). Routed BEFORE the duty fork and the router so
+    // a confirm-enter/esc can never double-fire as an answer gesture or
+    // descend the esc ladder; AFTER ctrl+c and the CONFIRM-MODE modal, both
+    // of which keep precedence over the chat view (PRP (e) coexistence).
+    if (this.focus !== "chat") {
+      const pending = getSidechatRecord()?.pendingConfirm;
+      if (pending !== undefined) {
+        if (enter) {
+          this.onApplyConfirm?.(pending);
+          return true;
+        }
+        if (key === "escape") {
+          const record = getSidechatRecord();
+          if (record !== undefined) clearPendingConfirm(record);
+          return true;
+        }
+      }
+    }
     // Enter per duty (WRITEIN-001 — commit-at-enter, no arming stages):
     // enter in text/note focus NEVER reaches the editor (no stock
     // submitValue, no onSubmit) and never the router (in note focus the
@@ -870,18 +988,14 @@ export class InterrogationPanel implements Component {
       else this.saveTextDraft();
       return true;
     }
-    // CHAT focus (SIDECHAT-001): enter is intercepted BEFORE the router — the
-    // send action is P1.M2.T3.S1's seam. Interim body: consume enter (it must
-    // NEVER fall through to accept/saveTextDraft/writeInEnter — a chat message
-    // is not an answer). The "\n" newline byte is NOT enter (same guard as the
-    // duty branches above).
+    // CHAT focus (SIDECHAT-001): enter is intercepted BEFORE the router —
+    // send routing via sendChatInput (classify /clear·/new → reset; text →
+    // sendTurn; empty → no-op). It must NEVER fall through to
+    // accept/saveTextDraft/writeInEnter — a chat message is not an answer.
+    // The "\n" newline byte is NOT enter (same guard as the duty branches
+    // above).
     if (this.focus === "chat" && enter) {
-      return true; // consumed — P1.M2.T3.S1 replaces this body with sendChat()
-    }
-    // Unmatched input while chat holds focus forwards to the CHAT editor
-    // (arrows included — ESC-002-family: the focused editor owns caret keys).
-    if (this.focus === "chat") {
-      this.chatField.handleInput(data);
+      this.sendChatInput();
       return true;
     }
     if (this.keys(data, this)) return true;
@@ -891,6 +1005,16 @@ export class InterrogationPanel implements Component {
     // is the SAME editor on note duty (R3), so it forwards identically.
     if (this.focus === "text" || this.focus === "note") {
       this.textField.handleInput(data);
+      return true;
+    }
+    // Unmatched input while chat holds focus forwards to the CHAT editor
+    // (arrows included — ESC-002-family: the focused editor owns caret
+    // keys). MOVED AFTER the router (P1.M2.T3.S1): the router runs first in
+    // chat focus — editorFocused includes "chat", so tier-2 bare keys and
+    // the fixed arrows/esc forward instead of intercepting — and only truly
+    // unmatched bytes reach the editor here.
+    if (this.focus === "chat") {
+      this.chatField.handleInput(data);
       return true;
     }
     return false;
@@ -1295,9 +1419,10 @@ export class InterrogationPanel implements Component {
    * render is the BUG-011 class). Seeds nothing and scopes nothing: chat
    * content is ephemeral (SIDECHAT-002), never a draft. */
   focusChatInput(): void {
-    // G1 (interim typing): PanelView has no "chat" member yet — P1.M2.T4.S1
-    // adds it and this cast collapses to a plain comparison.
-    if (this.view !== ("chat" as unknown as PanelView)) return;
+    // "chat" joined the PanelView union (P1.M2.T3.S1's minimal type
+    // extension — S2.S1's G1 interim cast collapsed); the OPEN path that
+    // actually calls this with view === "chat" is P1.M2.T4.S1's.
+    if (this.view !== "chat") return;
     this.focus = "chat";
     this.chatField.focus();
     this.invalidate();
@@ -1311,6 +1436,67 @@ export class InterrogationPanel implements Component {
     this.focus = "options";
     this.chatField.blur();
     this.invalidate();
+  }
+
+  /**
+   * [Mode A] Chat send routing (SIDECHAT-001, P1.M2.T3.S1, h2.38) — the
+   * chat-focus enter branch's body (intercepted at panel level BEFORE the
+   * router, so it can never reach accept/saveTextDraft/writeInEnter — a
+   * chat message is not an answer). Classification order:
+   *
+   * 1. `classifyChatCommand` → `/clear` | `/new` → `resetChat(questionId,
+   *    chatRebindDeps)` — wholesale record replace (branch snapshot via the
+   *    deps seam). Without the deps seam the reset degrades to the graceful
+   *    no-op the args document (the input still clears).
+   * 2. else non-empty → `sidechatEngine.sendTurn(text)` — a `false` while
+   *    already streaming is the engine's own guard; the input clears anyway
+   *    (the esc rung aborts, it does not un-send).
+   * 3. empty → consumed no-op.
+   *
+   * The input clears on EVERY path. Chat paths never touch draftSlots, the
+   * DraftStore seam, or answer state (SIDECHAT-002 / S2.S1's invariant).
+   */
+  private sendChatInput(): void {
+    const text = this.chatField.getText();
+    const command = classifyChatCommand(text);
+    if (command !== null) {
+      if (this.chatRebindDeps !== undefined) {
+        resetChat(this.currentId ?? "", this.chatRebindDeps);
+      }
+    } else if (text.trim().length > 0) {
+      this.sidechatEngine?.sendTurn(text); // refused while streaming — still consumed
+    }
+    this.chatField.setText("");
+    this.invalidate();
+  }
+
+  /**
+   * Esc-ladder chat rung, STREAMING half (P1.M2.T3.S1, h3.9): when the live
+   * sidechat record is streaming, abort it and stay in the chat view (a
+   * second esc then exits). Fire-and-forget — the engine's route() pops the
+   * aborted turn ("the turn never happened") and the view re-renders from
+   * the settled state; the panel performs NO synchronous record mutation
+   * after abort(). Reads streamState LIVE from the store, never cached.
+   *
+   * @returns whether an abort fired (the ladder stops; `false` falls
+   *          through to the idle half — exit the view).
+   */
+  abortChatStream(): boolean {
+    if (getSidechatRecord()?.streamState !== "streaming") return false;
+    this.sidechatEngine?.abort();
+    return true;
+  }
+
+  /**
+   * Esc-ladder chat rung, IDLE half (P1.M2.T3.S1): exit the chat view back
+   * to the PRIOR view ({@link chatReturnView} — seeded by the open path
+   * P1.M2.T4.S1, default "short"). The sidechat record is RETAINED (the
+   * chat key reopens onto the same transcript); the singleton is never
+   * touched here — discard is P1.M2.T5.S1's state-mutation hook.
+   * setView-away blurs chat focus (the S2.S1 setView contract).
+   */
+  exitChatView(): void {
+    this.setView(this.chatReturnView);
   }
 
   /**
@@ -1516,7 +1702,18 @@ export class InterrogationPanel implements Component {
           : -1;
       if (idx >= 0) position = { n: idx + 1, total: ordered.length };
     }
-    return renderFooter(snapshot, this.view, this.labels, this.theme, width, narrow, editorExit
+    // The chat view renders its OWN frame (buildChatContent — P1.M2.T4.S1's
+    // wiring) and never reaches this shared answer-side footer; "chat" maps
+    // to the return view as an interim type-level guard until that wiring
+    // lands (unreachable at runtime today — nothing sets view to "chat"
+    // outside tests).
+    const footerView: ScreenKind =
+      this.view === "chat"
+        ? this.chatReturnView === "chat"
+          ? "short"
+          : this.chatReturnView
+        : this.view;
+    return renderFooter(snapshot, footerView, this.labels, this.theme, width, narrow, editorExit
       ? { mode: this.focus === "note" ? "note" : "text", escEscHint: this.config.escExitWindowMs > 0 }
       : undefined, position);
   }

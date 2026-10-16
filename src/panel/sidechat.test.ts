@@ -7,9 +7,11 @@
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
+  classifyChatCommand,
   discard,
   get,
   openOrReplace,
+  resetChat,
   resetSidechatForTests,
   type SidechatRebindDeps,
 } from "./sidechat.js";
@@ -118,5 +120,81 @@ describe("sidechat store — singleton lifecycle (SIDECHAT-002)", () => {
     expect(fresh.messages).toEqual([]);
     expect(deps2.resolveModelSnapshot).toHaveBeenCalledTimes(1); // fresh creation ran the builders
     expect(deps1.buildBranchSnapshot).toHaveBeenCalledTimes(1); // old builders untouched
+  });
+});
+
+describe("classifyChatCommand — SIDECHAT-002 slash escapes (P1.M1.T3.S2)", () => {
+  test("the two commands classify by byte-exact first whitespace-delimited token", () => {
+    expect(classifyChatCommand("/clear")).toBe("/clear");
+    expect(classifyChatCommand("/new")).toBe("/new");
+    // Trailing words ride along — only the FIRST token decides.
+    expect(classifyChatCommand("/clear extra words")).toBe("/clear");
+    expect(classifyChatCommand("/new   ")).toBe("/new");
+    // Leading whitespace is consumed by the split — still the command.
+    expect(classifyChatCommand("  /clear")).toBe("/clear");
+  });
+
+  test("everything else is a message (null) — the four contract exemplars + pins", () => {
+    expect(classifyChatCommand("/usr/bin/env")).toBeNull(); // a path, not a command
+    expect(classifyChatCommand("/clearance")).toBeNull(); // prefix match is a bug
+    expect(classifyChatCommand("see /clear below")).toBeNull(); // mid-sentence token
+    expect(classifyChatCommand("## /clear")).toBeNull(); // markdown heading
+    // Case-sensitive: no case-folding, ever.
+    expect(classifyChatCommand("/Clear")).toBeNull();
+    // Empty and whitespace-only inputs split to a "" first token → null.
+    expect(classifyChatCommand("")).toBeNull();
+    expect(classifyChatCommand("  ")).toBeNull();
+  });
+});
+
+describe("resetChat — SIDECHAT-003 refresh valve (P1.M1.T3.S2)", () => {
+  test("an existing record is rebuilt FRESH: zeroed messages/usage, new controller, builders re-run", () => {
+    const deps1 = fakeDeps();
+    const first = openOrReplace("q1", deps1);
+    first.messages.push(
+      { role: "user", text: "old", at: "T0" },
+      { role: "assistant", text: "stale reply", at: "T1" },
+    );
+    first.usage.input = 41;
+    first.usage.output = 100;
+    first.usage.totalCost = 0.5;
+
+    const deps2 = fakeDeps();
+    const fresh = resetChat("q1", deps2); // SAME questionId — the reuse path MUST NOT fire
+
+    // A brand-new record, not the reused one.
+    expect(fresh).not.toBe(first);
+    expect(fresh.questionId).toBe("q1");
+    expect(fresh.messages).toEqual([]); // NOTHING carried over
+    expect(fresh.usage).toEqual({ input: 0, output: 0, totalCost: 0 }); // zeroed
+    expect(fresh.streamState).toBe("idle");
+    expect(fresh.abortController).not.toBe(first.abortController); // fresh controller
+    expect(fresh.abortController.signal.aborted).toBe(false);
+    // Caller-owns-abort: resetChat never touches the OLD controller.
+    expect(first.abortController.signal.aborted).toBe(false);
+    // NEW builder outputs (the SIDECHAT-003 snapshot refresh) — fakeDeps is
+    // sequence-aware, so the values are provably distinct per creation.
+    expect(fresh.modelSnapshot).not.toEqual(first.modelSnapshot);
+    expect(fresh.systemPrompt).not.toBe(first.systemPrompt);
+    expect(fresh.branchSnapshot).not.toBe(first.branchSnapshot);
+    // Each builder ran exactly once MORE (on deps2 — the fresh bag).
+    expect(deps2.resolveModelSnapshot).toHaveBeenCalledTimes(1);
+    expect(deps2.buildSystemPrompt).toHaveBeenCalledTimes(1);
+    expect(deps2.buildBranchSnapshot).toHaveBeenCalledTimes(1);
+    // The singleton now hands out the new record.
+    expect(get()).toBe(fresh);
+  });
+
+  test("no prior record: reset still builds and installs fresh (first-input /clear is legal)", () => {
+    const deps = fakeDeps();
+    const fresh = resetChat("q9", deps);
+    expect(fresh.questionId).toBe("q9");
+    expect(fresh.messages).toEqual([]);
+    expect(fresh.usage).toEqual({ input: 0, output: 0, totalCost: 0 });
+    expect(fresh.streamState).toBe("idle");
+    expect(get()).toBe(fresh);
+    expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(1);
+    expect(deps.buildSystemPrompt).toHaveBeenCalledTimes(1);
+    expect(deps.buildBranchSnapshot).toHaveBeenCalledTimes(1);
   });
 });

@@ -114,7 +114,19 @@ export function get(): SidechatRecord | undefined {
  */
 export function openOrReplace(questionId: string, deps: SidechatRebindDeps): SidechatRecord {
   if (current !== undefined && current.questionId === questionId) return current; // reuse: NO rebind
-  current = {
+  current = buildFresh(questionId, deps);
+  return current;
+}
+
+/**
+ * The ONE record-creation path — shared by {@link openOrReplace}'s
+ * different-question branch and {@link resetChat} so the two can never
+ * diverge on what "fresh" means: each builder invoked EXACTLY once, empty
+ * messages, `"idle"` stream state, fresh AbortController, zeroed usage.
+ * Internal (not exported); assigns nothing — callers own the singleton.
+ */
+function buildFresh(questionId: string, deps: SidechatRebindDeps): SidechatRecord {
+  return {
     questionId,
     messages: [],
     streamState: "idle",
@@ -124,6 +136,51 @@ export function openOrReplace(questionId: string, deps: SidechatRebindDeps): Sid
     branchSnapshot: deps.buildBranchSnapshot(),
     usage: { input: 0, output: 0, totalCost: 0 },
   };
+}
+
+/**
+ * Classify an input as a side-chat slash command (SIDECHAT-002,
+ * sidechat-contracts.md:45-46): byte-exact match of the FIRST
+ * whitespace-delimited token against `/clear` or `/new` — the two are
+ * aliases for the same reset (classify distinguishes only so callers
+ * could differ later). Everything else is an ordinary message: `null` for
+ * the contract's four exemplars — a `/usr/bin` path (`/usr/bin/env`), a
+ * prefix (`/clearance`), a mid-sentence token (`see /clear below`), a
+ * markdown heading (`## /clear`) — and also for case variants (`/Clear`)
+ * and empty/whitespace-only input (no whitespace-delimited token at all).
+ * Pure: no trimming beyond whitespace splitting, no case-folding, no prefix
+ * or substring matching — those are all bugs, not leniency.
+ */
+export function classifyChatCommand(input: string): "/clear" | "/new" | null {
+  // The FIRST whitespace-delimited TOKEN: leading whitespace separates
+  // tokens rather than forming one, so the scan skips empty split segments
+  // ("  /clear" tokenizes to "/clear"; "" and "  " tokenize to nothing).
+  const first = input.split(/\s+/).find((tok) => tok !== "") ?? "";
+  if (first === "/clear") return "/clear";
+  if (first === "/new") return "/new";
+  return null;
+}
+
+/**
+ * The `/clear` + `/new` reset (SIDECHAT-002:45): discard the record's
+ * messages AND usage and REBIND FRESH to the CURRENT question — a new
+ * branch snapshot + system prompt + model resolution via the injected
+ * builders, fresh AbortController, `"idle"` stream state. Deliberately
+ * bypasses {@link openOrReplace}'s same-question reuse: per SIDECHAT-003
+ * (sidechat-contracts.md:49-58) the snapshot is frozen at creation, so a
+ * reset is the ONLY sanctioned mid-chat snapshot refresh — it must re-run
+ * the builders even when `questionId` is unchanged (a reset is a rebuild,
+ * never a reuse). Works whether or not a record exists (a first-ever
+ * `/clear` legally creates it). Caller-owns-abort: the old record's
+ * in-flight stream is NOT aborted here, same rule as {@link discard}
+ * (mid-stream abort ordering is P1.M2.T5.S1). The engine never touches
+ * the view — "view stays open" holds by construction (this module has no
+ * view code); re-rendering is the caller's (P1.M2.T3.S1).
+ *
+ * @returns the new fresh record (also installed as the singleton).
+ */
+export function resetChat(questionId: string, deps: SidechatRebindDeps): SidechatRecord {
+  current = buildFresh(questionId, deps);
   return current;
 }
 

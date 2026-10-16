@@ -84,7 +84,7 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "sidechat.ts singleton store and lifecycle (module memory)",
-              "status": "Ready",
+              "status": "Complete",
               "description": "The SIDECHAT-002 singleton: exactly one chat record {questionId, messages, streamState, abortController, modelSnapshot, usage} in module scope, with wholesale replacement and plain-delete discard, plus the /clear and /new byte-exact first-token reset commands.",
               "subtasks": [
                 {
@@ -107,7 +107,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "/clear and /new byte-exact first-token reset commands",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -132,7 +132,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "One-shot branch snapshot pipeline (getBranch → context messages)",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S1"

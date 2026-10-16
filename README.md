@@ -485,9 +485,9 @@ src/
 ├── compaction.ts      # compaction preservation guard
 ├── persistence.ts     # interrogation-state mirror (append-only audit trail)
 ├── reconstruct.ts     # state reconstruction: session start (silent install +
-│                     # suspend-widget cue, SURFACE-002 — NEVER opens the panel)
-│                     # + /tree navigation (silent branch follow —
-│                     # NEVER opens/reopens the panel)
+│                      # suspend-widget cue, SURFACE-002 — NEVER opens the panel)
+│                      # + /tree navigation (silent branch follow —
+│                      # NEVER opens/reopens the panel)
 ├── renderers.ts       # transcript cards (submission diff, completion recap, mirror markers)
 ├── command.ts         # /interrogate invoke command (open/resume — never toggles)
 ├── debug-commands.ts  # keyboard-driven debug commands (`/interrogate debug …`)
@@ -495,6 +495,39 @@ src/
 ├── external-editor.ts # external editor handoff
 ├── depends-on.ts      # question dependency / moot-ness data layer
 └── panel/             # the TUI panel: layout, key routing, actions, views
-                       # (short / deep / overview), text field, gates, ripple
-                       # confirm, suspend widget, terminal budget
+                               # (short / deep / overview / chat), text field, gates,
+                               # ripple confirm, suspend widget, terminal budget
+    ├── sidechat.ts            # side-chat singleton store + lifecycle
+                               # (open/replace/discard, /clear + /new reset,
+                               # answer apply)
+    ├── sidechat-engine.ts     # nested LLM loop: turn dispatch, streaming,
+                               # abort, usage tally
+    ├── sidechat-prompt.ts     # side-chat system prompt builder (question,
+                               # goal, answers digest, answer protocol)
+    ├── branch-snapshot.ts     # one-shot frozen branch replay feeding the
+                               # chat's context
+    ├── chat-view.ts           # chat view renderer: transcript window, stream
+                               # cursor, footer + confirm row
+    ├── panel.ts               # panel host: non-blocking custom() lifecycle
+                               # (open / suspend / resume)
+    ├── layout.ts              # pure renderers: header, question line, hints,
+                               # footer
+    ├── keys.ts                # config-driven raw-key dispatch (at most one
+                               # action per input)
+    ├── actions.ts             # named key-agnostic actions (cursor, accept,
+                               # navigate, submit)
+    ├── short-view.ts          # short view: options, recommendation star,
+                               # write-in row, text affordance
+    ├── deep-view.ts           # deep view: full question/options regions +
+                               # scroll/selection model
+    ├── overview.ts            # overview list: every question, cursor + jump
+    ├── text-field.ts          # embedded free-text editor (composed editor or
+                               # stock pi-tui Editor)
+    ├── gate.ts                # soft gate: detection, unanswered counting,
+                               # warning/hold strings, gate focus
+    ├── ripple-confirm.ts      # dependsOn invalidation ripple confirm
+                               # (forced accept/cancel)
+    ├── suspend.ts             # suspend widget line + resume coordinators
+    ├── terminal-budget.ts     # adaptive fallbacks for narrow terminals
+    └── editor-preservation.ts # editor preserve/restore across open/close
 ```

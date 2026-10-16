@@ -84,14 +84,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "sidechat.ts singleton store and lifecycle (module memory)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The SIDECHAT-002 singleton: exactly one chat record {questionId, messages, streamState, abortController, modelSnapshot, usage} in module scope, with wholesale replacement and plain-delete discard, plus the /clear and /new byte-exact first-token reset commands.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Module-scoped singleton record with create/replace/discard lifecycle",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-002 and panel-view-integration.md §Suspend — MODULE scope is load-bearing: the panel INSTANCE dies on suspend and resumeOpenPanel builds a fresh one; only sidechat.ts module memory makes \"survives suspend, dies on restart\" true with zero persistence code. state-and-persistence.md §Side chat: the chat lives in NONE of the three storage layers — no InterrogationState fields, no details, no custom entries, no renderer.\n2. INPUT: none — new file src/panel/sidechat.ts.\n3. LOGIC: Module-scoped singleton store: record {questionId, messages: ChatMessage[], streamState, abortController, modelSnapshot, usage} plus lifecycle API: `get()`, `openOrReplace(questionId)` (same question → reuse; different → replace WHOLESALE — no confirm, no carry-over; rebinds snapshot/prompt/model via the builders from P1.M1.T4.S1/P1.M1.T4.S2/P1.M1.T5.S1, injected as arguments so this subtask stays UI- and ctx-free), `discard()` (plain in-memory delete; abort is the caller's job — P1.M2.T5.S1). Header doc block states the SIDECHAT-002 contract implemented. Tests: singleton identity, wholesale replacement (no message/usage carry-over), discard clears everything, replacement needs no confirmation.\n4. OUTPUT: store + lifecycle consumed by P1.M1.T3.S2, P1.M1.T4.S1, P1.M2.T4.S1 (open path), P1.M2.T5.S1 (discard hooks).\n5. DOCS: [Mode A] sidechat.ts header doc block stating the SIDECHAT-002 singleton + ephemerality contracts (the codebase's existing header-block discipline).",

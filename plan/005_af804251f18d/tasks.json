@@ -175,7 +175,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S1",
                   "title": "Model resolution and turn dispatch over an injected nested-call seam",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1",
@@ -196,7 +196,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S2",
                   "title": "Streaming consumption: deltas, stop reasons, abort, auth errors",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T5.S1"

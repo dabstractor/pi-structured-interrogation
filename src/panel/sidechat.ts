@@ -37,6 +37,25 @@
  * accepted v1 (sidechat-contracts.md); a `/clear`/`/new` reset is the
  * only sanctioned refresh.
  *
+ * SIDECHAT-005 Mode A contract (P1.M1.T5.S1): the side chat talks to models
+ * ONLY through nested, injected model calls (the port lives in
+ * panel/sidechat-engine.ts) — NEVER through the main session's conversation
+ * surface. The five SIDECHAT-005-banned mutation APIs (message-send /
+ * user-message-send / active-tools / tool-registration / model-switch) appear
+ * NOWHERE in this module set, not even in comments — the M3.T1 guard greps
+ * the file set and must stay clean, so the ban list is described, never
+ * spelled, here. Model-resolution contract (SIDECHAT-003, engine-owned):
+ * `config.sideChatModel` ("provider/model-id") → registry find hit wins →
+ * unset/blank/malformed/unknown notifies ONCE and falls back to the session
+ * model (else first available) → nothing resolvable yields an INERT record
+ * (empty model snapshot marker) that opens inert and dispatches nothing.
+ *
+ * `notices` (P1.M1.T5.S1): append-only, non-fatal engine events the view
+ * renders — `auth` (the model port threw synchronously; pi-ai throws when
+ * provider auth is missing) and `error` (inert/invalid dispatch refusals).
+ * The panel NEVER blocks on an engine failure: every failure path appends a
+ * notice and settles the record back to `"idle"`.
+ *
  * Consumers (all inject their builders — no config/ctx knowledge here):
  * T3.S2 reset commands, T4.S1/S2 branch builders, T5.S1 model resolution
  * (the deps bag is their injection seam), M2.T4.S1 open path,
@@ -68,6 +87,17 @@ export interface ModelSnapshot {
   modelId: string;
 }
 
+/** Non-fatal engine event surfaced to the view (P1.M1.T5.S1). `auth`: the
+ * model port threw synchronously (pi-ai throws when provider auth is
+ * missing); `error`: dispatch refused (e.g. an inert record opened with no
+ * resolvable model). Append-only, oldest first; failures land here and the
+ * record settles back to `"idle"` — the panel never blocks. */
+export interface SidechatNotice {
+  kind: "auth" | "error";
+  text: string;
+  at: string;
+}
+
 /** Frozen context-branch snapshot. Real runtime shape: pi-ai `Message[]`,
  * produced ONCE at creation by `takeBranchSnapshot`
  * (panel/branch-snapshot.ts) and injected via
@@ -88,7 +118,8 @@ export interface SidechatRebindDeps {
 }
 
 /** The single side-chat record. `systemPrompt`/`branchSnapshot` extend
- * SIDECHAT-002's list to carry the SIDECHAT-003 once-at-creation freeze. */
+ * SIDECHAT-002's list to carry the SIDECHAT-003 once-at-creation freeze;
+ * `notices` (T5.S1) adds the engine's non-fatal event log. */
 export interface SidechatRecord {
   questionId: string;
   messages: ChatMessage[];
@@ -98,6 +129,8 @@ export interface SidechatRecord {
   systemPrompt: string;
   branchSnapshot: BranchSnapshot;
   usage: ChatUsage;
+  /** Non-fatal engine notices (auth throws, inert-dispatch refusals), oldest first. */
+  notices: SidechatNotice[];
 }
 
 // Module scope is LOAD-BEARING: the panel instance dies on suspend, so only
@@ -146,6 +179,7 @@ function buildFresh(questionId: string, deps: SidechatRebindDeps): SidechatRecor
     systemPrompt: deps.buildSystemPrompt(),
     branchSnapshot: deps.buildBranchSnapshot(),
     usage: { input: 0, output: 0, totalCost: 0 },
+    notices: [], // T5.S1: every record creation path gets the empty log
   };
 }
 

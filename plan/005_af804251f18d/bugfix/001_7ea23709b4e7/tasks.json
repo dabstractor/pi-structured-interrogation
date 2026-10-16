@@ -1,0 +1,277 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Bugfix round 001 — side-chat surface defects + reconstruction robustness",
+      "status": "Ready",
+      "description": "Fix the 8 defects found by the creative end-to-end validation round at HEAD e298920 (0 critical, 1 major, 7 minor): the side-chat confirm row's dead advertised gestures (BUG-001), answered-question chat lifecycle (BUG-002/003), replace/reset abort ownership and usage-close notices (BUG-005/007), typed-input preservation and overview chat targeting (BUG-006/004), and the reconstruction candidate-pool robustness gap (BUG-008). All 8 verified against the code — see plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/. Gates that must stay green: npm test (1551/1551 at HEAD), npm run typecheck, npm run lint, scripts/verify-keymap-conflicts.sh.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Confirm-row gestures work in the default focused state (BUG-001, Major)",
+          "status": "Planned",
+          "description": "Make the advertised 'enter = yes · esc = no' confirm-row gestures act in the natural flow (type → enter to send → reply streams → row appears → enter/esc), without the undocumented double-esc blur workaround, and align the streaming 'esc abort' footer hint with the actual gesture. Key objective of the round's only Major.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Settle-blur and empty-buffer enter routing for the confirm row",
+              "status": "Planned",
+              "description": "Two complementary fixes at the panel's input-routing seam: (a) blur the chat input when a settle produces a pendingConfirm so the existing focus!==\"chat\" confirm-row routing becomes live in the default post-send state; (b) belt-and-braces — an empty/whitespace-only-buffer enter in chat focus routes to the pending confirm instead of no-oping, so the gesture is structurally unreachable-dead even if the user re-focuses the input.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Blur the chat input when a settle produces a pendingConfirm",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.2", "h2.2/h3.0", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-focus.md §BUG-001 (verified firsthand). setView(\"chat\") seeds focusChatInput (src/panel/panel.ts:1551-1554) and nothing blurs on settle; the confirm-row enter/esc routing is gated on `this.focus !== \"chat\"` (panel.ts ~1222-1245); while focused, enter routes to sendChatInput (~1264-1269) — an empty-buffer no-op after send. The panel observes settle ONLY through settleInvalidatingPort (panel.ts:415-425, wired at :514-515: `port: settleInvalidatingPort(streamSimplePort, () => currentPanel?.invalidate())`) whose fire callback runs as a macrotask AFTER the engine's route() continuation, so it sees the POST-settle record. blurChatInput() is public (panel.ts:1718-1724; sets focus=\"options\" + chatField.blur() — precedent-safe: the double-esc path escExitEditor/keys.ts:329-336 already lands there). The shipped workaround is codified in src/panel/ac-sidechat.test.ts:636 (AC-17.4_confirm_row_and_apply_byte_identical, ~618-663, helper blurChatBox at :443-446) and AC-17.4_esc_declines_keeps_chat (~665-680).\n2. INPUT: none from other subtasks — this is the round's root fix. Available: the settle fire callback seam, panel.blurChatInput(), getSidechatRecord()?.pendingConfirm (ApplyDecision | undefined), currentPanel host record.\n3. LOGIC: Implement PRD h2.2/h3.0 fix direction (A). Extend the settle observation (the settleInvalidatingPort fire callback at panel.ts:514-515, or an equivalent settle hook in the same module host) so that after invalidate, if the live record's pendingConfirm !== undefined AND the live panel's focus === \"chat\", call p.blurChatInput(). Blur ONLY on a decision-bearing settle — a rejection settle, autoApply bypass, or no-block settle keeps focus (the user may be typing a follow-up; blur never clears the TextField buffer, so any in-progress text is preserved). No routing-table changes in this subtask. Mock nothing (the ac-sidechat fake-port harness IS the isolation). Update AC-17.4 tests: drop the blurChatBox workaround lines from AC-17.4_confirm_row_and_apply_byte_identical and AC-17.4_esc_declines_keeps_chat, and ADD the PRD-demanded regression — after `await flush()` with NO blur, handleInput(ENTER) applies (q3 answered, record discarded, view \"short\", notify 'chat closed · 10 in · 5 out · $0.07') and handleInput(ESCAPE) declines (pendingConfirm undefined, chat retained, view \"chat\"). Keep the blurChatBox helper (ESC-002 behavior unchanged).\n4. OUTPUT: The natural flow's enter applies and esc declines with no pre-blur; updated AC-17.4 tests green; all gates green. Consumed by P1.M1.T1.S2 (which hardens the refocused-input case) and P1.M2.T2.S1 (whose no-blur repro relies on working focused-state gestures).\n5. DOCS: [Mode A] Update the JSDoc on settleInvalidatingPort (panel.ts ~404-425) and the SIDECHAT-001 comment above the pendingConfirm routing branch (~1222-1245) to document blur-on-decision-settle. README §Side chat sync is owned by the final changeset-level docs task (P1.M6.T1)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S2",
+                  "title": "Route empty-buffer chat-focus enter to the pending confirm",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.0", "h2.2", "h2.2/h3.0", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-focus.md §BUG-001 fix direction (C). The chat-focus enter branch (src/panel/panel.ts ~1264-1269: `if (this.focus === \"chat\" && enter) { this.sendChatInput(); return true; }`) intercepts enter BEFORE the router; sendChatInput on an empty buffer is a consumed no-op. P1.M1.T1.S1 landed blur-on-settle; this subtask covers the residual case — the user re-focuses the input (to keep chatting) and then presses enter on an empty/whitespace buffer while a pendingConfirm exists.\n2. INPUT: Working confirm-row gestures in the default state from P1.M1.T1.S1; the pendingConfirm branch shape at panel.ts ~1222-1245 (onApplyConfirm routing + clearPendingConfirm on esc) as the semantics to mirror.\n3. LOGIC: In the chat-focus enter branch, before calling sendChatInput(): if this.chatField.getText() is empty or whitespace-only AND getSidechatRecord()?.pendingConfirm !== undefined → route to this.onApplyConfirm?.(pending) and return true (never reach sendChatInput). A whitespace-only buffer is not a message (sendChatInput no-ops on trim-empty) so treating it as the confirm gesture loses nothing. Do NOT touch esc in this subtask (single-esc editor forwarding stays — ESC-002). Tests: refocus the input (focusChatInput) after a settle with pendingConfirm, press ENTER on empty buffer → apply fires; buffer with real text + pendingConfirm + enter → sendChatInput as today (message sent, confirm untouched); empty buffer + NO pendingConfirm + enter → consumed no-op as today.\n4. OUTPUT: enter on the confirm row is never a dead gesture in any focus state; consumed by the P1.M6.T1 docs task.\n5. DOCS: [Mode A] Update the chat-focus enter branch comment (panel.ts ~1259-1269) to document the empty-buffer confirm routing. No user-facing doc surface beyond README (P1.M6.T1 owns it)."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "Streaming 'esc abort' footer hint matches the actual gesture while focused",
+              "status": "Planned",
+              "description": "BUG-001's second half: while the chat input is focused and a reply streams, the footer advertises 'esc abort' but a single esc forwards to the editor (pi-vim), so aborting a runaway reply requires the undocumented blur-then-esc. Make the advertised gesture true.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "Align the chat view's streaming esc gesture with ui-spec §Side chat Esc ladder",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.2", "h2.2/h3.0", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-focus.md §Streaming-abort half. Esc routing: keys.ts fixed-esc branch (~527-541) — editor focus (incl. chat) forwards a single esc to the editor (return false → panel.ts chatField.handleInput), second esc within escExitWindowMs (config.ts:133, default 500) → escExitEditor → blurChatInput (keys.ts:329-336). Chat rungs live in escapeDescend (keys.ts ~297-312): streaming → panel.abortChatStream() only; idle → exitChatView. Spec tension: ui-spec.md:115 'Esc ladder. Streaming: first `esc` aborts the in-flight reply' (chat-view-specific) vs ui-spec.md:44/86 ESC-002 single-esc-forwards-to-editor (generic editor rule). The footer hint (chat-view.ts footer hint string, esc word flips abort/exit with stream state) currently advertises a gesture that does not act while focused.\n2. INPUT: Independent of P1.M1.T1 (different seam). Available: escapeDescend/abortChatStream (panel.ts ~1768-1780), the keys.ts esc branch, chat-view.ts footer hint composition.\n3. LOGIC: Make the advertised gesture true, choosing ONE documented shape — (i) RECOMMENDED, spec-verbatim: while view === \"chat\" AND the live record's streamState === \"streaming\", a single esc in chat focus aborts the stream (chat-view esc-ladder rung takes precedence over the generic editor-forwarding; the lastEscAt double-esc window is not consumed by an abort rung; insert-mode esc returns when idle) — implement as a streaming pre-check inside the esc branch (or routing the fixed-esc through escapeDescend's chat rung before the editor-forward when streaming); OR (ii) hint-honesty fallback: keep the forwarding and change the focused-state hint wording to advertise the true sequence. Either way the regression test asserts: streaming + focused + single esc → abort fired (signal.aborted on the fake port's captured AbortSignal), per the PRD's 'same focus-blind pattern' clause. Follow ac-sidechat.test.ts fake-port idioms (sidechat-engine.test.ts ~324-394 controller/guard describes) for a held-open stream with a captured signal.\n4. OUTPUT: The streaming footer's advertised abort gesture works from the default focused state; consumed by P1.M6.T1 docs task (and P1.M6.T1.S2 if the hint wording changed — record the choice in the JSDoc).\n5. DOCS: [Mode A] Update the keys.ts fixed-esc JSDoc (~520-541) and the escapeDescend SIDECHAT-001 comment to document the chosen shape; if shape (ii), the new hint string is itself the doc. README §Side chat esc-ladder prose is owned by P1.M6.T1."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Answered-question chat lifecycle (BUG-002 + BUG-003)",
+          "status": "Planned",
+          "description": "Make a chat opened on an already-answered question a first-class citizen: it survives unrelated state mutations (transition-aware discard hook) and its own apply path ends it cleanly on a same-value no-op (terminal-consume in applyChatAnswer).",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "Transition-aware side-chat discard hook",
+              "status": "Planned",
+              "description": "The state 'changed' discard hook currently tests the record question's CURRENT status, so any unrelated mutation destroys a chat living on an already-terminal question. Track last-seen status and discard only on a non-terminal → terminal transition.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "Gate the discard hook on a non-terminal→terminal status transition",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h2.3/h3.1", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-focus.md §BUG-002 (verified firsthand). The hook is onChanged (src/panel/panel.ts ~941-975, wired state.on(\"changed\") at :1087): reads record → getQuestion(record.questionId) → CURRENT-status terminal check → abort-first ordering → usage read → discardSidechatRecord() → close view to chatReturnView → sidechatNotify(formatChatCloseNotice(usage)). onChat (panel.ts ~1057-1066) has NO status gate. The 'changed' event payload is the full serialized POST-mutation snapshot (src/state.ts:156-158) — no pre-state available from the event; transition detection must be panel-side.\n2. INPUT: none from other subtasks. Available: QuestionStatus values (open|answered|submitted|reasked|moot|withdrawn|closed — terminal set for chat: answered|submitted|moot|withdrawn|closed), the record open path (onChat / openSidechatRecord call site), the hook.\n3. LOGIC: Implement PRD h2.3/h3.1 recommendation 'the hook should compare pre/post status transitions'. Add a panel-private last-seen status for the record's question (e.g. sidechatLastStatus: QuestionStatus | undefined): seed it at record open (the onChat call site) with the question's CURRENT status, and update it at the end of every hook run (and whenever the record is replaced/reset — re-seed). Discard ONLY when last-seen was NOT terminal AND the current status IS terminal. Seeding rules: an already-terminal question at seed time → seed, do NOT discard (answered-question chats are the supported apply surface for BUG-003); last-seen undefined at first hook run (record predates this panel instance — suspend/resume) → seed, don't discard. DOCUMENT the accepted edge in the hook comment: same-status re-answers (FR-18 ripple edit, answered→answered) do not discard under transition semantics. Preserve the hook's existing ordering contract verbatim on a REAL transition (abort-first → usage read → discard → close view → notify once). Tests per PRD repro: answered q1, open chat, turn, blur, exit view, state.applyAnswer(\"q2\", ...) → getSidechat() still defined AND notify NOT called; counter-test: chat on open q3, answer q3 from the main panel → discard + notify fires exactly as today (existing close-path AC tests must stay green — search ac-sidechat.test.ts/panel.test.ts for 'chat closed' assertions).\n4. OUTPUT: A transition-aware hook; the P1.M2.T2.S1 repro (chat on answered q3 surviving until its own apply consumes it) builds directly on this. Consumed by P1.M2.T2.S1 and P1.M6.T1.\n5. DOCS: [Mode A] Rewrite the SIDECHAT-001 discard-guarantee comment above the hook (panel.ts ~941-960) to state transition semantics, the seeding rules, and the accepted same-status-reanswer edge."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T2",
+              "title": "Terminal-consume: applyChatAnswer ends the chat on a same-value no-op apply",
+              "status": "Planned",
+              "description": "On an already-answered question, a confirm-row apply of the recorded value is a correct ANSWER-PIN-001 no-op that fires no 'changed' event — so nothing discards the chat and the confirm row sticks forever. Make the apply consume pendingConfirm and close the chat when the target question is already terminal.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S1",
+                  "title": "Consume pendingConfirm and close the chat when applyChatAnswer hits an already-terminal question",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M2.T1.S1"],
+                  "prd_selectors": ["h2.0", "h2.3", "h2.3/h3.2", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-focus.md §BUG-003 (verified firsthand). applyChatAnswer (src/panel/actions.ts ~562-578) re-seeds panel.currentId then routes decision.seam through writeInEnter / acceptOptionIndex; its JSDoc (~540-561) explicitly refuses discard/notify/pendingConfirm-clearing ('manual clearing would race a same-value no-op'). acceptOptionIndex's same-value path is AcceptOutcome \"noop\" (actions.ts ~229-262, 276-284) — advance only, NO applyAnswer, NO 'changed'. The hook's close ordering (abort-if-streaming → read usage → discardSidechatRecord() → setView(chatReturnView !== \"chat\" ? chatReturnView : \"short\") → sidechatNotify(formatChatCloseNotice(usage))) is the pattern to mirror — see panel.ts ~941-975. clearPendingConfirm is exported from src/panel/sidechat.ts. NOTE: clearing AFTER the seam ran, only when the question is already terminal, cannot race the no-op (the no-op already happened; nothing further will fire).\n2. INPUT: The transition-aware hook from P1.M2.T1.S1 (the chat on answered q3 SURVIVES until this consume path ends it — with the old current-status hook the repro scenario is destroyed prematurely).\n3. LOGIC: In applyChatAnswer, after routing through the seam: (a) clearPendingConfirm(record) unconditionally-on-apply (the decision was consumed either way); (b) if the record's question is terminal (the no-op case) mirror the hook's ordering: abort first if record.streamState === \"streaming\" (a second turn may be in flight), read usage, discardSidechatRecord(), close the view (panel.chatReturnView fallback \"short\"), panel.sidechatNotify?.(formatChatCloseNotice(usage)). The non-terminal case is UNCHANGED — the real write fires 'changed' and the hook owns discard/close/notify exactly as today (no double-notify: the hook no-ops once the record is gone). Keep byte-identical provenance: no changes to what the seams receive. Tests per PRD repro: markAnswered(q3, sqlite), open chat with convergePort proposing sqlite, send turn → pendingConfirm set; handleInput(ENTER) (no blur — P1.M1.T1.S1) → apply no-ops, getSidechat() undefined, view left \"chat\"→chatReturnView, notify 'chat closed · …' fired once, render contains no 'apply ★'; second enter does nothing further. Keep AC-17.4's ordinary path green (unanswered q3 → hook-driven single notify).\n4. OUTPUT: 'enter → the answer applies … the chat vanishes' holds for the no-op edge (AC-17.4 tail, SIDECHAT-002 discard-on-answer); consumed by P1.M6.T1.\n5. DOCS: [Mode A] Rewrite the applyChatAnswer JSDoc paragraph (actions.ts ~540-561 'Deliberately NOT here') to document the new consume+close contract and why post-sequence clearing does not race the no-op. README §Side chat sync owned by P1.M6.T1."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M3",
+          "title": "Replace/reset stream ownership + usage-close notices (BUG-005 + BUG-007)",
+          "status": "Planned",
+          "description": "Both chat-destruction paths that bypass the terminal-status hook — wholesale replacement via onChat and the /clear·/new reset — must mirror the close-path ordering: abort the destroyed record's in-flight stream FIRST, then destroy, then fire the compact usage-close notice.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M3.T1",
+              "title": "onChat: abort the replaced record's stream before openOrReplace and notify its usage",
+              "status": "Planned",
+              "description": "Opening a chat on another question replaces the singleton record wholesale without aborting the replaced record's in-flight LLM call — an unabortable orphan (cost leak). Add abort-before-replace plus the missing usage-close notice.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S1",
+                  "title": "Abort-before-replace + usage notice in onChat",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h2.3/h3.4", "h2.3/h3.6", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-engine.md §BUG-005/§BUG-007 (verified firsthand). onChat (src/panel/panel.ts ~1057-1066) calls openSidechatRecord when questionId differs — no abort, no notify. sidechat.ts openOrReplace (~283-291) JSDoc: 'The old record's controller is NOT aborted (caller's job)'; the engine's abort() (sidechat-engine.ts ~441-448) signals the LIVE singleton only, and settle's liveness guard (getRecord() !== record → return, sites ~360/372/385/391) silently no-ops the orphan — no user gesture can stop it. The correct ordering precedent is the terminal-status hook (panel.ts ~941-975): abort-if-streaming FIRST, read usage BEFORE discard, notify via sidechatNotify(formatChatCloseNotice(usage)) — formatChatCloseNotice exported from src/panel/sidechat.ts (~496).\n2. INPUT: none from other subtasks (independent seam from P1.M2 — the replace path is not status-driven). Available: record.streamState, record.abortController, record.usage, openSidechatRecord, panel.sidechatNotify.\n3. LOGIC: In onChat, in the replacing branch (record !== undefined && record.questionId !== qid), before openSidechatRecord: (1) if (record.streamState === \"streaming\") record.abortController.abort(); (2) const usage = record.usage; (3) openSidechatRecord(qid, args.chatRebindDeps); (4) p.sidechatNotify?.(formatChatCloseNotice(usage)). Decide AND TEST one policy for the zero-usage empty record (replacing a fresh chat toasts 'chat closed · 0 in · 0 out · $0.00'): consistency with the existing hook (unconditional notify) vs suppressing all-zero notices — either is defensible; document the choice in the JSDoc and pin it in a test. The aborted turn's settle rolls back on the dead record — harmless. Tests per PRD repro: chat on q3 over a held-open gated fake port capturing the AbortSignal; blur, `o`, ↓↓↓, enter (jump to q4), `e` → record.questionId === 'q4' AND the q3 call's signal.aborted === true; plus a usage-carrying replacement asserts one notify with the exact humanized string ('chat closed · 10 in · 5 out · $0.07' from convergePort-style usage).\n4. OUTPUT: No replace path can orphan an LLM call; the destroyed chat's usage is announced. Consumed by P1.M4.T2.S1's overview-replace tests (the natural repro route) and P1.M6.T1.\n5. DOCS: [Mode A] Update the onChat comment block (panel.ts ~1050-1066) to document abort-then-notify-before-replace and the zero-usage policy; README §Side chat sync owned by P1.M6.T1."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T2",
+              "title": "/clear · /new: abort the in-flight stream before resetChat and notify its usage",
+              "status": "Planned",
+              "description": "The slash-command reset path has the same two defects: classifyChatCommand runs before any streaming check, so /clear mid-stream swaps the controller out from under the in-flight call (orphaning it identically), and the reset discards messages+usage with no close notice.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S1",
+                  "title": "Abort-before-reset + usage notice in sendChatInput's command branch",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h2.3/h3.4", "h2.3/h3.6", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-engine.md §BUG-005/§BUG-007 (verified firsthand). sendChatInput (src/panel/panel.ts ~1743-1766): the command branch calls resetChat(this.currentId ?? \"\", this.chatRebindDeps) — resetChat (sidechat.ts ~466-470) rebuilds fresh with a NEW AbortController and is explicitly caller-owns-abort; nothing aborts the old controller and nothing notifies. ui-spec.md:114 (slash hatches: 'discard all messages and usage and rebind fresh; the view stays open') and :118 (Usage & close: 'any close/discard notifies compactly') — the view staying open is unchanged; only abort + notice are added. P1.M3.T1.S1 establishes the identical ordering for the sibling replace path.\n2. INPUT: The mirrored ordering pattern from P1.M3.T1.S1 (not a hard data dependency — this subtask can land in parallel; follow the same policy decision for the zero-usage case for coherence).\n3. LOGIC: In sendChatInput's command branch, before resetChat: (1) const record = getSidechatRecord(); if (record !== undefined) { if (record.streamState === \"streaming\") record.abortController.abort(); } (2) capture record.usage; (3) resetChat(...); (4) this.sidechatNotify?.(formatChatCloseNotice(usage)) — applying the SAME zero-usage policy chosen in P1.M3.T1.S1. Keep 'the view stays open' and the input clearing on the command path. Tests: streaming on q3 with a captured signal + accumulated usage → type '/clear' + enter → old signal.aborted === true, record.messages empty, record.usage zeroed ({input:0,output:0,totalCost:0}), view still \"chat\", notify fired once with the humanized string; also '/new' alias parity.\n4. OUTPUT: The reset path aborts its orphans and announces cost; consumed by P1.M6.T1.\n5. DOCS: [Mode A] Update the sendChatInput doc comment (panel.ts ~1726-1742, 'The input clears on EVERY path' paragraph is P1.M4.T1.S1's to revise — coordinate so the final comment covers both changes coherently) and the slash-command branch. README §Side chat sync owned by P1.M6.T1."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M4",
+          "title": "Input preservation + overview chat targeting (BUG-006 + BUG-004)",
+          "status": "Planned",
+          "description": "Two interaction-model corrections: typed chat input survives an enter pressed while a reply streams (draft-sacredness on the last unprotected text surface), and `e` in the overview opens the chat on the cursor row's question, not the background question.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M4.T1",
+              "title": "Preserve typed chat input when sendTurn refuses",
+              "status": "Planned",
+              "description": "sendChatInput clears the buffer on every path, including the streaming-refusal path where nothing was sent — the typed follow-up silently vanishes. Keep the text when the engine refuses.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T1.S1",
+                  "title": "Keep the buffer when sendTurn returns false (streaming refusal)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h2.3/h3.5", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-engine.md §BUG-006 (verified firsthand). sendChatInput (src/panel/panel.ts ~1743-1766) calls this.sidechatEngine?.sendTurn(text) ignoring its boolean, then unconditionally this.chatField.setText(\"\"); the module doc says 'The input clears on EVERY path'. sendTurn returns false when the record is missing or streamState !== \"idle\" ('no queueing, no double-controller — the esc rung aborts instead', sidechat-engine.ts ~399-401). PRD fix: 'keep the text when sendTurn returns false'. Draft-sacredness authority: ui-spec commitment 6 / R4.\n2. INPUT: none from other subtasks. Note the interplay with P1.M1.T1.S1: a DECISION-bearing settle blurs the input (text preserved — blur never clears); a non-decision settle keeps focus so the user can keep typing; this subtask guarantees that typed text also survives a refused enter mid-stream.\n3. LOGIC: Capture the return: const sent = this.sidechatEngine?.sendTurn(text) ?? false; clear the buffer ONLY when sent (the command path still always clears — it was accepted by definition). Revise the doc comment: the input clears on every ACCEPTED path; a refused turn preserves the draft. Optional polish ONLY if a cheap existing seam exists (panel.flash): a transient 'reply in flight — esc aborts' flash on refusal — do not build new UI for it. Tests per PRD repro: open chat, send a message over a held-open streaming port; chatField.setText('follow-up question'); handleInput(\"\\r\") → chatField.getText() === 'follow-up question', record.messages has NO new user turn, streamState still 'streaming'; then let the port complete and re-press enter → the follow-up sends and the buffer clears.\n4. OUTPUT: The chat input honors draft-sacredness; consumed by P1.M6.T1.\n5. DOCS: [Mode A] Rewrite the sendChatInput doc comment (panel.ts ~1726-1742) — coordinate with P1.M3.T2.S1's comment update on the same function so the final text covers both. README §Side chat sync owned by P1.M6.T1."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M4.T2",
+              "title": "Overview `e` opens the chat on the cursor row's question",
+              "status": "Planned",
+              "description": "In the overview the interaction model is cursor-row-centric (enter jumps to the cursor row), but the chat key binds to the background currentId. Route the chat dispatch to the cursor-row question, matching the prev/next overview-branch pattern.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M4.T2.S1",
+                  "title": "Cursor-row chat targeting: accessor + overview branch in the chat dispatch",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h2.3/h3.3", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/keys-overview.md (dedicated research; CONFIRMED with exact lines). The chat dispatch (src/panel/keys.ts ~608-612) has NO overview branch while neighbors do — prev/next (keys.ts ~628-636): `if (panel.view === \"overview\") return overviewUp(panel);` — and enter jumps via overviewJump (overview.ts ~408-418) reading `const q = ordered[panel.overviewCursor]`. panel.overviewCursor is public (panel.ts:677); NO existing accessor for the cursor row's question id (grep verified 0 hits) — only the inline read at overview.ts:411. onChat (panel.ts ~1057-1066) binds `const qid = p.currentId`. No test pins which qid chat opens on from overview (keys.test.ts:405 'e dispatches in ${view}' spies onChat only); verify-keymap-conflicts.sh checks DEFAULT_CONFIG values only — an overview branch on keys.chat does not trip it; no-hardcoded-keys/keymap-guard are unaffected (chat remains config-driven b.chat). Spec is silent on overview chat targeting (ui-spec.md:112 'opens the chat view from any non-editor focus'); the overview convention (ui-spec.md:75-76) leans cursor-row.\n2. INPUT: none from other subtasks (the abort-before-replace from P1.M3.T1.S1 already protects the replace this makes easier to trigger — no hard dependency, but its tests cover the overview-route repro).\n3. LOGIC: Implement PRD h2.3/h3.3's preferred shape (target the cursor row; gating `e` out of the overview was the rejected alternative). (a) Add a small accessor mirroring overviewJump's read — e.g. an overview.ts export `overviewSelectedQuestionId(panel): string | undefined` returning panel.state.orderedQuestions()[panel.overviewCursor]?.id (or an equivalent panel method) — with a defensive undefined for an out-of-range cursor; (b) In onChat (panel.ts ~1058), resolve the target qid as: view === \"overview\" ? overviewSelectedQuestionId(panel) : panel.currentId, and return (consumed no-op) when undefined; chatReturnView still seeds from p.view (\"overview\") so esc returns to the overview. Do NOT touch currentId in the open path (applyChatAnswer already re-seeds it on apply — unchanged). Tests per PRD repro: panel on q1, `o`, ↓ to q2's row, `e` → getSidechat()?.questionId === 'q2' (not 'q1'); cursor on the LAST row edge; empty-state (no questions) → consumed no-op; existing keys.test.ts 'e dispatches' suite stays green.\n4. OUTPUT: Overview chat targeting matches the cursor-row interaction model; consumed by P1.M6.T1 (README §Keymap/§Side chat) and P1.M6.T1.S2 (the one genuinely new ui-spec clause this round: 'e targets the overview cursor row').\n5. DOCS: [Mode A] Update the chat-dispatch comment in keys.ts (~608-612) and the new accessor's JSDoc. README + ui-spec sync owned by P1.M6.T1 / P1.M6.T1.S2."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M5",
+          "title": "Reconstruction degrade-to-next-older for tool results (BUG-008)",
+          "status": "Planned",
+          "description": "The reconstruction candidate pool holds only the LAST state-carrying interrogate tool result, so a damaged newest envelope collapses reconstruction to 'no state' even when a valid older tool result sits on the branch — contradicting the module's own documented degrade-to-next-older contract. Collect every state-carrying tool result into the pool.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M5.T1",
+              "title": "Collect every state-carrying interrogate tool result into the candidate pool",
+              "status": "Planned",
+              "description": "walkBranch reduces all state-carrying tool results to a single LAST-wins slot; the pool pushes that one entry while mirrors each become candidates. Make tool results array-collected like mirrors, competing by branch index newest-first, preserving FR-27 last-wins for the all-valid case.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M5.T1.S1",
+                  "title": "Array-collect tool results in walkBranch and pool them newest-first",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.0", "h2.3", "h2.3/h3.7", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/reconstruct.md (dedicated research; CONFIRMED with exact lines). walkBranch (src/reconstruct.ts ~326-347) overwrites a singular slot — `result.toolState = details.state; // LAST occurrence wins (FR-27)` (~342-343) — WalkResult declares the tool slot singular (~282-297) while mirrors/submissions/completions are arrays. The pool pushes the single tool entry (~450-452) vs the mirror for...of loop (~453-457); candidates sort `(a,b) => b.index - a.index` (newest-first, stable) and the tryDeserialize loop degrades newest→older (~463-470). Module JSDoc (~41-43) and tryDeserialize JSDoc (~360-364) promise 'Deserialize failures degrade to the next-older candidate, so one corrupt entry never crashes session_start'. tryDeserialize catches getter-throwing state envelopes (first read at state.ts:493 raw.goal); failure returns undefined → next candidate; all-fail → {source:'none'} (~489). Adjacent tests: reconstruct.test.ts ~372 (getter-throw caught) and ~738 (LAST-wins with two tool results) — the latter pins the all-valid case that MUST keep passing.\n2. INPUT: none from other subtasks (isolated module). The SessionEntry shape: message entries with msg.role === \"toolResult\" && msg.toolName === \"interrogate\" && msg.details.state; mirror entries are type \"custom\" with customType INTERROGATION_STATE_ENTRY_TYPE.\n3. LOGIC: Implement PRD h2.3/h3.7's fix: change WalkResult's tool slot to an array (e.g. toolResults: {index: number; data: unknown}[]) collected for EVERY state-carrying interrogate tool result in walkBranch (append, keep branch index); in the pool construction push every toolResults entry (source \"tool-result\") alongside the mirror loop; the existing index sort + tryDeserialize loop need no structural change — newest-first competition preserves FR-27 last-wins for the all-valid case (the newest tool result still wins when it deserializes). Verify walk.toolState/toolIndex have no other consumers besides the pool construction (research says the pool is the sole consumer; re-grep before deleting the old fields). Tests: extend reconstruct.test.ts — (a) PRD repro: branch [toolResult(valid live state), ...plain turns..., toolResult(hostile getter-throwing details.state)], NO custom entries → reconstructFromBranch returns {source: \"tool-result\"} with the OLDER valid state (all questions recovered); (b) keep ~738's LAST-wins case green (both valid → newest wins); (c) a corrupt-newest tool result WITH a newer valid mirror → mirror still wins (index competition); (d) all tool results corrupt, no mirrors → {source: \"none\"} unchanged.\n4. OUTPUT: The documented degrade-to-next-older contract actually holds across tool results; consumed by P1.M6.T1 (README §Limitations may soften its reconstruction-degradation caveat).\n5. DOCS: [Mode A] Update the walkBranch JSDoc, the WalkResult field docs, and the module JSDoc's step-2 prose (reconstruct.ts ~41-43 and ~435-457) to state that every state-carrying tool result is a candidate. README §Limitations sync owned by P1.M6.T1."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M6",
+          "title": "Sync changeset-level documentation",
+          "status": "Planned",
+          "description": "Final catch-all (Mode B): the changeset's cross-cutting docs — README.md feature prose (side chat, keymap, limitations) and the minimal spec alignments — synced once every implementing subtask has landed.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M6.T1",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Sweep README.md's side-chat/keymap/limitations prose and align spec/ui-spec.md's few genuinely-new behavioral clauses with the landed fixes. Runs LAST — depends on every implementing subtask.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M6.T1.S1",
+                  "title": "README.md: sync side-chat, keymap, and limitations sections",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M2.T1.S1", "P1.M2.T2.S1", "P1.M3.T1.S1", "P1.M3.T2.S1", "P1.M4.T1.S1", "P1.M4.T2.S1", "P1.M5.T1.S1"],
+                  "prd_selectors": ["h2.0", "h2.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/test-infra-and-docs.md §Docs map (README headings with line numbers: ## Keymap :181, ## Side chat :275, ## Acceptance criteria :314, ## Limitations :342, ## Configuration :133). Every implementing subtask has landed (dependencies above).\n2. INPUT: The final behavior of each fix from its subtask: P1.M1.T1.S1/S2 (confirm-row enter/esc work in the default focused state; no double-esc workaround), P1.M1.T2.S1 (streaming esc gesture aligned — use the CHOSEN shape's user-visible wording), P1.M2.T1.S1 (answered-question chats survive unrelated mutations; same-status re-answers keep them), P1.M2.T2.S1 (no-op apply consumes the confirm and closes the chat), P1.M3.T1.S1/P1.M3.T2.S1 (replace & /clear abort in-flight streams and fire the usage-close notice — state the zero-usage policy that was chosen), P1.M4.T1.S1 (refused enter preserves typed input), P1.M4.T2.S1 (`e` in the overview targets the cursor row), P1.M5.T1.S1 (reconstruction degrades to older tool results).\n3. LOGIC: Read the README sections listed above; update every sentence the changeset made stale — §Side chat (confirm-row gestures, esc ladder while streaming, /clear semantics + close notices, overview targeting, draft preservation), §Keymap (the `e` row: add the overview cursor-row targeting clause), §Limitations (reconstruction degradation caveat now bounded by degrade-to-next-older across tool results), §Acceptance criteria (mirror any AC-17.x behavioral change). Do NOT invent features; where a README claim is now true that was previously aspirational, align the wording to the tested behavior. Verify no other README section references the old gestures (grep 'confirm row', 'double-esc', 'chat closed', '/clear').\n4. OUTPUT: A README consistent with HEAD after the round; this is the changeset's final user-facing gate alongside the code gates (npm test, typecheck, lint, verify-keymap-conflicts.sh).\n5. DOCS: [Mode B] This subtask IS the changeset-level docs task — it updates README.md only; spec alignment is P1.M6.T1.S2."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M6.T1.S2",
+                  "title": "spec/ui-spec.md: minimal alignment pass over §Side chat and §Overview",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1", "P1.M1.T1.S2", "P1.M1.T2.S1", "P1.M2.T1.S1", "P1.M2.T2.S1", "P1.M3.T1.S1", "P1.M3.T2.S1", "P1.M4.T1.S1", "P1.M4.T2.S1", "P1.M5.T1.S1"],
+                  "prd_selectors": ["h2.0", "h2.4", "h2.5"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/test-infra-and-docs.md §spec map. The spec is the AUTHORITY the fixes move the code TOWARD — most of it needs NO change. ui-spec.md:112 (`e` 'opens the chat view from any non-editor focus' — silent on overview targeting), :115 (Esc ladder — already says 'Streaming: first `esc` aborts'), :116 (confirm row 'enter applies … esc declines' — already the fixed behavior), :118 (Usage & close — 'any close/discard notifies compactly' — now actually true on replace//clear).\n2. INPUT: The chosen implementation shapes from the landed subtasks — especially P1.M4.T2.S1 (the ONE genuinely new clause: `e` targets the overview cursor row) and P1.M1.T2.S1 (if the hint-honesty shape was chosen rather than spec-verbatim routing, its hint wording needs recording; if routing was chosen, :115 already covers it — no edit).\n3. LOGIC: Minimal edits only where fixed behavior is genuinely undocumented: (a) add a clause to :112 (or §Overview) that in the overview `e` targets the cursor-row question; (b) record the P1.M1.T2.S1 choice ONLY if it diverges from :115's wording; (c) verify :113 (discard-on-answer) still matches the transition-aware + terminal-consume implementation — if the accepted same-status-reanswer edge (P1.M2.T1.S1) needs a parenthetical, add one sentence. Do NOT rewrite sections the code now merely complies with. Cross-check spec/implementation-plan.md's risk-table language only if a fix invalidates a row (expected: none).\n4. OUTPUT: spec/ui-spec.md remains the accurate authority post-round; zero speculative edits.\n5. DOCS: [Mode B] Companion to P1.M6.T1.S1 — this is the spec half of the changeset-level docs sweep; no further doc tasks follow."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+ h2.2 Major Issues (Should Fix)
+  h3.0 Issue 1: Side-chat answer confirm row's advertised gestures (enter=apply, esc=decline) are dead in the default focused state
+ h2.3 Minor Issues (Nice to Fix)
+  h3.1 Issue 1: Side chat opened on an already-answered question is silently destroyed by any unrelated state change
+  h3.2 Issue 2: Same-value (ANSWER-PIN no-op) apply from the confirm row never discards the chat and leaves the confirm row stuck
+  h3.3 Issue 3: e in the overview opens the side chat on the background question, not the cursor row
+  h3.4 Issue 4: Replacing a chat mid-stream orphans the in-flight LLM call — never aborted, no abort handle (cost leak)
+  h3.5 Issue 5: Typed chat input is silently destroyed when enter is pressed while a reply is streaming
+  h3.6 Issue 6: No usage/close notification when a chat is replaced by opening on another question or reset via /clear or /new
+  h3.7 Issue 7: Reconstruction drops older valid interrogate tool results when the newest one fails to deserialize
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:29 list:9

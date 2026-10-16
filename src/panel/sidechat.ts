@@ -73,6 +73,13 @@
  * M2.T5.S1 discard hooks (fire `formatChatCloseNotice(record.usage)` on
  * every close/discard path). `ChatStreamState` is open to extension by
  * T5.S2 (finer states) — never narrowed.
+ *
+ * Answer protocol (SIDECHAT-004): `parseAnswerBlock` (P1.M1.T6.S1) is the
+ * pure parser of a COMPLETED reply's fenced ```answer blocks — its
+ * `ParsedAnswer`/`AnswerBlockRejection` unions are consumed by
+ * P1.M1.T6.S2 (ApplyDecision/pendingConfirm at the settle seam),
+ * P1.M2.T1.S2 (the per-reason in-view notice) and P1.M2.T6.S1 (apply
+ * through the ordinary accept seams). Definition-only until T6.S2 lands.
  */
 
 /** Terminal stop reasons for assistant ChatMessages (P1.M1.T5.S2).
@@ -123,6 +130,44 @@ export interface SidechatNotice {
   text: string;
   at: string;
 }
+
+/** Why a completed side-chat reply carried no applicable answer block
+ * (P1.M1.T6.S1, SIDECHAT-004). Stable string enum: P1.M2.T1.S2 maps each
+ * value to its in-view notice text — the enum IS the notice API, so the
+ * five values must never be renamed or reordered away.
+ *
+ * - "no-block": zero valid fenced ```answer blocks anywhere in the reply
+ *   (including a wrong info string — `json`, `ANSWER`, `answer json` — or
+ *   an UNTERMINATED final block at EOF, which is not a block at all, not
+ *   a malformed one).
+ * - "malformed-json": the LAST block's body fails strict JSON.parse
+ *   (single quotes, trailing commas, prose). NO fallback to an earlier
+ *   valid block — the model's LATEST intent governs.
+ * - "unknown-shape": the body parses but is not EXACTLY one
+ *   {value: string} xor one {text: string} — arrays, null, scalars, both
+ *   keys, extra keys, or a non-string value.
+ * - "value-mismatch": {value: string} that byte-matches (===) no entry of
+ *   `optionValues`. An options-less (text) question passes an empty array,
+ *   so ANY value form mismatches it naturally — no question-type param.
+ * - "empty-text": {text: string} whose text is empty or whitespace-only. */
+export type AnswerBlockRejection =
+  | "no-block"
+  | "malformed-json"
+  | "unknown-shape"
+  | "value-mismatch"
+  | "empty-text";
+
+/** SIDECHAT-004 parse outcome (ui-spec §Side chat "Answer protocol" +
+ * sidechat-contracts.md §SIDECHAT-004). "value" ⇒ apply via the option
+ * seam (T6.S2 resolves the display index; M2.T6.S1 applies it);
+ * "text" ⇒ apply via the write-in commit seam, the string carried
+ * VERBATIM (no trim — apply ships it byte-identically, provenance stays
+ * indistinguishable); "none" ⇒ in-view notice, chat stays open.
+ * Consumed by P1.M1.T6.S2 (ApplyDecision/pendingConfirm). */
+export type ParsedAnswer =
+  | { kind: "value"; value: string }
+  | { kind: "text"; text: string }
+  | { kind: "none"; reason: AnswerBlockRejection };
 
 /** Frozen context-branch snapshot. Real runtime shape: pi-ai `Message[]`,
  * produced ONCE at creation by `takeBranchSnapshot`
@@ -238,6 +283,126 @@ export function classifyChatCommand(input: string): "/clear" | "/new" | null {
   if (first === "/clear") return "/clear";
   if (first === "/new") return "/new";
   return null;
+}
+
+// Fence grammar for the answer protocol (P1.M1.T6.S1, SIDECHAT-004) —
+// backticks ONLY, ≥3; the info string is EXACTLY `answer`, case-sensitive
+// with trailing spaces/tabs tolerated (`answer json`, `ANSWER`, `answers`
+// are NOT blocks — the mirror prompt, panel/sidechat-prompt.ts §"## Answer
+// protocol", teaches the model one canonical form, and this parser is its
+// strict inverse). A close fence is ≥3 backticks alone.
+const ANSWER_OPEN_FENCE = /^(`{3,})answer[ \t]*$/;
+const ANSWER_CLOSE_FENCE = /^`{3,}[ \t]*$/;
+
+/**
+ * Parse a COMPLETED side-chat reply for its answer block (SIDECHAT-004,
+ * sidechat-contracts.md §SIDECHAT-004; ui-spec §Side chat "Answer
+ * protocol"): scan the reply's lines top-to-bottom for fenced ```answer
+ * blocks (opening fence = ≥3 backticks + info string EXACTLY `answer`,
+ * case-sensitive, trailing spaces OK; body; closing fence ≥3 backticks),
+ * take the LAST valid block — position-agnostic, trailing prose after it
+ * is fine, and last-block-wins is ABSOLUTE: a malformed last block yields
+ * "malformed-json" even when an earlier one was valid, NO fallback (the
+ * model's LATEST intent governs; silently applying a superseded earlier
+ * answer is the worst failure mode this parser exists to prevent) — then
+ * strict-JSON-parse its body and gate the shape.
+ *
+ * Shape gate (exact-key-set, never lenient): the parsed body must be a
+ * non-null non-array plain object with EXACTLY one own key — {value:
+ * string} or {text: string}. Arrays, null, scalars, both keys, extra keys
+ * ({"value":"x","why":"z"}) and non-string values ({"value":42}) are all
+ * "unknown-shape". JSON.parse is already strict (comments, trailing
+ * commas, single quotes all throw) — there is NO hand-rolled JSON
+ * sniffing; pretty-printed multi-line JSON parses fine.
+ *
+ * Matching: {value} must BYTE-MATCH (=== via Array.includes — no
+ * case-folding, no trimming, no normalization of any kind) an entry of
+ * `optionValues` (callers pass question.options.map(o => o.value)); an
+ * options-less (text) question passes [], so any value form mismatches —
+ * the empty array encodes the question type, and no question-type
+ * parameter exists by design. {text} is valid when trim() !== "" but is
+ * returned VERBATIM (" padded " stays " padded ") — the apply side
+ * (P1.M2.T6.S1) ships it byte-identically through the write-in seam;
+ * trimming here would corrupt provenance indistinguishability.
+ *
+ * Purity contract: arguments in → union out. No engine state, no record
+ * reads, no singleton, no time, no randomness — identical inputs give
+ * deep-identical outputs, and the module's ZERO-pi-imports rule
+ * (M3.T1 cache-isolation guard) holds by construction. The input is
+ * FROZEN text only (the engine's settle path — P1.M1.T5.S2 — freezes
+ * just completed replies into `record.messages`), so a partial stream
+ * structurally never reaches this parser; no completeness check exists
+ * or belongs here. Unterminated final block at EOF (a reply cut by
+ * stop=length mid-fence) is NOT "malformed-json" — it is not a block at
+ * all ⇒ "no-block"; the notice path handles it.
+ *
+ * Consumers: P1.M1.T6.S2 (ApplyDecision/pendingConfirm, invoked at the
+ * settle seam), P1.M2.T1.S2 (per-`AnswerBlockRejection` in-view notice),
+ * P1.M2.T6.S1 (confirm-row apply through the ordinary accept seams).
+ * Definition-only in the module set until T6.S2 lands.
+ *
+ * @param replyText the frozen text of ONE completed assistant reply.
+ * @param optionValues the target question's option values (byte-match
+ *   universe; [] = text question).
+ */
+export function parseAnswerBlock(
+  replyText: string,
+  optionValues: readonly string[],
+): ParsedAnswer {
+  // 1) Collect every valid block's body: open fence → body lines → close
+  //    fence. An unterminated block (EOF before a closing fence) is
+  //    discarded entirely — not a block, not malformed.
+  const lines = replyText.split("\n");
+  const bodies: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (ANSWER_OPEN_FENCE.test(lines[i])) {
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !ANSWER_CLOSE_FENCE.test(lines[i])) body.push(lines[i++]);
+      if (i < lines.length) bodies.push(body.join("\n")); // closed → valid; EOF → discarded
+    }
+    i++;
+  }
+
+  // 2) Zero valid blocks anywhere → no-block.
+  if (bodies.length === 0) return { kind: "none", reason: "no-block" };
+
+  // 3) The LAST block governs — absolute, no fallback to earlier blocks.
+  const last = bodies[bodies.length - 1];
+
+  // 4) Strict JSON — JSON.parse IS the validation layer; any throw is
+  //    malformed-json. (Single quotes, trailing commas, comments throw.)
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(last);
+  } catch {
+    return { kind: "none", reason: "malformed-json" };
+  }
+
+  // 5) Exact-key-set shape gate: non-null, non-array plain object whose
+  //    own keys are EXACTLY {value} or EXACTLY {text}, string-valued.
+  const isObj = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+  const keys = isObj ? Object.keys(parsed as Record<string, unknown>) : [];
+  const value = isObj ? (parsed as Record<string, unknown>)["value"] : undefined;
+  const text = isObj ? (parsed as Record<string, unknown>)["text"] : undefined;
+
+  // 6) {value: v} — byte-match against optionValues; === strictness IS the
+  //    feature ("Sqlite" ≠ "sqlite"; " sqlite" ≠ "sqlite").
+  if (keys.length === 1 && keys[0] === "value" && typeof value === "string") {
+    return optionValues.includes(value)
+      ? { kind: "value", value }
+      : { kind: "none", reason: "value-mismatch" };
+  }
+
+  // 7) {text: t} — validity checks trim(), the payload stays VERBATIM.
+  if (keys.length === 1 && keys[0] === "text" && typeof text === "string") {
+    return text.trim() !== "" ? { kind: "text", text } : { kind: "none", reason: "empty-text" };
+  }
+
+  // Everything else — arrays, scalars, null, empty object, both keys,
+  // extra keys, non-string values — is unknown-shape, never a lenient parse.
+  return { kind: "none", reason: "unknown-shape" };
 }
 
 /**

@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Engine + config (R1, R2) — rename/alias/new fields + UI-free sidechat.ts",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Key objective: the full key/config surface rename with silent compat alias and the two new side-chat config fields, plus the complete UI-free engine in src/panel/sidechat.ts — singleton store, one-shot branch snapshot, side-chat system prompt, nested LLM loop with abort, answer-block parser, usage tally — all unit-testable without any panel/view code.",
           "tasks": [
             {
@@ -231,14 +231,14 @@
               "type": "Task",
               "id": "P1.M1.T6",
               "title": "Answer-block parser and apply-decision contract",
-              "status": "Planned",
+              "status": "Researching",
               "description": "The SIDECHAT-004 parsing half: extract the LAST fenced ```answer block from a completed reply, strict-JSON + byte-match validation, and shape it into an ApplyDecision (acceptOptionIndex vs write-in seam) with the sideChatAutoApply confirm-bypass flag — pure, UI-free, consumed by the panel in M2.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T6.S1",
                   "title": "Parse the LAST fenced ```answer block (strict JSON, byte-match)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/architecture/sidechat-contracts.md §SIDECHAT-004 — LAST block in a COMPLETED reply (streaming partials never parse), strict JSON, choice values must BYTE-match an option value, malformed → in-view notice + chat stays open.\n2. INPUT: frozen assistant reply text from P1.M1.T5.S2 + the question's option value set (from the same state shapes the panel renders).\n3. LOGIC: `parseAnswerBlock(replyText, optionValues)`: find ALL fenced blocks whose info string is exactly `answer`; take the LAST; strict JSON.parse of the body; `{\"value\": v}` valid iff v byte-matches (===) an option value; `{\"text\": t}` valid for write-in/text questions (non-empty); anything else (missing block, malformed JSON, unknown shape, non-matching value) → `{kind:\"none\", reason}` where reason feeds the in-view notice (P1.M2.T1.S2). Pure function — no engine state. Tests: last-block-wins with multiple blocks; byte-match strictness (case/whitespace mismatch → none); malformed JSON → none+reason; empty text → none; valid value and valid text shapes.\n4. OUTPUT: ParsedAnswer union consumed by P1.M1.T6.S2.\n5. DOCS: none — pure internal function; the protocol text itself lives in the system prompt (P1.M1.T4.S2).",
@@ -253,7 +253,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T6.S2",
                   "title": "ApplyDecision contract and pendingConfirm state with autoApply bypass",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T6.S1",

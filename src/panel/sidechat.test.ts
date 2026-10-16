@@ -12,6 +12,7 @@ import {
   formatChatCloseNotice,
   get,
   openOrReplace,
+  parseAnswerBlock,
   resetChat,
   resetSidechatForTests,
   type ChatUsage,
@@ -247,5 +248,150 @@ describe("formatChatCloseNotice — spec-pinned close string (P1.M1.T5.S3)", () 
     expect(formatChatCloseNotice(u(123456, 0, 0))).toBe(
       "chat closed · 123.5K in · 0 out · $0.00",
     );
+  });
+});
+
+describe("parseAnswerBlock — SIDECHAT-004 answer-block parsing (P1.M1.T6.S1)", () => {
+  // Contract: sidechat-contracts.md §SIDECHAT-004 + ui-spec §Side chat
+  // "Answer protocol" — the LAST fenced ```answer block of a COMPLETED
+  // reply, strict JSON, exact-key shapes, byte-matched values. This parser
+  // is the strict inverse of the mirror prompt (sidechat-prompt.ts §"##
+  // Answer protocol"). Every rejection row asserts the FULL
+  // { kind: "none", reason } object (toEqual, never toMatchObject).
+
+  /** Wrap a JSON body in the canonical fenced block the mirror prompt teaches. */
+  const block = (body: string): string => "```answer\n" + body + "\n```";
+  const OPTIONS = ["postgres", "sqlite"] as const;
+
+  test("valid value shape: byte-matched option → {kind:'value', value}", () => {
+    expect(parseAnswerBlock('some prose\n' + block('{"value":"sqlite"}'), OPTIONS)).toEqual({
+      kind: "value",
+      value: "sqlite",
+    });
+  });
+
+  test("valid text shape: the write-in text IS the answer, carried as-is", () => {
+    expect(
+      parseAnswerBlock(block('{"text":"use streaming, but batch the writes"}'), OPTIONS),
+    ).toEqual({ kind: "text", text: "use streaming, but batch the writes" });
+  });
+
+  test("text is returned VERBATIM: validity checks trim(), the payload stays untrimmed", () => {
+    expect(parseAnswerBlock(block('{"text":" padded "}'), [])).toEqual({
+      kind: "text",
+      text: " padded ",
+    });
+  });
+
+  test("last-block-wins: two valid blocks with prose between → the LATER one", () => {
+    const reply = block('{"value":"a"}') + "\nactually, reconsidered:\n" + block('{"value":"b"}');
+    expect(parseAnswerBlock(reply, ["a", "b"])).toEqual({ kind: "value", value: "b" });
+  });
+
+  test("malformed LAST block: NO fallback to an earlier valid one — the latest intent governs", () => {
+    const reply = block('{"value":"a"}') + "\n" + block("{'value':'b'}");
+    expect(parseAnswerBlock(reply, ["a", "b"])).toEqual({
+      kind: "none",
+      reason: "malformed-json",
+    });
+  });
+
+  test("byte-match strictness: case or whitespace variants mismatch — no normalization anywhere", () => {
+    for (const v of ["Sqlite", " sqlite", "SQLITE"]) {
+      expect(parseAnswerBlock(block('{"value":"' + v + '"}'), ["sqlite"])).toEqual({
+        kind: "none",
+        reason: "value-mismatch",
+      });
+    }
+  });
+
+  test("malformed JSON: trailing comma and single quotes throw strict → malformed-json", () => {
+    expect(parseAnswerBlock(block('{"value":"x",}'), OPTIONS)).toEqual({
+      kind: "none",
+      reason: "malformed-json",
+    });
+    expect(parseAnswerBlock(block("{'value':'x'}"), OPTIONS)).toEqual({
+      kind: "none",
+      reason: "malformed-json",
+    });
+  });
+
+  test("unknown shapes: arrays, scalars, null, empty object, both keys, extra keys, non-string values", () => {
+    for (const body of [
+      "[]",
+      "42",
+      '"x"',
+      "null",
+      "{}",
+      '{"value":"x","text":"y"}',
+      '{"value":42}',
+      '{"value":"x","why":"z"}',
+    ]) {
+      expect(parseAnswerBlock(block(body), OPTIONS)).toEqual({
+        kind: "none",
+        reason: "unknown-shape",
+      });
+    }
+  });
+
+  test("empty or whitespace-only text → empty-text", () => {
+    expect(parseAnswerBlock(block('{"text":""}'), OPTIONS)).toEqual({
+      kind: "none",
+      reason: "empty-text",
+    });
+    expect(parseAnswerBlock(block('{"text":"   "}'), OPTIONS)).toEqual({
+      kind: "none",
+      reason: "empty-text",
+    });
+  });
+
+  test("no-block: no fence, or a fence that is not EXACTLY `answer` (wrong tag/case/suffix)", () => {
+    for (const reply of [
+      "just a plain reply, no block at all",
+      '```json\n{"value":"x"}\n```',
+      '```ANSWER\n{"value":"x"}\n```',
+      '```answer json\n{"value":"x"}\n```',
+    ]) {
+      expect(parseAnswerBlock(reply, OPTIONS)).toEqual({ kind: "none", reason: "no-block" });
+    }
+  });
+
+  test("unterminated block at EOF (reply cut mid-fence) is not a block → no-block", () => {
+    expect(parseAnswerBlock('done\n```answer\n{"value":"sqlite"}', OPTIONS)).toEqual({
+      kind: "none",
+      reason: "no-block",
+    });
+  });
+
+  test("fence tolerance: 4-backtick fences ARE blocks (close ≥3 suffices); trailing space after `answer` OK", () => {
+    expect(parseAnswerBlock('````answer\n{"value":"a"}\n````', ["a"])).toEqual({
+      kind: "value",
+      value: "a",
+    });
+    expect(parseAnswerBlock('```answer \n{"value":"a"}\n```', ["a"])).toEqual({
+      kind: "value",
+      value: "a",
+    });
+  });
+
+  test("text question (empty optionValues): any value form mismatches — no question-type param", () => {
+    expect(parseAnswerBlock(block('{"value":"x"}'), [])).toEqual({
+      kind: "none",
+      reason: "value-mismatch",
+    });
+  });
+
+  test("pretty-printed multi-line JSON body parses fine", () => {
+    expect(parseAnswerBlock(block('{"value":\n  "a"\n}'), ["a"])).toEqual({
+      kind: "value",
+      value: "a",
+    });
+  });
+
+  test("position-agnostic: trailing prose after the block does not disqualify it", () => {
+    expect(parseAnswerBlock(block('{"value":"a"}') + "\nHope this helps!", ["a"])).toEqual({
+      kind: "value",
+      value: "a",
+    });
   });
 });

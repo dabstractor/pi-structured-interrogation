@@ -93,6 +93,7 @@ import {
   openOrReplace as openSidechatRecord,
   resetChat,
   type ApplyDecision,
+  type ChatUsage,
   type SidechatRebindDeps,
 } from "./sidechat.js";
 import {
@@ -1863,24 +1864,56 @@ export class InterrogationPanel implements Component {
    * router, so it can never reach accept/saveTextDraft/writeInEnter — a
    * chat message is not an answer). Classification order:
    *
-   * 1. `classifyChatCommand` → `/clear` | `/new` → `resetChat(questionId,
-   *    chatRebindDeps)` — wholesale record replace (branch snapshot via the
-   *    deps seam). Without the deps seam the reset degrades to the graceful
+   * 1. `classifyChatCommand` → `/clear` | `/new` → BUG-005/BUG-007 (reset
+   *    half): abort the old record's in-flight stream FIRST (resetChat is
+   *    caller-owns-abort; the engine's abort() reaches only the LIVE
+   *    singleton, so the record's own controller is its last handle),
+   *    capture its usage BEFORE the reset eats it, `resetChat(questionId,
+   *    chatRebindDeps)` fresh on the CURRENT question, then notify the
+   *    close (`chat closed · …`) — the view stays open (ui-spec:114).
+   *    Notify policy: unconditional when a record existed (the onChat
+   *    replace policy, P1.M3.T1.S1 — zero-usage resets notify too); a
+   *    first-ever `/clear` (no record) destroys nothing and notifies
+   *    nothing. Without the deps seam the reset degrades to the graceful
    *    no-op the args document (the input still clears).
    * 2. else non-empty → `sidechatEngine.sendTurn(text)` — a `false` while
    *    already streaming is the engine's own guard; the input clears anyway
    *    (the esc rung aborts, it does not un-send).
    * 3. empty → consumed no-op.
    *
-   * The input clears on EVERY path. Chat paths never touch draftSlots, the
-   * DraftStore seam, or answer state (SIDECHAT-002 / S2.S1's invariant).
+   * The input clears on the command and empty paths; the send path clears
+   * as landed (// P1.M4.T1.S1: owns any BUG-006 refused-send preservation
+   * carve-out — scope that change to the else-branch, not this doc claim).
+   * Chat paths never touch draftSlots, the DraftStore seam, or answer state
+   * (SIDECHAT-002 / S2.S1's invariant).
    */
   private sendChatInput(): void {
     const text = this.chatField.getText();
     const command = classifyChatCommand(text);
     if (command !== null) {
       if (this.chatRebindDeps !== undefined) {
+        // BUG-005/BUG-007 (reset half): the slash reset replaces the record
+        // wholesale — abort the old record's in-flight stream FIRST
+        // (resetChat is caller-owns-abort and builds a NEW AbortController;
+        // the engine's abort() reaches only the LIVE singleton, so this is
+        // the old record's last handle), capture its usage BEFORE the reset
+        // eats it, then notify once. Mirrors the discard hook + onChat
+        // replace ordering (P1.M3.T1.S1); the aborted turn's settle no-ops
+        // via the liveness guard. The view stays open (ui-spec:114) — only
+        // abort + notice.
+        const record = getSidechatRecord();
+        let closedUsage: ChatUsage | undefined;
+        if (record !== undefined) {
+          if (record.streamState === "streaming") record.abortController.abort();
+          closedUsage = record.usage;
+        }
         resetChat(this.currentId ?? "", this.chatRebindDeps);
+        if (closedUsage !== undefined) {
+          // Zero-usage resets notify too — S1's unconditional policy
+          // (hook-consistent: the toast is the only feedback the previous
+          // chat existed). A first-ever /clear notifies nothing.
+          this.sidechatNotify?.(formatChatCloseNotice(closedUsage));
+        }
       }
     } else if (text.trim().length > 0) {
       this.sidechatEngine?.sendTurn(text); // refused while streaming — still consumed

@@ -144,7 +144,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Replace/reset stream ownership + usage-close notices (BUG-005 + BUG-007)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Both chat-destruction paths that bypass the terminal-status hook — wholesale replacement via onChat and the /clear·/new reset — must mirror the close-path ordering: abort the destroyed record's in-flight stream FIRST, then destroy, then fire the compact usage-close notice.",
           "tasks": [
             {
@@ -176,14 +176,14 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "/clear · /new: abort the in-flight stream before resetChat and notify its usage",
-              "status": "Ready",
+              "status": "Complete",
               "description": "The slash-command reset path has the same two defects: classifyChatCommand runs before any streaming check, so /clear mid-stream swaps the controller out from under the in-flight call (orphaning it identically), and the reset discards messages+usage with no close notice.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "Abort-before-reset + usage notice in sendChatInput's command branch",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-engine.md §BUG-005/§BUG-007 (verified firsthand). sendChatInput (src/panel/panel.ts ~1743-1766): the command branch calls resetChat(this.currentId ?? \"\", this.chatRebindDeps) — resetChat (sidechat.ts ~466-470) rebuilds fresh with a NEW AbortController and is explicitly caller-owns-abort; nothing aborts the old controller and nothing notifies. ui-spec.md:114 (slash hatches: 'discard all messages and usage and rebind fresh; the view stays open') and :118 (Usage & close: 'any close/discard notifies compactly') — the view staying open is unchanged; only abort + notice are added. P1.M3.T1.S1 establishes the identical ordering for the sibling replace path.\n2. INPUT: The mirrored ordering pattern from P1.M3.T1.S1 (not a hard data dependency — this subtask can land in parallel; follow the same policy decision for the zero-usage case for coherence).\n3. LOGIC: In sendChatInput's command branch, before resetChat: (1) const record = getSidechatRecord(); if (record !== undefined) { if (record.streamState === \"streaming\") record.abortController.abort(); } (2) capture record.usage; (3) resetChat(...); (4) this.sidechatNotify?.(formatChatCloseNotice(usage)) — applying the SAME zero-usage policy chosen in P1.M3.T1.S1. Keep 'the view stays open' and the input clearing on the command path. Tests: streaming on q3 with a captured signal + accumulated usage → type '/clear' + enter → old signal.aborted === true, record.messages empty, record.usage zeroed ({input:0,output:0,totalCost:0}), view still \"chat\", notify fired once with the humanized string; also '/new' alias parity.\n4. OUTPUT: The reset path aborts its orphans and announces cost; consumed by P1.M6.T1.\n5. DOCS: [Mode A] Update the sendChatInput doc comment (panel.ts ~1726-1742, 'The input clears on EVERY path' paragraph is P1.M4.T1.S1's to revise — coordinate so the final comment covers both changes coherently) and the slash-command branch. README §Side chat sync owned by P1.M6.T1.",
@@ -203,21 +203,21 @@
           "type": "Milestone",
           "id": "P1.M4",
           "title": "Input preservation + overview chat targeting (BUG-006 + BUG-004)",
-          "status": "Planned",
+          "status": "Researching",
           "description": "Two interaction-model corrections: typed chat input survives an enter pressed while a reply streams (draft-sacredness on the last unprotected text surface), and `e` in the overview opens the chat on the cursor row's question, not the background question.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M4.T1",
               "title": "Preserve typed chat input when sendTurn refuses",
-              "status": "Planned",
+              "status": "Ready",
               "description": "sendChatInput clears the buffer on every path, including the streaming-refusal path where nothing was sent — the typed follow-up silently vanishes. Keep the text when the engine refuses.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T1.S1",
                   "title": "Keep the buffer when sendTurn returns false (streaming refusal)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-engine.md §BUG-006 (verified firsthand). sendChatInput (src/panel/panel.ts ~1743-1766) calls this.sidechatEngine?.sendTurn(text) ignoring its boolean, then unconditionally this.chatField.setText(\"\"); the module doc says 'The input clears on EVERY path'. sendTurn returns false when the record is missing or streamState !== \"idle\" ('no queueing, no double-controller — the esc rung aborts instead', sidechat-engine.ts ~399-401). PRD fix: 'keep the text when sendTurn returns false'. Draft-sacredness authority: ui-spec commitment 6 / R4.\n2. INPUT: none from other subtasks. Note the interplay with P1.M1.T1.S1: a DECISION-bearing settle blurs the input (text preserved — blur never clears); a non-decision settle keeps focus so the user can keep typing; this subtask guarantees that typed text also survives a refused enter mid-stream.\n3. LOGIC: Capture the return: const sent = this.sidechatEngine?.sendTurn(text) ?? false; clear the buffer ONLY when sent (the command path still always clears — it was accepted by definition). Revise the doc comment: the input clears on every ACCEPTED path; a refused turn preserves the draft. Optional polish ONLY if a cheap existing seam exists (panel.flash): a transient 'reply in flight — esc aborts' flash on refusal — do not build new UI for it. Tests per PRD repro: open chat, send a message over a held-open streaming port; chatField.setText('follow-up question'); handleInput(\"\\r\") → chatField.getText() === 'follow-up question', record.messages has NO new user turn, streamState still 'streaming'; then let the port complete and re-press enter → the follow-up sends and the buffer clears.\n4. OUTPUT: The chat input honors draft-sacredness; consumed by P1.M6.T1.\n5. DOCS: [Mode A] Rewrite the sendChatInput doc comment (panel.ts ~1726-1742) — coordinate with P1.M3.T2.S1's comment update on the same function so the final text covers both. README §Side chat sync owned by P1.M6.T1.",
@@ -234,14 +234,14 @@
               "type": "Task",
               "id": "P1.M4.T2",
               "title": "Overview `e` opens the chat on the cursor row's question",
-              "status": "Planned",
+              "status": "Researching",
               "description": "In the overview the interaction model is cursor-row-centric (enter jumps to the cursor row), but the chat key binds to the background currentId. Route the chat dispatch to the cursor-row question, matching the prev/next overview-branch pattern.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T2.S1",
                   "title": "Cursor-row chat targeting: accessor + overview branch in the chat dispatch",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/keys-overview.md (dedicated research; CONFIRMED with exact lines). The chat dispatch (src/panel/keys.ts ~608-612) has NO overview branch while neighbors do — prev/next (keys.ts ~628-636): `if (panel.view === \"overview\") return overviewUp(panel);` — and enter jumps via overviewJump (overview.ts ~408-418) reading `const q = ordered[panel.overviewCursor]`. panel.overviewCursor is public (panel.ts:677); NO existing accessor for the cursor row's question id (grep verified 0 hits) — only the inline read at overview.ts:411. onChat (panel.ts ~1057-1066) binds `const qid = p.currentId`. No test pins which qid chat opens on from overview (keys.test.ts:405 'e dispatches in ${view}' spies onChat only); verify-keymap-conflicts.sh checks DEFAULT_CONFIG values only — an overview branch on keys.chat does not trip it; no-hardcoded-keys/keymap-guard are unaffected (chat remains config-driven b.chat). Spec is silent on overview chat targeting (ui-spec.md:112 'opens the chat view from any non-editor focus'); the overview convention (ui-spec.md:75-76) leans cursor-row.\n2. INPUT: none from other subtasks (the abort-before-replace from P1.M3.T1.S1 already protects the replace this makes easier to trigger — no hard dependency, but its tests cover the overview-route repro).\n3. LOGIC: Implement PRD h2.3/h3.3's preferred shape (target the cursor row; gating `e` out of the overview was the rejected alternative). (a) Add a small accessor mirroring overviewJump's read — e.g. an overview.ts export `overviewSelectedQuestionId(panel): string | undefined` returning panel.state.orderedQuestions()[panel.overviewCursor]?.id (or an equivalent panel method) — with a defensive undefined for an out-of-range cursor; (b) In onChat (panel.ts ~1058), resolve the target qid as: view === \"overview\" ? overviewSelectedQuestionId(panel) : panel.currentId, and return (consumed no-op) when undefined; chatReturnView still seeds from p.view (\"overview\") so esc returns to the overview. Do NOT touch currentId in the open path (applyChatAnswer already re-seeds it on apply — unchanged). Tests per PRD repro: panel on q1, `o`, ↓ to q2's row, `e` → getSidechat()?.questionId === 'q2' (not 'q1'); cursor on the LAST row edge; empty-state (no questions) → consumed no-op; existing keys.test.ts 'e dispatches' suite stays green.\n4. OUTPUT: Overview chat targeting matches the cursor-row interaction model; consumed by P1.M6.T1 (README §Keymap/§Side chat) and P1.M6.T1.S2 (the one genuinely new ui-spec clause this round: 'e targets the overview cursor row').\n5. DOCS: [Mode A] Update the chat-dispatch comment in keys.ts (~608-612) and the new accessor's JSDoc. README + ui-spec sync owned by P1.M6.T1 / P1.M6.T1.S2.",

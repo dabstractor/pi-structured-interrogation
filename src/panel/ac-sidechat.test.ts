@@ -69,6 +69,7 @@ import {
 } from "./panel.js";
 import {
   classifyChatCommand,
+  formatChatCloseNotice,
   get as getSidechat,
   resetSidechatForTests,
   type SidechatRebindDeps,
@@ -579,6 +580,127 @@ describe("AC-17.2 — two-turn exchange + /clear", () => {
     expect(record?.messages).toHaveLength(0); // messages discarded
     expect(record?.usage).toEqual({ input: 0, output: 0, totalCost: 0 }); // usage too
     expect(panel.view).toBe("chat"); // the view stays open
+  });
+
+  test("AC-17.2_slash_clear_aborts_stream_and_notifies_usage", async () => {
+    // BUG-005/BUG-007 (reset half): a held-open stream + accumulated usage.
+    const gate = gatedStream();
+    let captured: AbortSignal | undefined;
+    let call = 0;
+    const port: SidechatModelPort = vi.fn((_model, _ctx, opts) => {
+      call += 1;
+      captured = opts.signal;
+      if (call === 1) return doneStream("settled", { input: 10, output: 5, total: 0.07 });
+      return gate.stream; // the second turn is held open forever
+    });
+    const { panel, notify } = makeHarness({ focusQuestionId: "q3", port });
+    openChat(panel);
+
+    sendChat(panel, "first"); // settled turn → non-zero usage
+    await flush();
+    const preResetUsage = getSidechat()!.usage;
+    expect(preResetUsage).toEqual({ input: 10, output: 5, totalCost: 0.07 });
+
+    sendChat(panel, "second"); // held-open turn → streaming on a NEW controller
+    gate.push({ type: "start", partial: assistantReply("") });
+    gate.push({
+      type: "text_delta",
+      contentIndex: 0,
+      delta: "partial",
+      partial: assistantReply("partial"),
+    });
+    await flush();
+    expect(getSidechat()?.streamState).toBe("streaming");
+    const inFlightSignal = captured;
+    expect(inFlightSignal?.aborted).toBe(false);
+
+    sendChat(panel, "/clear"); // the fix: abort BEFORE reset, notify AFTER
+
+    expect(inFlightSignal?.aborted).toBe(true); // the OLD controller was aborted
+    const fresh = getSidechat();
+    expect(fresh?.questionId).toBe("q3"); // rebound to the current question
+    expect(fresh?.messages).toHaveLength(0);
+    expect(fresh?.usage).toEqual({ input: 0, output: 0, totalCost: 0 }); // zeroed
+    expect(fresh?.streamState).toBe("idle");
+    expect(panel.view).toBe("chat"); // the view stays open
+    expect(panel.chatField.getText()).toBe(""); // input cleared
+    // Exactly one notify, byte-exact via the same humanizer.
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(formatChatCloseNotice(preResetUsage));
+
+    // The orphaned settle no-ops via the liveness guard — no extra notify,
+    // the fresh record untouched.
+    gate.finishWith({
+      type: "error",
+      reason: "aborted",
+      error: assistantReply("partial"),
+    });
+    await flush();
+    expect(getSidechat()).toBe(fresh);
+    expect(fresh?.messages).toHaveLength(0);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  test("AC-17.2_slash_new_alias_parity", async () => {
+    // `/new` is the byte-exact first-token alias — identical semantics.
+    const gate = gatedStream();
+    let captured: AbortSignal | undefined;
+    let call = 0;
+    const port: SidechatModelPort = vi.fn((_model, _ctx, opts) => {
+      call += 1;
+      captured = opts.signal;
+      if (call === 1) return doneStream("settled", { input: 4, output: 2, total: 0.01 });
+      return gate.stream;
+    });
+    const { panel, notify } = makeHarness({ focusQuestionId: "q3", port });
+    openChat(panel);
+    sendChat(panel, "first");
+    await flush();
+    const preResetUsage = getSidechat()!.usage;
+
+    sendChat(panel, "second"); // held-open streaming turn
+    await flush();
+    expect(getSidechat()?.streamState).toBe("streaming");
+
+    sendChat(panel, "/new");
+
+    expect(captured?.aborted).toBe(true);
+    const fresh = getSidechat();
+    expect(fresh?.questionId).toBe("q3");
+    expect(fresh?.messages).toHaveLength(0);
+    expect(fresh?.usage).toEqual({ input: 0, output: 0, totalCost: 0 });
+    expect(panel.view).toBe("chat");
+    expect(panel.chatField.getText()).toBe("");
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(formatChatCloseNotice(preResetUsage));
+  });
+
+  test("AC-17.2_slash_clear_idle_no_abort_still_notifies", async () => {
+    // Idle record with usage: no abort path runs, the notify still fires
+    // (S1's unconditional-when-a-record-existed policy).
+    const { panel, notify } = makeHarness({
+      focusQuestionId: "q3",
+      port: (() => doneStream("ok", { input: 3, output: 1, total: 0 })) as unknown as SidechatModelPort,
+    });
+    openChat(panel);
+    sendChat(panel, "only turn");
+    await flush();
+    const record = getSidechat()!;
+    expect(record.streamState).toBe("idle");
+    const oldSignal = record.abortController.signal;
+    const preResetUsage = record.usage;
+
+    sendChat(panel, "/clear");
+
+    expect(oldSignal.aborted).toBe(false); // idle → no abort path taken
+    const fresh = getSidechat()!;
+    expect(fresh).not.toBe(record);
+    expect(fresh.questionId).toBe("q3");
+    expect(fresh.messages).toHaveLength(0);
+    expect(fresh.usage).toEqual({ input: 0, output: 0, totalCost: 0 });
+    expect(panel.view).toBe("chat");
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(formatChatCloseNotice(preResetUsage));
   });
 });
 

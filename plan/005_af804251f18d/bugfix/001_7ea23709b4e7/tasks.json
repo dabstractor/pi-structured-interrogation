@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Settle-blur and empty-buffer enter routing for the confirm row",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Two complementary fixes at the panel's input-routing seam: (a) blur the chat input when a settle produces a pendingConfirm so the existing focus!==\"chat\" confirm-row routing becomes live in the default post-send state; (b) belt-and-braces — an empty/whitespace-only-buffer enter in chat focus routes to the pending confirm instead of no-oping, so the gesture is structurally unreachable-dead even if the user re-focuses the input.",
               "subtasks": [
                 {
@@ -40,7 +40,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Route empty-buffer chat-focus enter to the pending confirm",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

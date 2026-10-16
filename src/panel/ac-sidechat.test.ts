@@ -981,3 +981,103 @@ describe("AC-17.8 — streaming abort and non-commands", () => {
     expect(record?.messages[1]).toMatchObject({ role: "assistant", text: "noted" });
   });
 });
+
+// ------ chat-focus empty-buffer enter routes to the pending confirm (BUG-001 residual)
+
+describe("chat-focus empty-buffer enter routes to the pending confirm (BUG-001 residual)", () => {
+  test("test_chat_focus_empty_enter_applies_pending_confirm", async () => {
+    // The RESIDUAL the settle-blur (S1) cannot cover: the user re-focuses
+    // the chat input to keep chatting, then presses enter on the (empty)
+    // buffer while a confirm is pending. The apply seam fires — never a
+    // sendTurn (sendChatInput would no-op on the empty buffer anyway).
+    const port = convergePort();
+    const chat = makeHarness({ focusQuestionId: "q3", port });
+    seedTransition(chat.state);
+    openChat(chat.panel);
+    sendChat(chat.panel, "converge please");
+    await flush(); // settle → parse → pendingConfirm
+    expect(getSidechat()?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
+    await flush(); // queued settle fire: decision blur (S1)
+    expect(chat.panel.focus).toBe("options");
+
+    chat.panel.focusChatInput(); // re-focus — the state this subtask fixes
+    expect(chat.panel.focus).toBe("chat");
+    const turnsBefore = (port as Mock).mock.calls.length;
+    chat.panel.handleInput(ENTER); // empty buffer → apply, never sendChatInput
+    await flush();
+
+    expect(chat.state.getQuestion("q3")?.answer?.value).toBe("sqlite"); // applied
+    expect(chat.state.getQuestion("q3")?.status).toBe("submitted"); // auto-submit flushed
+    expect(getSidechat()).toBeUndefined(); // record discarded
+    expect(chat.panel.view).toBe("short");
+    expect(chat.notify).toHaveBeenCalledWith("chat closed · 10 in · 5 out · $0.07");
+    expect(chat.delivery.sendMessage).toHaveBeenCalledTimes(1); // auto-submit, not a turn
+    expect((port as Mock).mock.calls.length).toBe(turnsBefore); // sendTurn NOT called again
+  });
+
+  test("test_chat_focus_real_text_enter_still_sends_message", async () => {
+    // Real text ALWAYS wins: the message ships and the confirm stays
+    // pending for the options-focus row / a later empty-buffer enter.
+    const port = convergePort();
+    const chat = makeHarness({ focusQuestionId: "q3", port });
+    seedTransition(chat.state);
+    openChat(chat.panel);
+    sendChat(chat.panel, "converge please");
+    await flush();
+    await flush(); // decision blur done; confirm pending
+    expect(getSidechat()?.pendingConfirm).toBeDefined();
+
+    chat.panel.focusChatInput();
+    const turnsBefore = (port as Mock).mock.calls.length;
+    sendChat(chat.panel, "another thought"); // real text + enter
+    await flush(); // the "ok" reply settles
+
+    expect((port as Mock).mock.calls.length).toBe(turnsBefore + 1); // turn dispatched
+    // The message-first guarantee: nothing was APPLIED while the message
+    // shipped. (The confirm itself is gone per the engine's pinned supersede
+    // semantics — a reply without an applicable block RETRACTS an earlier
+    // offer; the model's LATEST reply governs.)
+    expect(chat.panel.view).toBe("chat");
+    expect(chat.panel.focus).toBe("chat");
+    expect(chat.state.getQuestion("q3")?.answer).toBeUndefined(); // not applied
+  });
+
+  test("test_chat_focus_whitespace_enter_applies_pending_confirm", async () => {
+    // Whitespace-only is not a message (sendChatInput no-ops on it too) —
+    // it routes to the confirm exactly like the empty buffer.
+    const chat = makeHarness({ focusQuestionId: "q3", port: convergePort() });
+    seedTransition(chat.state);
+    openChat(chat.panel);
+    sendChat(chat.panel, "converge please");
+    await flush();
+    await flush();
+
+    chat.panel.focusChatInput();
+    chat.panel.chatField.setText("   ");
+    chat.panel.handleInput(ENTER);
+    await flush();
+
+    expect(chat.state.getQuestion("q3")?.answer?.value).toBe("sqlite"); // applied
+    expect(getSidechat()).toBeUndefined();
+    expect(chat.panel.view).toBe("short");
+  });
+
+  test("test_chat_focus_empty_enter_without_pending_is_consumed_noop", async () => {
+    // No pending confirm → today's behavior byte-identical: the enter is a
+    // consumed no-op (sendChatInput's trim-empty classification), nothing
+    // sent, nothing applied, no throw (the seam is never even reached).
+    const chat = makeHarness({ focusQuestionId: "q3" }); // default port: plain "ok" replies
+    openChat(chat.panel);
+    sendChat(chat.panel, "hello");
+    await flush(); // settle: no answer block → no pendingConfirm, no blur
+    expect(getSidechat()?.pendingConfirm).toBeUndefined();
+    expect(chat.panel.focus).toBe("chat"); // no decision → no settle blur
+
+    chat.panel.focusChatInput(); // explicit refocus (the residual shape)
+    expect(chat.panel.handleInput(ENTER)).toBe(true); // consumed
+    await flush(); // any accidental turn would settle here
+    expect(getSidechat()?.messages).toHaveLength(2); // user + the settled "ok" — the no-op sent nothing new
+    expect(chat.panel.view).toBe("chat");
+    expect(chat.state.getQuestion("q3")?.answer).toBeUndefined();
+  });
+});

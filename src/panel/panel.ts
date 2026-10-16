@@ -1294,8 +1294,18 @@ export class InterrogationPanel implements Component {
     // sendTurn; empty → no-op). It must NEVER fall through to
     // accept/saveTextDraft/writeInEnter — a chat message is not an answer.
     // The "\n" newline byte is NOT enter (same guard as the duty branches
-    // above).
+    // above). BUG-001 residual (P1.M1.T1.S2): with a pending confirm and a
+    // trim-empty buffer, enter APPLIES — sendChatInput would no-op on the
+    // empty buffer anyway, so the confirm row's advertised gesture is never
+    // dead in ANY focus state (S1's settle-blur covers the natural flow;
+    // this covers the re-focused-input case). Real text still routes to
+    // sendChatInput — the message ships first; the confirm stays pending.
     if (this.focus === "chat" && enter) {
+      const pending = getSidechatRecord()?.pendingConfirm;
+      if (pending !== undefined && this.chatField.getText().trim() === "") {
+        this.onApplyConfirm?.(pending);
+        return true;
+      }
       this.sendChatInput();
       return true;
     }

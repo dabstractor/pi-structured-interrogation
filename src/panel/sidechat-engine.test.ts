@@ -25,6 +25,7 @@ import {
   type Model,
 } from "@earendil-works/pi-ai";
 import type { InterrogatorConfig } from "../config.js";
+import type { Question } from "../state.js";
 import {
   createSidechatEngine,
   modelSnapshotFromModel,
@@ -872,5 +873,144 @@ describe("createSidechatEngine — usage tally & close notice (T5.S3)", () => {
     expect(replacement.messages).toEqual([]);
     expect(replacement.streamState).toBe("idle"); // the live record never saw the turn
     expect(get()).toBe(replacement);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Freeze-site answer settle (P1.M1.T6.S2, SIDECHAT-004). Mode A contract:
+// panel-view-integration.md §Open/replace/discard — the engine produces a
+// decision (ApplyDecision + record.pendingConfirm) at the ONE freeze site
+// (after the usage tally, from the frozen row's text) and never routes it
+// into an apply seam; the panel's single routing consumer (P1.M2.T6.S1)
+// binds answerContext/onAutoApply at engine creation. Both deps are
+// OPTIONAL: absent deps = pre-T6.S2 behavior, byte-identical.
+
+/** The settled question (P1.M1.T6.S2 rows): recommendation makes the DISPLAY
+ * order [sqlite, postgres] — decision indexes speak display positions. */
+const applyQuestion: Question = {
+  id: "q1",
+  rev: 1,
+  status: "open",
+  prompt: "which store?",
+  type: "choice",
+  options: [
+    { value: "postgres", label: "Postgres" },
+    { value: "sqlite", label: "SQLite" },
+  ],
+  recommendation: "sqlite",
+};
+
+/** A completed reply carrying one valid ```answer block (value sqlite). */
+const blockReply = "Reasoning first.\n```answer\n{\"value\":\"sqlite\"}\n```";
+
+describe("createSidechatEngine — freeze-site answer settle (P1.M1.T6.S2, SIDECHAT-004)", () => {
+  test("manual mode: a completed reply with a valid block sets record.pendingConfirm to the display-indexed decision", async () => {
+    openOrReplace("q1", rebindDeps());
+    const answerContext = vi.fn(() => ({ question: applyQuestion, autoApply: false }));
+    const engine = engineOverRecord({
+      port: fakePort(() => doneStream(blockReply)),
+      answerContext,
+    });
+    expect(engine.sendTurn("which store?")).toBe(true);
+    await flush();
+    const record = get()!;
+    expect(answerContext).toHaveBeenCalledTimes(1);
+    expect(answerContext).toHaveBeenCalledWith("q1"); // the record's questionId
+    // D-R13 display order: recommended sqlite is display position 0.
+    expect(record.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
+    // Settled from the FROZEN row's text — identical to what was pushed.
+    expect(record.messages.at(-1)).toMatchObject({ role: "assistant", text: blockReply });
+    expect(record.streamState).toBe("idle");
+  });
+
+  test("autoApply: onAutoApply fires EXACTLY once with the decision and pendingConfirm stays absent", async () => {
+    openOrReplace("q1", rebindDeps());
+    const onAutoApply = vi.fn();
+    const engine = engineOverRecord({
+      port: fakePort(() => doneStream(blockReply)),
+      answerContext: vi.fn(() => ({ question: applyQuestion, autoApply: true })),
+      onAutoApply,
+    });
+    expect(engine.sendTurn("which store?")).toBe(true);
+    await flush();
+    expect(onAutoApply).toHaveBeenCalledTimes(1);
+    expect(onAutoApply).toHaveBeenCalledWith({ seam: "acceptOptionIndex", optionIndex: 0 });
+    expect(get()!.pendingConfirm).toBeUndefined(); // bypass — no confirm state ever exists
+    expect(get()!.streamState).toBe("idle");
+  });
+
+  test("autoApply with NO onAutoApply dep: safe no-op — the decision evaporates, nothing throws", async () => {
+    openOrReplace("q1", rebindDeps());
+    const engine = engineOverRecord({
+      port: fakePort(() => doneStream(blockReply)),
+      answerContext: vi.fn(() => ({ question: applyQuestion, autoApply: true })),
+      // no onAutoApply — the panel binds it later (P1.M2.T6.S1)
+    });
+    expect(engine.sendTurn("which store?")).toBe(true);
+    await flush();
+    const record = get()!;
+    expect(record.pendingConfirm).toBeUndefined();
+    expect(record.streamState).toBe("idle");
+    expect(record.notices).toEqual([]);
+  });
+
+  test("no answerContext dep at all: nothing settles, pendingConfirm never set (pre-T6.S2 behavior byte-identical)", async () => {
+    openOrReplace("q1", rebindDeps());
+    const engine = engineOverRecord({ port: fakePort(() => doneStream(blockReply)) });
+    expect(engine.sendTurn("which store?")).toBe(true);
+    await flush();
+    const record = get()!;
+    expect(record.pendingConfirm).toBeUndefined();
+    // The reply itself still froze + tallied exactly as T5 landed.
+    expect(record.messages).toEqual([
+      { role: "user", text: "which store?", at: expect.any(String) },
+      { role: "assistant", text: blockReply, at: expect.any(String), stopReason: "stop" },
+    ]);
+    expect(record.usage).toEqual({ input: 1, output: 2, totalCost: 0 });
+  });
+
+  test("stale question (answerContext returns undefined): no settle, no throw, pendingConfirm untouched", async () => {
+    openOrReplace("q1", rebindDeps());
+    const prior = { seam: "writeIn", text: "prior draft" } as const;
+    get()!.pendingConfirm = prior; // an earlier reply's confirm state
+    const answerContext = vi.fn(() => undefined); // unknown/stale questionId
+    const engine = engineOverRecord({
+      port: fakePort(() => doneStream(blockReply)),
+      answerContext,
+    });
+    expect(engine.sendTurn("which store?")).toBe(true);
+    await flush();
+    expect(answerContext).toHaveBeenCalledWith("q1"); // consulted, declined
+    const record = get()!;
+    expect(record.pendingConfirm).toBe(prior); // byte-identical object — untouched
+    expect(record.streamState).toBe("idle");
+    expect(record.notices).toEqual([]);
+  });
+
+  test("aborted turn: full rollback leaves a prior manual pendingConfirm INTACT (a settle never ran)", async () => {
+    openOrReplace("q1", rebindDeps());
+    const prior = { seam: "acceptOptionIndex", optionIndex: 1 } as const;
+    get()!.pendingConfirm = prior;
+    const answerContext = vi.fn(() => ({ question: applyQuestion, autoApply: false }));
+    const stream = createAssistantMessageEventStream();
+    const engine = engineOverRecord({
+      port: fakePort(() => stream),
+      answerContext,
+    });
+    expect(engine.sendTurn("which store?")).toBe(true);
+    engine.abort(); // esc mid-stream signals the live controller
+    stream.push({
+      type: "error",
+      reason: "aborted",
+      error: fakeAssistantMessage({ text: "partial", stopReason: "aborted" }),
+    });
+    stream.end();
+    await flush();
+    expect(answerContext).not.toHaveBeenCalled(); // the aborted turn never settled
+    const record = get()!;
+    expect(record.messages).toEqual([]); // "the turn never happened"
+    expect(record.pendingConfirm).toBe(prior); // earlier reply's confirm survives
+    expect(record.streamingText).toBe("");
+    expect(record.streamState).toBe("idle");
   });
 });

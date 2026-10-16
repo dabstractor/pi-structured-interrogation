@@ -38,9 +38,12 @@
  *
  * Wiring boundaries: the production port binding (streamSimplePort) is
  * exported but UNWIRED — the open path is P1.M2.T4.S1, sendTurn/abort key
- * routing is P1.M2.T3.S1. Usage tallying is T5.S3; answer-block parsing is
- * T6.S1; mid-stream close hooks call abort() through this exact seam
- * (P1.M2.T5.S1).
+ * routing is P1.M2.T3.S1. Usage tallying is T5.S3; the answer settle
+ * (SIDECHAT-004, P1.M1.T6.S2) runs at the same freeze site through the
+ * OPTIONAL answerContext/onAutoApply deps — the engine produces a decision
+ * (ApplyDecision + record.pendingConfirm) and never touches an apply seam
+ * itself; the panel routes it (P1.M2.T6.S1). Mid-stream close hooks call
+ * abort() through this exact seam (P1.M2.T5.S1).
  */
 import { randomUUID } from "node:crypto";
 import type {
@@ -58,9 +61,12 @@ import type {
 // M3.T1 guard).
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { InterrogatorConfig } from "../config.js";
+import type { Question } from "../state.js";
 import type { BranchSnapshotMessages } from "./branch-snapshot.js";
 import {
   get as getRecord,
+  settleApplyDecision,
+  type ApplyDecision,
   type ChatMessage,
   type ChatStopReason,
   type ModelSnapshot,
@@ -84,12 +90,34 @@ export interface SidechatRegistryPort {
   getAvailable(): Model<Api>[];
 }
 
+/** Everything the freeze-site answer settle needs (SIDECHAT-004,
+ * P1.M1.T6.S2), resolved by the panel binder (P1.M2.T6.S1) per question:
+ * the live Question (its options feed the byte-match universe and the D-R13
+ * display order) and the sideChatAutoApply flag — INJECTED, never read from
+ * config inside the engine (injected-port testability rule; the value
+ * module's zero-pi wall stays load-bearing). */
+export interface SidechatAnswerContext {
+  question: Question;
+  autoApply: boolean;
+}
+
 /** Injection bag for {@link createSidechatEngine} — everything ctx-flavored
  * arrives here, keeping the engine unit-testable and M3.T1-guard-clean. */
 export interface SidechatEngineDeps {
   port: SidechatModelPort;
   registry: SidechatRegistryPort;
   notify: (message: string) => void;
+  /** SIDECHAT-004 answer settle seam (P1.M1.T6.S2): called with the
+   * record's questionId at the freeze site; returning undefined = unknown/
+   * stale question → the settle is skipped (no decision, no state change,
+   * no throw). OPTIONAL — absent = pre-T6.S2 behavior, byte-identical. */
+  answerContext?: (questionId: string) => SidechatAnswerContext | undefined;
+  /** Fired at the freeze site IFF a decision was produced AND autoApply is
+   * on — the "immediately-applyable" exposure the panel's single routing
+   * consumer (P1.M2.T6.S1) binds. NEVER fires under manual mode:
+   * record.pendingConfirm is manual mode's exposure. OPTIONAL — absent +
+   * autoApply = the decision evaporates safely (documented no-op). */
+  onAutoApply?: (decision: ApplyDecision) => void;
 }
 
 /**
@@ -272,9 +300,12 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
       // (rolled back above), error (returned above) and replaced/dead
       // records (guard returned) contribute zero BY CONSTRUCTION — no
       // compensation logic exists or belongs anywhere (SIDECHAT-005).
+      // frozenText is captured ONCE: the frozen row AND the answer settle
+      // (below) read the SAME string, byte-identical (SIDECHAT-004).
+      const frozenText = joinTextParts(message.content);
       record.messages.push({
         role: "assistant",
-        text: joinTextParts(message.content),
+        text: frozenText,
         at: new Date().toISOString(),
         stopReason: stopReason as ChatStopReason,
       });
@@ -285,6 +316,26 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
       record.usage.input += message.usage.input;
       record.usage.output += message.usage.output;
       record.usage.totalCost += message.usage.cost.total;
+      // Answer settle (SIDECHAT-004, P1.M1.T6.S2): the completed reply may
+      // carry an applicable ```answer block — settle it into an
+      // ApplyDecision + pendingConfirm bookkeeping. BOTH deps are OPTIONAL:
+      // no answerContext (or an unknown/stale questionId) = a no-op — the
+      // record is untouched; onAutoApply fires ONLY under
+      // (decision && autoApply) — the engine itself never routes the
+      // decision into an apply seam ("the engine produces a decision, the
+      // panel routes it", panel-view-integration.md §Open/replace/discard;
+      // the single routing consumer is P1.M2.T6.S1). Consumed from the
+      // frozen row's text ONLY — never the transcript, never the display
+      // buffer.
+      if (deps.answerContext !== undefined) {
+        const ctx = deps.answerContext(record.questionId);
+        if (ctx !== undefined) {
+          const decision = settleApplyDecision(record, frozenText, ctx.question, ctx.autoApply);
+          if (decision !== undefined && ctx.autoApply && deps.onAutoApply !== undefined) {
+            deps.onAutoApply(decision);
+          }
+        }
+      }
     }
   }
 

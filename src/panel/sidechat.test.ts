@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   classifyChatCommand,
+  clearPendingConfirm,
   discard,
   formatChatCloseNotice,
   get,
@@ -15,9 +16,12 @@ import {
   parseAnswerBlock,
   resetChat,
   resetSidechatForTests,
+  settleApplyDecision,
+  toApplyDecision,
   type ChatUsage,
   type SidechatRebindDeps,
 } from "./sidechat.js";
+import type { Question } from "../state.js";
 
 let seq = 0;
 
@@ -393,5 +397,209 @@ describe("parseAnswerBlock — SIDECHAT-004 answer-block parsing (P1.M1.T6.S1)",
       kind: "value",
       value: "a",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ApplyDecision contract (P1.M1.T6.S2, SIDECHAT-004). Mode A contract:
+// sidechat-contracts.md §SIDECHAT-004 + panel-view-integration.md
+// §Open/replace/discard — a reply's applicable answer block becomes a
+// routing-ready decision NAMING the ordinary apply seam (display-indexed
+// option accept, or verbatim write-in); the store only PRODUCES decisions
+// and maintains record.pendingConfirm — it never routes one (the panel's
+// single routing consumer, P1.M2.T6.S1, does). The display-order mirror
+// (recommended-first) is pinned here against short-view.ts displayOptions,
+// the authority this module cannot import (zero-pi wall).
+
+/** Choice question literal: options [postgres, sqlite, memory], no
+ * recommendation unless overridden — only the fields the decision path
+ * reads (state.ts Question, pi-free). */
+function choiceQuestion(overrides?: Partial<Question>): Question {
+  return {
+    id: "q.choice",
+    rev: 1,
+    status: "open",
+    prompt: "pick one",
+    type: "choice",
+    options: [
+      { value: "postgres", label: "Postgres" },
+      { value: "sqlite", label: "SQLite" },
+      { value: "memory", label: "In-memory" },
+    ],
+    ...overrides,
+  };
+}
+
+/** Text question literal — options deliberately ABSENT (the shape that must
+ * never hit a bare .map). */
+function textQuestion(overrides?: Partial<Question>): Question {
+  return { id: "q.text", rev: 1, status: "open", prompt: "describe it", type: "text", ...overrides };
+}
+
+/** [postgres, sqlite] question — the settle rows' two-option target. */
+function twoOptionQuestion(): Question {
+  return choiceQuestion({
+    id: "q1",
+    options: [
+      { value: "postgres", label: "Postgres" },
+      { value: "sqlite", label: "SQLite" },
+    ],
+  });
+}
+
+describe("toApplyDecision / settleApplyDecision — ApplyDecision contract, pendingConfirm, autoApply bypass (SIDECHAT-004, P1.M1.T6.S2)", () => {
+  test("value → DISPLAY index without a recommendation: state order IS display order", () => {
+    const q = choiceQuestion();
+    expect(toApplyDecision({ kind: "value", value: "postgres" }, q)).toEqual({
+      seam: "acceptOptionIndex",
+      optionIndex: 0,
+    });
+    expect(toApplyDecision({ kind: "value", value: "sqlite" }, q)).toEqual({
+      seam: "acceptOptionIndex",
+      optionIndex: 1,
+    });
+    expect(toApplyDecision({ kind: "value", value: "memory" }, q)).toEqual({
+      seam: "acceptOptionIndex",
+      optionIndex: 2,
+    });
+  });
+
+  test("value → DISPLAY index WITH a recommendation: recommended first, rest keep state order (D-R13 reorder pin)", () => {
+    const q = choiceQuestion({ recommendation: "memory" });
+    expect(toApplyDecision({ kind: "value", value: "memory" }, q)).toEqual({
+      seam: "acceptOptionIndex",
+      optionIndex: 0,
+    });
+    expect(toApplyDecision({ kind: "value", value: "postgres" }, q)).toEqual({
+      seam: "acceptOptionIndex",
+      optionIndex: 1,
+    });
+    expect(toApplyDecision({ kind: "value", value: "sqlite" }, q)).toEqual({
+      seam: "acceptOptionIndex",
+      optionIndex: 2,
+    });
+  });
+
+  test("dangling recommendation (byte-matches no option value) does NOT reorder (displayOptions guard mirrored)", () => {
+    const q = choiceQuestion({ recommendation: "no-such-value" });
+    expect(toApplyDecision({ kind: "value", value: "postgres" }, q)).toEqual({
+      seam: "acceptOptionIndex",
+      optionIndex: 0,
+    });
+    expect(toApplyDecision({ kind: "value", value: "sqlite" }, q)).toEqual({
+      seam: "acceptOptionIndex",
+      optionIndex: 1,
+    });
+    expect(toApplyDecision({ kind: "value", value: "memory" }, q)).toEqual({
+      seam: "acceptOptionIndex",
+      optionIndex: 2,
+    });
+  });
+
+  test("text → writeIn carrying the text VERBATIM — surrounding whitespace survives untouched", () => {
+    expect(toApplyDecision({ kind: "text", text: " padded " }, textQuestion())).toEqual({
+      seam: "writeIn",
+      text: " padded ",
+    });
+  });
+
+  test("kind none (every reason) → undefined — the in-view notice path owns it, never a decision", () => {
+    const reasons = [
+      "no-block",
+      "malformed-json",
+      "unknown-shape",
+      "value-mismatch",
+      "empty-text",
+    ] as const;
+    for (const reason of reasons) {
+      expect(toApplyDecision({ kind: "none", reason }, choiceQuestion())).toBeUndefined();
+    }
+  });
+
+  test("defensive: a value outside the display universe → undefined, never a wrong-row decision", () => {
+    expect(toApplyDecision({ kind: "value", value: "zzz" }, choiceQuestion())).toBeUndefined();
+  });
+
+  test("settle manual: returns the decision AND sets record.pendingConfirm to the same decision", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    const decision = settleApplyDecision(
+      record,
+      '```answer\n{"value":"sqlite"}\n```',
+      twoOptionQuestion(),
+      false,
+    );
+    expect(decision).toEqual({ seam: "acceptOptionIndex", optionIndex: 1 });
+    expect(record.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 1 });
+  });
+
+  test("settle autoApply: returns the decision but pendingConfirm stays absent (bypass — no confirm state ever)", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    const decision = settleApplyDecision(
+      record,
+      '```answer\n{"value":"sqlite"}\n```',
+      twoOptionQuestion(),
+      true,
+    );
+    expect(decision).toEqual({ seam: "acceptOptionIndex", optionIndex: 1 });
+    expect(record.pendingConfirm).toBeUndefined();
+  });
+
+  test("settle writeIn on a text question (options undefined): verbatim decision, pendingConfirm set under manual", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    const decision = settleApplyDecision(
+      record,
+      '```answer\n{"text":"use streaming"}\n```',
+      textQuestion({ id: "q1" }),
+      false,
+    );
+    expect(decision).toEqual({ seam: "writeIn", text: "use streaming" });
+    expect(record.pendingConfirm).toEqual({ seam: "writeIn", text: "use streaming" });
+  });
+
+  test("supersede: a later reply with no applicable block CLEARS a prior pendingConfirm (latest reply governs)", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    const q = twoOptionQuestion();
+    expect(settleApplyDecision(record, '```answer\n{"value":"sqlite"}\n```', q, false)).toBeDefined();
+    expect(record.pendingConfirm).toBeDefined();
+    expect(
+      settleApplyDecision(record, "actually, on reflection — see my note above", q, false),
+    ).toBeUndefined();
+    expect(record.pendingConfirm).toBeUndefined();
+  });
+
+  test("decline: clearPendingConfirm clears the field and nothing else on the record", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    settleApplyDecision(record, '```answer\n{"value":"sqlite"}\n```', twoOptionQuestion(), false);
+    expect(record.pendingConfirm).toBeDefined();
+    clearPendingConfirm(record);
+    expect(record.pendingConfirm).toBeUndefined();
+    expect(record.messages).toEqual([]); // chat content untouched — esc keeps the chat open
+    expect(record.questionId).toBe("q1");
+  });
+
+  test("lifecycle: resetChat rebuilds WITHOUT confirm state; discard removes the record (it dies with it)", () => {
+    const opened = openOrReplace("q1", fakeDeps());
+    settleApplyDecision(opened, '```answer\n{"value":"sqlite"}\n```', twoOptionQuestion(), false);
+    expect(opened.pendingConfirm).toBeDefined();
+    const fresh = resetChat("q1", fakeDeps());
+    expect(fresh.pendingConfirm).toBeUndefined();
+    settleApplyDecision(fresh, '```answer\n{"value":"sqlite"}\n```', twoOptionQuestion(), false);
+    expect(fresh.pendingConfirm).toBeDefined();
+    discard();
+    expect(get()).toBeUndefined();
+  });
+
+  test("purity: identical inputs give identical outputs across repeated settles (idempotent per state)", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    const q = twoOptionQuestion();
+    const first = settleApplyDecision(record, '```answer\n{"value":"sqlite"}\n```', q, false);
+    const second = settleApplyDecision(record, '```answer\n{"value":"sqlite"}\n```', q, false);
+    expect(second).toEqual(first);
+    expect(record.pendingConfirm).toEqual(first);
+    // No-decision settles converge too (aborted turns never settle — engine
+    // contract — so an earlier pendingConfirm survives them; that row lives
+    // in the engine suite).
+    expect(settleApplyDecision(record, "no block here", q, false)).toBeUndefined();
+    expect(record.pendingConfirm).toBeUndefined();
   });
 });

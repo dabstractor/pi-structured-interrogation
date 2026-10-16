@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Engine + config (R1, R2) — rename/alias/new fields + UI-free sidechat.ts",
-          "status": "Researching",
+          "status": "Complete",
           "description": "Key objective: the full key/config surface rename with silent compat alias and the two new side-chat config fields, plus the complete UI-free engine in src/panel/sidechat.ts — singleton store, one-shot branch snapshot, side-chat system prompt, nested LLM loop with abort, answer-block parser, usage tally — all unit-testable without any panel/view code.",
           "tasks": [
             {
@@ -231,7 +231,7 @@
               "type": "Task",
               "id": "P1.M1.T6",
               "title": "Answer-block parser and apply-decision contract",
-              "status": "Researching",
+              "status": "Complete",
               "description": "The SIDECHAT-004 parsing half: extract the LAST fenced ```answer block from a completed reply, strict-JSON + byte-match validation, and shape it into an ApplyDecision (acceptOptionIndex vs write-in seam) with the sideChatAutoApply confirm-bypass flag — pure, UI-free, consumed by the panel in M2.",
               "subtasks": [
                 {
@@ -253,7 +253,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T6.S2",
                   "title": "ApplyDecision contract and pendingConfirm state with autoApply bypass",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T6.S1",
@@ -288,7 +288,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Header, transcript, scroll window, footer, render budget",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S1",

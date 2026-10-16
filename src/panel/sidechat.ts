@@ -72,15 +72,24 @@
  * (the deps bag is their injection seam), M2.T4.S1 open path,
  * M2.T5.S1 discard hooks (fire `formatChatCloseNotice(record.usage)` on
  * every close/discard path). `ChatStreamState` is open to extension by
- * T5.S2 (finer states) — never narrowed.
+ * T5.S2 (finer states) — never narrowed. T6.S2 adds the answer settle
+ * (`settleApplyDecision`/`clearPendingConfirm`): the store PRODUCES
+ * `ApplyDecision`s and maintains `record.pendingConfirm` — it never routes
+ * a decision into an apply seam itself; the panel's single routing consumer
+ * (P1.M2.T6.S1) does ("the engine produces a decision, the panel routes
+ * it", panel-view-integration.md §Open/replace/discard).
  *
  * Answer protocol (SIDECHAT-004): `parseAnswerBlock` (P1.M1.T6.S1) is the
  * pure parser of a COMPLETED reply's fenced ```answer blocks — its
  * `ParsedAnswer`/`AnswerBlockRejection` unions are consumed by
  * P1.M1.T6.S2 (ApplyDecision/pendingConfirm at the settle seam),
  * P1.M2.T1.S2 (the per-reason in-view notice) and P1.M2.T6.S1 (apply
- * through the ordinary accept seams). Definition-only until T6.S2 lands.
+ * through the ordinary accept seams). T6.S2 consumes it at its settle seam
+ * (`settleApplyDecision`) — the parser's only other sanctioned reference in
+ * the module set.
  */
+
+import type { Question } from "../state.js";
 
 /** Terminal stop reasons for assistant ChatMessages (P1.M1.T5.S2).
  * Hand-written pi-free string union — ZERO pi imports in this module is
@@ -113,6 +122,23 @@ export interface ChatUsage {
   output: number;
   totalCost: number;
 }
+
+/** SIDECHAT-004 apply routing decision (P1.M1.T6.S2). NAMES the ordinary
+ * seam the panel's single routing consumer (P1.M2.T6.S1) drives — this
+ * module (and the engine) never call the seams themselves: the engine
+ * produces a decision, the panel routes it (panel-view-integration.md
+ * §Open/replace/discard: "no new answer path"). "acceptOptionIndex"
+ * carries a DISPLAY position (D-R13 recommended-first order — the panel's
+ * option-accept seam maps display→option at its single seam), so the index
+ * is computed in display order, never `options` state order;
+ * "writeIn" carries the parsed text VERBATIM (byte-identical provenance —
+ * SIDECHAT-004 owner ruling: no marker, no normalization, anywhere).
+ * Consumed by P1.M2.T1.S2 (the confirm row renders off
+ * `SidechatRecord.pendingConfirm`) and P1.M2.T6.S1 (routing: enter applies
+ * through the named seam; esc declines via `clearPendingConfirm`). */
+export type ApplyDecision =
+  | { seam: "acceptOptionIndex"; optionIndex: number }
+  | { seam: "writeIn"; text: string };
 
 /** Opaque model identity frozen at creation (T5.S1's builder produces it). */
 export interface ModelSnapshot {
@@ -209,6 +235,15 @@ export interface SidechatRecord {
    * cleared on EVERY settle. Display-only — frozen assistant messages take
    * their canonical text from the stream's done message, never from here. */
   streamingText: string;
+  /** SIDECHAT-004 confirm state (P1.M1.T6.S2): the apply decision from the
+   * LAST settled reply, present ONLY under manual mode (a reply produced a
+   * decision AND !sideChatAutoApply). Cleared by a superseding reply's settle
+   * (any outcome — the latest reply governs), the decline seam
+   * (`clearPendingConfirm` — P1.M2.T6.S1's esc), and record replacement
+   * (resetChat/discard — it dies with the record). Aborted turns never
+   * settle, so an earlier reply's decision survives them ("the turn never
+   * happened"). Absent = nothing to confirm. */
+  pendingConfirm?: ApplyDecision;
 }
 
 // Module scope is LOAD-BEARING: the panel instance dies on suspend, so only
@@ -460,6 +495,118 @@ export function formatChatCloseNotice(usage: ChatUsage): string {
   const tokens = (n: number): string =>
     n < 1000 ? String(n) : `${(n / 1000).toFixed(1).replace(/\.0$/, "")}K`;
   return `chat closed · ${tokens(usage.input)} in · ${tokens(usage.output)} out · $${usage.totalCost.toFixed(2)}`;
+}
+
+// Module-local D-R13 mirror (P1.M1.T6.S2, SIDECHAT-004): a question's
+// option values in DISPLAY order — recommended option FIRST (only when
+// `recommendation` byte-matches an option value; a dangling recommendation
+// reorders NOTHING), the rest in state order. A verbatim sibling of
+// short-view.ts's displayOptions, which this module cannot import (short-view
+// pulls pi-tui, breaching the zero-pi wall — M3.T1 guard). displayOptions is
+// the single authority: if D-R13 ordering ever changes, BOTH change — the
+// reorder test vectors in sidechat.test.ts pin the agreement.
+function displayOptionValues(question: Question): readonly string[] {
+  const options = question.options ?? []; // options is OPTIONAL — never bare .map
+  if (question.recommendation === undefined) return options.map((o) => o.value);
+  const rec = options.find((o) => o.value === question.recommendation);
+  if (rec === undefined) return options.map((o) => o.value); // dangling rec → NO reorder (mirror)
+  return [rec, ...options.filter((o) => o !== rec)].map((o) => o.value);
+}
+
+/**
+ * Map a parsed answer (P1.M1.T6.S1's {@link ParsedAnswer}) to the
+ * routing-ready apply decision for `question` (SIDECHAT-004, P1.M1.T6.S2).
+ * Pure: arguments in → union out; no record reads, no singleton, no time,
+ * no randomness.
+ *
+ * - kind "value" → the DISPLAY position (D-R13 recommended-first order —
+ *   see {@link displayOptionValues}) of the byte-matched option, as
+ *   {seam:"acceptOptionIndex", optionIndex}. The display domain is
+ *   load-bearing: the panel's ordinary option-accept seam maps
+ *   display→option, so a state-order index would apply the WRONG ROW
+ *   whenever a recommendation exists.
+ * - kind "text"  → {seam:"writeIn", text} with the parsed text carried
+ *   VERBATIM — no trim, no normalization anywhere (byte-identical
+ *   provenance, SIDECHAT-004 owner ruling).
+ * - kind "none"  → undefined (the in-view notice path owns it — P1.M2.T1.S2).
+ * - kind "value" matching no option → undefined (defensive: unreachable via
+ *   {@link settleApplyDecision}, which pre-matched the value against the
+ *   declared order; a direct caller with mismatched inputs gets undefined
+ *   instead of a wrong-row decision).
+ *
+ * The decision NAMES an ordinary apply seam; this module never calls the
+ * seams — the panel routes it (P1.M2.T6.S1). Consumers: P1.M2.T1.S2 renders
+ * the confirm row off `SidechatRecord.pendingConfirm`; P1.M2.T6.S1 routes
+ * the decision.
+ */
+export function toApplyDecision(
+  parsed: ParsedAnswer,
+  question: Question,
+): ApplyDecision | undefined {
+  if (parsed.kind === "value") {
+    const optionIndex = displayOptionValues(question).indexOf(parsed.value);
+    return optionIndex === -1 ? undefined : { seam: "acceptOptionIndex", optionIndex };
+  }
+  if (parsed.kind === "text") return { seam: "writeIn", text: parsed.text }; // VERBATIM — no trim
+  return undefined; // kind "none"
+}
+
+/**
+ * The settle seam for a COMPLETED side-chat reply (SIDECHAT-004,
+ * P1.M1.T6.S2): parse `replyText`'s answer block against `question`'s
+ * option values, map it to an {@link ApplyDecision}, and maintain
+ * `record.pendingConfirm` — the confirm-state bookkeeping.
+ *
+ * `replyText` must be the just-frozen text of the ONE completed reply being
+ * settled (the engine's freeze site passes the exact string it pushed into
+ * `record.messages`) — never the whole transcript and never
+ * `streamingText` (cleared by settle time anyway): the parser's
+ * last-block-wins scan is per-reply, and feeding it more would resurrect
+ * answers from earlier turns.
+ *
+ * State transitions (pinned — the model's LATEST reply governs):
+ * - decision && !autoApply (manual, the default) → `record.pendingConfirm`
+ *   is SET to the decision (replacing any earlier one); returns the decision.
+ * - decision && autoApply (the opt-in bypass) → `record.pendingConfirm` is
+ *   CLEARED (no confirm state ever exists); returns the decision — the
+ *   caller's "immediately-applyable" exposure (the engine hands it to its
+ *   onAutoApply seam).
+ * - no decision → `record.pendingConfirm` is CLEARED (supersede: a reply
+ *   without an applicable block RETRACTS an earlier reply's offer);
+ *   returns undefined.
+ *
+ * Record-param style (the module's mutator convention): the caller passes
+ * the live record — the engine passes the singleton after its liveness
+ * guard — this function never touches module state itself. `autoApply`
+ * arrives INJECTED (never read from config here: config.ts imports pi and
+ * this module's zero-pi wall is load-bearing; the injected-port
+ * testability rule). Idempotent per state: identical inputs re-derive and
+ * re-assign the same decision (no date, no randomness).
+ */
+export function settleApplyDecision(
+  record: SidechatRecord,
+  replyText: string,
+  question: Question,
+  autoApply: boolean,
+): ApplyDecision | undefined {
+  const optionValues = (question.options ?? []).map((o) => o.value); // declared order — match domain
+  const decision = toApplyDecision(parseAnswerBlock(replyText, optionValues), question);
+  // One write, both branches: set (manual, decision exists) or clear
+  // (autoApply bypass / no decision / supersede — EVERY settle overwrites
+  // whatever an earlier reply left behind).
+  record.pendingConfirm = decision !== undefined && !autoApply ? decision : undefined;
+  return decision; // autoApply's immediately-applyable exposure — the engine hands it to onAutoApply
+}
+
+/**
+ * The decline seam (SIDECHAT-004, P1.M1.T6.S2): clear
+ * `record.pendingConfirm`, touching nothing else — the chat stays open and
+ * the settled replies stay in `record.messages`. P1.M2.T6.S1's esc key
+ * calls this; P1.M2.T1.S2's confirm row disappears with the field.
+ * Record-param style (see {@link settleApplyDecision}).
+ */
+export function clearPendingConfirm(record: SidechatRecord): void {
+  record.pendingConfirm = undefined;
 }
 
 /** Test-only seam: module-scope reset for vitest beforeEach (state.ts `resetState` precedent). */

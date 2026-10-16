@@ -3764,6 +3764,119 @@ describe("sidechat discard hooks — terminal-for-chat teardown (P1.M2.T5.S1)", 
   });
 });
 
+// ------- transition-aware discard (BUG-002): non-terminal → terminal only
+
+describe("sidechat discard — transition semantics (BUG-002)", () => {
+  /** Same fake builder bag as the discard family above. */
+  const rebind = () => ({
+    resolveModelSnapshot: () => ({ provider: "test", modelId: "test-model" }),
+    buildSystemPrompt: () => "system prompt",
+    buildBranchSnapshot: () => [] as never,
+  });
+
+  const T = "2025-01-01T00:00:00.000Z";
+
+  let notify: Mock;
+
+  function makePanel2(
+    specs: Question[],
+  ): { panel: InterrogationPanel; state: InterrogationState } {
+    const state = createInterrogationState("goal");
+    for (const q of specs) state.upsertQuestion(q);
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { sidechatNotify: notify, chatRebindDeps: rebind() }),
+    );
+    return { panel, state };
+  }
+
+  beforeEach(() => {
+    resetSidechatForTests();
+    notify = vi.fn();
+  });
+  afterEach(() => resetSidechatForTests());
+
+  test("test_bug002_answered_question_chat_survives_unrelated_mutation", () => {
+    // PRD repro: chat opened (through the REAL onChat path, which seeds the
+    // open-time status) on an ALREADY-answered q1 → an unrelated mutation
+    // elsewhere must NOT tear it down.
+    const { panel, state } = makePanel2([choiceQ("q1"), choiceQ("q2"), choiceQ("q3"), choiceQ("q4")]);
+    state.applyAnswer("q1", { value: "a", at: T }); // q1 answered BEFORE the chat opens
+    panel.currentId = "q1";
+    panel.handleInput("e"); // the chat binding → onChat opens + seeds {q1, answered}
+    expect(panel.view).toBe("chat");
+    expect(getSidechat()?.questionId).toBe("q1");
+
+    state.applyAnswer("q2", { value: "a", at: T }); // UNRELATED mutation
+
+    expect(getSidechat()?.questionId).toBe("q1"); // chat alive
+    expect(notify).not.toHaveBeenCalled(); // no "chat closed" toast
+    expect(panel.view).toBe("chat"); // view untouched
+  });
+
+  test("test_discard_still_fires_on_real_transition", () => {
+    // Counter-test: a chat on an OPEN question dies when ITS question
+    // transitions open → answered (the genuine discard, distinct question).
+    const { panel, state } = makePanel2([choiceQ("q1"), choiceQ("q2"), choiceQ("q3")]);
+    openOrReplace("q3", rebind()); // direct open — first observation is the mutation
+    panel.currentId = "q3";
+
+    state.applyAnswer("q3", { value: "a", at: T }); // open → answered
+
+    expect(getSidechat()).toBeUndefined();
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_seed_only_when_record_predates_panel", () => {
+    // Direct-opened record: the first hook run (an unrelated mutation)
+    // SEEDS the baseline without deciding; the record's own later
+    // non-terminal → terminal transition still discards.
+    const { panel, state } = makePanel2([choiceQ("q1"), choiceQ("q3")]);
+    openOrReplace("q3", rebind());
+
+    state.applyAnswer("q1", { value: "a", at: T }); // unrelated → seed-only run
+    expect(getSidechat()?.questionId).toBe("q3");
+    expect(notify).not.toHaveBeenCalled();
+
+    state.applyAnswer("q3", { value: "a", at: T }); // own question → transition
+    expect(getSidechat()).toBeUndefined();
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_replacement_reseeds_baseline", () => {
+    // openOrReplace onto a DIFFERENT question invalidates the old lineage:
+    // the replacement's first observation re-seeds (no cross-record
+    // comparison), so an opened-on-terminal replacement survives unrelated
+    // mutations.
+    const { panel, state } = makePanel2([choiceQ("q1"), choiceQ("q2"), choiceQ("q4")]);
+    openOrReplace("q1", rebind()); // chat on open q1
+    state.applyAnswer("q2", { value: "a", at: T }); // unrelated (seeds the q1 baseline)
+    state.setStatus("q2", "answered"); // q2 terminal BEFORE its chat opens
+    openOrReplace("q2", rebind()); // REPLACE with a chat on q2
+
+    state.applyAnswer("q4", { value: "a", at: T }); // unrelated mutation
+
+    expect(getSidechat()?.questionId).toBe("q2"); // re-seeded lineage survives
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  test("test_same_status_reanswer_edge_is_documented_behavior", () => {
+    // Accepted edge (hook comment): a same-status re-answer (FR-18-class
+    // answered→answered edit) does NOT discard under transition semantics —
+    // the question was already terminal when the edit landed. The apply
+    // flavor of this edge is P1.M2.T2.S1's terminal-consume.
+    const { panel, state } = makePanel2([choiceQ("q1")]);
+    state.applyAnswer("q1", { value: "a", at: T }); // answered BEFORE open
+    panel.currentId = "q1";
+    panel.handleInput("e"); // onChat seeds {q1, answered}
+    expect(getSidechat()?.questionId).toBe("q1");
+
+    state.applyAnswer("q1", { value: "b", at: T }); // answered → answered
+
+    expect(getSidechat()?.questionId).toBe("q1"); // survives — documented edge
+    expect(notify).not.toHaveBeenCalled();
+  });
+});
+
 // ------- suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)
 
 describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", () => {

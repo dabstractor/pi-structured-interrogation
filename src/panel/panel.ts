@@ -63,7 +63,12 @@ import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../co
 // only other consumer — no duplicate definition; no import cycle: lifecycle
 // imports merge.js + state.js only, never panel.js).
 import { isUpsertArgs, upsertQuestionIds } from "../lifecycle.js";
-import { getState, type InterrogationState, type SerializedState } from "../state.js";
+import {
+  getState,
+  type InterrogationState,
+  type QuestionStatus,
+  type SerializedState,
+} from "../state.js";
 import { applyChatAnswer, nextUnanswered, writeInEnter, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
 import {
   applyConfirmedEdit,
@@ -960,34 +965,86 @@ export class InterrogationPanel implements Component {
    */
   private externalEditorInFlight = false;
 
+  /** Statuses that tear a side chat down (the hook's historical inline set). */
+  private terminalForChat(status: QuestionStatus): boolean {
+    return (
+      status === "answered" ||
+      status === "submitted" ||
+      status === "moot" ||
+      status === "withdrawn" ||
+      status === "closed"
+    );
+  }
+
+  /**
+   * BUG-002 transition tracking: {questionId, status} the discard hook last
+   * saw for the LIVE record's question. Seeded at onChat open (the open-time
+   * status — an already-terminal question's chat is a supported surface and
+   * must survive unrelated mutations) and re-seeded on record replacement;
+   * reset to undefined on discard (the lineage is gone — the next record
+   * must not inherit a stale baseline).
+   */
+  private sidechatLastSeen: { questionId: string; status: QuestionStatus } | undefined;
+
   private readonly onChanged = (): void => {
     this.invalidate();
     // SIDECHAT-001 discard guarantee (P1.M2.T5.S1 — architecture ruling
-    // §Open/replace/discard): the side chat dies the moment its question
-    // reaches a terminal-for-chat state — from EVERY mutation path, because
-    // this universal bus sees every state mutation (option accept, write-in
-    // commit, dependsOn moot flip, side-chat apply, AND agent-side upserts
-    // that never pass through keys.ts). Order is the contract: abort an
-    // in-flight stream FIRST (caller-owns-abort, sidechat.ts), then
-    // discard, then close the chat view (NO navigation — the accept
-    // machinery owns currentId/cursor and has already advanced them or
-    // will), then the compact usage notify — exactly once per record
-    // (inherent: discard clears get(), so every subsequent changed event —
-    // including re-entrant ones from the abort settle — no-ops).
+    // §Open/replace/discard), REFINED by BUG-002 transition semantics: the
+    // side chat dies when its question TRANSITIONS from a non-terminal
+    // state into a terminal-for-chat state — from EVERY mutation path,
+    // because this universal bus sees every state mutation (option accept,
+    // write-in commit, dependsOn moot flip, side-chat apply, AND agent-side
+    // upserts that never pass through keys.ts). An ALREADY-terminal question
+    // being untouched by an unrelated mutation is not "being answered" —
+    // chats opened on answered questions (the supported apply surface,
+    // BUG-003's P1.M2.T2.S1 dependency) survive.
+    //
+    // Seeding rules: (1) onChat seeds the open-time status at open; (2) a
+    // hook run with NO baseline for the live record's lineage is decides by
+    // the CURRENT status — the only safe reading for records that predate
+    // the panel instance or were opened outside onChat (their baseline is
+    // unknowable, so a terminal status at first observation tears down;
+    // non-terminal seeds silently); (3) a questionId MISMATCH (record
+    // replaced onto another question) re-seeds and returns — no cross-record
+    // comparison; (4) every non-discard run updates the baseline (moot→closed
+    // same-question churn never accumulates into a false transition); a
+    // discard resets it (the lineage is gone). Accepted edge: same-status
+    // re-answers (FR-18 ripple edit answered→answered, moot→moot churn) do
+    // not discard — the question was already terminal when the edit landed;
+    // the apply flavor is P1.M2.T2.S1's terminal-consume.
+    //
+    // Order is STILL the contract on a real transition: abort an in-flight
+    // stream FIRST (caller-owns-abort, sidechat.ts), then discard, then
+    // close the chat view (NO navigation — the accept machinery owns
+    // currentId/cursor and has already advanced them or will), then the
+    // compact usage notify — exactly once per record (inherent: discard
+    // clears get(), so every subsequent changed event — including
+    // re-entrant ones from the abort settle — no-ops).
     const record = getSidechatRecord();
     if (record === undefined) return;
     const q = this.state.getQuestion(record.questionId);
     if (q === undefined) return; // transient absence — merge.ts never removes questions
-    const terminal =
-      q.status === "answered" ||
-      q.status === "submitted" ||
-      q.status === "moot" ||
-      q.status === "withdrawn" ||
-      q.status === "closed";
-    if (!terminal) return;
+    const last = this.sidechatLastSeen;
+    if (last === undefined) {
+      // First observation, no lineage baseline (record predates this panel
+      // instance or was opened outside onChat): decide by CURRENT status.
+      this.sidechatLastSeen = { questionId: record.questionId, status: q.status };
+      if (!this.terminalForChat(q.status)) return;
+    } else if (last.questionId !== record.questionId) {
+      // Replacement onto another question: re-seed, decide nothing — the
+      // new record's pre-observation history is unknowable.
+      this.sidechatLastSeen = { questionId: record.questionId, status: q.status };
+      return;
+    } else {
+      const nowTerminal = this.terminalForChat(q.status);
+      const wasTerminal = this.terminalForChat(last.status);
+      this.sidechatLastSeen = { questionId: record.questionId, status: q.status };
+      if (!nowTerminal || wasTerminal) return; // no REAL transition into terminal
+    }
     if (record.streamState === "streaming") record.abortController.abort(); // FIRST (ruling order)
     const usage = record.usage; // read before discard
     discardSidechatRecord();
+    this.sidechatLastSeen = undefined; // lineage gone — no stale baseline
     if (this.view === "chat") {
       // No new navigation — land where the machinery's advance already
       // points; only the view closes. chatReturnView is never "chat" by its
@@ -1087,6 +1144,14 @@ export class InterrogationPanel implements Component {
       if (record === undefined || record.questionId !== qid) {
         openSidechatRecord(qid, args.chatRebindDeps); // snapshot NOW, once
       }
+      // BUG-002: seed the transition baseline with the OPEN-TIME status —
+      // an already-terminal question's chat is a supported surface and must
+      // survive unrelated mutations (only a later non-terminal → terminal
+      // transition on ITS question discards).
+      p.sidechatLastSeen = {
+        questionId: qid,
+        status: p.state.getQuestion(qid)?.status ?? "open",
+      };
       if (p.view !== "chat") p.chatReturnView = p.view; // keep prior on re-open
       p.setView("chat"); // seeds scroll-bottom + chat focus (once-only via no-op)
     };

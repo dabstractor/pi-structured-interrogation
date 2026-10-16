@@ -260,21 +260,21 @@
           "type": "Milestone",
           "id": "P1.M5",
           "title": "Reconstruction degrade-to-next-older for tool results (BUG-008)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "The reconstruction candidate pool holds only the LAST state-carrying interrogate tool result, so a damaged newest envelope collapses reconstruction to 'no state' even when a valid older tool result sits on the branch — contradicting the module's own documented degrade-to-next-older contract. Collect every state-carrying tool result into the pool.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M5.T1",
               "title": "Collect every state-carrying interrogate tool result into the candidate pool",
-              "status": "Ready",
+              "status": "Complete",
               "description": "walkBranch reduces all state-carrying tool results to a single LAST-wins slot; the pool pushes that one entry while mirrors each become candidates. Make tool results array-collected like mirrors, competing by branch index newest-first, preserving FR-27 last-wins for the all-valid case.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T1.S1",
                   "title": "Array-collect tool results in walkBranch and pool them newest-first",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/reconstruct.md (dedicated research; CONFIRMED with exact lines). walkBranch (src/reconstruct.ts ~326-347) overwrites a singular slot — `result.toolState = details.state; // LAST occurrence wins (FR-27)` (~342-343) — WalkResult declares the tool slot singular (~282-297) while mirrors/submissions/completions are arrays. The pool pushes the single tool entry (~450-452) vs the mirror for...of loop (~453-457); candidates sort `(a,b) => b.index - a.index` (newest-first, stable) and the tryDeserialize loop degrades newest→older (~463-470). Module JSDoc (~41-43) and tryDeserialize JSDoc (~360-364) promise 'Deserialize failures degrade to the next-older candidate, so one corrupt entry never crashes session_start'. tryDeserialize catches getter-throwing state envelopes (first read at state.ts:493 raw.goal); failure returns undefined → next candidate; all-fail → {source:'none'} (~489). Adjacent tests: reconstruct.test.ts ~372 (getter-throw caught) and ~738 (LAST-wins with two tool results) — the latter pins the all-valid case that MUST keep passing.\n2. INPUT: none from other subtasks (isolated module). The SessionEntry shape: message entries with msg.role === \"toolResult\" && msg.toolName === \"interrogate\" && msg.details.state; mirror entries are type \"custom\" with customType INTERROGATION_STATE_ENTRY_TYPE.\n3. LOGIC: Implement PRD h2.3/h3.7's fix: change WalkResult's tool slot to an array (e.g. toolResults: {index: number; data: unknown}[]) collected for EVERY state-carrying interrogate tool result in walkBranch (append, keep branch index); in the pool construction push every toolResults entry (source \"tool-result\") alongside the mirror loop; the existing index sort + tryDeserialize loop need no structural change — newest-first competition preserves FR-27 last-wins for the all-valid case (the newest tool result still wins when it deserializes). Verify walk.toolState/toolIndex have no other consumers besides the pool construction (research says the pool is the sole consumer; re-grep before deleting the old fields). Tests: extend reconstruct.test.ts — (a) PRD repro: branch [toolResult(valid live state), ...plain turns..., toolResult(hostile getter-throwing details.state)], NO custom entries → reconstructFromBranch returns {source: \"tool-result\"} with the OLDER valid state (all questions recovered); (b) keep ~738's LAST-wins case green (both valid → newest wins); (c) a corrupt-newest tool result WITH a newer valid mirror → mirror still wins (index competition); (d) all tool results corrupt, no mirrors → {source: \"none\"} unchanged.\n4. OUTPUT: The documented degrade-to-next-older contract actually holds across tool results; consumed by P1.M6.T1 (README §Limitations may soften its reconstruction-degradation caveat).\n5. DOCS: [Mode A] Update the walkBranch JSDoc, the WalkResult field docs, and the module JSDoc's step-2 prose (reconstruct.ts ~41-43 and ~435-457) to state that every state-carrying tool result is a candidate. README §Limitations sync owned by P1.M6.T1.",

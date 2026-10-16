@@ -25,22 +25,25 @@
  *    point of layer 2 (Q37 residue).
  * 2. BASE SELECTION, position-aware across layers (completion-exactly-once
  *    fix, 2026-10-16 validation Issues 1+2):
- *      a. Candidates: the LAST `message` entry with role "toolResult",
+ *      a. Candidates: EVERY `message` entry with role "toolResult",
  *         toolName "interrogate" and a `details.state` envelope (FR-27
- *         canonical, written by tool.ts on every result) — any submission
- *         deltas before it are already baked into its state — plus EVERY
+ *         canonical, written by tool.ts on every result) — plus EVERY
  *         `interrogation-state` custom entry (storage layer 3 mirror,
  *         P1.M7.T1.S1). The candidate with the GREATEST branch index wins,
  *         regardless of layer: entries are appended chronologically, so a
- *         later position is a LATER snapshot of the same state. Layer
- *         preference must never override position — completion fires at
+ *         later position is a LATER snapshot of the same state (FR-27
+ *         last-wins emerges from this index competition when all tool
+ *         results deserialize). Layer preference must never override
+ *         position — completion fires at
  *         `agent_settled`, AFTER the last tool call, so the post-completion
  *         mirror (`{completed: true, questions: {}}`) is always newer than
  *         the canonical tool result; preferring layer 2 by fiat resurrected
  *         `completed: false` states on every restart and re-injected the
  *         full record (FR-5 exactly-once broken). Deserialize failures
- *         degrade to the next-older candidate, so one corrupt entry never
- *         crashes session_start.
+ *         degrade to the next-older candidate — an OLDER TOOL RESULT
+ *         included (BUG-008: the walk array-collects every state-carrying
+ *         tool result rather than keeping only the last), so one corrupt
+ *         newest entry never silently loses the whole interrogation.
  *      b. Else: no state. The singleton stays reset; no panel, no fallback
  *         flag; any suspended-host residue (stale reminder widget /
  *         stale lastOpts.state from the previous branch) is dropped.
@@ -280,10 +283,13 @@ export function setFallbackActive(value: boolean): void {
 // ------------------------------------------------------------------ scanning
 
 interface WalkResult {
-  /** Raw `details.state` of the LAST interrogate tool result carrying one. */
-  toolState: unknown;
-  /** Branch index of that tool-result entry (position filter anchor). */
-  toolIndex: number;
+  /**
+   * EVERY state-carrying interrogate tool result, in walk order (ascending
+   * branch index) — each is a base candidate competing with mirrors by
+   * index, so a corrupt NEWEST tool result degrades to an older tool
+   * result, not just to mirrors (BUG-008).
+   */
+  toolResults: Array<{ index: number; data: unknown }>;
   /** All mirror entries in walk order (newest = last). */
   mirrors: Array<{ index: number; data: unknown }>;
   /** All submission entries in walk order. */
@@ -324,11 +330,14 @@ function customTypeOf(entry: SessionEntry): string | undefined {
   return undefined;
 }
 
-/** Single pass over the raw branch, collecting every candidate in order. */
+/**
+ * Single pass over the raw branch, collecting every candidate in order —
+ * including EVERY state-carrying interrogate tool result (not just the
+ * newest; BUG-008), all mirrors, submissions, and completion markers.
+ */
 function walkBranch(branch: SessionEntry[]): WalkResult {
   const result: WalkResult = {
-    toolState: undefined,
-    toolIndex: -1,
+    toolResults: [],
     mirrors: [],
     submissions: [],
     completions: [],
@@ -339,8 +348,10 @@ function walkBranch(branch: SessionEntry[]): WalkResult {
       if (msg.role !== "toolResult" || msg.toolName !== "interrogate") return;
       const details = msg.details as { state?: unknown } | undefined;
       if (details === undefined || details.state === undefined || details.state === null) return;
-      result.toolState = details.state; // LAST occurrence wins (FR-27)
-      result.toolIndex = index;
+      // Collect EVERY state-carrying tool result as a pool candidate;
+      // FR-27 last-wins emerges from the pool's newest-first index sort,
+      // not from overwrite (BUG-008).
+      result.toolResults.push({ index, data: details.state });
       return;
     }
     if (entry.type === "custom" && entry.customType === INTERROGATION_STATE_ENTRY_TYPE) {
@@ -447,8 +458,12 @@ export function reconstructFromBranch(
     source: ReconstructSource;
   }
   const candidates: Candidate[] = [];
-  if (walk.toolIndex >= 0) {
-    candidates.push({ index: walk.toolIndex, data: walk.toolState, source: "tool-result" });
+  // Every state-carrying tool result is a candidate (BUG-008) — newest-first
+  // index competition preserves FR-27 last-wins when all deserialize, and a
+  // corrupt NEWEST tool result degrades to the next-older candidate (tool
+  // result or mirror) instead of silently losing the interrogation.
+  for (const tr of walk.toolResults) {
+    candidates.push({ index: tr.index, data: tr.data, source: "tool-result" });
   }
   for (const mirror of walk.mirrors) {
     const data = mirror.data as InterrogationStateEntryData | undefined;

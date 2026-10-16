@@ -924,3 +924,90 @@ describe("reconstructFromBranch — submission replay values (BUG-007)", () => {
     expect(state.getQuestion("q1")?.answer?.value).toBe("Beta");
   });
 });
+
+// ------------------- tool-result candidate pool (BUG-008 / h3.7)
+
+describe("reconstruction tool-result candidate pool (BUG-008)", () => {
+  /** Getter-throwing hostile state payload (deserialize must reject it). */
+  function hostileState(): unknown {
+    return {
+      get goal(): string {
+        throw new Error("corrupt payload");
+      },
+    };
+  }
+
+  test("corrupt newest tool result degrades to the older valid one (h3.7 repro)", () => {
+    const older = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+      markAnswered(s, "q1", { value: "postgres", at: "t0" });
+    });
+    // PRD repro: valid tool result, plain turns, then a HOSTILE newest tool
+    // result — and NO custom/mirror entries anywhere on the branch.
+    const ctx = makeCtx([
+      toolResultEntry(older),
+      userEntry(),
+      userEntry(),
+      toolResultEntry(hostileState()),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    // The interrogation is NOT lost: the older VALID tool result wins.
+    expect(result.source).toBe("tool-result");
+    const state = getState();
+    expect(state?.getQuestion("q1")).toBeDefined();
+    expect(state?.getQuestion("q1")?.answer?.value).toBe("postgres");
+  });
+
+  test("all-valid branch keeps FR-27 last-wins: newest tool result wins", () => {
+    const older = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const newer = seededState((s) => {
+      applyUpsert(s, [choiceQ("n1")]);
+    });
+    const ctx = makeCtx([
+      toolResultEntry(older),
+      userEntry(),
+      toolResultEntry(newer),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("tool-result");
+    const state = getState();
+    expect(state?.getQuestion("n1")).toBeDefined(); // newest set
+    expect(state?.getQuestion("q1")).toBeUndefined(); // old set replaced
+  });
+
+  test("corrupt newest tool result still loses to a NEWER valid mirror", () => {
+    const older = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const mirror = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1"), choiceQ("q2")]);
+      markAnswered(s, "q1", { value: "sqlite", at: "t0" });
+    });
+    const ctx = makeCtx([
+      toolResultEntry(older),
+      toolResultEntry(hostileState()), // newest tool result — corrupt
+      mirrorEntry({ state: mirror, epoch: mirror.epoch, at: new Date().toISOString() }),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    // Index competition: the mirror's branch index beats the corrupt tool's.
+    expect(result.source).toBe("mirror-entry");
+    expect(getState()?.getQuestion("q2")).toBeDefined();
+  });
+
+  test("all tool results corrupt with no mirrors stays source none", () => {
+    const ctx = makeCtx([
+      toolResultEntry(hostileState()),
+      userEntry(),
+      toolResultEntry(hostileState()),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result).toEqual({ source: "none", replayed: 0, opened: false, fallbackActive: false });
+    expect(getState()).toBeUndefined();
+  });
+});

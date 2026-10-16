@@ -125,7 +125,7 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "One-shot branch snapshot and side-chat system prompt builder",
-              "status": "Ready",
+              "status": "Complete",
               "description": "The SIDECHAT-003 context machinery: a full main-branch replay via ctx.sessionManager.getBranch() + sessionEntryToContextMessages frozen once at chat creation, and the side-chat system prompt (question verbatim with deep-view quality, goal, answers digest, answer protocol).",
               "subtasks": [
                 {
@@ -149,7 +149,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S2",
                   "title": "Side-chat system prompt builder (question verbatim, goal, digest, answer protocol)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -175,7 +175,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S1",
                   "title": "Model resolution and turn dispatch over an injected nested-call seam",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T2.S1",
@@ -196,7 +196,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T5.S2",
                   "title": "Streaming consumption: deltas, stop reasons, abort, auth errors",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T5.S1"

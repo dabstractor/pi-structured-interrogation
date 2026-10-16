@@ -244,6 +244,18 @@ export interface SidechatRecord {
    * settle, so an earlier reply's decision survives them ("the turn never
    * happened"). Absent = nothing to confirm. */
   pendingConfirm?: ApplyDecision;
+  /** P1.M2.T1.S2 render input: why the LAST settled reply's answer block was
+   * inapplicable ({@link AnswerBlockRejection}), or undefined when the last
+   * settle produced a decision (or no block path at all). Supersede semantics
+   * mirror pendingConfirm exactly — the model's LATEST reply governs; set by
+   * a none-settle (even under the autoApply bypass — nothing was applied, so
+   * the user needs the why), cleared by a decision-bearing settle, by
+   * {@link clearPendingConfirm} (a decline/exit retires the confirm and
+   * rejection rows together), and by record replacement
+   * (resetChat/discard — it dies with the record). Aborted turns never
+   * settle, so it survives them. Mutually exclusive with pendingConfirm by
+   * construction (one-write settle). */
+  lastRejection?: AnswerBlockRejection;
 }
 
 // Module scope is LOAD-BEARING: the panel instance dies on suspend, so only
@@ -575,6 +587,13 @@ export function toApplyDecision(
  *   without an applicable block RETRACTS an earlier reply's offer);
  *   returns undefined.
  *
+ * The same one-write tail maintains `record.lastRejection` (P1.M2.T1.S2
+ * render input) with mirrored supersede semantics: a "none" parse records
+ * its {@link AnswerBlockRejection} reason (under BOTH autoApply modes —
+ * nothing was applied either way), any decision-bearing settle clears it,
+ * and the two fields are mutually exclusive by construction. Aborted turns
+ * never settle, so the last settled outcome persists across them.
+ *
  * Record-param style (the module's mutator convention): the caller passes
  * the live record — the engine passes the singleton after its liveness
  * guard — this function never touches module state itself. `autoApply`
@@ -590,23 +609,31 @@ export function settleApplyDecision(
   autoApply: boolean,
 ): ApplyDecision | undefined {
   const optionValues = (question.options ?? []).map((o) => o.value); // declared order — match domain
-  const decision = toApplyDecision(parseAnswerBlock(replyText, optionValues), question);
+  const parsed = parseAnswerBlock(replyText, optionValues);
+  const decision = toApplyDecision(parsed, question);
   // One write, both branches: set (manual, decision exists) or clear
   // (autoApply bypass / no decision / supersede — EVERY settle overwrites
   // whatever an earlier reply left behind).
   record.pendingConfirm = decision !== undefined && !autoApply ? decision : undefined;
+  // Paired write (P1.M2.T1.S2): the view's rejection row reads this instead
+  // of re-parsing the reply. Mirrors pendingConfirm's supersede rule.
+  record.lastRejection = decision === undefined && parsed.kind === "none" ? parsed.reason : undefined;
   return decision; // autoApply's immediately-applyable exposure — the engine hands it to onAutoApply
 }
 
 /**
- * The decline seam (SIDECHAT-004, P1.M1.T6.S2): clear
- * `record.pendingConfirm`, touching nothing else — the chat stays open and
- * the settled replies stay in `record.messages`. P1.M2.T6.S1's esc key
- * calls this; P1.M2.T1.S2's confirm row disappears with the field.
- * Record-param style (see {@link settleApplyDecision}).
+ * The decline seam (SIDECHAT-004, P1.M1.T6.S2): clear the confirm-state
+ * pair — `record.pendingConfirm` AND `record.lastRejection` (P1.M2.T1.S2:
+ * the confirm row and the rejection notice are alternative renderings of
+ * the same last-settle outcome; once the user declines/exits either, neither
+ * shows) — touching nothing else. The chat stays open and the settled
+ * replies stay in `record.messages`. P1.M2.T6.S1's esc key calls this;
+ * P1.M2.T1.S2's rows disappear with the fields. Record-param style (see
+ * {@link settleApplyDecision}).
  */
 export function clearPendingConfirm(record: SidechatRecord): void {
   record.pendingConfirm = undefined;
+  record.lastRejection = undefined;
 }
 
 /** Test-only seam: module-scope reset for vitest beforeEach (state.ts `resetState` precedent). */

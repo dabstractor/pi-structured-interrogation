@@ -18,6 +18,7 @@ import {
   resetSidechatForTests,
   settleApplyDecision,
   toApplyDecision,
+  type AnswerBlockRejection,
   type ChatUsage,
   type SidechatRebindDeps,
 } from "./sidechat.js";
@@ -600,6 +601,76 @@ describe("toApplyDecision / settleApplyDecision — ApplyDecision contract, pend
     // contract — so an earlier pendingConfirm survives them; that row lives
     // in the engine suite).
     expect(settleApplyDecision(record, "no block here", q, false)).toBeUndefined();
+    expect(record.pendingConfirm).toBeUndefined();
+  });
+});
+
+describe("settleApplyDecision — lastRejection bookkeeping (P1.M2.T1.S2 render input)", () => {
+  /** One reply text per AnswerBlockRejection — the enum IS the notice API. */
+  const rejectionCases: Array<[string, AnswerBlockRejection]> = [
+    ["no block here", "no-block"],
+    ["```answer\n{value: sqlite}\n```", "malformed-json"],
+    ['```answer\n{"value":"sqlite","text":"x"}\n```', "unknown-shape"],
+    ['```answer\n{"value":"nosuch"}\n```', "value-mismatch"],
+    ['```answer\n{"text":"   "}\n```', "empty-text"],
+  ];
+
+  test("none-settle records lastRejection (all five reasons) and never a confirm", () => {
+    for (const [reply, reason] of rejectionCases) {
+      const record = openOrReplace("q1", fakeDeps());
+      expect(settleApplyDecision(record, reply, twoOptionQuestion(), false)).toBeUndefined();
+      expect(record.lastRejection).toBe(reason);
+      expect(record.pendingConfirm).toBeUndefined(); // mutually exclusive by construction
+    }
+  });
+
+  test("decision-bearing settle clears lastRejection and sets pendingConfirm (latest governs)", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    settleApplyDecision(record, "no block here", twoOptionQuestion(), false);
+    expect(record.lastRejection).toBe("no-block");
+
+    settleApplyDecision(record, '```answer\n{"value":"sqlite"}\n```', twoOptionQuestion(), false);
+    expect(record.lastRejection).toBeUndefined(); // superseded
+    expect(record.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 1 });
+  });
+
+  test("latest none-settle supersedes an earlier reason (same latest-wins rule as pendingConfirm)", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    settleApplyDecision(record, "no block here", twoOptionQuestion(), false);
+    settleApplyDecision(record, '```answer\n{"text":"   "}\n```', twoOptionQuestion(), false);
+    expect(record.lastRejection).toBe("empty-text");
+  });
+
+  test("clearPendingConfirm clears BOTH fields — the confirm/rejection rows retire together", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    settleApplyDecision(record, "no block here", twoOptionQuestion(), false);
+    expect(record.lastRejection).toBe("no-block");
+    clearPendingConfirm(record);
+    expect(record.lastRejection).toBeUndefined();
+    expect(record.pendingConfirm).toBeUndefined();
+
+    // Decision path: declining the offer retires both too.
+    settleApplyDecision(record, '```answer\n{"value":"sqlite"}\n```', twoOptionQuestion(), false);
+    expect(record.pendingConfirm).toBeDefined();
+    clearPendingConfirm(record);
+    expect(record.lastRejection).toBeUndefined();
+    expect(record.pendingConfirm).toBeUndefined();
+  });
+
+  test("aborted turn never settles: the last settled outcome persists untouched", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    settleApplyDecision(record, '```answer\n{"value":"sqlite"}\n```', twoOptionQuestion(), false);
+    settleApplyDecision(record, "no block here", twoOptionQuestion(), false); // supersede
+    // An abort (engine contract) never reaches settleApplyDecision — there
+    // is deliberately no call here; the settled outcome stands.
+    expect(record.lastRejection).toBe("no-block");
+    expect(record.pendingConfirm).toBeUndefined();
+  });
+
+  test("autoApply bypass still records the rejection (nothing applied — the user needs the why)", () => {
+    const record = openOrReplace("q1", fakeDeps());
+    settleApplyDecision(record, "no block here", twoOptionQuestion(), true);
+    expect(record.lastRejection).toBe("no-block");
     expect(record.pendingConfirm).toBeUndefined();
   });
 });

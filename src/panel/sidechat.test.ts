@@ -849,7 +849,7 @@ describe("applyChatAnswer — SIDECHAT-004 apply routing (P1.M2.T6.S1)", () => {
     }
   });
 
-  test("ripple veto: nothing applied, confirm row + chat untouched (FR-18 precedence)", () => {
+  test("ripple veto without a modal: offer consumed, chat closes (BUG-003 tail)", () => {
     const { panel, state } = makePanel([applyChoiceQ("q1"), applyChoiceQ("q2")]);
     acceptOptionIndex(panel, state.getQuestion("q1")!, 0); // first answer: sqlite (display 0)
     const answeredAt = state.getQuestion("q1")!.answer!.at;
@@ -857,15 +857,22 @@ describe("applyChatAnswer — SIDECHAT-004 apply routing (P1.M2.T6.S1)", () => {
     const record = get()!;
     record.pendingConfirm = { seam: "acceptOptionIndex", optionIndex: 1 }; // DIFFERENT value: postgres
     panel.currentId = "q1";
-    panel.confirmRippleEdit = () => false; // the established veto test seam
+    panel.confirmRippleEdit = () => false; // veto WITHOUT opening a modal (confirmMode stays null)
 
     expect(applyChatAnswer(panel, record.pendingConfirm)).toBe(true); // consumed ("veto" is truthy)
 
     expect(state.getQuestion("q1")!.answer!.value).toBe("sqlite"); // unchanged
     expect(state.getQuestion("q1")!.answer!.at).toBe(answeredAt); // nothing re-applied
     expect(panel.currentId).toBe("q1"); // no advance — the user re-decides
-    expect(record.pendingConfirm).toBeDefined(); // never hand-cleared (the T5.S1 hook owns removal)
-    expect(record.messages).toHaveLength(0); // chat intact
+    // BUG-003 consume tail: a veto with NO modal pending is a completed
+    // no-op from the interaction's perspective — nothing further will fire,
+    // so a living record would re-create the stuck `apply ★` row. The tail
+    // retires the offer and closes the chat (exactly-once: every later
+    // entry finds get() === undefined). The MODAL-bearing veto keeps the
+    // chat open — covered by the confirmMode case in sidechat-engine.test.ts.
+    expect(record.pendingConfirm).toBeUndefined(); // offer retired
+    expect(get()).toBeUndefined(); // chat closed — no stuck row, no double-notify later
+    expect(record.messages).toHaveLength(0); // nothing was applied into the transcript
   });
 
   test("writeIn victims route into the beginWriteInConfirm modal (FR-18 deferral)", () => {

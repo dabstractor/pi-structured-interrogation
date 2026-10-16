@@ -965,8 +965,10 @@ export class InterrogationPanel implements Component {
    */
   private externalEditorInFlight = false;
 
-  /** Statuses that tear a side chat down (the hook's historical inline set). */
-  private terminalForChat(status: QuestionStatus): boolean {
+  /** Statuses that tear a side chat down. Public: actions.ts's applyChatAnswer
+   * consume tail (BUG-003) reuses this as THE canonical terminal-for-chat
+   * predicate — one predicate, never a duplicated set. */
+  terminalForChat(status: QuestionStatus): boolean {
     return (
       status === "answered" ||
       status === "submitted" ||

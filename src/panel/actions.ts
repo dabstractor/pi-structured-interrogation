@@ -35,7 +35,13 @@ import type { InterrogationPanel } from "./panel.js";
 import { beginWriteInConfirm, rippleVictims } from "./ripple-confirm.js";
 import { clampChatScroll } from "./chat-view.js";
 import { displayOptions } from "./short-view.js";
-import { get as getSidechatRecord, type ApplyDecision } from "./sidechat.js";
+import {
+  clearPendingConfirm,
+  discard as discardSidechatRecord,
+  formatChatCloseNotice,
+  get as getSidechatRecord,
+  type ApplyDecision,
+} from "./sidechat.js";
 
 // ------------------------------------------------------------------- types
 
@@ -552,24 +558,81 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
  * `true`, nothing done.
  *
  * Deliberately NOT here (each owned elsewhere): answer construction,
- * markers, timestamps (the seams own all of it); discard + usage notify +
- * chat close (P1.M2.T5.S1's state "changed" hook); pendingConfirm clearing
- * (the hook removes the whole record when the question answers — manual
- * clearing would race a same-value no-op). NEVER fires on its own: the
- * panel's confirm-row branch and the engine's onAutoApply binding are the
- * only callers.
+ * markers, timestamps (the seams own all of it). The state `changed` hook
+ * (P1.M2.T5.S1, BUG-002 transition semantics) owns the close for REAL
+ * writes — it fires synchronously inside applyAnswer/evaluateDependsOn,
+ * BEFORE this function's tail runs.
+ *
+ * [PRD BUG-003 / P1.M2.T2.S1] Consume tail (post-sequence ONLY): when the
+ * offer survived the seam alive (`getSidechatRecord() === record` — object
+ * identity, airtight across hook generations), `pendingConfirm` is retired:
+ * the row was consumed either way (applied, no-op'd, or deferred into an
+ * FR-18 modal), so a stuck `apply ★` row can never re-no-op forever. And
+ * when the record survived with NO modal pending and the question is
+ * already terminal-for-chat (the ANSWER-PIN same-value no-op edge — the
+ * seam wrote nothing, so the `changed` hook can never fire), the tail
+ * mirrors the hook's exact close ordering: abort if streaming FIRST, read
+ * usage, discard, close the view to {@link InterrogationPanel.chatReturnView}
+ * (fallback "short"), notify ONCE. Exactly-once holds because every later
+ * entry finds `getSidechatRecord() === undefined` and the top guard
+ * consumes it. Post-sequence clearing does NOT race the no-op (the fear
+ * behind the old refusal): the no-op already COMPLETED — nothing further
+ * fires from the seam — and a veto that defers into an FR-18 modal keeps
+ * the chat open (confirmMode non-null), deferring the close to that
+ * modal's own apply tail. Under the transition-aware hook (parallel
+ * P1.M2.T1.S1) an answered→answered DIFFERENT-value direct write also
+ * leaves the record alive — this terminal branch closes it identically:
+ * every scenario is closed by exactly one owner (hook / deferred tail /
+ * consume path).
+ *
+ * NEVER fires on its own: the panel's confirm-row branch and the engine's
+ * onAutoApply binding are the only callers.
  */
 export function applyChatAnswer(panel: InterrogationPanel, decision: ApplyDecision): boolean {
   const record = getSidechatRecord();
   const state = panel.state;
   if (record === undefined || state.getQuestion(record.questionId) === undefined) return true;
   if (panel.currentId !== record.questionId) panel.currentId = record.questionId; // setter re-seeds + scopes buffer
+
+  // Seam arguments BYTE-IDENTICAL to the keyboard commit's — provenance by
+  // construction (core commitment 9); only the control flow is restructured
+  // so both seams flow through the consume tail below.
+  let outcome: boolean;
   if (decision.seam === "writeIn") {
     panel.textField.setText(decision.text); // RAW — the keyboard commit's "arguments"
-    return writeInEnter(panel);
+    outcome = writeInEnter(panel);
+  } else {
+    const q = state.getQuestion(record.questionId);
+    outcome = q !== undefined ? acceptOptionIndex(panel, q, decision.optionIndex) !== false : true;
   }
-  const q = state.getQuestion(record.questionId);
-  return q !== undefined ? acceptOptionIndex(panel, q, decision.optionIndex) !== false : true;
+
+  // [PRD BUG-003 / P1.M2.T2.S1] Consume tail — see the JSDoc §Contract.
+  // Identity (live === record), not a field check, is what discriminates:
+  // a real write discarded the record inside the seam → live is undefined
+  // → tail no-ops (the hook already closed everything).
+  const live = getSidechatRecord();
+  if (live === record) {
+    // The offer was consumed either way (applied, no-op'd, or deferred into
+    // an FR-18 modal) — retire the confirm row.
+    clearPendingConfirm(live);
+    const q = state.getQuestion(record.questionId);
+    const terminal = q !== undefined && panel.terminalForChat(q.status);
+    // The no-op case ONLY: the seam wrote nothing (record still alive — the
+    // 'changed' hook never fired) and no FR-18 modal is pending (a veto
+    // defers the real write; the modal's tail owns the close). Mirror the
+    // hook's ordering exactly (panel.ts onChanged).
+    if (terminal && panel.confirmMode === null) {
+      if (live.streamState === "streaming") live.abortController.abort(); // FIRST — a second turn may be in flight
+      const usage = live.usage; // read BEFORE discard
+      discardSidechatRecord();
+      if (panel.view === "chat") {
+        // chatReturnView is never "chat" by its seeding rule — belt-and-braces.
+        panel.setView(panel.chatReturnView !== "chat" ? panel.chatReturnView : "short");
+      }
+      panel.sidechatNotify?.(formatChatCloseNotice(usage)); // once — get() is now undefined
+    }
+  }
+  return outcome;
 }
 
 /**

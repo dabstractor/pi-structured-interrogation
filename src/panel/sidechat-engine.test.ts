@@ -13,7 +13,7 @@
  * Conventions follow sidechat.test.ts: fake dep bags, resetSidechatForTests()
  * in beforeEach, dense decision-ID comments, plain vitest describe/test.
  */
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import {
   createAssistantMessageEventStream,
   type Api,
@@ -29,7 +29,7 @@ import { DEFAULT_CONFIG } from "../config.js";
 import { createInterrogationState } from "../state.js";
 import type { Question } from "../state.js";
 import { applyChatAnswer } from "./actions.js";
-import { InterrogationPanel } from "./panel.js";
+import { InterrogationPanel, type InterrogationPanelArgs } from "./panel.js";
 import {
   createSidechatEngine,
   modelSnapshotFromModel,
@@ -1058,5 +1058,181 @@ describe("createSidechatEngine — freeze-site answer settle (P1.M1.T6.S2, SIDEC
     expect(record.pendingConfirm).toBe(prior); // earlier reply's confirm survives
     expect(record.streamingText).toBe("");
     expect(record.streamState).toBe("idle");
+  });
+});
+
+// ---------------------------------- applyChatAnswer — terminal consume (BUG-003)
+
+describe("applyChatAnswer — terminal consume (BUG-003)", () => {
+  const T0 = "2026-01-01T00:00:00.000Z";
+
+  /** Real panel over the question + notify spy (production binding shape).
+   * Status/answer are applied AFTER the upsert — upsertQuestion forces new
+   * ids to "open" (state.ts raw-primitive contract), so a baked status in
+   * the question object would be silently discarded. */
+  function makeApplyPanel(
+    question: Question,
+    extra: Partial<InterrogationPanelArgs> = {},
+  ): { panel: InterrogationPanel; notify: Mock } {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion({ ...question });
+    if (question.answer !== undefined) state.applyAnswer(question.id, question.answer);
+    if (question.status !== "open") state.setStatus(question.id, question.status);
+    const notify = vi.fn();
+    const panel = new InterrogationPanel({
+      tui: { requestRender: vi.fn() } as never,
+      theme: { fg: (_n: string, s: string) => s, bold: (s: string) => s } as never,
+      done: () => {},
+      state,
+      config: DEFAULT_CONFIG,
+      editorFactory: () =>
+        ({ getText: () => "", setText: () => {}, handleInput: () => {}, render: () => ["e"] }) as never,
+      sidechatNotify: notify,
+      ...extra,
+    } as never);
+    return { panel, notify };
+  }
+
+  /** G1-free chat-view force for the view-close assertions. */
+  function forceChatView(panel: InterrogationPanel): void {
+    panel.view = "chat" as unknown as typeof panel.view;
+  }
+
+  test("noop_apply_on_answered_question_consumes_and_closes", () => {
+    // PRD repro: the chat re-proposes the ALREADY-recorded value — enter on
+    // the confirm row is an ANSWER-PIN no-op, so today the row sticks.
+    const answered: Question = {
+      ...applyQuestion,
+      status: "answered",
+      answer: { value: "sqlite", at: T0 },
+    };
+    const { panel, notify } = makeApplyPanel(answered);
+    openOrReplace("q1", rebindDeps());
+    get()!.pendingConfirm = { seam: "acceptOptionIndex", optionIndex: 0 }; // sqlite == recorded
+    panel.currentId = "q1";
+    forceChatView(panel);
+    const before = panel.state.serialize();
+
+    const out = applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 0 });
+
+    expect(out).toBe(true); // consumed
+    expect(panel.state.serialize()).toEqual(before); // byte-identical: no new answer.at
+    expect(get()).toBeUndefined(); // record discarded
+    expect(panel.view).toBe("short"); // closed to chatReturnView
+    expect(notify).toHaveBeenCalledTimes(1); // exactly one close notice
+    expect(notify.mock.calls[0]?.[0]).toContain("chat closed");
+    expect(panel.render(80).join("\n")).not.toContain("apply"); // no stuck row
+  });
+
+  test("second_enter_after_consume_is_inert", () => {
+    const answered: Question = {
+      ...applyQuestion,
+      status: "answered",
+      answer: { value: "sqlite", at: T0 },
+    };
+    const { panel, notify } = makeApplyPanel(answered);
+    openOrReplace("q1", rebindDeps());
+    get()!.pendingConfirm = { seam: "acceptOptionIndex", optionIndex: 0 };
+    panel.currentId = "q1";
+    forceChatView(panel);
+    applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 0 });
+    const calls = notify.mock.calls.length;
+    const before = panel.state.serialize();
+
+    expect(applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 0 })).toBe(true);
+
+    expect(notify).toHaveBeenCalledTimes(calls); // no second notify
+    expect(panel.state.serialize()).toEqual(before);
+    expect(get()).toBeUndefined();
+  });
+
+  test("ordinary_apply_on_open_question_still_hook_driven", () => {
+    const { panel, notify } = makeApplyPanel(applyQuestion); // OPEN — real write
+    openOrReplace("q1", rebindDeps());
+    panel.currentId = "q1";
+    forceChatView(panel);
+
+    const out = applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 0 });
+
+    expect(out).toBe(true);
+    expect(panel.state.getQuestion("q1")?.answer?.value).toBe("sqlite");
+    expect(get()).toBeUndefined(); // the `changed` hook discarded
+    expect(notify).toHaveBeenCalledTimes(1); // hook's notify — the tail no-ops
+    expect(panel.view).toBe("short"); // hook closed the view
+  });
+
+  test("fr18_veto_clears_pendingconfirm_but_keeps_chat_open", () => {
+    const answered: Question = {
+      ...applyQuestion,
+      status: "answered",
+      answer: { value: "postgres", at: T0 }, // recorded ≠ proposed
+    };
+    const { panel, notify } = makeApplyPanel(answered, {
+      confirmRipple: () => false, // FR-18 veto (the real seam opens the modal)
+    });
+    openOrReplace("q1", rebindDeps());
+    get()!.pendingConfirm = { seam: "acceptOptionIndex", optionIndex: 0 };
+    panel.currentId = "q1";
+    forceChatView(panel);
+    // Simulate the modal the real veto seam opens (M5 wiring).
+    panel.confirmMode = {
+      kind: "options",
+      questionId: "q1",
+      proposed: { value: "sqlite", at: T0 },
+    } as never;
+
+    const out = applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 0 });
+
+    expect(out).toBe(true);
+    expect(get()).toBeDefined(); // record ALIVE — the modal owns the interaction
+    expect(get()!.pendingConfirm).toBeUndefined(); // offer retired
+    expect(panel.view).toBe("chat"); // NOT closed while the modal is pending
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  test("noop_close_mirrors_hook_ordering_abort_then_discard_usage_in_notice", () => {
+    const answered: Question = {
+      ...applyQuestion,
+      status: "answered",
+      answer: { value: "sqlite", at: T0 },
+    };
+    const { panel, notify } = makeApplyPanel(answered);
+    openOrReplace("q1", rebindDeps());
+    const record = get()!;
+    record.pendingConfirm = { seam: "acceptOptionIndex", optionIndex: 0 };
+    record.usage = { input: 1, output: 2, totalCost: 0 }; // the T5 tally shape a real turn leaves
+    record.streamState = "streaming"; // a second turn mid-flight
+    const abortSpy = vi.spyOn(record.abortController, "abort");
+    panel.currentId = "q1";
+    forceChatView(panel);
+
+    applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 0 });
+
+    expect(abortSpy).toHaveBeenCalledTimes(1); // FIRST — hook's ordering
+    expect(get()).toBeUndefined(); // then discarded
+    // usage read BEFORE discard — the seeded T5 tally reaches the notice.
+    expect(notify.mock.calls[0]?.[0]).toBe("chat closed · 1 in · 2 out · $0.00");
+  });
+
+  test("writein_same_value_noop_also_consumes_and_closes", () => {
+    const answered: Question = {
+      ...applyQuestion,
+      status: "answered",
+      answer: { value: "sqlite", custom: true, at: T0 }, // write-in already recorded
+    };
+    const { panel, notify } = makeApplyPanel(answered);
+    openOrReplace("q1", rebindDeps());
+    get()!.pendingConfirm = { seam: "writeIn", text: "sqlite" };
+    panel.currentId = "q1";
+    forceChatView(panel);
+    const before = panel.state.serialize();
+
+    const out = applyChatAnswer(panel, { seam: "writeIn", text: "sqlite" });
+
+    expect(out).toBe(true);
+    expect(panel.state.serialize()).toEqual(before); // ANSWER-PIN inert — byte-identical
+    expect(get()).toBeUndefined();
+    expect(panel.view).toBe("short");
+    expect(notify).toHaveBeenCalledTimes(1);
   });
 });

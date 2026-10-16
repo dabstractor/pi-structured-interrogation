@@ -350,14 +350,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "Chat-view key routing and the esc ladder rung",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Wire the chat view into keys.ts and panel.handleInput: ↑/↓ transcript scroll, enter send (with /clear /new classification first) and confirm-row apply/decline, and the new esc rung — streaming aborts first, idle exits the view (chat retained).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Routing branches, enter interception, and the streaming-abort esc rung",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S2",
@@ -379,14 +379,14 @@
               "type": "Task",
               "id": "P1.M2.T4",
               "title": "PanelView \"chat\": union, seeding, render branch, open/replace path",
-              "status": "Planned",
+              "status": "Failed",
               "description": "Add the \"chat\" view to the panel per the add-a-view recipe and implement actions.onChat: reuse the live chat on the current question, replace wholesale otherwise, open the view with no suspend and no editor preload.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T4.S1",
                   "title": "PanelView union, setView seeding, render branch, footer set, and the onChat open-or-replace action",
-                  "status": "Planned",
+                  "status": "Failed",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -411,14 +411,14 @@
               "type": "Task",
               "id": "P1.M2.T5",
               "title": "Discard hooks, suspend survival, non-TUI inertness",
-              "status": "Planned",
+              "status": "Ready",
               "description": "R4: the chat discards when its question is answered or closed by ANY path (mid-stream aborts first), survives panel suspend/resume in module memory, and is inert outside TUI or without a model seam.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T5.S1",
                   "title": "Discard-on-answer/close hooks at the state mutation seams (mid-stream abort)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T4.S1",
@@ -437,7 +437,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T5.S2",
                   "title": "Suspend/resume survival and non-TUI / no-model-seam inertness",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T4.S1"

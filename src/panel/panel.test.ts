@@ -1339,6 +1339,129 @@ function panelArgsFor(
   };
 }
 
+// ------------------------------------------- chat input (SIDECHAT-001)
+
+describe("chat input — second TextField (SIDECHAT-001)", () => {
+  /** Factory yielding DISTINCT stub editors; records every invocation. */
+  function makeCountingFactory() {
+    const created: EditorComponent[] = [];
+    const factory = (): EditorComponent => {
+      const stub = {
+        getText: vi.fn(() => ""),
+        setText: vi.fn(),
+        handleInput: vi.fn(),
+        render: vi.fn(() => ["chat-input"]),
+        invalidate: vi.fn(),
+        focused: false,
+      } as unknown as EditorComponent;
+      created.push(stub);
+      return stub;
+    };
+    return { created, factory };
+  }
+
+  function makeChatPanel(extra: Partial<InterrogationPanelArgs> = {}) {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const done = vi.fn();
+    const { created, factory } = makeCountingFactory();
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { editorFactory: factory, done, ...extra }),
+    );
+    return { panel, state, done, created };
+  }
+
+  /** G1 interim: force the chat view until P1.M2.T4.S1 adds the member. */
+  function forceChatView(panel: InterrogationPanel): void {
+    panel.view = "chat" as unknown as typeof panel.view;
+  }
+
+  test("second_instance_from_shared_factory_two_distinct_editors", () => {
+    const { panel, created } = makeChatPanel();
+    expect(created).toHaveLength(2); // embedded + chat — sanctioned pattern
+    expect(created[0]).not.toBe(created[1]);
+    expect(panel.textField.editor).toBe(created[0]);
+    expect(panel.chatField.editor).toBe(created[1]);
+    expect(panel.chatField.focused).toBe(false); // born unfocused
+  });
+
+  test("focus_chat_input_noop_outside_chat_view", () => {
+    const { panel, created } = makeChatPanel();
+    panel.focusChatInput(); // view is "short" — invisible-editor (BUG-011) guard
+    expect(panel.focus).toBe("options");
+    expect(panel.chatField.focused).toBe(false);
+    expect((created[1] as unknown as { focused: boolean }).focused).toBe(false);
+  });
+
+  test("focus_chat_input_inside_chat_view_focuses_and_claims", () => {
+    const { panel } = makeChatPanel();
+    forceChatView(panel);
+    panel.focusChatInput();
+    expect(panel.focus).toBe("chat");
+    expect(panel.chatField.focused).toBe(true);
+  });
+
+  test("setView_away_from_chat_blurs_chat_focus", () => {
+    const { panel } = makeChatPanel();
+    forceChatView(panel);
+    panel.focusChatInput();
+    expect(panel.focus).toBe("chat");
+
+    panel.setView("short");
+
+    expect(panel.focus).toBe("options");
+    expect(panel.chatField.focused).toBe(false);
+  });
+
+  test("enter_in_chat_focus_consumed_commits_nothing", () => {
+    const { panel, state, done } = makeChatPanel();
+    forceChatView(panel);
+    panel.focusChatInput();
+    const before = state.serialize();
+
+    expect(panel.handleInput("\r")).toBe(true); // consumed at panel level
+
+    expect(state.serialize()).toEqual(before); // NO answer, NO status change
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(panel.focus).toBe("chat"); // still chatting
+    expect(panel.textDuty).toBe("elaboration"); // answer-editor duty untouched
+    expect(done).not.toHaveBeenCalled(); // never suspends
+  });
+
+  test("newline_plain_and_arrows_forward_to_chat_editor", () => {
+    const { panel, created } = makeChatPanel();
+    forceChatView(panel);
+    panel.focusChatInput();
+    const chatEditor = created[1] as unknown as { handleInput: Mock };
+    const cursorBefore = panel.cursorIndex;
+
+    expect(panel.handleInput("\n")).toBe(true); // newline byte — NOT enter
+    expect(panel.handleInput("x")).toBe(true);
+    expect(panel.handleInput("\x1b[A")).toBe(true); // up arrow → chat editor
+    expect(panel.handleInput("\x1b[B")).toBe(true); // down arrow
+
+    expect(chatEditor.handleInput).toHaveBeenCalledTimes(4);
+    expect(chatEditor.handleInput).toHaveBeenNthCalledWith(1, "\n");
+    expect(chatEditor.handleInput).toHaveBeenNthCalledWith(3, "\x1b[A");
+    expect(panel.cursorIndex).toBe(cursorBefore); // options cursor untouched
+  });
+
+  test("blur_chat_input_releases_focus_without_touching_answer_lifecycle", () => {
+    const { panel, done } = makeChatPanel();
+    forceChatView(panel);
+    panel.focusChatInput();
+
+    panel.blurChatInput();
+
+    expect(panel.focus).toBe("options");
+    expect(panel.chatField.focused).toBe(false);
+    expect(panel.textDuty).toBe("elaboration"); // answer-editor duty untouched
+    expect(done).not.toHaveBeenCalled(); // NEVER suspends
+    panel.blurChatInput(); // idempotent no-op when not focused
+    expect(panel.focus).toBe("options");
+  });
+});
+
 describe("embedded editor — construction + wiring (P1.M4.T1.S1)", () => {
   test("test_panel_constructs_text_field_unfocused_default", () => {
     const state = createInterrogationState("goal");

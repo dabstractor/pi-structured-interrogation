@@ -107,8 +107,18 @@ import {
 /** Panel view modes (h2.29). deepSticky is per panel session, not global. */
 export type PanelView = "short" | "deep" | "overview";
 
-/** Focus region inside the panel (short view h2.29 layout). */
-export type PanelFocus = "options" | "text" | "note";
+/**
+ * Focus region inside the panel. "chat" is the SIDECHAT-001 input target
+ * (fourth focus target — the Mode A focus model is now options / text /
+ * note / chat): exclusive with the three answer-side duties, reachable only
+ * while view === "chat" (P1.M2.T4.S1) via {@link focusChatInput}. While
+ * "chat" holds focus, unmatched input (including up/down arrows —
+ * ESC-002-family discipline) forwards to the chat editor, and `enter` is
+ * intercepted at panel level (send routing: P1.M2.T3.S1) — it can NEVER
+ * commit an answer or a draft. See the SIDECHAT contract (spec h2.38 /
+ * sidechat-contracts.md).
+ */
+export type PanelFocus = "options" | "text" | "note" | "chat";
 
 /**
  * Panel-local draft record — the {value, text} shape per the h2.45 drafts
@@ -558,6 +568,21 @@ export class InterrogationPanel implements Component {
    * (ctrl+t / ✎ accept) drives focus + draft seeding.
    */
   readonly textField: TextField;
+
+  /**
+   * [Mode A] SIDECHAT-001 chat input — the SECOND TextField, built in the
+   * constructor from the SAME captured EditorFactory as {@link textField}
+   * (architecture ruling: two factory calls per panel is the sanctioned
+   * pattern; createEditorComponent is per-editor, so two invocations are
+   * correct — a shared component would entangle buffers). Focused ONLY
+   * while view === "chat" (P1.M2.T4.S1) — a focused-but-unrendered editor
+   * is the BUG-011 hazard. Its history API is never invoked (messages are
+   * sent, not recalled — h2.31 discipline now covering two editors) and it
+   * never touches draftSlots/the DraftStore seam: chat content is
+   * ephemeral (SIDECHAT-002). Enter is intercepted at panel level
+   * (handleInput) so it can never answer a question or stage a draft.
+   */
+  readonly chatField: TextField;
   /** The config-driven dispatcher — always present (router is the default). */
   private readonly keys: KeyHandler;
   /**
@@ -624,6 +649,26 @@ export class InterrogationPanel implements Component {
         // pi's custom() body always hands the live keybindings manager here;
         // the optional-args case is direct construction (tests), where no
         // composed factory is invoked against a real manager.
+        args.keybindings as KeybindingsManager,
+      ),
+      theme: args.theme,
+      onInvalidate: () => this.invalidate(),
+    });
+
+    // SIDECHAT-001 (P1.M2.T2.S1) — the CHAT INPUT: a second TextField from the
+    // SAME captured factory (architecture ruling: sanctioned pattern). It shares
+    // live tui/theme/keybindings (both factory calls happen here inside the
+    // custom() body), and it is focused ONLY while the panel is in the chat view
+    // (P1.M2.T4.S1) — a focused-but-unrendered editor is the BUG-011 hazard.
+    // History isolation (h2.31 discipline): its history API is never invoked;
+    // messages are sent, not recalled. It NEVER touches draftSlots or the
+    // DraftStore seam — chat content is ephemeral by design (SIDECHAT-002).
+    this.chatField = new TextField({
+      editor: createEditorComponent(
+        args.editorFactory,
+        args.config,
+        args.tui,
+        args.theme,
         args.keybindings as KeybindingsManager,
       ),
       theme: args.theme,
@@ -823,6 +868,20 @@ export class InterrogationPanel implements Component {
       // applies an answer (an elaboration alone never answers — FR-12).
       else if (this.textDuty === "writein") writeInEnter(this);
       else this.saveTextDraft();
+      return true;
+    }
+    // CHAT focus (SIDECHAT-001): enter is intercepted BEFORE the router — the
+    // send action is P1.M2.T3.S1's seam. Interim body: consume enter (it must
+    // NEVER fall through to accept/saveTextDraft/writeInEnter — a chat message
+    // is not an answer). The "\n" newline byte is NOT enter (same guard as the
+    // duty branches above).
+    if (this.focus === "chat" && enter) {
+      return true; // consumed — P1.M2.T3.S1 replaces this body with sendChat()
+    }
+    // Unmatched input while chat holds focus forwards to the CHAT editor
+    // (arrows included — ESC-002-family: the focused editor owns caret keys).
+    if (this.focus === "chat") {
+      this.chatField.handleInput(data);
       return true;
     }
     if (this.keys(data, this)) return true;
@@ -1052,6 +1111,12 @@ export class InterrogationPanel implements Component {
    */
   setView(view: PanelView): void {
     if (this.view === view) return;
+    // SIDECHAT-001: the chat editor must never retain focus into another
+    // view (invisible-editor hazard, BUG-011 class) — release it BEFORE the
+    // view flips. Every PanelView is non-chat today, so this always fires
+    // when chat focus is held; the view === "chat" no-op guard is
+    // P1.M2.T4.S1's concern.
+    if (this.focus === "chat") this.blurChatInput();
     this.view = view;
     // Deep entry (P1.M5.T1.S1): seed the selection via deepSeedCursorIndex —
     // ANSWER-PIN-001/FR-35: a recorded answer owns the selection (its
@@ -1223,6 +1288,29 @@ export class InterrogationPanel implements Component {
     this.textDuty = "elaboration"; // duty is per-focus-session (WRITEIN-001); next focus re-declares it
     this.textField.blur();
     this.invalidate(); // drop the editor region from the layout
+  }
+
+  /** [Mode A] Focus the chat input — NO-OP unless view === "chat" (the
+   * invisible-editor discipline: focusing an editor the layout does not
+   * render is the BUG-011 class). Seeds nothing and scopes nothing: chat
+   * content is ephemeral (SIDECHAT-002), never a draft. */
+  focusChatInput(): void {
+    // G1 (interim typing): PanelView has no "chat" member yet — P1.M2.T4.S1
+    // adds it and this cast collapses to a plain comparison.
+    if (this.view !== ("chat" as unknown as PanelView)) return;
+    this.focus = "chat";
+    this.chatField.focus();
+    this.invalidate();
+  }
+
+  /** Release chat focus back to options. NEVER suspends the panel and never
+   *  touches textDuty/bufferOwner/lastEscAt (those belong to the answer-side
+   *  editor's lifecycle). */
+  blurChatInput(): void {
+    if (this.focus !== "chat") return;
+    this.focus = "options";
+    this.chatField.blur();
+    this.invalidate();
   }
 
   /**

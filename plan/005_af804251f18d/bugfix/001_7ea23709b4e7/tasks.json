@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bugfix round 001 — side-chat surface defects + reconstruction robustness",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Fix the 8 defects found by the creative end-to-end validation round at HEAD e298920 (0 critical, 1 major, 7 minor): the side-chat confirm row's dead advertised gestures (BUG-001), answered-question chat lifecycle (BUG-002/003), replace/reset abort ownership and usage-close notices (BUG-005/007), typed-input preservation and overview chat targeting (BUG-006/004), and the reconstruction candidate-pool robustness gap (BUG-008). All 8 verified against the code — see plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/. Gates that must stay green: npm test (1551/1551 at HEAD), npm run typecheck, npm run lint, scripts/verify-keymap-conflicts.sh.",
       "milestones": [
         {
@@ -293,14 +293,14 @@
           "type": "Milestone",
           "id": "P1.M6",
           "title": "Sync changeset-level documentation",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Final catch-all (Mode B): the changeset's cross-cutting docs — README.md feature prose (side chat, keymap, limitations) and the minimal spec alignments — synced once every implementing subtask has landed.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M6.T1",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Sweep README.md's side-chat/keymap/limitations prose and align spec/ui-spec.md's few genuinely-new behavioral clauses with the landed fixes. Runs LAST — depends on every implementing subtask.",
               "subtasks": [
                 {
@@ -332,7 +332,7 @@
                   "type": "Subtask",
                   "id": "P1.M6.T1.S2",
                   "title": "spec/ui-spec.md: minimal alignment pass over §Side chat and §Overview",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

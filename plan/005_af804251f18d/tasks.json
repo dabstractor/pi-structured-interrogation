@@ -125,14 +125,14 @@
               "type": "Task",
               "id": "P1.M1.T4",
               "title": "One-shot branch snapshot and side-chat system prompt builder",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The SIDECHAT-003 context machinery: a full main-branch replay via ctx.sessionManager.getBranch() + sessionEntryToContextMessages frozen once at chat creation, and the side-chat system prompt (question verbatim with deep-view quality, goal, answers digest, answer protocol).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T4.S1",
                   "title": "One-shot branch snapshot pipeline (getBranch → context messages)",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -149,7 +149,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T4.S2",
                   "title": "Side-chat system prompt builder (question verbatim, goal, digest, answer protocol)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T3.S1"

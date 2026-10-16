@@ -30,6 +30,12 @@
  * question re-invokes the builders, but a mid-chat refresh never re-reads
  * the branch. The builders are therefore invoked ONLY when a record is
  * CREATED (same-question reuse returns the existing record untouched).
+ * The snapshot's producer is `takeBranchSnapshot`
+ * (panel/branch-snapshot.ts, P1.M1.T4.S1): the main session's FULL
+ * `getBranch()` replay as pi-ai `Message[]`, read once at creation.
+ * Mid-chat submissions in the main panel leave the snapshot STALE —
+ * accepted v1 (sidechat-contracts.md); a `/clear`/`/new` reset is the
+ * only sanctioned refresh.
  *
  * Consumers (all inject their builders — no config/ctx knowledge here):
  * T3.S2 reset commands, T4.S1/S2 branch builders, T5.S1 model resolution
@@ -62,8 +68,13 @@ export interface ModelSnapshot {
   modelId: string;
 }
 
-/** Frozen context-branch snapshot. The real shape lands with P1.M1.T4.S1;
- * this module only freezes and holds it — never interprets it. */
+/** Frozen context-branch snapshot. Real runtime shape: pi-ai `Message[]`,
+ * produced ONCE at creation by `takeBranchSnapshot`
+ * (panel/branch-snapshot.ts) and injected via
+ * {@link SidechatRebindDeps.buildBranchSnapshot}. Held opaque as
+ * `readonly unknown[]` — zero pi imports in this module is load-bearing
+ * (M3.T1 cache-isolation guard); consumers needing the Messages read the
+ * producer module instead. */
 export type BranchSnapshot = readonly unknown[];
 
 /** Injected builder bag, invoked ONLY when a record is created (never on

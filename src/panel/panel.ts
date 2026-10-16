@@ -127,7 +127,7 @@ import {
   pickGateInitialQuestionId,
 } from "./gate.js";
 import { buildDeepContent, deepLandScroll, deepSeedCursorIndex, renderDeepWindow } from "./deep-view.js";
-import { buildOverviewContent, clampOverviewScroll } from "./overview.js";
+import { buildOverviewContent, clampOverviewScroll, overviewSelectedQuestionId } from "./overview.js";
 import { initialCursorIndex, renderShortViewOptions } from "./short-view.js";
 import { terminalBudget } from "./terminal-budget.js";
 import {
@@ -1148,7 +1148,12 @@ export class InterrogationPanel implements Component {
     // no-op (non-TUI/test safety). args.keys (host override) still wins
     // wholesale below.
     routed.onChat = (p) => {
-      const qid = p.currentId;
+      // BUG-004: in the overview the cursor ROW is the target — currentId is
+      // the background question the panel sat on before entering the list
+      // (stepOverviewCursor never touches it by design). The accessor is the
+      // same read overviewJump jumps by; undefined (empty list / out-of-range
+      // cursor) falls into the guard below → consumed no-op.
+      const qid = p.view === "overview" ? overviewSelectedQuestionId(p) : p.currentId;
       if (qid === undefined || args.chatRebindDeps === undefined) return;
       const record = getSidechatRecord();
       if (record === undefined || record.questionId !== qid) {

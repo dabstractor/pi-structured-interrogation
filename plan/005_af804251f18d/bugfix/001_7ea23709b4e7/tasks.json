@@ -203,7 +203,7 @@
           "type": "Milestone",
           "id": "P1.M4",
           "title": "Input preservation + overview chat targeting (BUG-006 + BUG-004)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Two interaction-model corrections: typed chat input survives an enter pressed while a reply streams (draft-sacredness on the last unprotected text surface), and `e` in the overview opens the chat on the cursor row's question, not the background question.",
           "tasks": [
             {
@@ -234,14 +234,14 @@
               "type": "Task",
               "id": "P1.M4.T2",
               "title": "Overview `e` opens the chat on the cursor row's question",
-              "status": "Ready",
+              "status": "Complete",
               "description": "In the overview the interaction model is cursor-row-centric (enter jumps to the cursor row), but the chat key binds to the background currentId. Route the chat dispatch to the cursor-row question, matching the prev/next overview-branch pattern.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M4.T2.S1",
                   "title": "Cursor-row chat targeting: accessor + overview branch in the chat dispatch",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/keys-overview.md (dedicated research; CONFIRMED with exact lines). The chat dispatch (src/panel/keys.ts ~608-612) has NO overview branch while neighbors do — prev/next (keys.ts ~628-636): `if (panel.view === \"overview\") return overviewUp(panel);` — and enter jumps via overviewJump (overview.ts ~408-418) reading `const q = ordered[panel.overviewCursor]`. panel.overviewCursor is public (panel.ts:677); NO existing accessor for the cursor row's question id (grep verified 0 hits) — only the inline read at overview.ts:411. onChat (panel.ts ~1057-1066) binds `const qid = p.currentId`. No test pins which qid chat opens on from overview (keys.test.ts:405 'e dispatches in ${view}' spies onChat only); verify-keymap-conflicts.sh checks DEFAULT_CONFIG values only — an overview branch on keys.chat does not trip it; no-hardcoded-keys/keymap-guard are unaffected (chat remains config-driven b.chat). Spec is silent on overview chat targeting (ui-spec.md:112 'opens the chat view from any non-editor focus'); the overview convention (ui-spec.md:75-76) leans cursor-row.\n2. INPUT: none from other subtasks (the abort-before-replace from P1.M3.T1.S1 already protects the replace this makes easier to trigger — no hard dependency, but its tests cover the overview-route repro).\n3. LOGIC: Implement PRD h2.3/h3.3's preferred shape (target the cursor row; gating `e` out of the overview was the rejected alternative). (a) Add a small accessor mirroring overviewJump's read — e.g. an overview.ts export `overviewSelectedQuestionId(panel): string | undefined` returning panel.state.orderedQuestions()[panel.overviewCursor]?.id (or an equivalent panel method) — with a defensive undefined for an out-of-range cursor; (b) In onChat (panel.ts ~1058), resolve the target qid as: view === \"overview\" ? overviewSelectedQuestionId(panel) : panel.currentId, and return (consumed no-op) when undefined; chatReturnView still seeds from p.view (\"overview\") so esc returns to the overview. Do NOT touch currentId in the open path (applyChatAnswer already re-seeds it on apply — unchanged). Tests per PRD repro: panel on q1, `o`, ↓ to q2's row, `e` → getSidechat()?.questionId === 'q2' (not 'q1'); cursor on the LAST row edge; empty-state (no questions) → consumed no-op; existing keys.test.ts 'e dispatches' suite stays green.\n4. OUTPUT: Overview chat targeting matches the cursor-row interaction model; consumed by P1.M6.T1 (README §Keymap/§Side chat) and P1.M6.T1.S2 (the one genuinely new ui-spec clause this round: 'e targets the overview cursor row').\n5. DOCS: [Mode A] Update the chat-dispatch comment in keys.ts (~608-612) and the new accessor's JSDoc. README + ui-spec sync owned by P1.M6.T1 / P1.M6.T1.S2.",
@@ -260,21 +260,21 @@
           "type": "Milestone",
           "id": "P1.M5",
           "title": "Reconstruction degrade-to-next-older for tool results (BUG-008)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "The reconstruction candidate pool holds only the LAST state-carrying interrogate tool result, so a damaged newest envelope collapses reconstruction to 'no state' even when a valid older tool result sits on the branch — contradicting the module's own documented degrade-to-next-older contract. Collect every state-carrying tool result into the pool.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M5.T1",
               "title": "Collect every state-carrying interrogate tool result into the candidate pool",
-              "status": "Planned",
+              "status": "Ready",
               "description": "walkBranch reduces all state-carrying tool results to a single LAST-wins slot; the pool pushes that one entry while mirrors each become candidates. Make tool results array-collected like mirrors, competing by branch index newest-first, preserving FR-27 last-wins for the all-valid case.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M5.T1.S1",
                   "title": "Array-collect tool results in walkBranch and pool them newest-first",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/reconstruct.md (dedicated research; CONFIRMED with exact lines). walkBranch (src/reconstruct.ts ~326-347) overwrites a singular slot — `result.toolState = details.state; // LAST occurrence wins (FR-27)` (~342-343) — WalkResult declares the tool slot singular (~282-297) while mirrors/submissions/completions are arrays. The pool pushes the single tool entry (~450-452) vs the mirror for...of loop (~453-457); candidates sort `(a,b) => b.index - a.index` (newest-first, stable) and the tryDeserialize loop degrades newest→older (~463-470). Module JSDoc (~41-43) and tryDeserialize JSDoc (~360-364) promise 'Deserialize failures degrade to the next-older candidate, so one corrupt entry never crashes session_start'. tryDeserialize catches getter-throwing state envelopes (first read at state.ts:493 raw.goal); failure returns undefined → next candidate; all-fail → {source:'none'} (~489). Adjacent tests: reconstruct.test.ts ~372 (getter-throw caught) and ~738 (LAST-wins with two tool results) — the latter pins the all-valid case that MUST keep passing.\n2. INPUT: none from other subtasks (isolated module). The SessionEntry shape: message entries with msg.role === \"toolResult\" && msg.toolName === \"interrogate\" && msg.details.state; mirror entries are type \"custom\" with customType INTERROGATION_STATE_ENTRY_TYPE.\n3. LOGIC: Implement PRD h2.3/h3.7's fix: change WalkResult's tool slot to an array (e.g. toolResults: {index: number; data: unknown}[]) collected for EVERY state-carrying interrogate tool result in walkBranch (append, keep branch index); in the pool construction push every toolResults entry (source \"tool-result\") alongside the mirror loop; the existing index sort + tryDeserialize loop need no structural change — newest-first competition preserves FR-27 last-wins for the all-valid case (the newest tool result still wins when it deserializes). Verify walk.toolState/toolIndex have no other consumers besides the pool construction (research says the pool is the sole consumer; re-grep before deleting the old fields). Tests: extend reconstruct.test.ts — (a) PRD repro: branch [toolResult(valid live state), ...plain turns..., toolResult(hostile getter-throwing details.state)], NO custom entries → reconstructFromBranch returns {source: \"tool-result\"} with the OLDER valid state (all questions recovered); (b) keep ~738's LAST-wins case green (both valid → newest wins); (c) a corrupt-newest tool result WITH a newer valid mirror → mirror still wins (index competition); (d) all tool results corrupt, no mirrors → {source: \"none\"} unchanged.\n4. OUTPUT: The documented degrade-to-next-older contract actually holds across tool results; consumed by P1.M6.T1 (README §Limitations may soften its reconstruction-degradation caveat).\n5. DOCS: [Mode A] Update the walkBranch JSDoc, the WalkResult field docs, and the module JSDoc's step-2 prose (reconstruct.ts ~41-43 and ~435-457) to state that every state-carrying tool result is a candidate. README §Limitations sync owned by P1.M6.T1.",
@@ -307,7 +307,7 @@
                   "type": "Subtask",
                   "id": "P1.M6.T1.S1",
                   "title": "README.md: sync side-chat, keymap, and limitations sections",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1",

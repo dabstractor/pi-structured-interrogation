@@ -630,6 +630,10 @@ export function buildKeyRouter(
       if (bare.submit && editorFocused) return false; // tier 2: must type
       return actions.submit(panel);
     }
+    // chat (BUG-004): in the overview the target is the CURSOR ROW — the
+    // resolution branch lives in panel.ts's onChat (single resolution point,
+    // host key overrides included); the bare/editorFocused tier gate below
+    // is unrelated and stays.
     if (matchesKey(data, b.chat)) {
       if (bare.chat && editorFocused) return false; // tier 2: must type
       actions.onChat(panel);

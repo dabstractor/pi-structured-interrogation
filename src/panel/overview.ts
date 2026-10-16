@@ -416,3 +416,14 @@ export function overviewJump(panel: InterrogationPanel): boolean {
   panel.overviewScroll = 0;
   return true;
 }
+
+/**
+ * [Mode A] BUG-004: the id of the overview cursor row — the SAME read
+ * overviewJump jumps by (`ordered[panel.overviewCursor]`). Defensive:
+ * undefined when the cursor is out of range or the list is empty; callers
+ * treat undefined as "no target" (consumed no-op). Pure read — no flash,
+ * no setView, no currentId mutation (those belong to overviewJump).
+ */
+export function overviewSelectedQuestionId(panel: InterrogationPanel): string | undefined {
+  return panel.state.orderedQuestions()[panel.overviewCursor]?.id;
+}

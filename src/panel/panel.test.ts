@@ -3439,6 +3439,99 @@ describe("chat send + pendingConfirm routing (SIDECHAT-001, P1.M2.T3.S1)", () =>
   });
 });
 
+// ------------------------------ overview chat targeting (BUG-004)
+
+describe("overview chat targeting — cursor row, not currentId (BUG-004)", () => {
+  function makeOverviewChatPanel(questionIds: string[] = ["q1", "q2", "q3"]) {
+    const state = createInterrogationState("goal");
+    for (const id of questionIds) state.upsertQuestion(choiceQ(id));
+    const deps = {
+      resolveModelSnapshot: vi.fn(() => ({ provider: "test", modelId: "test-model" })),
+      buildSystemPrompt: vi.fn(() => "system prompt"),
+      buildBranchSnapshot: vi.fn(() => [] as never),
+    };
+    const engine = { sendTurn: vi.fn(() => true), abort: vi.fn() };
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, {
+        editorFactory: () => fakePanelEditor(),
+        chatRebindDeps: deps,
+        sidechatEngine: engine,
+      }),
+    );
+    return { panel, state, deps };
+  }
+
+  beforeEach(() => resetSidechatForTests());
+  afterEach(() => resetSidechatForTests());
+
+  test("e_in_overview_opens_the_chat_on_the_cursor_row_not_currentId", () => {
+    const { panel } = makeOverviewChatPanel();
+    panel.setView("overview"); // background question stays the entry point (q1)
+    panel.overviewCursor = 1; // q2's row
+
+    expect(panel.handleInput("e")).toBe(true);
+
+    expect(panel.view).toBe("chat");
+    expect(getSidechat()?.questionId).toBe("q2"); // the ROW, not background q1
+    expect(panel.currentId).toBe("q1"); // the open path never re-seats currentId
+  });
+
+  test("e_on_the_last_row_targets_that_row", () => {
+    const { panel } = makeOverviewChatPanel();
+    panel.setView("overview");
+    panel.overviewCursor = 2; // q3 — last row
+
+    expect(panel.handleInput("e")).toBe(true);
+    expect(getSidechat()?.questionId).toBe("q3");
+  });
+
+  test("empty_overview_e_is_a_consumed_noop_and_creates_no_record", () => {
+    const { panel } = makeOverviewChatPanel([]);
+    panel.setView("overview");
+    panel.overviewCursor = 0;
+
+    expect(panel.handleInput("e")).toBe(true); // consumed…
+    expect(getSidechat()).toBeUndefined(); // …but nothing opened
+  });
+
+  test("short_view_e_still_targets_currentId", () => {
+    const { panel } = makeOverviewChatPanel();
+    panel.overviewCursor = 1; // would be q2's row — irrelevant outside the overview
+
+    expect(panel.handleInput("e")).toBe(true);
+    expect(getSidechat()?.questionId).toBe("q1"); // currentId — unchanged contract
+  });
+
+  test("same_row_reopen_reuses_the_record_without_rebuilds", () => {
+    const { panel, deps } = makeOverviewChatPanel();
+    panel.setView("overview");
+    panel.overviewCursor = 1;
+    panel.handleInput("e"); // open on q2
+    const before = getSidechat();
+
+    panel.setView("overview"); // simulate the esc exit (re-seeds the cursor to
+    // currentId's row — landed overview-entry behavior)
+    panel.overviewCursor = 1; // navigate back to q2's row
+    panel.handleInput("e"); // same row again
+
+    expect(getSidechat()).toBe(before); // SAME record — singleton reuse
+    expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(1); // no rebuild
+  });
+
+  test("esc_from_an_overview_opened_chat_returns_to_the_overview", () => {
+    const { panel } = makeOverviewChatPanel();
+    panel.setView("overview");
+    panel.overviewCursor = 1;
+    panel.handleInput("e"); // chatReturnView seeds the pre-chat view
+    expect(panel.chatReturnView).toBe("overview");
+
+    panel.blurChatInput(); // leave the input editor (options focus in chat view)
+    panel.handleInput("\u001b"); // idle record → the chat rung exits to the prior view
+
+    expect(panel.view).toBe("overview");
+  });
+});
+
 // -------------------------------- chat open path (SIDECHAT-001, P1.M2.T4.S1)
 
 describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)", () => {

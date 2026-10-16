@@ -307,12 +307,17 @@ precedent as the editor key's rename.
   `{"text": …}` for a write-in). The panel shows an inline confirm row —
   `apply ★ sqlite? · enter = yes · esc = no` — and the input blurs itself
   the moment the row appears, so `enter` and `esc` work right away in the
-  default focused state — no pre-blur needed. `enter` applies through the
-  ordinary accept seams: ripple confirms, advance, auto-submit, and every
-  record behave (and look) exactly as for a hand-made selection. Applying
-  a value the question already has is a clean no-op: the confirm row is
-  consumed and the chat closes with its usage notice — never a stuck
-  `apply ★` row. `"sideChatAutoApply": true` skips the confirm.
+  default focused state — no pre-blur needed (unless you were mid-sentence
+  typing a follow-up when the reply landed: the blur waits until the input
+  is empty, and your next keystroke keeps typing). `enter` applies through
+  the ordinary accept seams: ripple confirms, advance, auto-submit, and
+  every record behave (and look) exactly as for a hand-made selection.
+  Applying a value the question already has is a clean no-op: the confirm
+  row is consumed and the chat closes with its usage notice — never a
+  stuck `apply ★` row. The row belongs to the chat view: leaving it
+  (overview, deep, esc) keeps the pending answer safely out of the way —
+  `enter`/`esc` keep their documented meanings there — and returning to
+  the chat re-renders it. `"sideChatAutoApply": true` skips the confirm.
 - **Usage on close.** Any close or discard notifies compactly
   (`chat closed · 12.4K in · 3.1K out · $0.07`); chat usage never enters
   session stats.
@@ -320,7 +325,10 @@ precedent as the editor key's rename.
 While a reply is streaming, pressing `enter` is refused and your typed
 text stays in the input — press `enter` again once the stream settles (or
 abort the stream with `esc`) to send it. `/clear`, `/new`, and `enter` on
-an empty buffer still clear the input.
+an empty buffer still clear the input. After the settle blur — or after
+declining with `esc` — pressing `e` again re-focuses the chat input
+without leaving the view or touching the transcript, so "keep chatting"
+needs no exit-and-reopen.
 
 The chat lives in extension memory only — nothing about it is written to
 the session file — and it is TUI-only (inert in `pi -p` and other non-TUI

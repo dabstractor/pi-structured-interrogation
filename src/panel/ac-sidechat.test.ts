@@ -62,7 +62,6 @@ import {
   InterrogationPanel,
   openPanel,
   resumeOpenPanel,
-  settleInvalidatingPort,
   sidechatSettleObservation,
   type InterrogationPanelArgs,
   type PiUISurface,
@@ -407,13 +406,15 @@ function makeHarness(
   const panelRef: { current: InterrogationPanel | undefined } = { current: undefined };
   const engine = createSidechatEngine({
     // The fake port IS the isolation; it rides the SAME production settle
-    // observation the real wiring uses (panel.ts) — macrotask fire included
-    // — so the AC tests exercise the shipped blur-on-decision-settle path.
-    port: settleInvalidatingPort(
+    // observation the real wiring uses (panel.ts) — the engine's onSettle
+    // dep (NEW-001), fired from route() for EVERY port shape. The old
+    // thenable-keyed port wrapper never fired for the production
+    // AssistantMessageEventStream shape (no .then/.finally), which is
+    // exactly the defect this wiring replaces.
+    port:
       opts.port ??
-        (() => doneStream("ok")) as unknown as SidechatModelPort,
-      () => sidechatSettleObservation(panelRef.current),
-    ),
+      (() => doneStream("ok")) as unknown as SidechatModelPort,
+    onSettle: () => sidechatSettleObservation(panelRef.current),
     registry: fakeRegistry([fakeModel("prov", "mdl-1")]),
     notify: vi.fn(),
     answerContext: (questionId) => {
@@ -1545,5 +1546,150 @@ describe("BUG-006 — refused send preserves the buffer", () => {
     sendChat(panel, "ships immediately");
     expect(panel.chatField.getText()).toBe(""); // cleared synchronously
     expect(getSidechat()?.messages.at(-1)?.text).toBe("ships immediately");
+  });
+});
+
+// ------------------------------------------ NEW-001..004 pins (validation r2)
+
+/** Gated ANSWER stream: hold iteration open, settle on demand with a
+ * converged ```answer reply (production stream shape: the RAW
+ * AssistantMessageEventStream — non-thenable). */
+function gatedAnswerStream(): {
+  stream: AssistantMessageEventStream;
+  finish: () => void;
+} {
+  const gated = gatedStream();
+  return {
+    stream: gated.stream,
+    finish: () =>
+      gated.finishWith({
+        type: "done",
+        reason: "stop",
+        message: assistantReply(answerReply("sqlite"), { input: 10, output: 5, total: 0.07 }),
+      }),
+  };
+}
+
+describe("NEW-001 — settle observation fires on the production (non-thenable) stream shape", () => {
+  test("stream-shaped settle blurs the input and repaints the confirm row; single esc declines", async () => {
+    // The port returns the RAW AssistantMessageEventStream — the exact shape
+    // production `streamSimple` returns (non-thenable: no .then/.finally) —
+    // and the harness adds NO settleInvalidatingPort wrapper: only the
+    // engine's onSettle seam can observe this settle.
+    const gated = gatedAnswerStream();
+    expect((gated.stream as unknown as { finally?: unknown }).finally).toBeUndefined();
+    const chat = makeHarness({
+      focusQuestionId: "q3",
+      port: (() => gated.stream) as unknown as SidechatModelPort,
+    });
+    openChat(chat.panel);
+    sendChat(chat.panel, "converge please");
+    expect(getSidechat()?.streamState).toBe("streaming");
+    const midStream = chat.panel.render(100).join("\n"); // caches the mid-stream lines
+    gated.finish(); // terminal → route(): freeze → answer settle → onSettle
+    await flush();
+
+    const record = getSidechat();
+    expect(record?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
+    // BUG-001's blur now engages for the production shape (was: focus stuck
+    // on "chat" — the thenable-keyed wrapper never fired).
+    expect(chat.panel.focus).toBe("options");
+    // The settle's invalidate cleared the render cache: the rebuilt lines
+    // carry the final reply text AND the confirm row (was: byte-identical
+    // cached mid-stream render, invisible row).
+    const settled = chat.panel.render(100).join("\n");
+    expect(settled).not.toBe(midStream);
+    expect(settled).toContain("I would go with sqlite");
+    expect(settled).toContain("apply ★ sqlite? · enter = yes · esc = no");
+    // A SINGLE esc declines — no double-esc blur workaround — and the chat
+    // stays open (esc = "no", not "exit").
+    chat.panel.handleInput(ESCAPE);
+    expect(getSidechat()?.pendingConfirm).toBeUndefined();
+    expect(getSidechat()).toBeDefined();
+    expect(chat.panel.view).toBe("chat");
+  });
+});
+
+describe("NEW-002 — the pending confirm row is view-gated to the chat view", () => {
+  test("enter/esc in the overview and deep views keep their documented meanings", async () => {
+    const chat = makeHarness({ focusQuestionId: "q3", port: convergePort() });
+    openChat(chat.panel);
+    sendChat(chat.panel, "converge please");
+    await flush(); // settle → pendingConfirm + settle blur
+    expect(getSidechat()?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
+    expect(chat.panel.focus).toBe("options");
+
+    // `o` → overview; the retained (now invisible) confirm must not hijack
+    // the documented gestures there.
+    chat.panel.handleInput("o");
+    expect(chat.panel.view).toBe("overview");
+    chat.panel.handleInput(ENTER); // overviewJump — NOT an invisible apply
+    expect(chat.panel.view).toBe("short");
+    expect(chat.state.getQuestion("q3")?.answer).toBeUndefined();
+    expect(getSidechat()?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
+
+    chat.panel.handleInput("o"); // back to the overview
+    chat.panel.handleInput(ESCAPE); // esc-ladder descent — NOT an invisible decline
+    expect(getSidechat()?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
+
+    chat.panel.handleInput("d"); // deep view — same hijack class
+    expect(chat.panel.view).toBe("deep");
+    chat.panel.handleInput(ESCAPE); // deep → short descent — NOT a decline
+    expect(chat.panel.view).toBe("short");
+    expect(getSidechat()?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
+
+    // Returning to the chat re-renders the row and enter applies there.
+    chat.panel.handleInput(CHAT_KEY); // `e` on the current question (q3)
+    expect(chat.panel.view).toBe("chat");
+    chat.panel.handleInput(ENTER); // confirm-row apply
+    expect(chat.state.getQuestion("q3")?.answer?.value).toBe("sqlite");
+    expect(getSidechat()).toBeUndefined(); // apply consumes the chat
+  });
+});
+
+describe("NEW-003 — refocus gesture + typing-safe settle blur", () => {
+  test("declining then `e` re-claims the chat input without discarding the record", () => {
+    const chat = makeHarness({ focusQuestionId: "q3", port: convergePort() });
+    openChat(chat.panel);
+    sendChat(chat.panel, "converge please");
+    return flush().then(() => {
+      expect(chat.panel.focus).toBe("options"); // settle blur
+      chat.panel.handleInput(ESCAPE); // decline (focus options, view chat)
+      expect(getSidechat()?.pendingConfirm).toBeUndefined();
+      expect(chat.panel.focus).toBe("options");
+      // `e` on the UNCHANGED chat view previously no-op'd (setView early-
+      // returned); it must now re-run focusChatInput.
+      chat.panel.handleInput(CHAT_KEY);
+      expect(chat.panel.focus).toBe("chat");
+      expect(getSidechat()).toBeDefined(); // record retained, draft intact
+    });
+  });
+
+  test("a settle while the buffer holds text does NOT blur — the next keystroke types", async () => {
+    const gated = gatedAnswerStream();
+    const chat = makeHarness({
+      focusQuestionId: "q3",
+      port: (() => gated.stream) as unknown as SidechatModelPort,
+    });
+    openChat(chat.panel);
+    sendChat(chat.panel, "which db?");
+    // Mid-stream follow-up typing (the documented type-during-a-stream flow).
+    chat.panel.chatField.setText("wait, what about ");
+    gated.finish();
+    await flush(); // settle → decision (pendingConfirm set), buffer non-empty
+
+    expect(getSidechat()?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
+    // NEW-003 deferral: the blur is skipped while the user is mid-sentence.
+    // Pre-fix, the settle blur fired here and the next byte 'o' — an ordinary
+    // letter of the sentence — opened the OVERVIEW (probe B3a). Post-fix it
+    // must forward to the chat editor (the harness's fake editor records
+    // handleInput calls; it does not append text).
+    expect(chat.panel.focus).toBe("chat");
+    const chatEditor = (chat.panel.chatField as unknown as { editor: { handleInput: Mock } }).editor;
+    const forwardsBefore = chatEditor.handleInput.mock.calls.length;
+    chat.panel.handleInput("o");
+    expect(chat.panel.view).toBe("chat"); // NOT hijacked into the overview
+    expect(chat.panel.focus).toBe("chat");
+    expect(chatEditor.handleInput.mock.calls.length).toBe(forwardsBefore + 1);
   });
 });

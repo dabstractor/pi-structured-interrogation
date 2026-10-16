@@ -409,21 +409,20 @@ export function surfaceSubmitDeps(
 
 /**
  * The chat engine's model-call port, wrapped so a SETTLE invalidates the
- * panel's cached render (SIDECHAT-001 cached-render discipline: record
- * mutations are invisible to render()'s width/rows cache — without this the
- * transcript would not update after a streamed turn). The macrotask
- * (setTimeout 0) fires AFTER the engine's microtask route() continuation,
- * so the invalidate lands on the POST-settle record. The fire callback also
- * carries the BUG-001 focus fix (P1.M1.T1.S1): a DECISION-BEARING settle
- * (`getSidechatRecord()?.pendingConfirm` set — readable because the fire is
- * post-settle) blurs the chat input (`blurChatInput`), so the confirm row's
- * advertised enter/esc gestures act in the natural focused flow. Rejection
- * settles, the autoApply bypass (never sets pendingConfirm), and plain
- * no-block settles keep chat focus — the user may be typing a follow-up.
- * Non-thenable stream
- * shapes pass through unwrapped: the panel re-reads get() on every rebuild,
- * so typing during a stream invalidates naturally (T3.S1's scroll/typing
- * paths own those invalidations).
+ * panel's cached render. Shape-proof fire (NEW-001 companion): the fire is
+ * keyed on the port result being (a) thenable — a Promise<AssistantMessage>
+ * fake port — or (b) a stream with a callable `result()` (the
+ * AssistantMessageEventStream shape: non-thenable, but its `result()`
+ * promise settles at the SAME terminal event route() consumes — hooking it
+ * never touches the engine's iteration). PRODUCTION does NOT use this
+ * wrapper anymore (NEW-001 fix): the settle observation rides the engine's
+ * own terminal routing via the {@link SidechatEngineDeps.onSettle} dep
+ * (sidechat-engine.ts route()), which is authoritative for every shape.
+ * This wrapper is retained for harnesses that wrap fake ports directly
+ * (validate.sh probes, ad-hoc test rigs) and want the post-settle
+ * macrotask observation on any port shape; the setTimeout(0) fire lands
+ * AFTER the engine's microtask route() continuation, so the invalidate
+ * lands on the POST-settle record.
  */
 export function settleInvalidatingPort(port: SidechatModelPort, fire: () => void): SidechatModelPort {
   return (model, context, options) => {
@@ -433,25 +432,45 @@ export function settleInvalidatingPort(port: SidechatModelPort, fire: () => void
         () => setTimeout(fire, 0),
       ) as typeof result;
     }
+    // Stream shape: settle-observe through the stream's own result()
+    // promise (resolves at the terminal event, rejects on an error
+    // terminal) — BOTH settlements fire. Never consumes the iteration.
+    const resultFn = (result as { result?: unknown }).result;
+    if (typeof resultFn === "function") {
+      void (resultFn as () => Promise<unknown>).call(result).then(
+        () => setTimeout(fire, 0),
+        () => setTimeout(fire, 0),
+      );
+    }
     return result;
   };
 }
 
 /**
- * The settle fire body, shared by the production wiring (panel.ts's own
- * engine construction) and the ac-sidechat harness (which wraps its fake
- * port with {@link settleInvalidatingPort} and fires this against the live
- * panel): invalidate the cached render, then BUG-001's decision blur
- * (P1.M1.T1.S1) — a DECISION-BEARING settle (pendingConfirm set, readable
- * because the fire is a post-settle macrotask) blurs the chat input so the
- * confirm row's enter/esc gestures act in the natural focused flow.
+ * The settle fire body — the engine's onSettle dep (NEW-001): invalidate
+ * the cached render (SIDECHAT-001: record mutations are invisible to
+ * render()'s width/rows cache), then BUG-001's decision blur (P1.M1.T1.S1)
+ * — a DECISION-BEARING settle (pendingConfirm set; the engine fires this
+ * after route()'s answer settle) blurs the chat input so the confirm row's
+ * enter/esc gestures act in the natural focused flow. NEW-003 deferral:
+ * the blur is SKIPPED while the chat buffer holds text — the user is
+ * mid-sentence on a follow-up (the documented type-during-a-stream flow),
+ * and blurring then would hijack their NEXT keystroke into a panel
+ * navigation key. The confirm row is still visible (chat view footer) and
+ * the S2 empty-buffer belt still applies it once the field empties; the
+ * next settle (or a later fire) blurs on the quiet field.
  * Rejection settles, the autoApply bypass (never sets pendingConfirm), and
  * plain no-block settles keep chat focus (follow-up typing uninterrupted);
  * blurChatInput never clears the TextField buffer.
  */
 export function sidechatSettleObservation(panel: InterrogationPanel | undefined): void {
   panel?.invalidate();
-  if (panel !== undefined && panel.focus === "chat" && getSidechatRecord()?.pendingConfirm !== undefined) {
+  if (
+    panel !== undefined &&
+    panel.focus === "chat" &&
+    panel.chatField.getText().trim() === "" && // NEW-003: never hijack mid-sentence typing
+    getSidechatRecord()?.pendingConfirm !== undefined
+  ) {
     panel.blurChatInput();
   }
 }
@@ -544,7 +563,16 @@ function resolveSidechatHostSeams(
       branchReader !== undefined ? takeBranchSnapshot(branchReader) : [],
   };
   const sidechatEngine = createSidechatEngine({
-    port: settleInvalidatingPort(streamSimplePort, () => sidechatSettleObservation(currentPanel)),
+    port: streamSimplePort,
+    // NEW-001: the settle observation rides the ENGINE's terminal routing
+    // (route()'s onSettle dep) — NOT a thenable-keyed port wrapper.
+    // streamSimple returns a non-thenable AssistantMessageEventStream, so a
+    // `.finally`-keyed wrapper never fired for a real model reply (the
+    // BUG-001 blur and the post-settle invalidate were dead in production).
+    // The engine seam fires for every port shape, after the answer settle
+    // has written pendingConfirm, and only for the LIVE record (route() is
+    // reached through the settle liveness guard).
+    onSettle: () => sidechatSettleObservation(currentPanel),
     registry: registryPort,
     notify,
     // SIDECHAT-004 answer settle (P1.M2.T6.S1): the question read mirrors
@@ -1188,7 +1216,13 @@ export class InterrogationPanel implements Component {
         status: p.state.getQuestion(qid)?.status ?? "open",
       };
       if (p.view !== "chat") p.chatReturnView = p.view; // keep prior on re-open
-      p.setView("chat"); // seeds scroll-bottom + chat focus (once-only via no-op)
+      p.setView("chat"); // seeds scroll-bottom (once-only via the unchanged-view no-op)
+      // NEW-003: a same-view re-entry (`e` while ALREADY in the chat view
+      // with the input blurred — post-settle-blur or post-decline) must
+      // still claim the input: setView no-ops on the unchanged view, so the
+      // seeding branch's focusChatInput never runs. Idempotent when the
+      // input already holds focus.
+      p.focusChatInput();
     };
     // SIDECHAT-004 apply routing (P1.M2.T6.S1): the confirm row's enter
     // routes VERBATIM through the ordinary answer seams (applyChatAnswer —
@@ -1346,19 +1380,28 @@ export class InterrogationPanel implements Component {
     // the raw byte is excluded here (kitty mode already yields "shift+enter").
     const enter = key === "enter" && data !== "\n";
     // SIDECHAT-001 pendingConfirm confirm row (P1.M2.T3.S1): interactive
-    // while focus is OUTSIDE the chat editor (the row replaces the chat
-    // view's footer hints). enter → the apply seam (onApplyConfirm →
-    // applyChatAnswer — SIDECHAT-004 routing, P1.M2.T6.S1), esc → decline
-    // (clearPendingConfirm). Routed BEFORE the duty fork and the router so
-    // a confirm-enter/esc can never double-fire as an answer gesture or
-    // descend the esc ladder; AFTER ctrl+c and the CONFIRM-MODE modal, both
-    // of which keep precedence over the chat view (PRP (e) coexistence).
-    // BUG-001 (P1.M1.T1.S1): the settle fire callback BLURS the chat input
-    // when a decision-bearing settle lands (pendingConfirm set), so this
-    // branch is live in the natural flow — type → enter → reply → enter
-    // applies / esc declines, no manual blur. The focus !== "chat" gate
-    // stays: P1.M1.T1.S2 adds the empty-buffer-enter belt-and-suspenders.
-    if (this.focus !== "chat") {
+    // while the CHAT VIEW is on screen and focus is OUTSIDE the chat editor
+    // (the row replaces the chat view's footer hints). enter → the apply
+    // seam (onApplyConfirm → applyChatAnswer — SIDECHAT-004 routing,
+    // P1.M2.T6.S1), esc → decline (clearPendingConfirm). Routed BEFORE the
+    // duty fork and the router so a confirm-enter/esc can never double-fire
+    // as an answer gesture or descend the esc ladder; AFTER ctrl+c and the
+    // CONFIRM-MODE modal, both of which keep precedence over the chat view
+    // (PRP (e) coexistence).
+    // BUG-001 (P1.M1.T1.S1): the engine's onSettle observation BLURS the
+    // chat input when a decision-bearing settle lands (pendingConfirm set),
+    // so this branch is live in the natural flow — type → enter → reply →
+    // enter applies / esc declines, no manual blur. The focus !== "chat"
+    // gate stays: P1.M1.T1.S2 adds the empty-buffer-enter belt-and-suspenders.
+    // NEW-002: the branch is VIEW-GATED on view === "chat" — the row is
+    // only rendered (and only advertised) in the chat view. A pending
+    // confirm RETAINED across a view switch (the record survives `o`/`d`/
+    // esc-exit by design, BUG-002 retention) must NOT hijack enter/esc in
+    // the overview/deep/short views, where those keys carry documented
+    // meanings (jump-to-row / select option / desc-ladder) and the row is
+    // invisible. Returning to the chat (`e`) re-renders the row; enter/
+    // esc act again there.
+    if (this.view === "chat" && this.focus !== "chat") {
       const pending = getSidechatRecord()?.pendingConfirm;
       if (pending !== undefined) {
         if (enter) {
@@ -1848,6 +1891,7 @@ export class InterrogationPanel implements Component {
     // extension — S2.S1's G1 interim cast collapsed); the OPEN path that
     // actually calls this with view === "chat" is P1.M2.T4.S1's.
     if (this.view !== "chat") return;
+    if (this.focus === "chat") return; // idempotent (NEW-003 same-view re-entry)
     this.focus = "chat";
     this.chatField.focus();
     this.invalidate();

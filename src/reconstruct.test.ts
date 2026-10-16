@@ -386,6 +386,80 @@ describe("reconstructFromBranch — base selection", () => {
     expect(result.source).toBe("mirror-entry");
     expect(getState()?.getQuestion("q1")?.status).toBe("open");
   });
+
+  test("NEW-004: realistically corrupt newest tool result (non-throwing garbage) degrades to the older valid tool result", () => {
+    // deserialize is TOLERANT: a plain-object payload "succeeds" as an
+    // empty shell (epoch 1, zero questions). As the NEWEST candidate it
+    // used to win base selection and silently lose the interrogation —
+    // the exact BUG-008 class. The empty shell must be rejected for base
+    // selection and the older VALID tool result installed instead.
+    const good = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const ctx = makeCtx([
+      toolResultEntry(good),
+      userEntry(),
+      toolResultEntry({ garbage: true }), // valid JSON object — never throws
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("tool-result");
+    expect(getState()?.goal).toBe("test goal");
+    expect(getState()?.getQuestion("q1")?.status).toBe("open");
+  });
+
+  test("NEW-004: an authored zero-question envelope (questions map present) stays a valid newest base", () => {
+    // serialize() emits `questions: {}` for a legitimately empty state — an
+    // epoch-bumped question-less mirror is a state someone WROTE (the A8b
+    // degrade-target class), not garbage: it keeps winning base selection
+    // over an older candidate.
+    const emptyAuthored = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]); // seed, then project to the empty envelope
+    });
+    const envelope = { ...emptyAuthored, questions: {}, order: [], epoch: 2 };
+    const ctx = makeCtx([
+      toolResultEntry(emptyAuthored),
+      mirrorEntry({ state: envelope, epoch: 2, at: "2025-06-01T12:00:05.000Z" }),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("mirror-entry");
+    expect(getState()?.orderedQuestions()).toHaveLength(0);
+    expect(getState()?.epoch).toBe(2);
+  });
+
+  test("NEW-004: a wrong-typed questions field degrades to the older valid candidate", () => {
+    const good = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const ctx = makeCtx([
+      toolResultEntry(good),
+      userEntry(),
+      toolResultEntry({ goal: "G", epoch: 2, questions: "oops", order: [] }),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("tool-result");
+    expect(getState()?.getQuestion("q1")?.status).toBe("open");
+  });
+
+  test("NEW-004: a completed-cleared terminal state (zero questions, completed=true) stays a valid newest base", () => {
+    // The one legitimate zero-question snapshot: the one-time completion
+    // clear. It must keep winning base selection so replay/surfacing stay
+    // suppressed (exactly-once completion across restart).
+    const cleared = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+      s.clearForCompletion();
+    });
+    expect(cleared.questions).toEqual({});
+    expect(cleared.completed).toBe(true);
+    const ctx = makeCtx([toolResultEntry(cleared)]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("tool-result");
+    expect(getState()?.completed).toBe(true);
+    expect(getState()?.orderedQuestions()).toHaveLength(0);
+  });
 });
 
 describe("reconstructFromBranch — surface decision", () => {

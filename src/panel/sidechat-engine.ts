@@ -118,6 +118,20 @@ export interface SidechatEngineDeps {
    * record.pendingConfirm is manual mode's exposure. OPTIONAL — absent +
    * autoApply = the decision evaporates safely (documented no-op). */
   onAutoApply?: (decision: ApplyDecision) => void;
+  /** NEW-001 settle-observation seam: fired after EVERY terminal
+   * {@link route} — freeze, aborted rollback, and error notice alike — from
+   * the engine's OWN terminal routing. This is the shape-proof vantage the
+   * panel's invalidate + BUG-001 decision blur must hang off: production
+   * ports return a non-thenable AssistantMessageEventStream (no .then/
+   * .finally), so any port-wrapper keyed on promise settlement never fires
+   * for a real model reply. Ordering guarantees the callback relies on:
+   * (a) the record is already settled (idle + cleared buffer) — route()
+   * settles FIRST; (b) in the freeze branch the answer settle has already
+   * run, so a decision-bearing reply exposes its pendingConfirm to the
+   * callback; (c) route() is reached only for the LIVE record (the settle
+   * liveness guard), so replaced/dead records never observe. OPTIONAL —
+   * absent = plain routing, byte-identical. */
+  onSettle?: () => void;
 }
 
 /**
@@ -263,6 +277,26 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
    * cleared buffer) so no path can strand "streaming", then routes by stop
    * reason. */
   function route(
+    record: SidechatRecord,
+    turnUser: ChatMessage,
+    stopReason: StopReason | undefined,
+    message: AssistantMessage | undefined,
+    rawReason?: unknown,
+  ): void {
+    try {
+      routeTerminal(record, turnUser, stopReason, message, rawReason);
+    } finally {
+      // NEW-001: the observation fires from terminal routing ITSELF — after
+      // the freeze/tally/answer-settle bookkeeping above, for EVERY
+      // terminal — instead of a thenable-keyed port wrapper that real
+      // AssistantMessageEventStream results never trigger.
+      deps.onSettle?.();
+    }
+  }
+
+  /** The terminal routing table proper (see {@link route} — the onSettle
+   * try/finally wrapper owns the observation, this owns the record). */
+  function routeTerminal(
     record: SidechatRecord,
     turnUser: ChatMessage,
     stopReason: StopReason | undefined,

@@ -381,6 +381,35 @@ function tryDeserialize(data: unknown): LiveState | undefined {
   }
 }
 
+/**
+ * NEW-004 base plausibility: deserialize is fully TOLERANT — any
+ * plain-object payload (a hand-edited `{garbage:true}`, a wrong-typed
+ * `questions` field, truncated-but-valid-JSON state) "deserializes" into an
+ * EMPTY shell (goal "", epoch 1, zero questions, completed=false) without
+ * throwing, so tryDeserialize alone cannot distinguish a corrupt newest
+ * envelope from a valid one. Letting such a shell win base selection as the
+ * NEWEST candidate silently loses the whole interrogation — exactly the
+ * BUG-008 class the candidate pool exists to prevent.
+ *
+ * A candidate is a plausible base when someone could have written it:
+ * - any questions, OR the one-time completion marker (the
+ *   cleared-for-completion terminal state legitimately serializes zero
+ *   questions with completed=true — it must stay selectable so replay and
+ *   surfacing stay suppressed); or, for zero-question non-completed
+ *   payloads,
+ * - the raw envelope must carry `questions` as a PLAIN OBJECT — the exact
+ *   shape serialize() emits (an empty map is a legitimately authored empty
+ *   state, e.g. the A8b degrade-target mirror). Arbitrary object-ish
+ *   garbage, wrong-typed `questions` values, and truncated envelopes
+ *   missing the map are NOT states anyone ever wrote: rejected, and base
+ *   selection degrades to the next-older candidate.
+ */
+function isPlausibleBase(data: unknown, state: LiveState): boolean {
+  if (state.completed === true) return true;
+  if (state.orderedQuestions().length > 0) return true;
+  return isObj(data) && isObj(data.questions);
+}
+
 // ------------------------------------------------------------------- replay
 
 /**
@@ -415,6 +444,10 @@ function replaySubmission(state: LiveState, details: SubmissionMessage["details"
 }
 
 // ------------------------------------------------------------------- engine
+
+/** Plain-object guard (state.ts's shape — arrays are not state envelopes). */
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
  * Reconstruct the interrogation state from the CURRENT branch of
@@ -475,12 +508,16 @@ export function reconstructFromBranch(
   let state: LiveState | undefined;
   let baseIndex = -1;
   for (const candidate of candidates) {
-    state = tryDeserialize(candidate.data);
-    if (state !== undefined) {
-      source = candidate.source;
-      baseIndex = candidate.index;
-      break; // one corrupt entry degrades to the next-older candidate
-    }
+    const candidateState = tryDeserialize(candidate.data);
+    // NEW-004: a throwing payload (hostile getter) AND a tolerantly-empty
+    // non-state envelope (realistically corrupt plain-object garbage) are
+    // BOTH invalid for base selection — degrade to the next-older candidate
+    // either way.
+    if (candidateState === undefined || !isPlausibleBase(candidate.data, candidateState)) continue;
+    state = candidateState;
+    source = candidate.source;
+    baseIndex = candidate.index;
+    break; // one corrupt entry degrades to the next-older candidate
   }
   if (state === undefined) {
     // No interrogation traces on this branch (step 2c): drop any residue of

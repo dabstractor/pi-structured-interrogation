@@ -29,8 +29,8 @@
  *    restored when done() fires. Editor text present at panel-open is
  *    intact after suspend — the h2.35 claim holds natively.
  * 2. Chained cycles re-snapshot the LIVE editor at each open, so text
- *    typed while suspended (side chat) and S2's discuss-in-chat
- *    `setEditorText` preload survive resume + subsequent close too.
+ *    typed while suspended (side chat) — and any post-resolve
+ *    `setEditorText` write — survives resume + subsequent close too.
  * 3. THEREFORE: NO production snapshot/restore is added. Restoring a
  *    pre-suspend snapshot on resume would CLOBBER text the user typed
  *    during the side chat — the exact hazard this item guards against.

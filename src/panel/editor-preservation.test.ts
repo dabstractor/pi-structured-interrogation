@@ -29,6 +29,7 @@ import {
   InterrogationPanel,
   openPanel,
   resumeOpenPanel,
+  type DraftStore,
   type OpenPanelOptions,
   type PiUISurface,
 } from "./panel.js";
@@ -69,6 +70,59 @@ const flush = (): Promise<void> => new Promise<void>((resolve) => setTimeout(res
 
 function optsFor(state: InterrogationState, extra: Partial<OpenPanelOptions> = {}): OpenPanelOptions {
   return { config: DEFAULT_CONFIG, state, ...extra };
+}
+
+/**
+ * Kitty CSI-u ctrl+shift+e (e = 101) — a tier-1 chord (intercepts in every
+ * focus state, including the focused editor). The DEFAULT bare `e` must
+ * type in editor focus (BAREKEYS-001 two-tier dispatch, pinned by
+ * keys.test.ts), so the mid-write chat-open gesture is only reachable
+ * through a chord remap — the same bytes keys.test.ts's chord fixtures
+ * route with.
+ */
+const CHAT_CHORD = "\u001b[101;6u";
+
+/**
+ * Chat-deps doubles: openPanel's precedence is `opts.chatRebindDeps ??
+ * derived`, and the derived seams need a ctx-flavored surface (modelRegistry)
+ * the fake pi lacks — without these injected opts the chat key is inert.
+ * Chord-double shape (sendTurn true = idle→streaming; abort no-op).
+ */
+const CHAT_DEPS: Pick<OpenPanelOptions, "chatRebindDeps" | "sidechatEngine"> = {
+  chatRebindDeps: {
+    resolveModelSnapshot: () => ({ provider: "test", modelId: "test-model" }),
+    buildSystemPrompt: () => "system prompt",
+    buildBranchSnapshot: () => [] as never,
+  },
+  sidechatEngine: { sendTurn: () => true, abort: () => {} },
+};
+
+/**
+ * DraftStore with REAL in-memory semantics behind spy seams — getDraft
+ * reads back what setDraft stored (a bare call-recording stub only counts
+ * calls), so tests can assert the STORE population, not just the call.
+ */
+function makeDraftsStore(): DraftStore {
+  const store = new Map<string, string>();
+  return {
+    getDraft: vi.fn((id: string) => store.get(id)),
+    setDraft: vi.fn((id: string, text: string) => void store.set(id, text)),
+    getNote: vi.fn(() => ""),
+    setNote: vi.fn(),
+  };
+}
+
+/** Slot-map peek (private by design — the public read is draftTextFor). */
+function slotFor(
+  panel: InterrogationPanel,
+  id: string,
+): { value: string; text: string } | undefined {
+  return (panel as unknown as { draftSlots: Map<string, { value: string; text: string }> })
+    .draftSlots.get(id);
+}
+
+function slotCount(panel: InterrogationPanel): number {
+  return (panel as unknown as { draftSlots: Map<string, unknown> }).draftSlots.size;
 }
 
 // ------------------------------------------------- emulation of pi runtime
@@ -140,8 +194,8 @@ function makePreservationPi(initialEditorText = ""): PreservationMock {
       // close() as handed to the factory as `done` — non-overlay branch
       // (:2161-2167): restoreEditor() re-adds the SAME instance with
       // setText(savedText), THEN resolve(result). Restore-before-resolve
-      // keeps the runtime's microtask order (pi's discuss-style
-      // post-resolve writes land AFTER the restore, never before it).
+      // keeps the runtime's microtask order (pi's post-resolve editor
+      // writes land AFTER the restore, never before it).
       const done = (result: null | undefined): void => {
         editor.text = savedText;
         resolve(result);
@@ -271,22 +325,23 @@ describe("editor preservation across custom() suspend/resume (h2.35)", () => {
     expect(mock.editor.text).toBe("T2");
   });
 
-  test("test_discuss_preload_survives_resume_cycle", async () => {
-    const TEMPLATE = "## Discuss\n\n- point A\n- point B";
+  test("test_post_resolve_editor_write_survives_resume_cycle", async () => {
+    const TEMPLATE = "## Follow-up notes\n\n- point A\n- point B";
     const mock = makePreservationPi("");
     const state = seedState();
     openPanel(mock.pi, optsFor(state));
-    firstCall(mock).done(null); // suspend (break out to discuss in chat)
+    firstCall(mock).done(null); // suspend (esc break-out to the main conversation)
     await flush();
 
-    // S2 discuss.ts discussInChat: the setEditorText write is deferred one
+    // Post-resolve editor writes: the setEditorText write is deferred one
     // microtask AFTER custom() resolves (post-restore) — mirror that here.
     void Promise.resolve().then(() => mock.pi.ui.setEditorText?.(TEMPLATE));
     await flush();
     expect(mock.editor.text).toBe(TEMPLATE);
 
     // Resume + suspend: the template is the live text, re-snapshotted at
-    // open and restored at close — S2's flow survives the whole cycle.
+    // open and restored at close — the post-resolve write survives the
+    // whole cycle.
     expect(resumeOpenPanel(mock.pi)).toBe(true);
     expect(mock.calls.length).toBe(2);
     expect(mock.calls[1]!.snapshotText).toBe(TEMPLATE);
@@ -294,6 +349,135 @@ describe("editor preservation across custom() suspend/resume (h2.35)", () => {
     await flush();
 
     expect(mock.editor.text).toBe(TEMPLATE);
+  });
+});
+
+describe("side-chat open — draft write-through successor (R4/BUG-002, P1.M2.T7.S1)", () => {
+  // Module-scoped host record — re-arm every test (panel.test.ts convention).
+  beforeEach(() => {
+    createPanelHost(makeMockLifecycle().lifecycle);
+  });
+
+  test("test_chat_open_mid_write_stages_no_drafts_no_suspend_no_editor_write", async () => {
+    // The chat-open gesture must be non-destructive to in-flight editor
+    // state (R4/BUG-002): NO suspend (done stays unresolved), NO
+    // main-editor write, NO draft staging, buffer intact. Two legs:
+    // (1) the bare default `e` from non-editor focus — its only dispatch
+    // context (BAREKEYS-001 tier 2: bare keys must TYPE in editor focus,
+    // pinned by keys.test.ts) — with an unstaged buffer in flight; and
+    // (2) a tier-1 chord remap fired MID-EDIT from text focus (chords
+    // intercept in every focus state).
+    const mock = makePreservationPi();
+    const state = seedState();
+    const drafts = makeDraftsStore();
+    openPanel(mock.pi, optsFor(state, { drafts, ...CHAT_DEPS }));
+    await flush();
+    const panel = firstCall(mock).component;
+    const qid = panel.currentId;
+    expect(qid).toBeDefined();
+
+    // Leg 1 — bare `e`, the default binding, from options focus.
+    panel.focusTextField("writein");
+    panel.textField.setText("precious unsaved typing");
+    panel.blurTextField(); // blur stages nothing — the buffer stays unstaged
+    expect(panel.handleInput("e")).toBe(true);
+    expect(panel.view).toBe("chat"); // the gesture IS the open path
+    expect(panel.focus).toBe("chat");
+    expect(firstCall(mock).resolved).toBe(false); // AC-17.1: never suspends
+    expect(mock.editor.text).toBe(""); // never writes the main editor
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // never stages drafts
+    expect(panel.draftTextFor(qid!)).toBeUndefined(); // no slot, no store write
+    expect(panel.textField.getText()).toBe("precious unsaved typing"); // buffer intact
+
+    // Leg 2 — the chord remap, the literal mid-edit gesture: re-arm the
+    // host record (leg 1's panel never suspended, so the single-instance
+    // guard would bounce a second open), then fire the chord from the
+    // FOCUSED editor.
+    createPanelHost(makeMockLifecycle().lifecycle);
+    const mock2 = makePreservationPi();
+    const drafts2 = makeDraftsStore();
+    openPanel(
+      mock2.pi,
+      optsFor(state, {
+        drafts: drafts2,
+        ...CHAT_DEPS,
+        config: { ...DEFAULT_CONFIG, keys: { ...DEFAULT_CONFIG.keys, chat: "ctrl+shift+e" } },
+      }),
+    );
+    await flush();
+    const panel2 = mock2.calls[0]!.component;
+    panel2.focusTextField("writein");
+    panel2.textField.setText("precious unsaved typing");
+    expect(panel2.handleInput(CHAT_CHORD)).toBe(true); // tier-1: intercepts mid-edit
+    expect(panel2.view).toBe("chat");
+    expect(panel2.focus).toBe("chat");
+    expect(mock2.calls[0]!.resolved).toBe(false); // AC-17.1: no suspend
+    expect(mock2.editor.text).toBe(""); // no editor preload
+    expect(drafts2.setDraft).not.toHaveBeenCalled(); // no draft write-through
+    expect(panel2.textField.getText()).toBe("precious unsaved typing"); // buffer stays put
+  });
+
+  test("test_chat_open_no_double_staging_after_simulated_resume", async () => {
+    // Two-leg resume flow with a chat detour inserted between typing and
+    // each suspend: the detour itself must never stage, and the store must
+    // end holding the LATEST text in exactly ONE slot. Mid-write detours
+    // need the tier-1 chord (the bare default types in editor focus).
+    // NOTE: re-claiming text focus after a detour re-seeds the buffer from
+    // the freshest drafts (still empty — the detour staged nothing), so
+    // each leg retypes the buffer before the suspend — the suspend's
+    // write-through is the single staging site this pin guards.
+    const mock = makePreservationPi();
+    const state = seedState();
+    const drafts = makeDraftsStore();
+    openPanel(
+      mock.pi,
+      optsFor(state, {
+        drafts,
+        ...CHAT_DEPS,
+        config: { ...DEFAULT_CONFIG, keys: { ...DEFAULT_CONFIG.keys, chat: "ctrl+shift+e" } },
+      }),
+    );
+    await flush();
+
+    // Leg 1: type → chat detour (no staging) → suspend stages exactly once.
+    const panel = firstCall(mock).component;
+    const qid = panel.currentId;
+    expect(qid).toBeDefined();
+    panel.focusTextField("writein");
+    panel.textField.setText("first pass");
+    expect(panel.handleInput(CHAT_CHORD)).toBe(true);
+    expect(panel.view).toBe("chat");
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // the gesture never stages
+    panel.focusTextField("writein"); // re-claim re-seeds from the (still-empty) store
+    expect(panel.textField.getText()).toBe("");
+    panel.textField.setText("first pass"); // the user restores the in-flight text
+    panel.suspend(); // the ordinary esc break-out: write-through, THEN done(null)
+    await flush();
+    expect(firstCall(mock).resolved).toBe(true);
+    expect(drafts.getDraft(qid!)).toBe("first pass");
+    expect(drafts.setDraft).toHaveBeenCalledTimes(1);
+
+    // Leg 2: resume re-seeds from the surviving draft (no duplication), the
+    // detour adds nothing, and the second suspend overwrites with the
+    // LATEST text — one slot, latest text.
+    expect(resumeOpenPanel(mock.pi)).toBe(true);
+    await flush();
+    expect(mock.calls.length).toBe(2);
+    const second = mock.calls[1]!.component;
+    second.focusTextField("writein");
+    expect(second.textField.getText()).toBe("first pass"); // re-seeded, not duplicated
+    second.textField.setText("second pass");
+    expect(second.handleInput(CHAT_CHORD)).toBe(true);
+    expect(second.view).toBe("chat");
+    expect(drafts.setDraft).toHaveBeenCalledTimes(1); // the detour still never stages
+    second.focusTextField("writein");
+    second.textField.setText("second pass");
+    second.suspend(); // second esc break-out: write-through, THEN done(null)
+    await flush();
+    expect(drafts.getDraft(qid!)).toBe("second pass");
+    expect(drafts.setDraft).toHaveBeenCalledTimes(2); // once per suspend — no double staging
+    expect(slotCount(second)).toBe(1);
+    expect(slotFor(second, qid!)).toEqual({ value: qid, text: "second pass" });
   });
 });
 

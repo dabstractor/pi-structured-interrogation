@@ -19,7 +19,7 @@
  * - {@link hasResumableQuestions} — the shared resumable predicate.
  * - {@link suspendPanel} — re-export of panel.ts's host-force entry; the
  *   named consumer surface for P1.M6.T1.S2 (/interrogate + global
- *   toggle — now the /interrogate invoke command) and P1.M6.T2.S2 (discuss).
+ *   toggle — now the /interrogate invoke command).
  * - {@link resumePanel} — delegates to panel.ts resumeOpenPanel; consumed by
  *   P1.M6.T1.S2, P1.M6.T2.S1 (agent reopen:true), P1.M6.T2.S2.
  *

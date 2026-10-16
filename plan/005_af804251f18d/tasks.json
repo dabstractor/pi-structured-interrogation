@@ -274,7 +274,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "View + integration + discuss removal (R3, R4, R6)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Key objective: the visible feature — src/panel/chat-view.ts (transcript, second editor, esc ladder, confirm row), PanelView \"chat\" with open/replace/discard hooks, suspend survival and non-TUI inertness, apply through the ordinary seams, and the end-to-end deletion of discuss-in-chat.",
           "tasks": [
             {
@@ -486,14 +486,14 @@
               "type": "Task",
               "id": "P1.M2.T7",
               "title": "Delete discuss-in-chat end-to-end",
-              "status": "Ready",
+              "status": "Complete",
               "description": "R6: remove the discuss handoff completely — files, host wiring, and residual mentions — while the esc break-out main-conversation flow and the setEditorText seam used by editor-preservation stay untouched.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T7.S1",
                   "title": "Delete discuss.ts + discuss.test.ts + host wiring; sweep residual mentions",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T4.S1"
@@ -521,14 +521,14 @@
               "type": "Task",
               "id": "P1.M3.T1",
               "title": "Cache-isolation static guard test",
-              "status": "Planned",
+              "status": "Ready",
               "description": "New guard cloning the no-hardcoded-keys scanner: the side-chat modules contain no reference to sendMessage / sendUserMessage / setActiveTools / registerTool / setModel.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T1.S1",
                   "title": "Clone the scanner pattern with the banned-API list over the side-chat module set",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T6.S1"
@@ -554,7 +554,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "Scripted AC-17 scenario tests",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T5.S1",

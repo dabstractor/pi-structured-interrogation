@@ -137,7 +137,7 @@ import type { InterrogationPanel } from "./panel.js";
  * {@link SubmitDeps} wrapper (the deps never flow through keys.ts).
  * The `on*` callbacks mutate the panel directly and are replaced by their
  * owning tasks (M4 text editor / batch note, M5 ripple, M6 widget; onChat
- * routes to discussInChat until the SIDECHAT view lands — P1.M2.T4.S1).
+ * opens the per-question side chat — host-wired, P1.M2.T4.S1).
  */
 export interface RoutedActions {
   optionUp(p: InterrogationPanel): boolean;
@@ -161,9 +161,8 @@ export interface RoutedActions {
    */
   onBatchNote(p: InterrogationPanel): void;
   /** Open the per-question side chat. Wired host-side at panel.ts's
-   * router-construction site (the closure needs the PiUISurface); still
-   * routes to discussInChat until SIDECHAT's own action lands
-   * (P1.M2.T4.S1); default no-op. */
+   * router-construction site (the closure needs the PiUISurface);
+   * default no-op. */
   onChat(p: InterrogationPanel): void;
   /** External editor (editor focus, any duty: write-in, elaboration, note). Wired by M4.T1.S3. */
   onExternalEditor(p: InterrogationPanel): void;
@@ -406,11 +405,9 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
       if (p.focus !== "note") p.enterNoteMode();
     },
     onChat: () => {
-      // SIDECHAT bridge: still routes to discussInChat (./discuss.js) until
-      // the side-chat view lands (P1.M2.T4.S1) and the engine is deleted
-      // (P1.M2.T7.S1). Wired host-side — panel.ts refines this seam; the
-      // closure needs the PiUISurface, so keys.ts itself stays UI-free.
-      // Default stays a no-op.
+      // Default no-op — panel.ts refines this seam with the open-or-replace
+      // path (P1.M2.T4.S1); the closure needs the PiUISurface, so keys.ts
+      // itself stays UI-free.
     },
     onExternalEditor: (p) => {
       // Wired by M4.T1.S3 (h2.31): fire-and-forget — the router is sync and

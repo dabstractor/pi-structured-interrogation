@@ -323,9 +323,11 @@ export interface PiUISurface {
      */
     setWidget?(key: string, content: string[] | undefined, options?: { placement?: string }): void;
     /**
-     * Editor preload (h2.35 legacy discuss handoff) — a sanctioned writer
-     * of main-editor text from the panel (discuss.ts; its panel wiring was
-     * removed by P1.M2.T4.S1 — the file itself dies in P1.M2.T7.S1).
+     * Editor text write-back (h2.35 era) — a sanctioned writer of
+     * main-editor text from the panel; its live consumer is
+     * editor-preservation.ts's fallback helper restoreEditorTextIfEmpty
+     * (the production suspend path never writes the editor — native
+     * preservation, P1.M6.T2.S3).
      * Optional: test fakes / RPC surfaces stay valid — every call site
      * guards (`?.`), same pattern as setWidget.
      */
@@ -563,8 +565,9 @@ export interface InterrogationPanelArgs {
   keybindings?: KeybindingsManager;
   /**
    * PiUISurface carrier (P1.M6.T2.S2) — captured once per openPanel (same
-   * pattern as editorFactory) so the host can refine the discuss seam at
-   * the router-construction site: keys.ts itself stays UI-free.
+   * pattern as editorFactory) and retained for host/test ergonomics; the
+   * panel's live chat wiring rides its own seams (chatRebindDeps /
+   * sidechatEngine) and keys.ts itself stays UI-free.
    */
   pi?: PiUISurface;
   /**
@@ -1048,8 +1051,7 @@ export class InterrogationPanel implements Component {
     // (openOrReplace is NOT called again — same-question rebuilds are the
     // anti-pattern). Otherwise replace wholesale: the snapshot builders run
     // NOW, exactly once. NO suspend, NO editor preload — the main editor is
-    // untouched (AC-17.1; the old discuss handoff call is gone — deleting
-    // the engine itself is P1.M2.T7.S1). args.chatRebindDeps absent → inert
+    // untouched (AC-17.1). args.chatRebindDeps absent → inert
     // no-op (non-TUI/test safety). args.keys (host override) still wins
     // wholesale below.
     routed.onChat = (p) => {
@@ -1391,8 +1393,8 @@ export class InterrogationPanel implements Component {
    * currentId — picks the slot key). Idempotent-safe: with focus outside
    * the editor or an empty buffer it is a no-op (an empty buffer must never
    * overwrite a stored draft with ""), and suspend()'s resolved guard makes
-   * a second call moot. Reuse contract: S2 (discuss) and S3 (note-mode
-   * swap) call this before their own exits.
+   * a second call moot. Reuse contract: suspend() and enterNoteMode's
+   * question→note swap call this before their own buffer transitions.
    */
   private writeThroughCurrentDraft(): void {
     if (this.focus !== "text" && this.focus !== "note") return;

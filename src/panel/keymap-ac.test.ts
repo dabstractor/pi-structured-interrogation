@@ -34,8 +34,8 @@
  * "d"/"o"/"t"/"m"/"e"; the two surviving chords keep their ctrl+s / ctrl+g
  * control bytes. None of the five letter actions appears here (or anywhere
  * in the suite) as a legacy chord byte sequence — those survive only in
- * S1's deliberate chord-REMAP fixtures (keys.test.ts / discuss.test.ts /
- * config-surface.test.ts), which test remapped chords, not the defaults.
+ * S1's deliberate chord-REMAP fixtures (keys.test.ts / config-surface.test.ts),
+ * which test remapped chords, not the defaults.
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, TUI } from "@earendil-works/pi-tui";

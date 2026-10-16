@@ -547,7 +547,7 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "AC-17 scripted coverage and the full gate sweep",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Scripted vitest coverage for every automatable AC-17 scenario plus the discuss-successor pins, then the complete gate run: suite, typecheck, lint, and the keymap-conflict re-verification script.",
               "subtasks": [
                 {
@@ -574,7 +574,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S2",
                   "title": "Full gates: suite, typecheck, lint, keymap-conflict re-verification",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T1.S1",

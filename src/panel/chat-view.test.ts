@@ -89,7 +89,7 @@ describe("chat-view layout", () => {
     );
     const userLines = lines.filter((l) => l.includes("you › "));
     expect(userLines).toHaveLength(1); // prefix on the FIRST row only
-    expect(lines[1]).toMatch(/^  you › /);
+    expect(lines[1]).toMatch(/^ {2}you › /);
     // Continuations hang-indent under the prefix, assistant lines plain.
     const body = lines.slice(1, lines.length - 2);
     for (const line of body.slice(1)) {
@@ -240,7 +240,7 @@ describe("chat-view extras — answer-block rejection row", () => {
     );
     // Narrow width (50): the rejection row SURVIVES (truncated to fit) while
     // the engine-notice row is gone — the rejection drops last.
-    expect(lines[lines.length - 3]).toMatch(/^  ! answer block is not valid JSON/);
+    expect(lines[lines.length - 3]).toMatch(/^ {2}! answer block is not valid JSON/);
     expect(lines[lines.length - 3]).toContain("…"); // width-truncated, still present
     expect(lines.join("\n")).not.toContain("auth failed"); // the notice dropped first
   });
@@ -326,7 +326,7 @@ describe("chat-view extras — inert no-model banner", () => {
       Q,
       keys,
     );
-    expect(narrow[1]).toMatch(/^  no side chat model available — check.*…$/);
+    expect(narrow[1]).toMatch(/^ {2}no side chat model available — check.*…$/);
     expect(visibleWidth(narrow[1]!)).toBeLessThanOrEqual(40);
   });
 

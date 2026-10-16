@@ -47,7 +47,7 @@ import {
   type PiUISurface,
 } from "./panel.js";
 import { renderFooter, renderHeader, renderHintLine, renderQuestionLine } from "./layout.js";
-import { accept, acceptOptionIndex, panelActions, writeInEnter } from "./actions.js";
+import { accept, acceptOptionIndex, panelActions } from "./actions.js";
 import { desiredTextDuty } from "./keys.js";
 import { renderShortViewOptions } from "./short-view.js";
 import {
@@ -3654,7 +3654,7 @@ describe("sidechat discard hooks — terminal-for-chat teardown (P1.M2.T5.S1)", 
     // Agent-side upserts NEVER pass through keys.ts — the state bus hook is
     // the whole point (architecture ruling). handleUpserted drives these
     // same state mutations (rule-4 withdraw / close pass).
-    const { panel, state } = makeDiscardPanel([choiceQ("q1")]);
+    const { state } = makeDiscardPanel([choiceQ("q1")]);
     openOrReplace("q1", rebind());
 
     state.upsertQuestion({ ...choiceQ("q1"), rev: 2, status: "closed" });

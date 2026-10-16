@@ -51,24 +51,22 @@ import {
   type Model,
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
-import { DEFAULT_CONFIG, resolveKeyLabels, type InterrogatorConfig } from "../config.js";
+import { DEFAULT_CONFIG, type InterrogatorConfig } from "../config.js";
 import { createStateMirror, INTERROGATION_STATE_ENTRY_TYPE } from "../persistence.js";
 import { markAnswered } from "../merge.js";
 import { createInterrogationState, resetState, setState, type InterrogationState, type Question } from "../state.js";
 import { applyChatAnswer } from "./actions.js";
-import { ANSWER_REJECTION_NOTICES, buildChatContent } from "./chat-view.js";
+import { ANSWER_REJECTION_NOTICES } from "./chat-view.js";
 import {
   createPanelHost,
   InterrogationPanel,
   openPanel,
   resumeOpenPanel,
   type InterrogationPanelArgs,
-  type PanelHost,
   type PiUISurface,
 } from "./panel.js";
 import {
   classifyChatCommand,
-  formatChatCloseNotice,
   get as getSidechat,
   resetSidechatForTests,
   type SidechatRebindDeps,
@@ -263,14 +261,6 @@ function panelArgsFor(state: InterrogationState, extra: Partial<InterrogationPan
 
 const flush = (): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
-
 // ------------------------------------------------- fake model port machinery
 
 let seq = 0;
@@ -411,7 +401,7 @@ function makeHarness(
     buildSystemPrompt: () => "SYS",
     buildBranchSnapshot: () => [] as never,
   };
-  let panelRef: InterrogationPanel | undefined;
+  const panelRef: { current: InterrogationPanel | undefined } = { current: undefined };
   const engine = createSidechatEngine({
     port:
       opts.port ??
@@ -425,7 +415,7 @@ function makeHarness(
         : undefined;
     },
     onAutoApply: (decision) => {
-      if (panelRef !== undefined) applyChatAnswer(panelRef, decision);
+      if (panelRef.current !== undefined) applyChatAnswer(panelRef.current, decision);
     },
   } satisfies SidechatEngineDeps);
   const panel = new InterrogationPanel(
@@ -438,7 +428,7 @@ function makeHarness(
       sidechatNotify: notify,
     }),
   );
-  panelRef = panel;
+  panelRef.current = panel;
   return { state, panel, notify, delivery };
 }
 

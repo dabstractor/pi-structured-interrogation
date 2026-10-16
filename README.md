@@ -36,7 +36,8 @@ materialize; runtime loads via jiti against pi's tree.
    `tab` / `shift+tab`), pick an option with `↑` / `↓` (or `k` / `j`) and
    accept with `enter`; `d` opens the deep-dive view, `o` the overview, `t`
    enters the free-text editor (short view), `m` attaches a batch note, `e`
-   discusses the current question in chat, `ctrl+g` finishes the draft in an
+   opens the side chat on the current question (see
+   [Side chat](#side-chat)), `ctrl+g` finishes the draft in an
    external editor, `ctrl+s` submits a partial set. The editor's duty follows
    context: focused
    from a selected option it is the **elaboration** duty — `enter` saves the
@@ -145,7 +146,7 @@ All settings live under a top-level `"interrogator"` key in either
       "elaborate": "t",           // enter the editor (elaboration / write-in duty)
       "batchNote": "m",           // attach a batch note
       "submit": "ctrl+s",         // submit answers (partial ok; gate-hold override)
-      "discuss": "e",             // discuss the current question in chat
+      "chat": "e",                // open the in-panel side chat on the current question
       "externalEditor": "ctrl+g", // open the draft in an external editor
       "prevQuestion": "tab",      // previous question
       "nextQuestion": "shift+tab" // next question
@@ -155,7 +156,9 @@ All settings live under a top-level `"interrogator"` key in either
     "gateWarnings": true,           // FR-9: gate warnings — the submit-time "later answers may shift" line AND the auto-submit hold line (display-only, never blocks)
     "roundDetection": true,         // detect interrogation rounds from plain chat text (TUI)
     "compactionPreservation": true, // prepend preservation instructions to mid-interrogation compaction summaries
-    "editorMode": "composed"        // "composed" (panel's own editor) or "stock" (pi's stock editor)
+    "editorMode": "composed",       // "composed" (panel's own editor) or "stock" (pi's stock editor)
+    "sideChatModel": "",            // optional "provider/model-id" for the side chat (default: the session's current model)
+    "sideChatAutoApply": false      // apply the side chat's converged answer without the confirm row
   }
 }
 ```
@@ -186,7 +189,7 @@ Remappable actions (`interrogator.keys.*`):
 | Elaborate            | `keys.elaborate`      | `t`             | Enter the editor — duty follows context (elaboration on a selected option, write-in on the `✎ Other` row or a text question); close via `enter` or double-`esc` (a re-pressed `t` types the letter) |
 | Batch note           | `keys.batchNote`      | `m`             | Attach a batch note shipped with the next submit; close via `enter` or double-`esc` |
 | Submit               | `keys.submit`         | `ctrl+s`        | Submit answers now (partial ok — also the deliberate override while the gate hold blocks auto-submit) |
-| Discuss in chat      | `keys.discuss`        | `e`             | Discuss the current question in chat          |
+| Side chat            | `keys.chat`           | `e`             | Open the in-panel side chat on the current question (one chat at a time; applies converged answers through the confirm row) |
 | External editor      | `keys.externalEditor` | `ctrl+g`        | Open the draft in an external editor — any editor duty (answer, elaboration, or note; in note duty the finished text lands in the batch note) |
 | Previous question    | `keys.prevQuestion`   | `tab`           | Move to the previous question                 |
 | Next question        | `keys.nextQuestion`   | `shift+tab`     | Move to the next question                     |
@@ -234,7 +237,7 @@ available before/after elaborating. The editor's contents are
 **per-question** — opening it on another question starts blank (or that
 question's own saved draft); switching questions while typing saves the
 text to its question automatically. Every editor exit is a draft
-write-through (R4): question switches, `esc`, `ctrl+c`, discuss in chat,
+write-through (R4): question switches, `esc`, `ctrl+c`, the side chat,
 note mode — typed-but-unsubmitted text always lands in its question's
 draft; no exit gesture destroys it.
 
@@ -268,6 +271,45 @@ a key combo). It also carries the dev surface:
 
 Argument completion lists them (`/interrogate ` → `ping`, `debug`; …).
 Unknown subcommands print a usage line — nothing ever throws.
+
+## Side chat
+
+Press `e` on any question to open the side chat — a short private
+conversation about that one question, rendered inside the panel: a one-line
+header (`chat · q3 — {prompt, truncated}`), a transcript with your lines
+prefixed `you ›`, and its own input where `enter` sends and `shift+enter` /
+`ctrl+j` inserts a newline. It never suspends the panel and never writes to
+the main conversation — the model is reached through nested calls only,
+using the session's current model at chat open (`sideChatModel` pins an
+override; an invalid id notifies and falls back to the session model).
+Like every bare key, `e` works from non-editor focus and types inside the
+editor. The config key is `keys.chat` (default `e`); a settings file
+carrying the pre-rename key name is silently honored — the same alias
+precedent as the editor key's rename.
+
+- **One chat at a time.** Opening `e` on another question replaces it
+  without confirm, and it is discarded automatically when its question is
+  answered or closed by any path (panel accept, write-in, the chat's own
+  apply, moot/withdraw/upsert close). It survives suspend/resume (`esc`,
+  then `/interrogate`).
+- **Escape hatches.** `/clear` and `/new` — byte-exact first input tokens
+  (a `/usr/bin` path is just a message) — reset the chat fresh on the
+  current question. While a reply is streaming, `esc` aborts it; when idle,
+  `esc` leaves the view with the chat retained.
+- **Converged answers.** The side model ends a converged reply with a
+  fenced `answer` block (`{"value": …}` byte-matching an option, or
+  `{"text": …}` for a write-in). The panel shows an inline confirm row —
+  `apply ★ sqlite? · enter = yes · esc = no` — and `enter` applies through
+  the ordinary accept seams: ripple confirms, advance, auto-submit, and
+  every record behave (and look) exactly as for a hand-made selection.
+  `"sideChatAutoApply": true` skips the confirm.
+- **Usage on close.** Any close or discard notifies compactly
+  (`chat closed · 12.4K in · 3.1K out · $0.07`); chat usage never enters
+  session stats.
+
+The chat lives in extension memory only — nothing about it is written to
+the session file — and it is TUI-only (inert in `pi -p` and other non-TUI
+modes). See [Limitations](#limitations).
 
 ## Acceptance criteria (spec)
 
@@ -308,6 +350,13 @@ From the spec's confirmed non-goals — pi-interrogator does **not** do any of t
   submitted answers with their exact values — never in-progress drafts.
   Drafts of questions the agent re-asked survive a panel submit (only
   shipped answers flush).
+- The side chat is ephemeral: it lives only for the session — restarting pi
+  mid-interrogation restores questions and answers but never an open chat,
+  and nothing about a chat is written to the session file.
+- The side chat's view of the main conversation is snapshotted once at chat
+  creation; submissions made while chatting do not refresh it (accepted v1).
+- The side chat is TUI-only: in non-TUI modes `e` is inert (and without a
+  model seam it opens with an inert notice).
 - TUI-first: in non-TUI modes (`pi -p` print mode, rpc, json) there is no
   panel — the tool returns a numbered markdown digest that the model relays in
   chat, and you answer in your next message; once recorded, the interrogation
@@ -340,18 +389,19 @@ Human acceptance runbook:
 
 ### Keymap conflict re-verification
 
-Re-verified at build time on **2026-10-14** against pi **1.0.2**
-(`~/.local/lib/node_modules/@earendil-works/pi-coding-agent/docs/keybindings.md`),
-all installed extension trees (`~/.pi/agent/npm/node_modules`, `~/.pi/agent/git`,
-`~/.pi/extensions`), and the user rebinds in `~/.pi/agent/keybindings.json`
-(cursor-left/right and pageUp rebinds only — none touch our keys). Method:
+Re-verified at build time on **2026-10-16** (commit `378b9ee`, the side-chat
+changeset) against pi **1.0.2**
+(`~/.local/lib/node_modules/@earendil-works/pi-coding-agent/docs/keybindings.md`)
+and all installed extension trees (`~/.pi/agent/npm/node_modules`,
+`~/.pi/agent/git`, `~/.pi/extensions`). Method:
 `bash scripts/verify-keymap-conflicts.sh` — exit 0, all 9 defaults clear (the
 run this section records). Result: **no default collides with a genuinely
-global claim**. Drift since the 2026-09-13 record: the only string-literal
-global registrations in the extension trees remain pi-patty-bg-tasks' five
-(`src/shortcuts.ts:28-49`); pi-subagents' fleet-open shortcut is still
-registered variable-indirectly (invisible to the string-literal grep —
-re-checked manually; overlaps no interrogator key).
+global claim; `e` unchanged — passes untouched** (bare panel-owned letter, no
+global claim possible). Drift since the 2026-10-14 record: none — the only
+string-literal global registrations in the extension trees remain
+pi-patty-bg-tasks' five (`src/shortcuts.ts:28-49`); pi-subagents' fleet-open
+shortcut is still registered variable-indirectly (invisible to the
+string-literal grep — re-checked manually; overlaps no interrogator key).
 
 Verified defaults (`src/config.ts` `DEFAULT_CONFIG.keys`):
 
@@ -361,7 +411,7 @@ Verified defaults (`src/config.ts` `DEFAULT_CONFIG.keys`):
 | `o` (`overview`)                               | panel-owned        | bare letter — same construction: collides with nothing in pi's or extensions' global vocabulary        |
 | `t` (`elaborate`)                              | panel-owned        | bare letter — same construction                                                                        |
 | `m` (`batchNote`)                              | panel-owned        | bare letter — same construction                                                                        |
-| `e` (`discuss`)                                | panel-owned        | bare letter — same construction                                                                        |
+| `e` (`chat`)                                   | panel-owned        | bare letter — same construction                                                                        |
 | `ctrl+s` (`submit`)                            | panel-safe reuse   | pi: `app.session.toggleSort`, `app.models.save`, `app.thinking.save` (keybindings.md:141,154,156) — stays a chord: submit must fire from text focus, where a bare key could never be typed |
 | `ctrl+g` (`externalEditor`)                    | panel-safe reuse   | pi: `app.editor.external`, `tui.altScreen.searchNext` (keybindings.md:115,129) — stays a chord: its only valid context is editor focus, where a bare key would have to type, never act |
 | `tab` (`prevQuestion`)                         | fixed/nav (panel)  | pi: `tui.input.tab` (keybindings.md:65) — consumed inside the panel only                               |

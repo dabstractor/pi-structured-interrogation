@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Per-question side chat (SIDECHAT-001…005) — engine, view, discuss removal, guards, docs",
-      "status": "Planned",
+      "status": "Ready",
       "description": "Implement the in-panel per-question side chat that never touches the main conversation, replacing the discuss-in-chat handoff: rename keys.discuss→keys.chat (+silent alias) with sideChatModel/sideChatAutoApply config; new src/panel/sidechat.ts engine (module-memory singleton, one-shot branch snapshot, own system prompt, nested modelRegistry loop with abort, ```answer parser, usage tally); new src/panel/chat-view.ts view (second editor instance, esc ladder, confirm row); panel open/replace/discard hooks with suspend survival and non-TUI inertness; apply through the ordinary accept seams with indistinguishable provenance; delete discuss.ts end-to-end; static cache-isolation guard; AC-17 scripted coverage; README + keymap-conflict re-verification. Spec is already synced at HEAD d18bc39 — this changeset is source-only. Research findings: plan/005_af804251f18d/architecture/ (note: installed package is @earendil-works/pi-coding-agent, NOT pi-agent; streamSimple lives in @earendil-works/pi-ai, not on ModelRegistry; setEditorText seam STAYS for editor-preservation).",
       "milestones": [
         {
@@ -514,7 +514,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Guards, AC coverage, and changeset-level documentation (R5 + Mode B)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Key objective: the SIDECHAT-005 static cache-isolation guard, scripted AC-17 coverage plus the full gate sweep (tests, typecheck, lint, keymap-conflict re-verification), and the changeset-level README sync as the final task.",
           "tasks": [
             {
@@ -594,14 +594,14 @@
               "type": "Task",
               "id": "P1.M3.T3",
               "title": "Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Mode B catch-all (FINAL task — depends on every implementing subtask): README.md gains the Side chat section, the renamed keymap row, the new settings entries, the limitations entries, the refreshed keymap-conflict record, and the project-structure update; final `discuss` sweep verified clean.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M3.T3.S1",
                   "title": "README: Side chat section, keymap row, sample settings, limitations, conflict record",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",
@@ -642,7 +642,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T3.S2",
                   "title": "Project-structure update and the final `discuss` sweep",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M3.T3.S1"

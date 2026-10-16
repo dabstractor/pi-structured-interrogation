@@ -937,8 +937,9 @@ describe("AC-17.8 — streaming abort and non-commands", () => {
     panel.invalidate();
     expect(panel.render(100).join("\n")).toContain("esc abort");
 
-    // The esc ladder: esc-esc closes the input box, the third esc aborts.
-    blurChatBox(panel);
+    // BUG-001 fix (shape i, ui-spec §Side chat Esc ladder): the FOCUSED
+    // single esc aborts directly — no blur-then-escape detour; the footer's
+    // "esc abort" hint is now true in the default focused state.
     expect(panel.handleInput(ESCAPE)).toBe(true); // abort rung consumed the esc
     expect(record?.abortController.signal.aborted).toBe(true); // the abort FIRED
 
@@ -979,6 +980,107 @@ describe("AC-17.8 — streaming abort and non-commands", () => {
     const record = getSidechat();
     expect(record?.messages[0]).toMatchObject({ role: "user", text: "/usr/bin/env bash --version" });
     expect(record?.messages[1]).toMatchObject({ role: "assistant", text: "noted" });
+  });
+});
+
+// ------ streaming esc — focused abort (BUG-001 fix, shape i: ui-spec §Side chat Esc ladder)
+
+describe("streaming esc — focused abort (BUG-001, ui-spec esc ladder)", () => {
+  test("focused_streaming_single_esc_aborts_in_place", async () => {
+    // THE repro: chat input focused (the default), reply streaming, footer
+    // advertising "esc abort" — one esc must abort. Pre-fix it forwarded to
+    // the editor (generic ESC-002) and aborting needed blur-then-esc.
+    const gate = gatedStream();
+    const port: SidechatModelPort = vi.fn(() => gate.stream);
+    const { panel } = makeHarness({ focusQuestionId: "q3", port });
+    openChat(panel);
+    sendChat(panel, "why sqlite?");
+    gate.push({ type: "start", partial: assistantReply("") });
+    gate.push({
+      type: "text_delta",
+      contentIndex: 0,
+      delta: "partial th",
+      partial: assistantReply("partial th"),
+    });
+    await flush();
+    const record = getSidechat();
+    expect(record?.streamState).toBe("streaming");
+    expect(panel.focus).toBe("chat"); // the DEFAULT focused state
+    expect(panel.view).toBe("chat");
+
+    expect(panel.handleInput(ESCAPE)).toBe(true); // ONE esc — the advertised gesture
+    expect(record?.abortController.signal.aborted).toBe(true); // the abort FIRED
+    expect(panel.view).toBe("chat"); // stays in chat — no blur, no descent
+    expect(panel.focus).toBe("chat");
+    expect(panel.lastEscAt).toBeUndefined(); // the abort rung never arms the window
+  });
+
+  test("idle_chat_focus_single_esc_still_forwards", () => {
+    // ESC-002 forwarding resumes when the stream is idle — pi-vim
+    // insert-mode exit is untouched at rest. Forwarding is observable at
+    // the EDITOR boundary: the chat field receives the esc byte (panel
+    // handleInput itself returns true — the editor consumed it).
+    const { panel } = makeHarness({
+      focusQuestionId: "q3",
+      port: (() => doneStream("ok")) as unknown as SidechatModelPort,
+    });
+    openChat(panel); // idle, input focused
+    const chatInput = vi.spyOn(panel.chatField, "handleInput");
+    panel.handleInput(ESCAPE);
+    expect(chatInput).toHaveBeenCalledWith(ESCAPE); // the editor owns it
+    expect(panel.focus).toBe("chat");
+  });
+
+  test("options_focus_streaming_esc_aborts_via_ladder", async () => {
+    // The escapeDescend chat rung (options focus) predates the fix and is
+    // unchanged: streaming + blurred box → esc aborts.
+    const gate = gatedStream();
+    const port: SidechatModelPort = vi.fn(() => gate.stream);
+    const { panel } = makeHarness({ focusQuestionId: "q3", port });
+    openChat(panel);
+    sendChat(panel, "why sqlite?");
+    gate.push({ type: "start", partial: assistantReply("") });
+    await flush();
+    panel.focus = "options"; // blurred box mid-stream (ladder territory)
+    expect(panel.handleInput(ESCAPE)).toBe(true);
+    expect(getSidechat()?.abortController.signal.aborted).toBe(true);
+  });
+
+  test("abort_rung_leaves_the_double_esc_window_intact", async () => {
+    const gate = gatedStream();
+    const port: SidechatModelPort = vi.fn(() => gate.stream);
+    const { panel } = makeHarness({ focusQuestionId: "q3", port });
+    openChat(panel);
+    sendChat(panel, "why sqlite?");
+    gate.push({ type: "start", partial: assistantReply("") });
+    await flush();
+
+    expect(panel.handleInput(ESCAPE)).toBe(true); // abort — never arms lastEscAt
+    expect(getSidechat()?.abortController.signal.aborted).toBe(true);
+    expect(panel.lastEscAt).toBeUndefined(); // the rung left no window anchor
+
+    // The provider settles the abort (macrotask) — the record goes idle
+    // before the window-integrity phase, exactly like the real flow.
+    gate.finishWith({
+      type: "error",
+      reason: "aborted",
+      error: assistantReply(""),
+    });
+    await flush();
+    expect(getSidechat()?.streamState).toBe("idle");
+
+    // Post-abort, the ordinary idle behavior is EXACTLY as before: the
+    // first esc FORWARDS (editor receives it; the window arms), the second
+    // closes the box only (blurChatInput — chat retained, never a
+    // suspend/descent). Had the abort rung polluted lastEscAt, this first
+    // esc would have closed the box instead of typing.
+    const chatInput = vi.spyOn(panel.chatField, "handleInput");
+    panel.handleInput(ESCAPE);
+    expect(chatInput).toHaveBeenCalledWith(ESCAPE); // forwarded
+    expect(panel.focus).toBe("chat"); // still typing
+    expect(panel.lastEscAt).toBeDefined(); // window armed by THIS esc
+    panel.handleInput(ESCAPE);
+    expect(panel.focus).toBe("options"); // pair completes → blurChatInput
   });
 });
 

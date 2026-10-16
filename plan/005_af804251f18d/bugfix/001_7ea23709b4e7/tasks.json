@@ -11,7 +11,7 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Confirm-row gestures work in the default focused state (BUG-001, Major)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Make the advertised 'enter = yes · esc = no' confirm-row gestures act in the natural flow (type → enter to send → reply streams → row appears → enter/esc), without the undocumented double-esc blur workaround, and align the streaming 'esc abort' footer hint with the actual gesture. Key objective of the round's only Major.",
           "tasks": [
             {
@@ -59,14 +59,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Streaming 'esc abort' footer hint matches the actual gesture while focused",
-              "status": "Ready",
+              "status": "Complete",
               "description": "BUG-001's second half: while the chat input is focused and a reply streams, the footer advertises 'esc abort' but a single esc forwards to the editor (pi-vim), so aborting a runaway reply requires the undocumented blur-then-esc. Make the advertised gesture true.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Align the chat view's streaming esc gesture with ui-spec §Side chat Esc ladder",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-focus.md §Streaming-abort half. Esc routing: keys.ts fixed-esc branch (~527-541) — editor focus (incl. chat) forwards a single esc to the editor (return false → panel.ts chatField.handleInput), second esc within escExitWindowMs (config.ts:133, default 500) → escExitEditor → blurChatInput (keys.ts:329-336). Chat rungs live in escapeDescend (keys.ts ~297-312): streaming → panel.abortChatStream() only; idle → exitChatView. Spec tension: ui-spec.md:115 'Esc ladder. Streaming: first `esc` aborts the in-flight reply' (chat-view-specific) vs ui-spec.md:44/86 ESC-002 single-esc-forwards-to-editor (generic editor rule). The footer hint (chat-view.ts footer hint string, esc word flips abort/exit with stream state) currently advertises a gesture that does not act while focused.\n2. INPUT: Independent of P1.M1.T1 (different seam). Available: escapeDescend/abortChatStream (panel.ts ~1768-1780), the keys.ts esc branch, chat-view.ts footer hint composition.\n3. LOGIC: Make the advertised gesture true, choosing ONE documented shape — (i) RECOMMENDED, spec-verbatim: while view === \"chat\" AND the live record's streamState === \"streaming\", a single esc in chat focus aborts the stream (chat-view esc-ladder rung takes precedence over the generic editor-forwarding; the lastEscAt double-esc window is not consumed by an abort rung; insert-mode esc returns when idle) — implement as a streaming pre-check inside the esc branch (or routing the fixed-esc through escapeDescend's chat rung before the editor-forward when streaming); OR (ii) hint-honesty fallback: keep the forwarding and change the focused-state hint wording to advertise the true sequence. Either way the regression test asserts: streaming + focused + single esc → abort fired (signal.aborted on the fake port's captured AbortSignal), per the PRD's 'same focus-blind pattern' clause. Follow ac-sidechat.test.ts fake-port idioms (sidechat-engine.test.ts ~324-394 controller/guard describes) for a held-open stream with a captured signal.\n4. OUTPUT: The streaming footer's advertised abort gesture works from the default focused state; consumed by P1.M6.T1 docs task (and P1.M6.T1.S2 if the hint wording changed — record the choice in the JSDoc).\n5. DOCS: [Mode A] Update the keys.ts fixed-esc JSDoc (~520-541) and the escapeDescend SIDECHAT-001 comment to document the chosen shape; if shape (ii), the new hint string is itself the doc. README §Side chat esc-ladder prose is owned by P1.M6.T1.",
@@ -85,21 +85,21 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Answered-question chat lifecycle (BUG-002 + BUG-003)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Make a chat opened on an already-answered question a first-class citizen: it survives unrelated state mutations (transition-aware discard hook) and its own apply path ends it cleanly on a same-value no-op (terminal-consume in applyChatAnswer).",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "Transition-aware side-chat discard hook",
-              "status": "Planned",
+              "status": "Ready",
               "description": "The state 'changed' discard hook currently tests the record question's CURRENT status, so any unrelated mutation destroys a chat living on an already-terminal question. Track last-seen status and discard only on a non-terminal → terminal transition.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Gate the discard hook on a non-terminal→terminal status transition",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/005_af804251f18d/bugfix/001_7ea23709b4e7/architecture/sidechat-focus.md §BUG-002 (verified firsthand). The hook is onChanged (src/panel/panel.ts ~941-975, wired state.on(\"changed\") at :1087): reads record → getQuestion(record.questionId) → CURRENT-status terminal check → abort-first ordering → usage read → discardSidechatRecord() → close view to chatReturnView → sidechatNotify(formatChatCloseNotice(usage)). onChat (panel.ts ~1057-1066) has NO status gate. The 'changed' event payload is the full serialized POST-mutation snapshot (src/state.ts:156-158) — no pre-state available from the event; transition detection must be panel-side.\n2. INPUT: none from other subtasks. Available: QuestionStatus values (open|answered|submitted|reasked|moot|withdrawn|closed — terminal set for chat: answered|submitted|moot|withdrawn|closed), the record open path (onChat / openSidechatRecord call site), the hook.\n3. LOGIC: Implement PRD h2.3/h3.1 recommendation 'the hook should compare pre/post status transitions'. Add a panel-private last-seen status for the record's question (e.g. sidechatLastStatus: QuestionStatus | undefined): seed it at record open (the onChat call site) with the question's CURRENT status, and update it at the end of every hook run (and whenever the record is replaced/reset — re-seed). Discard ONLY when last-seen was NOT terminal AND the current status IS terminal. Seeding rules: an already-terminal question at seed time → seed, do NOT discard (answered-question chats are the supported apply surface for BUG-003); last-seen undefined at first hook run (record predates this panel instance — suspend/resume) → seed, don't discard. DOCUMENT the accepted edge in the hook comment: same-status re-answers (FR-18 ripple edit, answered→answered) do not discard under transition semantics. Preserve the hook's existing ordering contract verbatim on a REAL transition (abort-first → usage read → discard → close view → notify once). Tests per PRD repro: answered q1, open chat, turn, blur, exit view, state.applyAnswer(\"q2\", ...) → getSidechat() still defined AND notify NOT called; counter-test: chat on open q3, answer q3 from the main panel → discard + notify fires exactly as today (existing close-path AC tests must stay green — search ac-sidechat.test.ts/panel.test.ts for 'chat closed' assertions).\n4. OUTPUT: A transition-aware hook; the P1.M2.T2.S1 repro (chat on answered q3 surviving until its own apply consumes it) builds directly on this. Consumed by P1.M2.T2.S1 and P1.M6.T1.\n5. DOCS: [Mode A] Rewrite the SIDECHAT-001 discard-guarantee comment above the hook (panel.ts ~941-960) to state transition semantics, the seeding rules, and the accepted same-status-reanswer edge.",
@@ -116,14 +116,14 @@
               "type": "Task",
               "id": "P1.M2.T2",
               "title": "Terminal-consume: applyChatAnswer ends the chat on a same-value no-op apply",
-              "status": "Planned",
+              "status": "Ready",
               "description": "On an already-answered question, a confirm-row apply of the recorded value is a correct ANSWER-PIN-001 no-op that fires no 'changed' event — so nothing discards the chat and the confirm row sticks forever. Make the apply consume pendingConfirm and close the chat when the target question is already terminal.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T2.S1",
                   "title": "Consume pendingConfirm and close the chat when applyChatAnswer hits an already-terminal question",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S1"

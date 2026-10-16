@@ -292,7 +292,12 @@ export function resolveBindings(config: InterrogatorConfig): Record<KeyAction, K
  * clear deepSticky — only ENTERING deep sets it (mirrors panel.ts). NOTE:
  * this ladder runs only from OPTIONS focus — while the embedded editor is
  * focused, esc belongs to the editor (single) or closes the editor only
- * (double-esc, ESC-002); see the module JSDoc's editor-focus forwarding.
+ * (double-esc, ESC-002) — EXCEPT the SIDECHAT-001 streaming rung below,
+ * which (shape (i), ui-spec:115) aborts an in-flight chat reply from ANY
+ * focus: focused streams are handled by the router's pre-check before the
+ * editor rules apply; this ladder keeps the options-focus half. When the
+ * stream is idle, ordinary editor forwarding resumes. See the module
+ * JSDoc's editor-focus forwarding.
  */
 function escapeDescend(panel: InterrogationPanel): void {
   // SIDECHAT-001 chat rung (P1.M2.T3.S1, h3.9) — FIRST, before the view
@@ -524,7 +529,27 @@ export function buildKeyRouter(
     //    write-through + blur, never suspend). escWindow === 0 disables the
     //    pair (every esc forwards; close via `enter` or the double-`esc`
     //    pair — BAREKEYS-001 removed the re-press toggles).
+    //    STREAMING EXCEPTION (SIDECHAT-001 esc ladder, ui-spec:115 — shape
+    //    (i)): while view === "chat" AND the live record is streaming, a
+    //    single esc ABORTS the in-flight reply BEFORE the editor rules —
+    //    in any focus (focused via the pre-check in the branch below,
+    //    options via escapeDescend's chat rung); forwarding resumes when
+    //    idle, and the abort rung never arms the double-esc window.
     if (matchesKey(data, Key.escape)) {
+      // SIDECHAT-001 esc ladder (ui-spec:115), streaming half — shape (i):
+      // inside the CHAT view a single esc ABORTS the in-flight reply, in
+      // every focus state. The chat-view rule outranks ESC-002's generic
+      // editor forwarding while streaming (the footer advertises
+      // "esc abort" regardless of focus — now truthfully); forwarding
+      // returns when the stream is idle (abortChatStream self-gates on
+      // streamState and returns false → this rung falls through untouched,
+      // so idle insert-mode esc keeps reaching the editor). The abort rung
+      // NEVER touches lastEscAt — the double-esc blur window stays exactly
+      // as before when idle. The options-focus abort rung (escapeDescend's
+      // chat half) predates this and is unchanged. Both halves are panel
+      // methods — keys.ts stays free of sidechat imports. P1.M6.T1 records
+      // the chosen shape in the README prose.
+      if (editorFocused && panel.view === "chat" && panel.abortChatStream()) return true;
       if (!editorFocused) {
         escapeDescend(panel);
         return true;

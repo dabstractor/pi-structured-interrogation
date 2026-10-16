@@ -99,9 +99,16 @@ function countStatuses(ordered: readonly { status: string; answer?: unknown }[])
  *   `${n} open · ${m} answered — /interrogate to resume`
  *
  * Exact-string contract:
- * - `n` = questions with status `"open"` ONLY; `m` = status `"answered"`
- *   ONLY (submitted/reasked/moot/withdrawn/closed join neither bucket —
- *   same count semantics as results.ts buildStatusLine).
+ * - `n` = questions with status `"open"` ONLY; `m` = the RECORD-DERIVED
+ *   answered count from {@link countStatuses} (above): `answer` present AND
+ *   status `answered`/`submitted`/`closed` — the same record-derived rule
+ *   as results.ts `buildStatusLine` / `isRecordAnswered` (2026-10-02
+ *   ruling: this line and the results header share one count semantic).
+ *   reasked/moot/withdrawn join neither bucket. `m` is NOT "status
+ *   `"answered"` only" — an answered-pending-submission question (status
+ *   `submitted`) counts here exactly as it counts in the results header.
+ *   Counting is the countStatuses contract; visibility is the separate
+ *   {@link hasResumableQuestions} rule (BUG-005).
  * - Separators are ` · ` (space, U+00B7 middle dot, space) and ` — `
  *   (space, U+2014 em dash, space). The command name is lowercase
  *   `/interrogate`.

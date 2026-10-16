@@ -11,6 +11,7 @@
  */
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, test, vi, type Mock } from "vitest";
+import { attemptCompletion } from "./completion.js";
 import { DEFAULT_CONFIG } from "./config.js";
 import { createPanelHost, openPanel, suspendPanel, type PanelHost } from "./panel/panel.js";
 import { resumeOpenPanel } from "./panel/panel.js";
@@ -27,9 +28,11 @@ import {
   type ReconstructionContext,
   type ReconstructionOptions,
 } from "./reconstruct.js";
+import { type ClosePassResult } from "./lifecycle.js";
 import {
   applyUpsert,
   markAnswered,
+  markSubmitted,
 } from "./merge.js";
 import {
   createInterrogationState,
@@ -138,6 +141,31 @@ function diff(
   value?: string,
 ): { id: string; title: string; from: string; to: string; editedArchived: boolean; value?: string } {
   return { id, title: id, from: "(unanswered)", to, editedArchived: false, value };
+}
+
+/**
+ * Completion record (delivery.ts CompletionMessage — h3.9; pi.sendMessage
+ * shape: `custom_message` + `details`). Reconstruction consumes only its
+ * POSITION (terminal marker); `details` mirrors the real payload shape.
+ */
+function completionEntry(epoch = 3): SessionEntry {
+  return {
+    type: "custom_message",
+    id: `c${Math.random()}`,
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    customType: "interrogation-completion",
+    content: "INTERROGATION COMPLETE\nGoal: test goal\n…",
+    display: true,
+    details: {
+      goal: "test goal",
+      groups: [],
+      notes: [],
+      withdrawnMoot: [],
+      completedAt: new Date().toISOString(),
+      epoch,
+    },
+  } as unknown as SessionEntry;
 }
 
 // ------------------------------------------------------------------ mock ctx
@@ -608,6 +636,162 @@ describe("reconstructFromBranch — surface decision", () => {
     expect(getState()?.completed).toBe(true); // exactly-once survives restart
     expect(getState()?.epoch).toBe(4);
     expect((ctx.ui.custom as Mock)).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Exactly-once across restart (FR-5; 2026-10-16 validation Issues 1+2).
+ * Completion fires at `agent_settled` — AFTER the last tool call — so the
+ * real-world post-completion history is [pre-completion snapshot,
+ * interrogation-completion message, (post-completion mirror)]. The old
+ * layer-preference base selection resurrected `completed: false` from the
+ * snapshot, re-injected the full record on every restart, and defeated the
+ * fresh-replacement pin. These tests pin the real-world shapes.
+ */
+describe("restart exactly-once — completion terminal across restart (FR-5)", () => {
+  /** All-submitted live state (the pre-completion ghost the bug resurrected). */
+  function submittedState(): ReturnType<InterrogationState["serialize"]> {
+    return seededState((s) => {
+      applyUpsert(s, [choiceQ("q1"), choiceQ("q2")]);
+      markAnswered(s, "q1", { value: "sqlite", at: "t0" });
+      markAnswered(s, "q2", { value: "postgres", at: "t1" });
+      markSubmitted(s, ["q1", "q2"]);
+    });
+  }
+
+  test("[toolResult(all submitted), completion, mirror(completed)] installs completed, surfaces nothing", () => {
+    // The reported gap: the completion mirror is NEWER than the tool result
+    // (completion fires after the last tool call) — position must beat layer.
+    const done = seededState((s) => {
+      s.epoch = 3;
+      s.clearForCompletion();
+    });
+    const ctx = makeCtx([
+      toolResultEntry(submittedState()),
+      userEntry(), // a plain post-completion turn — what re-armed the old bug
+      completionEntry(),
+      mirrorEntry({ state: done, epoch: 3, at: new Date().toISOString() }),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("mirror-entry"); // later position wins
+    const state = getState();
+    expect(state?.completed).toBe(true); // exactly-once guard armed
+    expect(state?.orderedQuestions()).toEqual([]); // no all-submitted ghost
+    expect(state?.goal).toBe("test goal"); // audit header retained
+    expect(ctx.ui.custom as Mock).not.toHaveBeenCalled(); // no panel
+    expect(ctx.ui.setWidget as Mock).not.toHaveBeenCalled(); // completed ⇒ no resumable widget
+  });
+
+  test("completion marker alone (mirror flush lost) still restores exactly-once — no re-injection", () => {
+    const ctx = makeCtx([toolResultEntry(submittedState()), completionEntry()]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("tool-result");
+    expect(getState()?.completed).toBe(true);
+    expect(getState()?.orderedQuestions()).toEqual([]);
+
+    // The FR-5 end-to-end guarantee: a close pass after the restart cannot
+    // inject the record again (attemptCompletion's one-time guard is armed).
+    const sendMessage = vi.fn();
+    const pi = { sendMessage } as unknown as Pick<ExtensionAPI, "sendMessage">;
+    const res = attemptCompletion(
+      pi,
+      { lifecycle: { dismissPanel: () => {} } },
+      {} as ClosePassResult,
+    );
+    expect(res).toEqual({ fired: false, reason: "already-completed" });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  test("submissions between base and completion replay (h3.6 epoch bumps) then archive", () => {
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const ctx = makeCtx([
+      toolResultEntry(base),
+      submissionEntry({ changed: [diff("q1", "sqlite", "sqlite")], epoch: 1 }),
+      completionEntry(),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.replayed).toBe(1);
+    const state = getState();
+    expect(state?.completed).toBe(true);
+    expect(state?.epoch).toBe(base.epoch + 1); // one bump per replayed submission, retained
+    expect(state?.orderedQuestions()).toEqual([]);
+    expect(ctx.ui.setWidget as Mock).not.toHaveBeenCalled();
+  });
+
+  test("submissions AFTER the completion marker are not replayed into the completed instance", () => {
+    const ctx = makeCtx([
+      toolResultEntry(submittedState()),
+      completionEntry(),
+      submissionEntry({ changed: [diff("q1", "sqlite")], epoch: 3 }),
+    ]);
+    reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(getState()?.completed).toBe(true);
+    expect(getState()?.getQuestion("q1")).toBeUndefined();
+  });
+
+  test("a NEW interrogation after the completion REPLACES — fresh-replacement pin survives restart", () => {
+    const fresh = seededState((s) => {
+      applyUpsert(s, [choiceQ("n1")]);
+    });
+    const ctx = makeCtx([
+      toolResultEntry(submittedState()),
+      completionEntry(),
+      toolResultEntry(fresh), // the new instance's first upsert
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("tool-result"); // last tool result = newest snapshot
+    const state = getState();
+    expect(state?.completed).toBe(false); // fresh instance may complete again
+    expect(state?.epoch).toBe(1);
+    expect(state?.getQuestion("n1")).toBeDefined();
+    expect(state?.getQuestion("q1")).toBeUndefined(); // old set NOT appended
+    const widget = (ctx.ui.setWidget as Mock).mock.calls.at(-1);
+    expect((widget?.[1] as string[] | undefined)?.[0]).toBe(
+      "1 open · 0 answered — /interrogate to resume",
+    );
+  });
+
+  test("base selection is position-aware: a later mirror beats an earlier tool result", () => {
+    const early = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+    const late = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1"), choiceQ("q2")]);
+      markAnswered(s, "q1", { value: "sqlite", at: "t0" });
+    });
+    const ctx = makeCtx([
+      toolResultEntry(early),
+      mirrorEntry({ state: late, epoch: late.epoch, at: new Date().toISOString() }),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("mirror-entry");
+    expect(getState()?.getQuestion("q1")?.answer?.value).toBe("sqlite");
+    expect(getState()?.getQuestion("q2")).toBeDefined();
+  });
+
+  test("one corrupt post-completion mirror degrades to the completion marker, never crashes", () => {
+    const done = seededState((s) => {
+      s.epoch = 3;
+      s.clearForCompletion();
+    });
+    const ctx = makeCtx([
+      toolResultEntry(submittedState()),
+      completionEntry(),
+      mirrorEntry({ state: { goal: 7, epoch: "x" }, epoch: 9, at: new Date().toISOString() } as unknown as InterrogationStateEntryData), // deserialize-tolerated junk
+      mirrorEntry({ state: done, epoch: 3, at: new Date().toISOString() }),
+    ]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+
+    expect(result.source).toBe("mirror-entry");
+    expect(getState()?.completed).toBe(true);
   });
 });
 

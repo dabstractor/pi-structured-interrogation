@@ -19,13 +19,14 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "~0.85.1",
-    "@earendil-works/pi-coding-agent": "~0.85.1",
-    "@earendil-works/pi-tui": "^0.85.1",
+    "@earendil-works/pi-ai": "1.0.2",
+    "@earendil-works/pi-codemode": "1.0.2",
+    "@earendil-works/pi-coding-agent": "1.0.2",
+    "@earendil-works/pi-tui": "1.0.2",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22",
     "eslint": "^10.12.0",
-    "typebox": "1.3.7",
+    "typebox": "1.3.27",
     "typescript": "^5",
     "typescript-eslint": "^8.71.2",
     "vitest": "^1"

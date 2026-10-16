@@ -251,9 +251,11 @@ export class InterrogationState extends EventEmitter {
    * One-time completion guard (P1.M2.T2.S2). Default false; set true inside
    * {@link clearForCompletion} — the ONLY live-session assignment site, so
    * the invariant "cleared ⇒ completed" can never diverge. Deserialization
-   * restores it from persisted state at construction time (M7.T1) — that is
-   * reconstruction, not a live mutation. A NEW interrogation (fresh state)
-   * starts false and may complete again.
+   * restores it from persisted state at construction time (M7.T1), and
+   * reconstruction's {@link markCompletedSilently} restores it when the
+   * branch history proves a later completion — both are reconstruction, not
+   * live mutations. A NEW interrogation (fresh state) starts false and may
+   * complete again.
    */
   completed = false;
 
@@ -433,6 +435,28 @@ export class InterrogationState extends EventEmitter {
     this.completed = true;
     this.emit("completed-cleared");
     this.emitChanged();
+  }
+
+  /**
+   * Reconstruction seam (P1.M7.T1.S2 — exactly-once across restart, FR-5):
+   * apply a completion that ALREADY happened in branch history, discovered
+   * by reconstruct.ts as an `interrogation-completion` message positioned
+   * after the base snapshot. Same mutations as {@link clearForCompletion}
+   * (questions and order cleared, `completed` set true atomically,
+   * goal/epoch/snapshots retained) but emits NO events — the session file
+   * already holds the completion, and reconstruction is read-only toward
+   * persistence (the mirror must never re-write what history records).
+   * NEVER call this on a live mutation path: no `completed-cleared` /
+   * `changed` fires, so panel dismissal and mirror bookkeeping that ride
+   * those events would silently not happen. Live completions go through
+   * {@link clearForCompletion} only.
+   */
+  markCompletedSilently(): void {
+    this.questions.clear();
+    this.order = [];
+    // Same atomic cleared ⇒ completed step as clearForCompletion, minus the
+    // event emissions (reconstruction restore, not a live mutation).
+    this.completed = true;
   }
 
   // ------------------------------------------------- serialize / round-trip

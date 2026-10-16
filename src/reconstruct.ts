@@ -23,42 +23,69 @@
  *    entry to root, all entry types" read) override the pseudocode: the raw
  *    branch keeps compacted-away entries reachable, which is the entire
  *    point of layer 2 (Q37 residue).
- * 2. BASE SELECTION, in priority order:
- *      a. The LAST `message` entry with role "toolResult", toolName
- *         "interrogate" and a `details.state` envelope (FR-27 canonical,
- *         written by tool.ts on every result). Later occurrences win; any
- *         submission deltas before the last occurrence are already baked
- *         into its state.
- *      b. Else the NEWEST `interrogation-state` custom entry (storage layer
- *         3 mirror, P1.M7.T1.S1) whose payload deserializes — tried
- *         newest-first so one corrupt entry degrades to the previous one
- *         instead of crashing session_start.
- *      c. Else: no state. The singleton stays reset; no panel, no fallback
+ * 2. BASE SELECTION, position-aware across layers (completion-exactly-once
+ *    fix, 2026-10-16 validation Issues 1+2):
+ *      a. Candidates: the LAST `message` entry with role "toolResult",
+ *         toolName "interrogate" and a `details.state` envelope (FR-27
+ *         canonical, written by tool.ts on every result) — any submission
+ *         deltas before it are already baked into its state — plus EVERY
+ *         `interrogation-state` custom entry (storage layer 3 mirror,
+ *         P1.M7.T1.S1). The candidate with the GREATEST branch index wins,
+ *         regardless of layer: entries are appended chronologically, so a
+ *         later position is a LATER snapshot of the same state. Layer
+ *         preference must never override position — completion fires at
+ *         `agent_settled`, AFTER the last tool call, so the post-completion
+ *         mirror (`{completed: true, questions: {}}`) is always newer than
+ *         the canonical tool result; preferring layer 2 by fiat resurrected
+ *         `completed: false` states on every restart and re-injected the
+ *         full record (FR-5 exactly-once broken). Deserialize failures
+ *         degrade to the next-older candidate, so one corrupt entry never
+ *         crashes session_start.
+ *      b. Else: no state. The singleton stays reset; no panel, no fallback
  *         flag; any suspended-host residue (stale reminder widget /
  *         stale lastOpts.state from the previous branch) is dropped.
- * 3. DELTA REPLAY (best-effort): every `interrogation-submission` custom
- *    MESSAGE entry (the pi.sendMessage transport shape — lands as
- *    `type: "custom_message"`, not the `pi.appendEntry` "custom" shape; both
- *    are read defensively) positioned AFTER the base entry. Answers are
- *    applied through the installed state's real mutation methods so
- *    `changed` fires; each replayed submission that changed something bumps
- *    the epoch exactly once (h3.6: one submission = one bump). CAVEAT:
- *    entries replay VALUE-FIRST — DiffEntry.value is the raw answer.value
- *    (P1.M2.T2.S1), with a legacy fallback to `to` (the label-preferred
- *    display summary) for history written before the field existed; answer
- *    `at` timestamps are not carried. On real restarts the base (tool
- *    result or mirror) already contains the true values; deltas only bridge the gap
- *    AFTER the base (e.g. a submission whose post-submit mirror flush never
- *    landed). The "(unanswered)" sentinel is skipped (an answer CLEARANCE
- *    cannot be replayed from a display summary) and unknown ids are
- *    skipped, never thrown.
- *    - Tool-result base: pure position filter (entry index > base index).
- *    - Mirror base: epoch filter — a submission with details.epoch ≥
- *      base.epoch post-bumps to base.epoch+1, i.e. is NOT yet contained in
- *      the mirrored snapshot (a mirror at epoch E contains exactly the
- *      submissions with details.epoch ≤ E−1), so the correct filter is
- *      "not older than the base epoch". Older submissions are already in
- *      the mirror.
+ * 3. DELTA REPLAY + COMPLETION TERMINAL (best-effort): every
+ *    `interrogation-submission` custom MESSAGE entry (the pi.sendMessage
+ *    transport shape — lands as `type: "custom_message"`, not the
+ *    `pi.appendEntry` "custom" shape; both are read defensively) positioned
+ *    AFTER the base entry. Answers are applied through the installed
+ *    state's real mutation methods so `changed` fires; each replayed
+ *    submission that changed something bumps the epoch exactly once (h3.6:
+ *    one submission = one bump). CAVEAT: entries replay VALUE-FIRST —
+ *    DiffEntry.value is the raw answer.value (P1.M2.T2.S1), with a legacy
+ *    fallback to `to` (the label-preferred display summary) for history
+ *    written before the field existed; answer `at` timestamps are not
+ *    carried. On real restarts the base (tool result or mirror) already
+ *    contains the true values; deltas only bridge the gap AFTER the base
+ *    (e.g. a submission whose post-submit mirror flush never landed). The
+ *    "(unanswered)" sentinel is skipped (an answer CLEARANCE cannot be
+ *    replayed from a display summary) and unknown ids are skipped, never
+ *    thrown.
+ *    - Position filter: submissions at/after the base index are skipped
+ *      (already in the base); submissions at/after the FIRST
+ *      `interrogation-completion` message after the base are skipped too —
+ *      they belong to whatever followed the completed instance.
+ *    - Mirror base additionally: epoch filter — a submission with
+ *      details.epoch ≥ base.epoch post-bumps to base.epoch+1, i.e. is NOT
+ *      yet contained in the mirrored snapshot (a mirror at epoch E contains
+ *      exactly the submissions with details.epoch ≤ E−1), so the correct
+ *      filter is "not older than the base epoch". Older submissions are
+ *      already in the mirror.
+ *    - COMPLETION TERMINAL: an `interrogation-completion` custom message
+ *      (delivery.ts, h3.9) after the base proves this interrogation
+ *      instance ENDED in history — completion fires at `agent_settled`, so
+ *      the completion marker is the NEWEST truth even though the last
+ *      serialized snapshot (tool result or pre-completion mirror) predates
+ *      it. After replay, the state is marked terminal via
+ *      state.markCompletedSilently() (questions cleared, completed=true,
+ *      NO events — reconstruction stays read-only toward persistence). This
+ *      restores exactly-once across restart (FR-5: the full record is
+ *      injected exactly once, at completion) even when the post-completion
+ *      mirror flush never landed, and keeps attemptCompletion's
+ *      `state.completed` guard (completion.ts) armed so the record can
+ *      never re-inject. It also defeats the fresh-replacement pin
+ *      (tool.ts swaps on `completed === true`) and any resumable widget
+ *      resurrecting from an all-submitted ghost state.
  * 4. MOOT RECOMPUTE — `evaluateDependsOn(state)` exactly once, after
  *    install + replay (idempotent; h2.29 reasons re-derived — reasons are
  *    never persisted).
@@ -145,6 +172,16 @@ import {
  * runtime constant to import.
  */
 const SUBMISSION_ENTRY_TYPE = "interrogation-submission";
+
+/**
+ * The custom MESSAGE type of completion records (delivery.ts
+ * CompletionMessage.customType — h3.9). Local literal with a sync-reference
+ * comment — delivery.ts owns the canonical shape; there is no exported
+ * runtime constant to import. Completion entries are NOT replayed; their
+ * POSITION after the base snapshot is the exactly-once terminal marker
+ * (module JSDoc step 3).
+ */
+const COMPLETION_ENTRY_TYPE = "interrogation-completion";
 
 /**
  * Display sentinel snapshots.ts uses for a missing answer on either diff
@@ -251,6 +288,12 @@ interface WalkResult {
   mirrors: Array<{ index: number; data: unknown }>;
   /** All submission entries in walk order. */
   submissions: Array<{ index: number; details: SubmissionMessage["details"] }>;
+  /**
+   * Branch indices of `interrogation-completion` messages, in walk order
+   * (ascending). Positional truth: a completion after the base marks the
+   * reconstructed instance terminal (exactly-once across restart).
+   */
+  completions: number[];
 }
 
 /** Tolerant `details` read for a submission entry (either pi entry shape). */
@@ -270,9 +313,26 @@ function submissionDetails(entry: SessionEntry): SubmissionMessage["details"] | 
   return undefined;
 }
 
+/**
+ * Tolerant customType read for either pi custom-entry shape
+ * (custom_message from sendMessage, custom from appendEntry).
+ */
+function customTypeOf(entry: SessionEntry): string | undefined {
+  if (entry.type === "custom_message" || entry.type === "custom") {
+    return entry.customType as string | undefined;
+  }
+  return undefined;
+}
+
 /** Single pass over the raw branch, collecting every candidate in order. */
 function walkBranch(branch: SessionEntry[]): WalkResult {
-  const result: WalkResult = { toolState: undefined, toolIndex: -1, mirrors: [], submissions: [] };
+  const result: WalkResult = {
+    toolState: undefined,
+    toolIndex: -1,
+    mirrors: [],
+    submissions: [],
+    completions: [],
+  };
   branch.forEach((entry, index) => {
     if (entry.type === "message") {
       const msg = entry.message as { role?: string; toolName?: string; details?: unknown };
@@ -288,7 +348,11 @@ function walkBranch(branch: SessionEntry[]): WalkResult {
       return;
     }
     const details = submissionDetails(entry);
-    if (details !== undefined) result.submissions.push({ index, details });
+    if (details !== undefined) {
+      result.submissions.push({ index, details });
+      return;
+    }
+    if (customTypeOf(entry) === COMPLETION_ENTRY_TYPE) result.completions.push(index);
   });
   return result;
 }
@@ -371,23 +435,36 @@ export function reconstructFromBranch(
 
   const walk = walkBranch(ctx.sessionManager.getBranch());
 
-  // Base selection, priority order (module JSDoc step 2).
+  // Base selection — position-aware across layers (module JSDoc step 2).
+  // Candidates from BOTH storage layers compete by branch index; the newest
+  // snapshot wins. A tool result is just the candidate that happens to sit
+  // latest when no post-tool mutation ever flushed a mirror — completion
+  // (agent_settled, after the last tool call) always leaves a NEWER mirror
+  // than any tool result, and that mirror carries completed=true.
+  interface Candidate {
+    index: number;
+    data: unknown;
+    source: ReconstructSource;
+  }
+  const candidates: Candidate[] = [];
+  if (walk.toolIndex >= 0) {
+    candidates.push({ index: walk.toolIndex, data: walk.toolState, source: "tool-result" });
+  }
+  for (const mirror of walk.mirrors) {
+    const data = mirror.data as InterrogationStateEntryData | undefined;
+    if (data === undefined || data.state === undefined || data.state === null) continue;
+    candidates.push({ index: mirror.index, data: data.state, source: "mirror-entry" });
+  }
+  candidates.sort((a, b) => b.index - a.index); // newest first (stable sort)
   let source: ReconstructSource = "none";
   let state: LiveState | undefined;
-  if (walk.toolState !== undefined) {
-    state = tryDeserialize(walk.toolState);
-    if (state !== undefined) source = "tool-result";
-  }
-  if (state === undefined) {
-    for (let i = walk.mirrors.length - 1; i >= 0; i--) {
-      const mirror = walk.mirrors[i] as { index: number; data: unknown };
-      const data = mirror.data as InterrogationStateEntryData | undefined;
-      if (data === undefined || data.state === undefined || data.state === null) continue;
-      state = tryDeserialize(data.state);
-      if (state !== undefined) {
-        source = "mirror-entry";
-        break;
-      }
+  let baseIndex = -1;
+  for (const candidate of candidates) {
+    state = tryDeserialize(candidate.data);
+    if (state !== undefined) {
+      source = candidate.source;
+      baseIndex = candidate.index;
+      break; // one corrupt entry degrades to the next-older candidate
     }
   }
   if (state === undefined) {
@@ -415,18 +492,33 @@ export function reconstructFromBranch(
   // Install BEFORE replay so mutations fire `changed` on the live singleton.
   setState(state);
 
+  // The FIRST completion after the base is the terminal marker of THIS
+  // interrogation instance (module JSDoc step 3): completion fires at
+  // `agent_settled`, after the last tool call, so it is newer than every
+  // serialized snapshot the base layers could offer.
+  const completionIndex = walk.completions.find((index) => index > baseIndex);
+
   // Delta replay (module JSDoc step 3).
   let replayed = 0;
   for (const submission of walk.submissions) {
-    if (source === "tool-result") {
-      if (submission.index <= walk.toolIndex) continue; // already in the base
-    } else {
+    if (submission.index <= baseIndex) continue; // already in the base
+    if (completionIndex !== undefined && submission.index >= completionIndex) {
+      continue; // belongs to whatever followed the completed instance
+    }
+    if (source === "mirror-entry") {
       // Mirror base: position-free epoch filter (module JSDoc step 3).
       const epoch = submission.details?.epoch;
       if (typeof epoch !== "number" || epoch < state.epoch) continue;
     }
     if (replaySubmission(state, submission.details)) replayed++;
   }
+
+  // Completion terminal (module JSDoc step 3): the marker proves the
+  // instance ENDED — archive the resurrected questions and arm the
+  // exactly-once guard (FR-5, attemptCompletion's state.completed check).
+  // Silent (no events): the session file already holds the completion;
+  // reconstruction is read-only toward persistence.
+  if (completionIndex !== undefined) state.markCompletedSilently();
 
   // Moot recompute — exactly once per run (module JSDoc step 4).
   evaluateDependsOn(state);

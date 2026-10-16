@@ -40,15 +40,16 @@ const PANEL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * The side-chat cluster: store/lifecycle, render module, nested LLM loop,
- * and system-prompt builder — enumerated explicitly (TARGETED, not repo-wide)
- * with `.test.ts` excluded. Grow this list when the cluster grows a non-test
- * helper module.
+ * system-prompt builder, and the frozen branch-snapshot pipeline —
+ * enumerated explicitly (TARGETED, not repo-wide) with `.test.ts` excluded.
+ * Grow this list when the cluster grows a non-test helper module.
  */
 const SIDECHAT_FILES = [
   "sidechat.ts",
   "chat-view.ts",
   "sidechat-engine.ts",
   "sidechat-prompt.ts",
+  "branch-snapshot.ts",
 ] as const;
 
 /**

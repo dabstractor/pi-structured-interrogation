@@ -1,0 +1,5 @@
+{
+  "hasIssues": true,
+  "issueCount": 5,
+  "summary": "Critical: completed interrogations resurrect after restart (reconstruction ignores the newer completed mirror), causing repeatable duplicate completion injections and defeating the fresh-replacement pin; plus 3 minor guard/doc/version-drift issues. All 1544 tests, lint, typecheck, keymap checks green; live E2E otherwise solid."
+}

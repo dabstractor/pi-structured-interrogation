@@ -15,7 +15,7 @@
  */
 import * as fs from "node:fs";
 import { beforeEach, describe, expect, test } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { attemptCompletion } from "./completion.js";
@@ -841,7 +841,7 @@ describe("registration shape", () => {
 
   test("execute maps the executor result into the pi content/details shape", async () => {
     const tool = createInterrogateTool(DEFAULT_CONFIG);
-    const out = await tool.execute!("t1", { questions: [qi("q1")] }, undefined, undefined, tuiCtx() as unknown as ExtensionContext);
+    const out = await tool.execute!("t1", { questions: [qi("q1")] }, undefined, undefined, tuiCtx() as unknown as ExtensionToolContext);
     expect(out.content).toHaveLength(1);
     expect(out.content[0].type).toBe("text");
     expect(out.content[0].type === "text" && out.content[0].text.split("\n")).toEqual([

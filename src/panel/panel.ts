@@ -1135,7 +1135,14 @@ export class InterrogationPanel implements Component {
     // record AND its frozen SIDECHAT-003 snapshot are reused byte-unchanged
     // (openOrReplace is NOT called again — same-question rebuilds are the
     // anti-pattern). Otherwise replace wholesale: the snapshot builders run
-    // NOW, exactly once. NO suspend, NO editor preload — the main editor is
+    // NOW, exactly once. BUG-005/BUG-007: the replacement ABORTS the old
+    // record's in-flight stream first and fires its usage-close notice
+    // after — the discard hook's ruling order, on the one path the hook can
+    // never see (replace is not status-driven). Zero-usage replacements
+    // notify too (policy: unconditional, hook-consistent — the toast is the
+    // only feedback that a previous chat existed and was replaced; half
+    // policies that suppress SOME zero cases are ruled out).
+    // NO suspend, NO editor preload — the main editor is
     // untouched (AC-17.1). args.chatRebindDeps absent → inert
     // no-op (non-TUI/test safety). args.keys (host override) still wins
     // wholesale below.
@@ -1144,7 +1151,27 @@ export class InterrogationPanel implements Component {
       if (qid === undefined || args.chatRebindDeps === undefined) return;
       const record = getSidechatRecord();
       if (record === undefined || record.questionId !== qid) {
+        // BUG-005/BUG-007: replacing a live record ABORTS its in-flight
+        // stream and announces its usage — mirroring the discard hook's
+        // ruling order (abort FIRST, usage BEFORE the record is gone,
+        // notify once). openOrReplace deliberately does neither (its JSDoc:
+        // "caller's job"); the engine's abort() reaches only the LIVE
+        // singleton, so THIS is the last handle the replaced record has.
+        // The aborted turn's settle rolls back onto the dead record via the
+        // liveness guard — a harmless no-op. A cold create (no prior
+        // record) destroys nothing and notifies nothing.
+        if (record !== undefined && record.streamState === "streaming") {
+          record.abortController.abort();
+        }
+        const closedUsage = record?.usage;
         openSidechatRecord(qid, args.chatRebindDeps); // snapshot NOW, once
+        if (closedUsage !== undefined) {
+          // Zero-usage replacements notify too (policy: unconditional,
+          // hook-consistent — the toast is the only feedback that a
+          // previous chat existed and was replaced; half policies that
+          // suppress SOME zero cases are ruled out).
+          p.sidechatNotify?.(formatChatCloseNotice(closedUsage));
+        }
       }
       // BUG-002: seed the transition baseline with the OPEN-TIME status —
       // an already-terminal question's chat is a supported surface and must

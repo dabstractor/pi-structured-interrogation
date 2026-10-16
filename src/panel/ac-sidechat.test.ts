@@ -1183,3 +1183,161 @@ describe("chat-focus empty-buffer enter routes to the pending confirm (BUG-001 r
     expect(chat.state.getQuestion("q3")?.answer).toBeUndefined();
   });
 });
+
+// ------ BUG-005/BUG-007 replace path: abort + usage-close notice on rebind
+
+/** Port that captures the per-call AbortSignal (the engine passes the
+ * record's fresh-per-turn controller signal at call time) over a held-open
+ * gate — proves the replace path aborted the IN-FLIGHT call, not just the
+ * record's bookkeeping. */
+function signalCapturingGate(): {
+  port: SidechatModelPort;
+  calls: Array<{ signal: AbortSignal }>;
+  gate: ReturnType<typeof gatedStream>;
+} {
+  const calls: Array<{ signal: AbortSignal }> = [];
+  const gate = gatedStream();
+  const port = ((_model: unknown, _context: unknown, options: { signal: AbortSignal }) => {
+    calls.push({ signal: options.signal });
+    return gate.stream;
+  }) as unknown as SidechatModelPort;
+  return { port, calls, gate };
+}
+
+const OVERVIEW_DOWN = "\u001b[B"; // fixed arrow — the overview cursor mover
+
+/** Jump rows via the REAL overview route (`o` → cursor → enter): the jump
+ * sets currentId, which is what onChat's replace branch keys off. The
+ * overview cursor syncs to the CURRENT question on entry, so the target is
+ * addressed by question id through the cursor's index in display order. */
+function jumpTo(panel: InterrogationPanel, id: string): void {
+  expect(panel.handleInput("o")).toBe(true); // DEFAULT_CONFIG.keys.overview
+  const cursorPanel = panel as InterrogationPanel & { overviewCursor: number };
+  const targetIndex =
+    panel.state.orderedQuestions().findIndex((q) => q.id === id);
+  expect(targetIndex).toBeGreaterThanOrEqual(0);
+  let guard = 0;
+  while (cursorPanel.overviewCursor !== targetIndex && guard++ < 10) {
+    panel.handleInput(OVERVIEW_DOWN);
+  }
+  expect(cursorPanel.overviewCursor).toBe(targetIndex);
+  expect(panel.handleInput(ENTER)).toBe(true); // jump → currentId = id
+  expect(panel.currentId).toBe(id);
+  expect(panel.view).toBe("short");
+}
+
+describe("replace path — abort before rebind + usage-close notice (BUG-005/BUG-007)", () => {
+  test("test_replace_aborts_inflight_stream_and_rebinds", async () => {
+    const { port, calls, gate } = signalCapturingGate();
+    const h = makeHarness({ focusQuestionId: "q3", port });
+    openChat(h.panel);
+    sendChat(h.panel, "why sqlite?");
+    gate.push({ type: "start", partial: assistantReply("") });
+    gate.push({
+      type: "text_delta",
+      contentIndex: 0,
+      delta: "partial th",
+      partial: assistantReply("partial th"),
+    });
+    await flush();
+
+    const oldRecord = getSidechat();
+    expect(oldRecord?.streamState).toBe("streaming");
+    expect(oldRecord?.questionId).toBe("q3");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.signal.aborted).toBe(false); // live before the replace
+
+    // The shipped esc ladder ABORTS streaming chats from any focus, so a
+    // live-stream replacement is modeled by the input losing focus while
+    // the stream runs (the click/tab-away shape) and the user refocusing
+    // the chat on another question. The contract under test is onChat's
+    // replace branch, keyed off currentId.
+    h.panel.focus = "options";
+    h.panel.currentId = "q4";
+    openChat(h.panel); // `e` → replace branch
+
+    const replaced = getSidechat();
+    expect(replaced?.questionId).toBe("q4");
+    expect(replaced).not.toBe(oldRecord);
+    // BUG-005: the in-flight call is STOPPED — the port's captured signal
+    // (the old record's fresh-per-turn controller) is aborted.
+    expect(calls[0]?.signal.aborted).toBe(true);
+    expect(oldRecord?.abortController.signal.aborted).toBe(true);
+
+    // BUG-007 half: the replace announced the old chat's usage — zero tally
+    // (the stream never settled) toasts the unconditional zero-usage form.
+    expect(h.notify).toHaveBeenCalledTimes(1);
+    expect(h.notify).toHaveBeenCalledWith("chat closed · 0 in · 0 out · $0.00");
+
+    // The dead record's settle is a liveness-guard no-op: release the gate —
+    // no throw, and NO extra notify beyond the replace's single close.
+    gate.finishWith({
+      type: "error",
+      reason: "aborted",
+      error: assistantReply("partial th"),
+    });
+    await flush();
+    await flush();
+    expect(h.notify).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_replace_notifies_usage_close_notice_exact_string", async () => {
+    const h = makeHarness({ focusQuestionId: "q3", port: convergePort() });
+    openChat(h.panel);
+    sendChat(h.panel, "converge please");
+    await flush(); // settle: usage tallied
+    await flush(); // queued settle fire (macrotask)
+    expect(getSidechat()?.usage).toMatchObject({ input: 10, output: 5 });
+    expect(h.panel.focus).toBe("options"); // the decision settle blurred the input
+    expect(getSidechat()?.pendingConfirm).toBeDefined(); // confirm row is up
+
+    expect(h.panel.handleInput(ESCAPE)).toBe(true); // esc #1: decline the confirm
+    expect(h.panel.handleInput(ESCAPE)).toBe(true); // esc #2: exit the chat view
+    expect(h.panel.view).toBe("short");
+    expect(h.panel.view).toBe("short");
+    expect(getSidechat()?.questionId).toBe("q3"); // retained across the exit
+
+    jumpTo(h.panel, "q4");
+    openChat(h.panel); // `e` on q4 → replace branch
+
+    expect(getSidechat()?.questionId).toBe("q4");
+    // BUG-007: exactly ONE notify with the spec-pinned humanized string.
+    expect(h.notify).toHaveBeenCalledTimes(1);
+    expect(h.notify).toHaveBeenCalledWith("chat closed · 10 in · 5 out · $0.07");
+  });
+
+  test("test_same_question_reopen_does_not_abort_or_notify", async () => {
+    const h = makeHarness({ focusQuestionId: "q3", port: convergePort() });
+    openChat(h.panel);
+    sendChat(h.panel, "converge please");
+    await flush();
+    await flush();
+    const before = getSidechat();
+    expect(h.panel.focus).toBe("options"); // the decision settle blurred the input
+
+    h.panel.handleInput(ESCAPE); // exit the chat view (record retained)
+    openChat(h.panel); // `e` on the SAME question → reuse branch
+
+    const after = getSidechat();
+    expect(after).toBe(before); // byte-unchanged identity (SIDECHAT-003)
+    expect(h.notify).not.toHaveBeenCalled(); // no close notice on reuse
+    expect(after?.streamState).toBe("idle"); // untouched — never aborted
+    expect(after?.messages).toHaveLength(2); // transcript survives the reopen
+  });
+
+  test("test_replace_zero_usage_notifies_unconditionally", async () => {
+    const h = makeHarness({ focusQuestionId: "q3" });
+    openChat(h.panel); // fresh chat — no turns sent, usage all-zero
+    blurChatBox(h.panel); // idle: double-esc blurs to options (view stays chat)
+    h.panel.currentId = "q4";
+    openChat(h.panel); // `e` on q4 → replace branch on a zero-usage record
+
+    expect(getSidechat()?.questionId).toBe("q4");
+    // POLICY PIN (zero-usage): replacement notifies UNCONDITIONALLY — the
+    // hook-consistent choice. The toast is the only feedback that a previous
+    // chat existed and was replaced, and half-policies (suppressing SOME
+    // zero cases) are ruled out by the item contract.
+    expect(h.notify).toHaveBeenCalledTimes(1);
+    expect(h.notify).toHaveBeenCalledWith("chat closed · 0 in · 0 out · $0.00");
+  });
+});

@@ -34,8 +34,16 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { KeyAction } from "../config.js";
 import { UNGROUPED_LABEL, type Question, type SerializedState } from "../state.js";
 
-/** Which panel screen a footer is rendered for (h2.29 views). */
-export type ScreenKind = "short" | "deep" | "overview";
+/**
+ * Which panel screen a footer is rendered for (h2.29 views). `"chat"` is
+ * the SIDECHAT-001 side-chat view (P1.M2.T4.S1): its hint CONTENT arrives
+ * PRE-RENDERED from chat-view.ts's footerHints (the esc word flips with
+ * the stream state and the reopen naming rides the resolved chat binding —
+ * stream/binding state this module cannot see), threaded through
+ * renderFooter's `chatHints` argument; SCREEN_KEYS.chat exists for Record
+ * exhaustiveness and as the fallback shape when no hints are supplied.
+ */
+export type ScreenKind = "short" | "deep" | "overview" | "chat";
 
 /**
  * Keys relevant per screen (FR-10: 3–4 key hints). Order = display order.
@@ -47,6 +55,10 @@ export const SCREEN_KEYS: Record<ScreenKind, KeyAction[]> = {
   short: ["deep", "overview", "submit"],
   deep: ["submit", "overview"],
   overview: ["submit", "deep"],
+  // The remappable chat key is the only KeyAction relevant on the chat
+  // screen; its hint content (enter send · /clear · esc {abort|exit}) is
+  // stream-STATE-dependent and arrives pre-rendered via chatHints.
+  chat: ["chat"],
 };
 
 /**
@@ -484,6 +496,12 @@ export interface FooterEditorExit {
  *        question + total, rendered inside the progress segment as
  *        `q{n}/{total}` — the status line carries WHERE you are (computed
  *        from state; never agent-supplied). Omit to render progress only.
+ * @param chatHints SIDECHAT-001 (P1.M2.T4.S1): the PRE-RENDERED chat hint
+ *        string from chat-view.ts's footerHints (`enter send · /clear ·
+ *        esc {abort|exit}` + the binding-named reopen hint) — composed as
+ *        ONE fit-loop entry so degradation drops it whole (progress-only is
+ *        the floor, as every screen). Consulted only when `screen` is
+ *        "chat"; omitted → the SCREEN_KEYS.chat fallback (`{label} chat`).
  */
 export function renderFooter(
   state: SerializedState,
@@ -494,6 +512,7 @@ export function renderFooter(
   narrow = false,
   editorExit?: FooterEditorExit,
   position?: { n: number; total: number },
+  chatHints?: string,
 ): string {
   const { answered, reasked, total } = statusCounts(state);
   // Wayfinding (2026-09-30): `q{n}/{total}` rides IN the progress segment
@@ -507,6 +526,15 @@ export function renderFooter(
 
   const keyActions = narrow ? NARROW_FOOTER_ACTIONS : SCREEN_KEYS[screen];
   const hints: string[] = keyActions.map((action) => `${labels[action]} ${ACTION_WORDS[action]}`);
+  // Chat (SIDECHAT-001): swap the mapped hints for the pre-rendered string
+  // BEFORE the static pushes (none of which target chat) and the fit loop.
+  // The narrow NARROW_FOOTER_ACTIONS swap never reaches a chat screen's
+  // content either: the string itself already shrinks via chat-view's own
+  // budget handling.
+  if (screen === "chat") {
+    hints.length = 0;
+    hints.push(chatHints ?? `${labels.chat} ${ACTION_WORDS.chat}`);
+  }
   if (screen === "short") hints.unshift("enter accept"); // enter is not remappable
   if (screen === "short") hints.push(`${labels.elaborate} explain`); // D-R11: the footer permanently names the chord
   if (screen === "deep") hints.push("esc back", "↑/↓ scroll");

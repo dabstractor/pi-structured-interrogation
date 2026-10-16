@@ -46,7 +46,13 @@
  * is the only way both signatures hold. Tests reset the record via
  * `createPanelHost` before each scenario.
  */
-import type { ExtensionAPI, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  KeybindingsManager,
+  SessionManager,
+  Theme,
+} from "@earendil-works/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { Key, matchesKey, parseKey, type Component, type TUI } from "@earendil-works/pi-tui";
 import {
   editInExternalEditor,
@@ -71,15 +77,26 @@ import {
   rippleVictims,
   type RippleConfirmState,
 } from "./ripple-confirm.js";
-import { discussInChat } from "./discuss.js";
+import { takeBranchSnapshot } from "./branch-snapshot.js";
+import { buildChatContent } from "./chat-view.js";
 import {
   classifyChatCommand,
   clearPendingConfirm,
   get as getSidechatRecord,
+  openOrReplace as openSidechatRecord,
   resetChat,
   type ApplyDecision,
   type SidechatRebindDeps,
 } from "./sidechat.js";
+import {
+  createSidechatEngine,
+  modelSnapshotFromModel,
+  resolveSideChatModel,
+  streamSimplePort,
+  type SidechatModelPort,
+  type SidechatRegistryPort,
+} from "./sidechat-engine.js";
+import { buildSideChatSystemPrompt } from "./sidechat-prompt.js";
 import { buildKeyRouter, defaultRoutedActions, desiredTextDuty } from "./keys.js";
 import { createEditorComponent, TextField, type EditorFactory } from "./text-field.js";
 import {
@@ -115,12 +132,31 @@ import {
 
 /** Panel view modes (h2.29). deepSticky is per panel session, not global.
  *
- * `"chat"` is the SIDECHAT-001 side-chat view — added to the union
- * MINIMALLY by P1.M2.T3.S1 so the routing branches (fixed ↑/↓, the
- * esc-ladder chat rung, focusChatInput's guard) can reference it without a
- * cast. P1.M2.T4.S1 owns the open path (setView("chat") + seeding
- * chatReturnView + scroll state); nothing else about the view integration
- * changes here. */
+ * [Mode A] SIDECHAT-00x contracts the panel implements for the `"chat"`
+ * member (P1.M2.T4.S1, h2.38 / AC-17.1/17.3):
+ * - chat is a full PanelView: the open path routes through
+ *   {@link InterrogationPanel.setView} (seeding scroll-bottom + chat input
+ *   focus once per entry), and buildLines renders the chat frame via
+ *   chat-view.ts's buildChatContent.
+ * - OPEN-OR-REPLACE per question (SIDECHAT-001/002): `e` opens the chat on
+ *   the CURRENT question; when the module-scoped singleton already lives on
+ *   it, the record — its frozen SIDECHAT-003 snapshot included — is reused
+ *   byte-unchanged (openOrReplace is NOT called again); a different question
+ *   replaces the record wholesale (snapshot built NOW, exactly once).
+ * - NO-SUSPEND OPEN (AC-17.1): the open path never suspends the panel, never
+ *   preloads the main editor (that legacy handoff is gone from this
+ *   path — the engine's deletion is P1.M2.T7.S1).
+ * - RETURN-VIEW restore (SIDECHAT-002 retention): {@link chatReturnView}
+ *   records the pre-chat view at open time; the esc rung (P1.M2.T3.S1's
+ *   exitChatView) restores it; `e` reopens onto the retained transcript.
+ * - The singleton lives in sidechat.ts MODULE scope — it survives suspend
+ *   (the panel instance dies; a resumed panel re-reads get()). The panel
+ *   calls openOrReplace/resetChat only; it never mutates the record.
+ * - chatScrollOffset is panel-OWNED but clamped by chat-view.ts's pure
+ *   clampChatScroll before every store/render (deep-view precedent).
+ * - Engine settle → render: record mutations are invisible to the cached
+ *   render, so the host-side port wrapper invalidates after each settle
+ *   (openPanel's resolveSidechatHostSeams). */
 export type PanelView = "short" | "deep" | "overview" | "chat";
 
 /**
@@ -232,6 +268,21 @@ export interface OpenPanelOptions {
   confirmRipple?: RippleConfirmFn;
   /** Question id to focus on open; defaults to first open question. */
   focusQuestionId?: string;
+  /**
+   * SIDECHAT-001 (P1.M2.T4.S1) — the side-chat rebind deps bag, host-built
+   * (real model/prompt/branch closures) or test doubles. Defaults to the
+   * seams derived from the open surface (resolveSidechatHostSeams — needs a
+   * ctx-flavored surface carrying modelRegistry; test surfaces without one
+   * leave `e` inert). See InterrogationPanelArgs.chatRebindDeps.
+   */
+  chatRebindDeps?: SidechatRebindDeps;
+  /**
+   * SIDECHAT-001 (P1.M2.T4.S1) — the host-constructed chat engine
+   * (createSidechatEngine over the production streamSimplePort). Defaults
+   * to the seam derived from the open surface. See
+   * InterrogationPanelArgs.sidechatEngine.
+   */
+  sidechatEngine?: SidechatEngine;
 }
 
 /**
@@ -263,8 +314,9 @@ export interface PiUISurface {
      */
     setWidget?(key: string, content: string[] | undefined, options?: { placement?: string }): void;
     /**
-     * Editor preload (h2.35 discuss handoff) — the ONLY sanctioned writer
-     * of main-editor text from the panel (discuss.ts discussInChat).
+     * Editor preload (h2.35 legacy discuss handoff) — a sanctioned writer
+     * of main-editor text from the panel (discuss.ts; its panel wiring was
+     * removed by P1.M2.T4.S1 — the file itself dies in P1.M2.T7.S1).
      * Optional: test fakes / RPC surfaces stay valid — every call site
      * guards (`?.`), same pattern as setWidget.
      */
@@ -336,6 +388,111 @@ export function surfaceSubmitDeps(
   };
   if (noteSubmissionDelivered !== undefined) deps.noteSubmissionDelivered = noteSubmissionDelivered;
   return deps;
+}
+
+/**
+ * The chat engine's model-call port, wrapped so a SETTLE invalidates the
+ * panel's cached render (SIDECHAT-001 cached-render discipline: record
+ * mutations are invisible to render()'s width/rows cache — without this the
+ * transcript would not update after a streamed turn). The macrotask
+ * (setTimeout 0) fires AFTER the engine's microtask route() continuation,
+ * so the invalidate lands on the POST-settle record. Non-thenable stream
+ * shapes pass through unwrapped: the panel re-reads get() on every rebuild,
+ * so typing during a stream invalidates naturally (T3.S1's scroll/typing
+ * paths own those invalidations).
+ */
+function settleInvalidatingPort(port: SidechatModelPort, fire: () => void): SidechatModelPort {
+  return (model, context, options) => {
+    const result = port(model, context, options);
+    if (typeof (result as { finally?: unknown }).finally === "function") {
+      return (result as unknown as Promise<unknown>).finally(
+        () => setTimeout(fire, 0),
+      ) as typeof result;
+    }
+    return result;
+  };
+}
+
+/**
+ * SIDECHAT-001 host seams (P1.M2.T4.S1): derive the REAL side-chat rebind
+ * deps + engine from THIS open surface, once per openPanel — the exact
+ * surfaceSubmitDeps precedent (the surface at runtime is an
+ * ExtensionContext carrying modelRegistry / model / sessionManager; test
+ * fakes and RPC surfaces lack them → undefined, leaving `e` inert and the
+ * chat unable to send — graceful, never throwing).
+ *
+ * chatRebindDeps: T3.S1 pinned a PLAIN SidechatRebindDeps (the builder
+ * signatures carry no questionId), but buildSideChatSystemPrompt needs the
+ * CURRENT question — known only at the moment openOrReplace/resetChat runs
+ * (a keypress: the live panel's currentId IS the target question). The
+ * closure therefore resolves the question through the module-scoped panel
+ * singleton at CALL time; state reads go through lastOpts so a branch
+ * retarget (PanelHost.retargetState) is honored on the next builder call.
+ *
+ * NO ctx anywhere else: everything below narrows STRUCTURALLY off the
+ * surface argument (the engine/prompt/branch modules stay ctx-free —
+ * injected-port testability rule; the M3.T1 guard's banned surfaces appear
+ * nowhere: the registry port exposes only find/getAvailable reads).
+ */
+function resolveSidechatHostSeams(
+  surface: PiUISurface,
+  config: InterrogatorConfig,
+): { chatRebindDeps: SidechatRebindDeps; sidechatEngine: SidechatEngine } | undefined {
+  type HostCtx = PiUISurface & {
+    model?: Model<Api>;
+    modelRegistry?: {
+      find?(provider: string, modelId: string): Model<Api> | undefined;
+      getAvailable?(): Model<Api>[];
+    };
+    sessionManager?: Pick<SessionManager, "getBranch">;
+    ui?: { notify?(message: string): void };
+  };
+  const ctx = surface as HostCtx;
+  const registry = ctx.modelRegistry;
+  if (registry === undefined || typeof registry.getAvailable !== "function") return undefined;
+  // Capture the narrowed methods — the typeof guards above do not survive
+  // into closure bodies.
+  const getAvailableModels = registry.getAvailable;
+  const findModel = registry.find;
+  const registryPort: SidechatRegistryPort = {
+    find: (provider, modelId) =>
+      typeof findModel === "function" ? findModel(provider, modelId) : undefined,
+    getAvailable: () => getAvailableModels() ?? [],
+  };
+  const sessionModel = ctx.model;
+  const notify = (message: string): void => {
+    try {
+      ctx.ui?.notify?.(message);
+    } catch {
+      // log-safe swallow: a notify failure must never break the chat; the
+      // same text already landed in the record's notices (chat-view renders
+      // the newest entry), so nothing is lost.
+    }
+  };
+  const branchReader = ctx.sessionManager;
+  const chatRebindDeps: SidechatRebindDeps = {
+    resolveModelSnapshot: () =>
+      modelSnapshotFromModel(resolveSideChatModel(config, registryPort, sessionModel, notify)),
+    buildSystemPrompt: () => {
+      const state = lastOpts?.state;
+      const qid = currentPanel?.currentId;
+      const q = state !== undefined && qid !== undefined ? state.getQuestion(qid) : undefined;
+      if (state === undefined || q === undefined) return ""; // stale id — degraded prompt, never a throw
+      return buildSideChatSystemPrompt(
+        q,
+        state.serialize().goal,
+        state.orderedQuestions().filter((entry) => entry.answer !== undefined),
+      );
+    },
+    buildBranchSnapshot: () =>
+      branchReader !== undefined ? takeBranchSnapshot(branchReader) : [],
+  };
+  const sidechatEngine = createSidechatEngine({
+    port: settleInvalidatingPort(streamSimplePort, () => currentPanel?.invalidate()),
+    registry: registryPort,
+    notify,
+  });
+  return { chatRebindDeps, sidechatEngine };
 }
 
 // ------------------------------------------------------- panel component
@@ -789,18 +946,27 @@ export class InterrogationPanel implements Component {
       // idempotent instead of mid-typing-closing the editor.
       if (p.focus !== "text") p.focusTextField(desiredTextDuty(p));
     };
-    // Host-side refinement of the chat seam (SIDECHAT): discussInChat
-    // needs the PiUISurface to preload the editor (h2.35), so the closure
-    // is injected HERE — keys.ts stays UI-free. The body still routes to
-    // discussInChat until the side-chat view lands (P1.M2.T4.S1) and the
-    // engine is deleted (P1.M2.T7.S1). args.keys (host override) still
-    // wins wholesale below.
-    if (args.pi !== undefined) {
-      const pi = args.pi;
-      routed.onChat = (p) => {
-        discussInChat(pi, p);
-      };
-    }
+    // SIDECHAT-001 open path (P1.M2.T4.S1, h2.38 / AC-17.1/17.3): `e` opens
+    // — or reopens — the per-question side chat. When the module-scoped
+    // singleton already lives on the CURRENT question, just setView: the
+    // record AND its frozen SIDECHAT-003 snapshot are reused byte-unchanged
+    // (openOrReplace is NOT called again — same-question rebuilds are the
+    // anti-pattern). Otherwise replace wholesale: the snapshot builders run
+    // NOW, exactly once. NO suspend, NO editor preload — the main editor is
+    // untouched (AC-17.1; the old discuss handoff call is gone — deleting
+    // the engine itself is P1.M2.T7.S1). args.chatRebindDeps absent → inert
+    // no-op (non-TUI/test safety). args.keys (host override) still wins
+    // wholesale below.
+    routed.onChat = (p) => {
+      const qid = p.currentId;
+      if (qid === undefined || args.chatRebindDeps === undefined) return;
+      const record = getSidechatRecord();
+      if (record === undefined || record.questionId !== qid) {
+        openSidechatRecord(qid, args.chatRebindDeps); // snapshot NOW, once
+      }
+      if (p.view !== "chat") p.chatReturnView = p.view; // keep prior on re-open
+      p.setView("chat"); // seeds scroll-bottom + chat focus (once-only via no-op)
+    };
     this.keys = args.keys ?? buildKeyRouter(args.config, routed);
     this.labels = resolveKeyLabels(args.config);
     this.delivery = args.delivery;
@@ -1237,9 +1403,11 @@ export class InterrogationPanel implements Component {
     if (this.view === view) return;
     // SIDECHAT-001: the chat editor must never retain focus into another
     // view (invisible-editor hazard, BUG-011 class) — release it BEFORE the
-    // view flips. Every PanelView is non-chat today, so this always fires
-    // when chat focus is held; the view === "chat" no-op guard is
-    // P1.M2.T4.S1's concern.
+    // view flips. The chat→chat case never reaches here (the unchanged-view
+    // no-op above), so this fires exactly when LEAVING chat (or when a
+    // foreign path held chat focus into a view flip — impossible by
+    // construction). Entering chat does NOT blur first: focusChatInput (the
+    // chat seeding branch below) claims the editor after the flip.
     if (this.focus === "chat") this.blurChatInput();
     this.view = view;
     // Deep entry (P1.M5.T1.S1): seed the selection via deepSeedCursorIndex —
@@ -1268,6 +1436,18 @@ export class InterrogationPanel implements Component {
         this.currentId !== undefined ? ordered.findIndex((q) => q.id === this.currentId) : -1;
       this.overviewCursor = idx >= 0 ? idx : 0;
       this.overviewScroll = 0;
+    } else if (view === "chat") {
+      // SIDECHAT-001 chat entry (P1.M2.T4.S1): tail-pin the transcript —
+      // seed PAST the end; chat-view.ts's clampChatScroll windows to the
+      // NEWEST lines before every store/render (T3.S1's scroll branch owns
+      // the clamped moves; the render itself is tail-pinned by construction).
+      // Once-only via the unchanged-view no-op above: entering from another
+      // view re-seeds bottom ("open fresh at latest"); a view STAY never
+      // re-seeds, so esc-exit + `e` reopen keeps the user's scroll position
+      // (SIDECHAT-002 retention). focusChatInput's view guard now passes —
+      // the chat editor claims focus with the view visible (BUG-011 safe).
+      this.chatScrollOffset = Number.MAX_SAFE_INTEGER;
+      this.focusChatInput();
     }
     this.invalidate();
   }
@@ -1681,7 +1861,12 @@ export class InterrogationPanel implements Component {
    * accepts), the editor-mode toggle key closes, and esc-esc closes when
    * the double-esc window is armed (escExitWindowMs > 0).
    */
-  private footerLine(snapshot: SerializedState, width: number, narrow: boolean): string {
+  private footerLine(
+    snapshot: SerializedState,
+    width: number,
+    narrow: boolean,
+    chatHints?: string,
+  ): string {
     if (this.confirmMode !== null) {
       return renderConfirmFooter(this.confirmMode.victims, this.theme, width);
     }
@@ -1702,20 +1887,17 @@ export class InterrogationPanel implements Component {
           : -1;
       if (idx >= 0) position = { n: idx + 1, total: ordered.length };
     }
-    // The chat view renders its OWN frame (buildChatContent — P1.M2.T4.S1's
-    // wiring) and never reaches this shared answer-side footer; "chat" maps
-    // to the return view as an interim type-level guard until that wiring
-    // lands (unreachable at runtime today — nothing sets view to "chat"
-    // outside tests).
-    const footerView: ScreenKind =
-      this.view === "chat"
-        ? this.chatReturnView === "chat"
-          ? "short"
-          : this.chatReturnView
-        : this.view;
+    // The chat view composes its OWN footer: buildLines' chat branch threads
+    // chat-view.ts's frame-less hint string through here (chatHints) and the
+    // screen becomes "chat" — renderFooter's chat mode swaps the mapped hints
+    // for that pre-rendered string (the esc word flips with the stream state,
+    // which this answer-side footer cannot see). Non-chat views pass their
+    // own ScreenKind; a chat view WITHOUT hints (defensive) degrades to the
+    // `{label} chat` fallback inside renderFooter.
+    const footerView: ScreenKind = this.view === "chat" ? "chat" : this.view;
     return renderFooter(snapshot, footerView, this.labels, this.theme, width, narrow, editorExit
       ? { mode: this.focus === "note" ? "note" : "text", escEscHint: this.config.escExitWindowMs > 0 }
-      : undefined, position);
+      : undefined, position, chatHints);
   }
 
   /**
@@ -1744,6 +1926,55 @@ export class InterrogationPanel implements Component {
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
       lines.push(this.footerLine(snapshot, width, budget.narrow));
+      return lines;
+    }
+    if (this.view === "chat") {
+      // SIDECHAT-001 chat view (P1.M2.T4.S1): the shared interrogation
+      // header, then the chat body rendered WHOLESALE by chat-view.ts's
+      // buildChatContent — identity header line (`chat · {id} — {prompt}`),
+      // inert-model banner, tail-pinned transcript window (≤
+      // CHAT_VIEW_HEIGHT), the S2 notice/confirm rows, and a trailing blank
+      // padding line. Its LAST element is the FRAME-LESS hint string (the
+      // chat-view module contract: the panel seam composes
+      // `└ {progress} · {hints} ⏎ ┘`) — popped here and threaded through
+      // footerLine → renderFooter's chat mode. The panel-owned
+      // chatScrollOffset is consumed by the T3.S1 scroll branch's
+      // clampChatScroll; this render is tail-pinned by construction.
+      const snapshot = this.state.serialize();
+      const header = renderHeader(snapshot, this.theme, width);
+      const lines: string[] = [header.line];
+      const record = getSidechatRecord();
+      const q =
+        this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;
+      if (record === undefined || q === undefined) {
+        // Defensive: onChat opens the record BEFORE setView, so a record-less
+        // chat view is unreachable through the open path (inert deps no-op
+        // the view flip too). Header + footer only, like an unknown currentId.
+        lines.push("");
+        const notice = this.footerNoticeLine(width);
+        if (notice !== undefined) lines.push(notice);
+        lines.push(this.footerLine(snapshot, width, budget.narrow));
+        return lines;
+      }
+      const content = buildChatContent(
+        width,
+        this.currentRows(),
+        {
+          messages: record.messages,
+          streamState: record.streamState,
+          notices: record.notices,
+          pendingConfirm: record.pendingConfirm,
+          lastRejection: record.lastRejection,
+          modelSnapshot: record.modelSnapshot,
+        },
+        { id: q.id, prompt: q.prompt, options: q.options },
+        this.labels,
+      );
+      const chatHints = content.pop(); // frame-less hint string (chat-view contract)
+      lines.push(...content); // ends with the blank padding line (variation A)
+      const notice = this.footerNoticeLine(width);
+      if (notice !== undefined) lines.push(notice);
+      lines.push(this.footerLine(snapshot, width, budget.narrow, chatHints));
       return lines;
     }
     if (this.view === "short") {
@@ -2160,7 +2391,16 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
     (rootDeliveryFallbackSurface !== undefined
       ? surfaceSubmitDeps(rootDeliveryFallbackSurface, hostNoteSubmissionDelivered)
       : undefined);
-  const resolvedOpts: OpenPanelOptions = { ...opts, delivery };
+  // SIDECHAT-001 (P1.M2.T4.S1): explicit opts win; otherwise derive the real
+  // seams from THIS surface (needs a ctx-flavored surface — modelRegistry /
+  // model / sessionManager; test fakes without them leave the chat inert).
+  const sidechatDerived = resolveSidechatHostSeams(pi, opts.config);
+  const resolvedOpts: OpenPanelOptions = {
+    ...opts,
+    delivery,
+    chatRebindDeps: opts.chatRebindDeps ?? sidechatDerived?.chatRebindDeps,
+    sidechatEngine: opts.sidechatEngine ?? sidechatDerived?.sidechatEngine,
+  };
 
   activePi = pi;
   lastOpts = resolvedOpts;
@@ -2193,6 +2433,8 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       delivery: resolvedOpts.delivery,
       confirmRipple: resolvedOpts.confirmRipple,
       focusQuestionId: resolvedOpts.focusQuestionId,
+      chatRebindDeps: resolvedOpts.chatRebindDeps,
+      sidechatEngine: resolvedOpts.sidechatEngine,
     });
     currentPanel = panel;
     return panel;

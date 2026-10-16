@@ -3418,3 +3418,135 @@ describe("chat send + pendingConfirm routing (SIDECHAT-001, P1.M2.T3.S1)", () =>
     expect(state.getQuestion("q1")?.answer).toBeDefined(); // the kept edit applied
   });
 });
+
+// -------------------------------- chat open path (SIDECHAT-001, P1.M2.T4.S1)
+
+describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)", () => {
+  /** Builder-counting deps double — the once-only snapshot rule's observability. */
+  function countingDeps() {
+    return {
+      resolveModelSnapshot: vi.fn(() => ({ provider: "test", modelId: "test-model" })),
+      buildSystemPrompt: vi.fn(() => "system prompt"),
+      buildBranchSnapshot: vi.fn(() => [] as never),
+    };
+  }
+
+  function makeOpenPanel(extra: Partial<InterrogationPanelArgs> = {}): {
+    panel: InterrogationPanel;
+    state: InterrogationState;
+    deps: ReturnType<typeof countingDeps>;
+    engine: { sendTurn: Mock; abort: Mock };
+    done: Mock;
+  } {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2"));
+    const deps = countingDeps();
+    const engine = { sendTurn: vi.fn(() => true), abort: vi.fn() };
+    const done = vi.fn();
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, {
+        chatRebindDeps: deps,
+        sidechatEngine: engine,
+        done,
+        ...extra,
+      }),
+    );
+    return { panel, state, deps, engine, done };
+  }
+
+  beforeEach(() => resetSidechatForTests());
+  afterEach(() => resetSidechatForTests());
+
+  test("e_opens_the_chat_view_seeds_focus_scroll_and_builds_the_snapshot_once", () => {
+    const { panel, deps, done } = makeOpenPanel();
+
+    expect(panel.handleInput("e")).toBe(true); // router dispatch (options focus)
+
+    expect(panel.view).toBe("chat");
+    expect(panel.focus).toBe("chat"); // chat input claimed (focusChatInput)
+    expect(panel.chatReturnView).toBe("short"); // pre-chat view recorded
+    expect(panel.chatScrollOffset).toBe(Number.MAX_SAFE_INTEGER); // tail-pin seed
+    const record = getSidechat();
+    expect(record?.questionId).toBe("q1");
+    // Snapshot built NOW, exactly once (SIDECHAT-003): each builder fired once.
+    expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(1);
+    expect(deps.buildSystemPrompt).toHaveBeenCalledTimes(1);
+    expect(deps.buildBranchSnapshot).toHaveBeenCalledTimes(1);
+    // AC-17.1: no suspend, main editor untouched.
+    expect(done).not.toHaveBeenCalled();
+  });
+
+  test("same_question_reopen_reuses_the_frozen_record_without_rebuilds", () => {
+    const { panel, deps } = makeOpenPanel();
+    panel.handleInput("e");
+    const before = getSidechat();
+
+    panel.setView("short"); // simulate the esc exit (T3.S1 rung) — blurs chat
+    panel.handleInput("e"); // re-open on the SAME question
+
+    expect(getSidechat()).toBe(before); // SAME record object — nothing rebuilt
+    expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(1);
+    expect(deps.buildSystemPrompt).toHaveBeenCalledTimes(1);
+    expect(deps.buildBranchSnapshot).toHaveBeenCalledTimes(1);
+    expect(panel.view).toBe("chat");
+    expect(panel.chatReturnView).toBe("short");
+  });
+
+  test("different_question_replaces_the_record_wholesale", () => {
+    const { panel, deps } = makeOpenPanel();
+    panel.handleInput("e"); // q1
+    panel.setView("short");
+    panel.currentId = "q2";
+
+    panel.handleInput("e");
+
+    expect(getSidechat()?.questionId).toBe("q2"); // replaced
+    expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(2); // once per record
+    expect(deps.buildSystemPrompt).toHaveBeenCalledTimes(2);
+    expect(deps.buildBranchSnapshot).toHaveBeenCalledTimes(2);
+    expect(panel.view).toBe("chat");
+    expect(panel.chatReturnView).toBe("short");
+  });
+
+  test("setView_seeding_is_once_only_per_entry", () => {
+    const { panel } = makeOpenPanel();
+    panel.handleInput("e");
+    expect(panel.chatScrollOffset).toBe(Number.MAX_SAFE_INTEGER);
+
+    panel.chatScrollOffset = 5;
+    panel.setView("chat"); // unchanged-view no-op → scroll RETAINED (SIDECHAT-002)
+    expect(panel.chatScrollOffset).toBe(5);
+
+    panel.setView("short");
+    panel.setView("chat"); // entering from another view → re-seed bottom
+    expect(panel.chatScrollOffset).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  test("chat_view_renders_header_transcript_frame_and_idle_footer", () => {
+    const { panel } = makeOpenPanel();
+    panel.handleInput("e");
+
+    const lines = panel.render(100);
+    const text = lines.join("\n");
+    expect(text).toContain("┌ interrogation"); // shared header
+    expect(text).toContain("chat · q1 — "); // identity header (chat-view)
+    expect(lines.some((l) => l.startsWith("└ "))).toBe(true); // framed footer
+    expect(text).toContain("enter send");
+    expect(text).toContain("esc exit"); // IDLE esc word
+    expect(text).not.toContain("abort"); // not streaming
+    expect(text).toContain("0/2 answered"); // progress rides the frame
+  });
+
+  test("inert_without_rebind_deps_no_view_flip_no_throw", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const done = vi.fn();
+    const panel = new InterrogationPanel(panelArgsFor(state, { done })); // no chatRebindDeps
+
+    expect(panel.handleInput("e")).toBe(true); // the key is consumed by the router
+    expect(panel.view).toBe("short"); // inert: no view flip
+    expect(getSidechat()).toBeUndefined(); // no record
+    expect(done).not.toHaveBeenCalled();
+  });
+});

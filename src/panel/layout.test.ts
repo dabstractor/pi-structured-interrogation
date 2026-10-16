@@ -740,3 +740,51 @@ describe("renderFooter narrow mode (h2.30, P1.M7.T5.S1)", () => {
     expect(line.includes("\n")).toBe(false);
   });
 });
+
+describe("chat footer (SIDECHAT-001, P1.M2.T4.S1)", () => {
+  const CHAT_HINTS = "enter send · /clear · esc exit";
+
+  test("pre-rendered hints compose into the frame as ONE entry", () => {
+    const labels = resolveKeyLabels(mkConfig());
+    const line = renderFooter(
+      mkState(),
+      "chat",
+      labels,
+      theme,
+      120,
+      false,
+      undefined,
+      undefined,
+      CHAT_HINTS,
+    );
+    expect(line.startsWith("└ ")).toBe(true);
+    expect(line).toContain(CHAT_HINTS); // the string rides verbatim (single fit entry)
+    expect(line).toContain("0/1 answered"); // progress rides the frame
+    expect(line.endsWith("⏎ ┘")).toBe(true);
+  });
+
+  test("fallback without chatHints names the chat binding", () => {
+    const labels = resolveKeyLabels(mkConfig());
+    const line = renderFooter(mkState(), "chat", labels, theme, 120);
+    expect(line).toContain(`${labels.chat} chat`);
+    expect(line).not.toContain("enter send"); // nothing fabricated
+  });
+
+  test("degradation drops the whole hint entry; progress-only survives", () => {
+    const labels = resolveKeyLabels(mkConfig());
+    const line = renderFooter(
+      mkState(),
+      "chat",
+      labels,
+      theme,
+      30,
+      false,
+      undefined,
+      undefined,
+      CHAT_HINTS,
+    );
+    expect(line).not.toContain("enter send"); // the entry yielded whole
+    expect(line).toContain("answered"); // progress never drops
+    expect(line.endsWith("⏎ ┘")).toBe(true);
+  });
+});

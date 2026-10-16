@@ -379,14 +379,14 @@
               "type": "Task",
               "id": "P1.M2.T4",
               "title": "PanelView \"chat\": union, seeding, render branch, open/replace path",
-              "status": "Failed",
+              "status": "Complete",
               "description": "Add the \"chat\" view to the panel per the add-a-view recipe and implement actions.onChat: reuse the live chat on the current question, replace wholesale otherwise, open the view with no suspend and no editor preload.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T4.S1",
                   "title": "PanelView union, setView seeding, render branch, footer set, and the onChat open-or-replace action",
-                  "status": "Failed",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S1",

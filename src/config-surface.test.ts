@@ -160,6 +160,11 @@ const FOOTER_ACTIONS: Record<ScreenKind, KeyAction[]> = {
   short: ["deep", "overview", "submit"],
   deep: ["submit", "overview"],
   overview: ["submit", "deep"],
+  // Chat (SIDECHAT-001): the fallback hint shape — production threads the
+  // pre-rendered chatHints string (stream-state-dependent esc word) so the
+  // remap-drift loop below (which renders WITHOUT chatHints) pins only the
+  // fallback.
+  chat: ["chat"],
 };
 
 /** Static (fixed-key) footer hints per screen — enter/esc/arrows are NOT config-driven. */
@@ -167,6 +172,10 @@ const STATIC_HINTS: Record<ScreenKind, string[]> = {
   short: ["enter accept"],
   deep: ["esc back", "↑/↓ scroll"],
   overview: ["enter jump", "esc back"],
+  // Chat statics (enter send · /clear · esc {abort|exit}) ride INSIDE the
+  // pre-rendered chatHints string (chat-view.ts's footerHints owns them —
+  // the esc word is stream-state-dependent); the layout renders none itself.
+  chat: [],
 };
 
 function configWithKeys(keys: Partial<Record<KeyAction, string>>): InterrogatorConfig {

@@ -29,7 +29,6 @@ import {
   type InterrogationPanelArgs,
   type PiUISurface,
 } from "./panel.js";
-import { resumePanel } from "./suspend.js";
 
 /** kitty CSI-u ctrl+shift+e (e = 101) — same bytes keys.test.ts routes with. */
 const DISCUSS = "e"; // BAREKEYS-001 bare default (was ctrl+shift+e)
@@ -309,60 +308,78 @@ describe("discussInChat — suspend + deferred editor preload", () => {
 
 // --------------------------------------- wiring (router + openPanel, real)
 
-describe("discuss handoff wiring — keys.ts router → discussInChat", () => {
-  test("test_discuss_key_from_short_view_suspends_and_preloads_exact_template", async () => {
+describe("chat key wiring — keys.ts router → the chat view (P1.M2.T4.S1)", () => {
+  /** Minimal sidechat doubles for the open path (real host surfaces lack ctx). */
+  const chatDeps = () => ({
+    resolveModelSnapshot: () => ({ provider: "test", modelId: "test-model" }),
+    buildSystemPrompt: () => "system prompt",
+    buildBranchSnapshot: () => [] as never,
+  });
+  const chatEngine = () => ({ sendTurn: () => true, abort: () => {} });
+
+  test("test_chat_key_from_short_view_opens_the_chat_view_never_suspends", () => {
+    // P1.M2.T4.S1 (AC-17.1): `e` opens the side-chat VIEW — NO suspend, NO
+    // editor preload (the discussInChat handoff is gone from this path; the
+    // engine's deletion is P1.M2.T7.S1 — discuss.ts's own unit tests above
+    // still cover the module directly).
     const mock = makeMockPi();
     const lifecycle = makeMockLifecycle();
     const host = createPanelHost(lifecycle);
     const state = makeState();
 
-    expect(openPanel(mock.pi, { config: DEFAULT_CONFIG, state, focusQuestionId: "q3" })).toBe(true);
+    expect(
+      openPanel(mock.pi, {
+        config: DEFAULT_CONFIG,
+        state,
+        focusQuestionId: "q3",
+        chatRebindDeps: chatDeps(),
+        sidechatEngine: chatEngine(),
+      }),
+    ).toBe(true);
     const panel = firstCall(mock).component as unknown as {
       handleInput(data: string): boolean;
       currentId: string | undefined;
+      view: string;
+      focus: string;
     };
     expect(panel.currentId).toBe("q3");
 
-    // `e` from the SHORT view: consumed, panel suspends…
+    // `e` from the SHORT view: consumed, view flips to chat, focus claimed —
+    // and the panel stays LIVE.
     expect(panel.handleInput(DISCUSS)).toBe(true);
-    expect(firstCall(mock).done).toHaveBeenCalledTimes(1);
-
-    await flush();
-    expect(host.isSuspended()).toBe(true);
-    // …suspend widget line painted, and the editor preloaded with the
-    // EXACT h2.35 template (star on sqlite).
-    expect(mock.editorCalls).toEqual([[SQLITE_TEMPLATE]]);
-
-    // Resume path untouched by the handoff: resumePanel (the /interrogate
-    // invoke path's engine) works. RESUME-001: the fresh panel focuses the
-    // FIRST UNANSWERED question (q1 — everything here is open), not the
-    // pre-suspend q3.
-    expect(resumePanel(mock.pi)).toBe(true);
-    expect(host.isOpen()).toBe(true);
-    const reopened = mock.calls[1]!.component as unknown as { currentId: string | undefined };
-    expect(reopened.currentId).toBe("q1");
+    expect(firstCall(mock).done).not.toHaveBeenCalled(); // never suspends
+    expect(panel.view).toBe("chat");
+    expect(panel.focus).toBe("chat");
+    expect(mock.editorCalls).toEqual([]); // main editor untouched
+    expect(host.isOpen()).toBe(true); // the host record never left "open"
   });
 
-  test("test_discuss_key_same_template_from_deep_and_overview_views", async () => {
-    // "From ANY view": currentId is view-independent, so the template is
-    // byte-identical in short / deep / overview.
+  test("test_chat_key_opens_from_every_view", () => {
+    // "From ANY view" (non-editor focus): the open path is view-independent —
+    // each entry lands in the chat view with the main editor untouched.
     for (const view of ["short", "deep", "overview"] as const) {
       const mock = makeMockPi();
       createPanelHost(makeMockLifecycle());
       const state = makeState();
 
-      expect(openPanel(mock.pi, { config: DEFAULT_CONFIG, state, focusQuestionId: "q3" })).toBe(
-        true,
-      );
+      expect(
+        openPanel(mock.pi, {
+          config: DEFAULT_CONFIG,
+          state,
+          focusQuestionId: "q3",
+          chatRebindDeps: chatDeps(),
+          sidechatEngine: chatEngine(),
+        }),
+      ).toBe(true);
       const panel = firstCall(mock).component as unknown as {
         handleInput(data: string): boolean;
         setView(view: "short" | "deep" | "overview"): void;
+        view: string;
       };
       panel.setView(view);
       expect(panel.handleInput(DISCUSS)).toBe(true);
-
-      await flush();
-      expect(mock.editorCalls).toEqual([[SQLITE_TEMPLATE]]);
+      expect(panel.view).toBe("chat");
+      expect(mock.editorCalls).toEqual([]); // no preload from any view
     }
   });
 });
@@ -417,7 +434,14 @@ function makeDraftsStore() {
 /** Real InterrogationPanel (panel.test.ts makeSuspendPanel shape) + drafts seam. */
 function makeRealPanel(
   state: InterrogationState,
-  opts: { drafts?: DraftStore; focusQuestionId?: string; pi?: PiUISurface; config?: InterrogatorConfig } = {},
+  opts: {
+    drafts?: DraftStore;
+    focusQuestionId?: string;
+    pi?: PiUISurface;
+    config?: InterrogatorConfig;
+    chatRebindDeps?: InterrogationPanelArgs["chatRebindDeps"];
+    sidechatEngine?: InterrogationPanelArgs["sidechatEngine"];
+  } = {},
 ): { panel: InterrogationPanel; done: ReturnType<typeof vi.fn>; drafts?: DraftStore } {
   const done = vi.fn();
   const args: InterrogationPanelArgs = {
@@ -548,36 +572,40 @@ describe("discuss gesture — R4/BUG-002 draft write-through (real panel)", () =
     expect(slotFor(second.panel, "q1")).toEqual({ value: "q1", text: "second pass" });
   });
 
-  test("test_discuss_key_dispatches_with_editor_focus_mid_write", async () => {
-    // keys.ts's step-4 intercept for the DISCUSS binding is deliberately
-    // UNGATED by editor focus WHEN it is a chord (tier 1) — the chord remap
-    // below is what makes mid-write-in discuss reachable. This documents
-    // WHY the write-through must exist: the gesture fires mid-editing and
-    // must carry the buffer along (no behavior change asserted here).
-    // BAREKEYS-001: with the bare default `e` the discuss key FORWARDS from
-    // editor focus (it must type) — mid-write discuss stays reachable via a
-    // CHORD remap, which is what this test binds (tier 1: intercepts
-    // everywhere). The write-through inheritance is the point.
+  test("test_chord_chat_key_mid_write_opens_chat_without_touching_the_draft", () => {
+    // keys.ts's chat intercept is tier-1 for a CHORD remap (intercepts
+    // everywhere, even editor focus). P1.M2.T4.S1: the gesture now OPENS THE
+    // CHAT VIEW mid-write — no suspend (so S1's write-through never fires;
+    // the in-flight buffer simply stays put), no editor preload, and the
+    // answer-side draft slot is untouched (R4's suspend-time write-through
+    // is moot for a gesture that never leaves the panel).
     const state = makeState();
     const drafts = makeDraftsStore();
     const setEditorText = vi.fn();
     const { panel, done } = makeRealPanel(state, {
       drafts,
       focusQuestionId: "q1",
-      pi: fakePi(setEditorText), // the constructor-refined discuss seam needs the carrier
+      pi: fakePi(setEditorText),
       config: {
         ...DEFAULT_CONFIG,
         keys: { ...DEFAULT_CONFIG.keys, chat: "ctrl+shift+e" },
       },
+      chatRebindDeps: {
+        resolveModelSnapshot: () => ({ provider: "test", modelId: "test-model" }),
+        buildSystemPrompt: () => "system prompt",
+        buildBranchSnapshot: () => [] as never,
+      },
+      sidechatEngine: { sendTurn: () => true, abort: () => {} },
     });
     panel.focusTextField("writein");
-    panel.textField.setText("mid-edit discuss");
+    panel.textField.setText("mid-edit chat");
 
-    expect(panel.handleInput("\u001b[101;6u")).toBe(true); // chord dispatches mid-edit
-    expect(done).toHaveBeenCalledWith(null);
-    expect(drafts.getDraft("q1")).toBe("mid-edit discuss"); // write-through fired
-    expect(panel.draftTextFor("q1")).toBe("mid-edit discuss");
-    await Promise.resolve();
-    expect(setEditorText).toHaveBeenCalledTimes(1);
+    expect(panel.handleInput("\u001b[101;6u")).toBe(true); // tier-1 chord dispatches mid-edit
+    expect(done).not.toHaveBeenCalled(); // AC-17.1: no suspend
+    expect(setEditorText).not.toHaveBeenCalled(); // no editor preload
+    expect(panel.view).toBe("chat");
+    expect(panel.focus).toBe("chat");
+    expect(panel.textField.getText()).toBe("mid-edit chat"); // buffer untouched
+    expect(drafts.getDraft("q1")).toBeUndefined(); // no draft write-through
   });
 });

@@ -1876,16 +1876,19 @@ export class InterrogationPanel implements Component {
    *    first-ever `/clear` (no record) destroys nothing and notifies
    *    nothing. Without the deps seam the reset degrades to the graceful
    *    no-op the args document (the input still clears).
-   * 2. else non-empty → `sidechatEngine.sendTurn(text)` — a `false` while
-   *    already streaming is the engine's own guard; the input clears anyway
-   *    (the esc rung aborts, it does not un-send).
+   * 2. else non-empty → `sidechatEngine.sendTurn(text)`; the buffer clears
+   *    ONLY when the turn was ACCEPTED — a refused turn (`false`: already
+   *    streaming, or no live record — the engine's no-queueing guard)
+   *    PRESERVES the draft (BUG-006; R4 draft-sacredness spirit) with a
+   *    transient flash; re-press enter after settle, or esc-abort first.
+   *    Enter stays consumed either way (never forwarded to the router).
    * 3. empty → consumed no-op.
    *
-   * The input clears on the command and empty paths; the send path clears
-   * as landed (// P1.M4.T1.S1: owns any BUG-006 refused-send preservation
-   * carve-out — scope that change to the else-branch, not this doc claim).
-   * Chat paths never touch draftSlots, the DraftStore seam, or answer state
-   * (SIDECHAT-002 / S2.S1's invariant).
+   * The input clears on every ACCEPTED path — command, empty, and accepted
+   * sends; the one carve-out is a REFUSED send (BUG-006, owned by this
+   * else-branch per the // P1.M4.T1.S1 coordination note): the draft
+   * survives. Chat paths never touch draftSlots, the DraftStore seam, or
+   * answer state (SIDECHAT-002 / S2.S1's invariant).
    */
   private sendChatInput(): void {
     const text = this.chatField.getText();
@@ -1915,10 +1918,23 @@ export class InterrogationPanel implements Component {
           this.sidechatNotify?.(formatChatCloseNotice(closedUsage));
         }
       }
+      // Command path always clears (the relocated tail clear — was shared
+      // with the send path before BUG-006 scoped it to accepted sends).
+      this.chatField.setText("");
     } else if (text.trim().length > 0) {
-      this.sidechatEngine?.sendTurn(text); // refused while streaming — still consumed
+      // BUG-006: a refused turn (no live record, or streamState !== "idle"
+      // — the engine's no-queueing guard) must NOT destroy the typed draft
+      // (R4 draft-sacredness spirit). The buffer survives; re-press enter
+      // after the stream settles, or esc-abort the stream first.
+      const sent = this.sidechatEngine?.sendTurn(text) ?? false;
+      if (sent) {
+        this.chatField.setText("");
+      } else {
+        this.flash("reply in flight — esc aborts");
+      }
+    } else {
+      this.chatField.setText(""); // empty no-op still normalizes the buffer
     }
-    this.chatField.setText("");
     this.invalidate();
   }
 

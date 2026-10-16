@@ -1463,3 +1463,87 @@ describe("replace path — abort before rebind + usage-close notice (BUG-005/BUG
     expect(h.notify).toHaveBeenCalledWith("chat closed · 0 in · 0 out · $0.00");
   });
 });
+
+// ------------------------------------------------------- BUG-006 refused send
+
+describe("BUG-006 — refused send preserves the buffer", () => {
+  test("test_send_refused_mid_stream_preserves_buffer", async () => {
+    // PRD repro: send over a held-open streaming port, type a follow-up,
+    // press enter MID-STREAM — the draft survives (R4 spirit), nothing is
+    // appended, the stream is untouched, enter stays consumed.
+    const gate = gatedStream();
+    const { panel } = makeHarness({
+      focusQuestionId: "q3",
+      port: (() => gate.stream) as unknown as SidechatModelPort,
+    });
+    openChat(panel);
+    sendChat(panel, "first question");
+    await flush();
+    const record = getSidechat();
+    expect(record?.streamState).toBe("streaming");
+
+    panel.chatField.setText("follow-up question");
+    expect(panel.handleInput(ENTER)).toBe(true); // consumed — never forwarded
+    expect(panel.chatField.getText()).toBe("follow-up question"); // PRESERVED
+    expect(record?.messages.filter((m) => m.role === "user")).toHaveLength(1);
+    expect(record?.streamState).toBe("streaming"); // untouched by the refusal
+  });
+
+  test("test_send_resends_after_settle_and_clears", async () => {
+    // Continuation of the repro: the gate settles → re-press enter → the
+    // follow-up ships and the buffer finally clears.
+    const gate = gatedStream();
+    let call = 0;
+    const port = (() => {
+      call += 1;
+      if (call === 1) return gate.stream;
+      return doneStream("reply two");
+    }) as unknown as SidechatModelPort;
+    const { panel } = makeHarness({ focusQuestionId: "q3", port });
+    openChat(panel);
+    sendChat(panel, "first question");
+    await flush();
+    const record = getSidechat();
+
+    panel.chatField.setText("follow-up question");
+    panel.handleInput(ENTER); // refused — draft kept
+    expect(panel.chatField.getText()).toBe("follow-up question");
+
+    // Release the gate: terminal event + the macrotask settle observation.
+    gate.finishWith({ type: "done", reason: "stop", message: assistantReply("reply one") });
+    await flush();
+    expect(record?.streamState).toBe("idle");
+    expect(panel.focus).toBe("chat"); // non-decision settle keeps the view + focus
+
+    panel.handleInput(ENTER); // re-press — the follow-up ships
+    await flush();
+    expect(panel.chatField.getText()).toBe(""); // cleared on the ACCEPTED send
+    const users = (record?.messages ?? []).filter((m) => m.role === "user");
+    expect(users).toHaveLength(2);
+    expect(users.at(-1)?.text).toBe("follow-up question");
+  });
+
+  test("test_send_refused_no_live_record_preserves_buffer", () => {
+    // Chat-focus edge with NO record (chat closed under focus — defensive:
+    // the open path always creates one, so the view is forced directly).
+    // sendTurn's false path preserves the buffer and never throws.
+    const { panel } = makeHarness({ focusQuestionId: "q3" });
+    panel.view = "chat"; // focusChatInput is view-gated; force the defensive shape
+    panel.focusChatInput();
+    panel.chatField.setText("orphan text");
+
+    expect(panel.handleInput(ENTER)).toBe(true); // consumed, no throw
+    expect(panel.chatField.getText()).toBe("orphan text"); // preserved
+    expect(getSidechat()).toBeUndefined(); // nothing was created
+  });
+
+  test("test_send_accepted_idle_still_clears_immediately", () => {
+    // Over-preservation guard: an ACCEPTED send (idle stream) clears the
+    // buffer right away, exactly as before the fix.
+    const { panel } = makeHarness({ focusQuestionId: "q3" });
+    openChat(panel);
+    sendChat(panel, "ships immediately");
+    expect(panel.chatField.getText()).toBe(""); // cleared synchronously
+    expect(getSidechat()?.messages.at(-1)?.text).toBe("ships immediately");
+  });
+});

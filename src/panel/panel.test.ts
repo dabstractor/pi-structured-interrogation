@@ -3337,7 +3337,7 @@ describe("chat send + pendingConfirm routing (SIDECHAT-001, P1.M2.T3.S1)", () =>
     expect(panel.focus).toBe("chat"); // no blur-to-options either
   });
 
-  test("send_turn_refused_while_streaming_still_consumes_and_clears", () => {
+  test("send_turn_refused_while_streaming_still_consumes_and_preserves", () => {
     const { panel, engine } = makeChatPanel();
     engine.sendTurn.mockReturnValue(false); // the engine's own streaming guard
 
@@ -3345,7 +3345,9 @@ describe("chat send + pendingConfirm routing (SIDECHAT-001, P1.M2.T3.S1)", () =>
     expect(panel.handleInput("\r")).toBe(true);
 
     expect(engine.sendTurn).toHaveBeenCalledTimes(1);
-    expect(panel.chatField.getText()).toBe("");
+    // BUG-006: the refusal PRESERVES the draft — re-press enter after the
+    // stream settles (or esc-abort) to send it.
+    expect(panel.chatField.getText()).toBe("double send");
   });
 
   test("pendingConfirm_enter_applies_via_the_seam_and_esc_declines", () => {

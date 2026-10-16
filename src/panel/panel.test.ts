@@ -36,10 +36,15 @@ import {
   type PiUISurface,
 } from "./panel.js";
 import { renderFooter, renderHeader, renderHintLine, renderQuestionLine } from "./layout.js";
-import { panelActions } from "./actions.js";
+import { accept, acceptOptionIndex, panelActions, writeInEnter } from "./actions.js";
 import { desiredTextDuty } from "./keys.js";
 import { renderShortViewOptions } from "./short-view.js";
-import { get as getSidechat, openOrReplace, resetSidechatForTests } from "./sidechat.js";
+import {
+  formatChatCloseNotice,
+  get as getSidechat,
+  openOrReplace,
+  resetSidechatForTests,
+} from "./sidechat.js";
 import {
   editInExternalEditor,
   type ExternalEditorResult,
@@ -3548,5 +3553,200 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
     expect(panel.view).toBe("short"); // inert: no view flip
     expect(getSidechat()).toBeUndefined(); // no record
     expect(done).not.toHaveBeenCalled();
+  });
+});
+
+// --------- sidechat discard hooks — terminal-for-chat teardown (P1.M2.T5.S1)
+
+describe("sidechat discard hooks — terminal-for-chat teardown (P1.M2.T5.S1)", () => {
+  /** Fresh fake builder bag (same shape as the chat-view describe's). */
+  const rebind = () => ({
+    resolveModelSnapshot: () => ({ provider: "test", modelId: "test-model" }),
+    buildSystemPrompt: () => "system prompt",
+    buildBranchSnapshot: () => [] as never,
+  });
+
+  let notify: Mock;
+
+  /** Panel over the given specs, wired with the notify spy (real seams). */
+  function makeDiscardPanel(
+    specs: Question[],
+    extra: Partial<InterrogationPanelArgs> = {},
+  ): { panel: InterrogationPanel; state: InterrogationState } {
+    const state = createInterrogationState("goal");
+    for (const q of specs) state.upsertQuestion(q);
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { sidechatNotify: notify, ...extra }),
+    );
+    return { panel, state };
+  }
+
+  beforeEach(() => {
+    resetSidechatForTests();
+    notify = vi.fn();
+  });
+  afterEach(() => {
+    resetSidechatForTests();
+  });
+
+  test("test_discard_on_option_accept", () => {
+    const { panel, state } = makeDiscardPanel([choiceQ("q1"), choiceQ("q2")]);
+    openOrReplace("q1", rebind());
+    panel.setView("chat");
+    panel.currentId = "q1";
+
+    accept(panel); // cursor ★/0 → option "a" → applyAnswer → changed → hook
+
+    expect(getSidechat()).toBeUndefined(); // chat torn down by the bus hook
+    expect(panel.view).toBe("short"); // closed to chatReturnView (never navigates)
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(panel.currentId).toBe("q2"); // the accept machinery's advance, not the hook's
+    expect(notify).toHaveBeenCalledTimes(1); // exactly once
+    // SPEC-PINNED string — formatChatCloseNotice output, never hand-written.
+    expect(notify).toHaveBeenCalledWith(formatChatCloseNotice({ input: 0, output: 0, totalCost: 0 }));
+  });
+
+  test("test_discard_on_writein_commit", () => {
+    const { panel, state } = makeDiscardPanel([textQ("t1"), choiceQ("q1")]);
+    openOrReplace("t1", rebind());
+    panel.currentId = "t1";
+
+    accept(panel); // BUG-008 entry: opens the write-in editor on the text affordance
+    panel.textField.setText("final answer");
+    panel.handleInput("\r"); // writeInEnter commits {value, custom: true}
+
+    expect(getSidechat()).toBeUndefined(); // write-in commit is a terminal mutation
+    expect(state.getQuestion("t1")?.status).toBe("answered");
+    expect(state.getQuestion("t1")?.answer?.value).toBe("final answer");
+    expect(state.getQuestion("t1")?.answer?.custom).toBe(true);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_discard_on_moot_flip", () => {
+    const { panel, state } = makeDiscardPanel([
+      choiceQ("q1"),
+      choiceQ("q2", { dependsOn: [{ id: "q1", equals: "a" }] }),
+    ]);
+    openOrReplace("q2", rebind()); // chat lives on the DEPENDENT question
+    panel.currentId = "q1";
+
+    acceptOptionIndex(panel, state.getQuestion("q1")!, 1); // answer "b" — contrary
+
+    expect(state.getQuestion("q2")?.status).toBe("moot"); // evaluateDependsOn flip
+    expect(getSidechat()).toBeUndefined(); // moot is terminal-for-chat
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_discard_on_upsert_close", () => {
+    // Agent-side upserts NEVER pass through keys.ts — the state bus hook is
+    // the whole point (architecture ruling). handleUpserted drives these
+    // same state mutations (rule-4 withdraw / close pass).
+    const { panel, state } = makeDiscardPanel([choiceQ("q1")]);
+    openOrReplace("q1", rebind());
+
+    state.upsertQuestion({ ...choiceQ("q1"), rev: 2, status: "closed" });
+    expect(getSidechat()).toBeUndefined();
+    expect(notify).toHaveBeenCalledTimes(1);
+
+    // Withdrawal of the NEXT chat's question discards it the same way.
+    openOrReplace("q1", rebind());
+    state.upsertQuestion({ ...choiceQ("q1"), rev: 3, status: "withdrawn" });
+    expect(getSidechat()).toBeUndefined();
+    expect(notify).toHaveBeenCalledTimes(2); // once per record
+  });
+
+  test("test_discard_on_sidechat_apply", () => {
+    // P1.M2.T6.S1's confirm-row apply routes through the ordinary accept
+    // seams — the apply discards its own chat (one live chat,
+    // provenance-indistinguishable); T6.S1 must NOT add a second discard.
+    const { panel, state } = makeDiscardPanel([choiceQ("q1")]);
+    openOrReplace("q1", rebind());
+
+    acceptOptionIndex(panel, state.getQuestion("q1")!, 0); // the apply seam
+
+    expect(getSidechat()).toBeUndefined();
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  test("test_midstream_abort_order", () => {
+    const { panel, state } = makeDiscardPanel([choiceQ("q1")]);
+    openOrReplace("q1", rebind());
+    const record = getSidechat()!;
+    record.streamState = "streaming"; // mid-stream
+    const order: string[] = [];
+    const realAbort = record.abortController.abort.bind(record.abortController);
+    vi.spyOn(record.abortController, "abort").mockImplementation(() => {
+      order.push("abort");
+      expect(getSidechat()).toBe(record); // abort BEFORE discard — record still live
+      realAbort();
+    });
+
+    acceptOptionIndex(panel, state.getQuestion("q1")!, 0);
+
+    expect(order).toEqual(["abort"]); // abort happened, exactly once, first
+    expect(getSidechat()).toBeUndefined(); // …then the discard
+    expect(notify).toHaveBeenCalledTimes(1); // zero-usage tally (aborted turn rolled back)
+  });
+
+  test("test_no_discard_when_open", () => {
+    const { panel, state } = makeDiscardPanel([choiceQ("q1"), choiceQ("q2")]);
+    openOrReplace("q1", rebind());
+
+    acceptOptionIndex(panel, state.getQuestion("q2")!, 0); // a DIFFERENT question settles
+
+    expect(getSidechat()).toBeDefined(); // q1 still open → chat alive
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  test("test_notify_once_across_repeated_mutations", () => {
+    const { panel, state } = makeDiscardPanel([choiceQ("q1")]);
+    openOrReplace("q1", rebind());
+    acceptOptionIndex(panel, state.getQuestion("q1")!, 0); // the discarding mutation
+    expect(notify).toHaveBeenCalledTimes(1);
+
+    // Every subsequent changed event — re-ask reset, re-close, whatever —
+    // finds get() === undefined and no-ops. Re-entrancy-safe by construction.
+    state.upsertQuestion({ ...choiceQ("q1"), rev: 2, status: "reasked" });
+    state.upsertQuestion({ ...choiceQ("q1"), rev: 3, status: "closed" });
+    acceptOptionIndex(panel, state.getQuestion("q1")!, 0);
+    expect(notify).toHaveBeenCalledTimes(1); // still exactly once
+  });
+
+  test("test_no_record_noop", () => {
+    const { panel, state } = makeDiscardPanel([choiceQ("q1")]);
+    expect(getSidechat()).toBeUndefined();
+
+    expect(acceptOptionIndex(panel, state.getQuestion("q1")!, 0)).toBeDefined();
+
+    expect(notify).not.toHaveBeenCalled(); // no record → silent pass
+    expect(state.getQuestion("q1")?.status).toBe("answered"); // mutation unaffected
+  });
+
+  test("test_seam_undefined_silent", () => {
+    // Nullable-deps inertness: no sidechatNotify arg → the discard still
+    // runs, the notify is silently skipped (tests/non-TUI shape).
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    openOrReplace("q1", rebind());
+
+    acceptOptionIndex(panel, state.getQuestion("q1")!, 0);
+
+    expect(getSidechat()).toBeUndefined(); // discard happened
+    expect(panel.view).toBe("short"); // no throw, no navigation
+  });
+
+  test("test_view_unchanged_when_chat_not_open", () => {
+    // Chat alive in the BACKGROUND (user answering elsewhere): discard +
+    // notify fire, the view stays where the user is.
+    const { panel, state } = makeDiscardPanel([choiceQ("q1")]);
+    openOrReplace("q1", rebind());
+    expect(panel.view).toBe("short");
+
+    acceptOptionIndex(panel, state.getQuestion("q1")!, 0);
+
+    expect(getSidechat()).toBeUndefined();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(panel.view).toBe("short"); // no view change — chat was not open
   });
 });

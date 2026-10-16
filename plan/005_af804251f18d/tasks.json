@@ -418,7 +418,7 @@
                   "type": "Subtask",
                   "id": "P1.M2.T5.S1",
                   "title": "Discard-on-answer/close hooks at the state mutation seams (mid-stream abort)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T4.S1",

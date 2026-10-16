@@ -82,6 +82,8 @@ import { buildChatContent } from "./chat-view.js";
 import {
   classifyChatCommand,
   clearPendingConfirm,
+  discard as discardSidechatRecord,
+  formatChatCloseNotice,
   get as getSidechatRecord,
   openOrReplace as openSidechatRecord,
   resetChat,
@@ -277,6 +279,13 @@ export interface OpenPanelOptions {
    */
   chatRebindDeps?: SidechatRebindDeps;
   /**
+   * SIDECHAT-001 (P1.M2.T5.S1) — the notify surface for the discard hooks'
+   * `chat closed · …` line. Defaults to the same destination the chat
+   * engine's notify uses (resolveSidechatHostSeams' ui.notify closure).
+   * Absent → silent discard (tests/non-TUI pass undefined).
+   */
+  sidechatNotify?: (message: string) => void;
+  /**
    * SIDECHAT-001 (P1.M2.T4.S1) — the host-constructed chat engine
    * (createSidechatEngine over the production streamSimplePort). Defaults
    * to the seam derived from the open surface. See
@@ -437,7 +446,11 @@ function settleInvalidatingPort(port: SidechatModelPort, fire: () => void): Side
 function resolveSidechatHostSeams(
   surface: PiUISurface,
   config: InterrogatorConfig,
-): { chatRebindDeps: SidechatRebindDeps; sidechatEngine: SidechatEngine } | undefined {
+): {
+  chatRebindDeps: SidechatRebindDeps;
+  sidechatEngine: SidechatEngine;
+  sidechatNotify: (message: string) => void;
+} | undefined {
   type HostCtx = PiUISurface & {
     model?: Model<Api>;
     modelRegistry?: {
@@ -492,7 +505,7 @@ function resolveSidechatHostSeams(
     registry: registryPort,
     notify,
   });
-  return { chatRebindDeps, sidechatEngine };
+  return { chatRebindDeps, sidechatEngine, sidechatNotify: notify };
 }
 
 // ------------------------------------------------------- panel component
@@ -541,6 +554,14 @@ export interface InterrogationPanelArgs {
    * (graceful no-op reset) so record-less tests stay deterministic.
    */
   chatRebindDeps?: SidechatRebindDeps;
+  /**
+   * SIDECHAT-001 discard-hook notify (P1.M2.T5.S1) — receives the compact
+   * `chat closed · …` usage line (formatChatCloseNotice, spec-pinned) when
+   * the discard hook tears a terminal-question chat down. Absent → silent
+   * discard (tests/non-TUI), mirroring the nullable-deps inertness
+   * discipline of sidechatEngine/chatRebindDeps.
+   */
+  sidechatNotify?: (message: string) => void;
 }
 
 /**
@@ -799,6 +820,12 @@ export class InterrogationPanel implements Component {
    */
   readonly chatRebindDeps: SidechatRebindDeps | undefined;
   /**
+   * SIDECHAT-001 discard-hook notify (P1.M2.T5.S1) — receives the compact
+   * `chat closed · …` usage line (formatChatCloseNotice, spec-pinned) from
+   * the onChanged discard hook. Undefined → silent discard.
+   */
+  readonly sidechatNotify: ((message: string) => void) | undefined;
+  /**
    * Chat transcript scroll offset (SIDECHAT-001, P1.M2.T3.S1) — the
    * panel-owned offset chat-view.ts's contract describes ("the panel-owned
    * offset navigates via clampChatScroll"). Moved ONLY by the fixed ↑/↓
@@ -874,6 +901,39 @@ export class InterrogationPanel implements Component {
 
   private readonly onChanged = (): void => {
     this.invalidate();
+    // SIDECHAT-001 discard guarantee (P1.M2.T5.S1 — architecture ruling
+    // §Open/replace/discard): the side chat dies the moment its question
+    // reaches a terminal-for-chat state — from EVERY mutation path, because
+    // this universal bus sees every state mutation (option accept, write-in
+    // commit, dependsOn moot flip, side-chat apply, AND agent-side upserts
+    // that never pass through keys.ts). Order is the contract: abort an
+    // in-flight stream FIRST (caller-owns-abort, sidechat.ts), then
+    // discard, then close the chat view (NO navigation — the accept
+    // machinery owns currentId/cursor and has already advanced them or
+    // will), then the compact usage notify — exactly once per record
+    // (inherent: discard clears get(), so every subsequent changed event —
+    // including re-entrant ones from the abort settle — no-ops).
+    const record = getSidechatRecord();
+    if (record === undefined) return;
+    const q = this.state.getQuestion(record.questionId);
+    if (q === undefined) return; // transient absence — merge.ts never removes questions
+    const terminal =
+      q.status === "answered" ||
+      q.status === "submitted" ||
+      q.status === "moot" ||
+      q.status === "withdrawn" ||
+      q.status === "closed";
+    if (!terminal) return;
+    if (record.streamState === "streaming") record.abortController.abort(); // FIRST (ruling order)
+    const usage = record.usage; // read before discard
+    discardSidechatRecord();
+    if (this.view === "chat") {
+      // No new navigation — land where the machinery's advance already
+      // points; only the view closes. chatReturnView is never "chat" by its
+      // seeding rule; the ternary is the belt-and-braces fallback.
+      this.setView(this.chatReturnView !== "chat" ? this.chatReturnView : "short");
+    }
+    this.sidechatNotify?.(formatChatCloseNotice(usage)); // once — get() is now undefined
   };
 
   constructor(args: InterrogationPanelArgs) {
@@ -926,6 +986,9 @@ export class InterrogationPanel implements Component {
     // open path (P1.M2.T4.S1) wires the real engine + rebind deps.
     this.sidechatEngine = args.sidechatEngine;
     this.chatRebindDeps = args.chatRebindDeps;
+    // SIDECHAT-001 discard-hook notify (P1.M2.T5.S1) — same destination as
+    // the engine's notify when host-wired; undefined → silent discard.
+    this.sidechatNotify = args.sidechatNotify;
 
     // Key dispatch ALWAYS flows through the config-driven router (keys.ts,
     // P1.M3.T3.S1): the seam default wires the named actions + view-toggle
@@ -2400,6 +2463,7 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
     delivery,
     chatRebindDeps: opts.chatRebindDeps ?? sidechatDerived?.chatRebindDeps,
     sidechatEngine: opts.sidechatEngine ?? sidechatDerived?.sidechatEngine,
+    sidechatNotify: opts.sidechatNotify ?? sidechatDerived?.sidechatNotify,
   };
 
   activePi = pi;
@@ -2435,6 +2499,7 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       focusQuestionId: resolvedOpts.focusQuestionId,
       chatRebindDeps: resolvedOpts.chatRebindDeps,
       sidechatEngine: resolvedOpts.sidechatEngine,
+      sidechatNotify: resolvedOpts.sidechatNotify,
     });
     currentPanel = panel;
     return panel;

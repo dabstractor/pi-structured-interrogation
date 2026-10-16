@@ -407,12 +407,19 @@ export function surfaceSubmitDeps(
  * mutations are invisible to render()'s width/rows cache — without this the
  * transcript would not update after a streamed turn). The macrotask
  * (setTimeout 0) fires AFTER the engine's microtask route() continuation,
- * so the invalidate lands on the POST-settle record. Non-thenable stream
+ * so the invalidate lands on the POST-settle record. The fire callback also
+ * carries the BUG-001 focus fix (P1.M1.T1.S1): a DECISION-BEARING settle
+ * (`getSidechatRecord()?.pendingConfirm` set — readable because the fire is
+ * post-settle) blurs the chat input (`blurChatInput`), so the confirm row's
+ * advertised enter/esc gestures act in the natural focused flow. Rejection
+ * settles, the autoApply bypass (never sets pendingConfirm), and plain
+ * no-block settles keep chat focus — the user may be typing a follow-up.
+ * Non-thenable stream
  * shapes pass through unwrapped: the panel re-reads get() on every rebuild,
  * so typing during a stream invalidates naturally (T3.S1's scroll/typing
  * paths own those invalidations).
  */
-function settleInvalidatingPort(port: SidechatModelPort, fire: () => void): SidechatModelPort {
+export function settleInvalidatingPort(port: SidechatModelPort, fire: () => void): SidechatModelPort {
   return (model, context, options) => {
     const result = port(model, context, options);
     if (typeof (result as { finally?: unknown }).finally === "function") {
@@ -422,6 +429,25 @@ function settleInvalidatingPort(port: SidechatModelPort, fire: () => void): Side
     }
     return result;
   };
+}
+
+/**
+ * The settle fire body, shared by the production wiring (panel.ts's own
+ * engine construction) and the ac-sidechat harness (which wraps its fake
+ * port with {@link settleInvalidatingPort} and fires this against the live
+ * panel): invalidate the cached render, then BUG-001's decision blur
+ * (P1.M1.T1.S1) — a DECISION-BEARING settle (pendingConfirm set, readable
+ * because the fire is a post-settle macrotask) blurs the chat input so the
+ * confirm row's enter/esc gestures act in the natural focused flow.
+ * Rejection settles, the autoApply bypass (never sets pendingConfirm), and
+ * plain no-block settles keep chat focus (follow-up typing uninterrupted);
+ * blurChatInput never clears the TextField buffer.
+ */
+export function sidechatSettleObservation(panel: InterrogationPanel | undefined): void {
+  panel?.invalidate();
+  if (panel !== undefined && panel.focus === "chat" && getSidechatRecord()?.pendingConfirm !== undefined) {
+    panel.blurChatInput();
+  }
 }
 
 /**
@@ -512,7 +538,7 @@ function resolveSidechatHostSeams(
       branchReader !== undefined ? takeBranchSnapshot(branchReader) : [],
   };
   const sidechatEngine = createSidechatEngine({
-    port: settleInvalidatingPort(streamSimplePort, () => currentPanel?.invalidate()),
+    port: settleInvalidatingPort(streamSimplePort, () => sidechatSettleObservation(currentPanel)),
     registry: registryPort,
     notify,
     // SIDECHAT-004 answer settle (P1.M2.T6.S1): the question read mirrors
@@ -1227,6 +1253,11 @@ export class InterrogationPanel implements Component {
     // a confirm-enter/esc can never double-fire as an answer gesture or
     // descend the esc ladder; AFTER ctrl+c and the CONFIRM-MODE modal, both
     // of which keep precedence over the chat view (PRP (e) coexistence).
+    // BUG-001 (P1.M1.T1.S1): the settle fire callback BLURS the chat input
+    // when a decision-bearing settle lands (pendingConfirm set), so this
+    // branch is live in the natural flow — type → enter → reply → enter
+    // applies / esc declines, no manual blur. The focus !== "chat" gate
+    // stays: P1.M1.T1.S2 adds the empty-buffer-enter belt-and-suspenders.
     if (this.focus !== "chat") {
       const pending = getSidechatRecord()?.pendingConfirm;
       if (pending !== undefined) {

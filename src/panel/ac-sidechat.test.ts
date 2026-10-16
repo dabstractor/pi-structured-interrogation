@@ -62,6 +62,8 @@ import {
   InterrogationPanel,
   openPanel,
   resumeOpenPanel,
+  settleInvalidatingPort,
+  sidechatSettleObservation,
   type InterrogationPanelArgs,
   type PiUISurface,
 } from "./panel.js";
@@ -403,9 +405,14 @@ function makeHarness(
   };
   const panelRef: { current: InterrogationPanel | undefined } = { current: undefined };
   const engine = createSidechatEngine({
-    port:
+    // The fake port IS the isolation; it rides the SAME production settle
+    // observation the real wiring uses (panel.ts) — macrotask fire included
+    // — so the AC tests exercise the shipped blur-on-decision-settle path.
+    port: settleInvalidatingPort(
       opts.port ??
-      (() => doneStream("ok")) as unknown as SidechatModelPort,
+        (() => doneStream("ok")) as unknown as SidechatModelPort,
+      () => sidechatSettleObservation(panelRef.current),
+    ),
     registry: fakeRegistry([fakeModel("prov", "mdl-1")]),
     notify: vi.fn(),
     answerContext: (questionId) => {
@@ -604,15 +611,22 @@ describe("AC-17.3 — singleton replacement", () => {
 
 // ------------------------------------------------- AC-17.4 (SIDECHAT-004 core)
 
-/** Script the port to converge on `{"value": "sqlite"}` for the FIRST turn. */
+/** Script the port to converge on `{"value": "sqlite"}` for the FIRST turn.
+ * Promise-shaped (the stream's documented `result()` fallback) so the
+ * production settle wrapper's `.finally` fire actually schedules — the AC
+ * tests exercise the shipped blur-on-decision-settle path. */
 function convergePort(): SidechatModelPort {
   let first = true;
   return vi.fn(() => {
     if (first) {
       first = false;
-      return doneStream(answerReply("sqlite"), { input: 10, output: 5, total: 0.07 });
+      return doneStream(answerReply("sqlite"), {
+        input: 10,
+        output: 5,
+        total: 0.07,
+      }).result() as unknown as ReturnType<SidechatModelPort>;
     }
-    return doneStream("ok");
+    return doneStream("ok").result() as unknown as ReturnType<SidechatModelPort>;
   }) as unknown as SidechatModelPort;
 }
 
@@ -627,14 +641,17 @@ describe("AC-17.4 — answer protocol: confirm, apply, byte identity", () => {
 
     const record = getSidechat();
     expect(record?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
+    await flush(); // run the queued settle fire (macrotask): invalidate + decision blur
 
     // The confirm row renders in the chat view footer (spec copy family).
     chat.panel.invalidate();
     const body = chat.panel.render(100).join("\n");
     expect(body).toContain("apply ★ sqlite? · enter = yes · esc = no");
 
-    // Enter on the confirm row: blur the box (double-esc), then enter.
-    blurChatBox(chat.panel);
+    // BUG-001 fix (P1.M1.T1.S1): the decision-bearing settle itself blurred
+    // the chat input — the confirm row's advertised enter acts with NO
+    // pre-blur (the old codified workaround was a double-esc blurChatBox).
+    expect(chat.panel.focus).toBe("options"); // settle blur happened
     chat.panel.handleInput(ENTER);
     await flush();
 
@@ -676,8 +693,8 @@ describe("AC-17.4 — answer protocol: confirm, apply, byte identity", () => {
     sendChat(panel, "converge please");
     await flush();
     expect(getSidechat()?.pendingConfirm).toBeDefined();
-
-    blurChatBox(panel); // box closed; confirm row interactive
+    await flush(); // run the queued settle fire (macrotask): decision blur
+    expect(panel.focus).toBe("options"); // settle blurred; confirm row interactive
     panel.handleInput(ESCAPE); // decline
 
     expect(getSidechat()?.pendingConfirm).toBeUndefined(); // cleared
@@ -685,6 +702,24 @@ describe("AC-17.4 — answer protocol: confirm, apply, byte identity", () => {
     expect(getSidechat()?.messages.length).toBeGreaterThan(0); // transcript retained
     expect(getSidechat()).toBeDefined(); // chat stays open
     expect(state.getQuestion("q3")?.answer).toBeUndefined(); // NOT applied
+    expect(panel.view).toBe("chat");
+  });
+
+  test("AC-17.4_no_block_settle_keeps_chat_focus", async () => {
+    // BUG-001 decision-blur scoping: a plain (no answer-block) settle must
+    // NOT steal focus — the user may be typing a follow-up. Only a
+    // decision-bearing settle (pendingConfirm set) reclaims focus.
+    const { panel } = makeHarness({
+      focusQuestionId: "q3",
+      port: doneStream("ok").result() as unknown as SidechatModelPort, // promise-shaped: the settle fire RUNS and must keep focus
+    }); // plain "ok" reply, no answer block
+    openChat(panel);
+    sendChat(panel, "plain reply please");
+    await flush();
+    await flush(); // run the queued settle fire (macrotask): it must NOT blur
+
+    expect(getSidechat()?.pendingConfirm).toBeUndefined(); // no confirm interposed
+    expect(panel.focus).toBe("chat"); // focus KEPT — follow-up typing seamless
     expect(panel.view).toBe("chat");
   });
 

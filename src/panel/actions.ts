@@ -35,6 +35,7 @@ import type { InterrogationPanel } from "./panel.js";
 import { beginWriteInConfirm, rippleVictims } from "./ripple-confirm.js";
 import { clampChatScroll } from "./chat-view.js";
 import { displayOptions } from "./short-view.js";
+import { get as getSidechatRecord, type ApplyDecision } from "./sidechat.js";
 
 // ------------------------------------------------------------------- types
 
@@ -519,6 +520,56 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
   panel.blurTextField(); // resets textDuty to "elaboration"
   maybeAutoSubmit(panel, undefined, { wasUnanswered: status === "open" || status === "reasked", questionId: q.id }); // AUTOSUBMIT-001/003, direct-commit exit ONLY (never the empty-buffer or deferred exits)
   return true;
+}
+
+/**
+ * [Mode A] SIDECHAT-004 apply routing (P1.M2.T6.S1, core commitment 9):
+ * route the side chat's {@link ApplyDecision} VERBATIM through the two
+ * ordinary answer seams — a chat-proposed answer is INDISTINGUISHABLE from
+ * a user-made one in every model-facing record BY CONSTRUCTION
+ * (architecture ruling, panel-view-integration.md §Open/replace/discard:
+ * "no new answer path may be added").
+ *
+ * - Seam "acceptOptionIndex": {@link acceptOptionIndex} with the decision's
+ *   DISPLAY optionIndex — the SAME arguments a keyboard accept produces
+ *   (the display→option mapping lives inside the seam, D-R13; never re-map
+ *   here). Its entire chain runs untouched: ANSWER-PIN same-value no-op,
+ *   FR-18 confirmRippleEdit veto, applyAnswer, evaluateDependsOn,
+ *   advanceAfterAccept, stageSupersededWriteIn, maybeAutoSubmit.
+ * - Seam "writeIn": seed the write-in buffer with the decision's RAW text
+ *   (no trim — the parser already rejected whitespace-only via its
+ *   "empty-text" rule, and trimming would break byte-identical provenance)
+ *   and invoke {@link writeInEnter} — byte-for-byte the keyboard commit's
+ *   argument sequence (buffer content + enter). Its chain runs untouched:
+ *   byte-identical no-op, reasked re-confirm, FR-18 victims →
+ *   beginWriteInConfirm deferral, direct-commit tail.
+ *
+ * Target question: the module sidechat record's questionId. When the live
+ * panel sits elsewhere, `panel.currentId` is assigned FIRST — the setter is
+ * the sanctioned re-entry (ANSWER-PIN cursor re-seed + buffer-scoping
+ * write-through), so the editor holds the target question's buffer before
+ * any commit. Missing record or a question gone from state → consumed
+ * `true`, nothing done.
+ *
+ * Deliberately NOT here (each owned elsewhere): answer construction,
+ * markers, timestamps (the seams own all of it); discard + usage notify +
+ * chat close (P1.M2.T5.S1's state "changed" hook); pendingConfirm clearing
+ * (the hook removes the whole record when the question answers — manual
+ * clearing would race a same-value no-op). NEVER fires on its own: the
+ * panel's confirm-row branch and the engine's onAutoApply binding are the
+ * only callers.
+ */
+export function applyChatAnswer(panel: InterrogationPanel, decision: ApplyDecision): boolean {
+  const record = getSidechatRecord();
+  const state = panel.state;
+  if (record === undefined || state.getQuestion(record.questionId) === undefined) return true;
+  if (panel.currentId !== record.questionId) panel.currentId = record.questionId; // setter re-seeds + scopes buffer
+  if (decision.seam === "writeIn") {
+    panel.textField.setText(decision.text); // RAW — the keyboard commit's "arguments"
+    return writeInEnter(panel);
+  }
+  const q = state.getQuestion(record.questionId);
+  return q !== undefined ? acceptOptionIndex(panel, q, decision.optionIndex) !== false : true;
 }
 
 /**

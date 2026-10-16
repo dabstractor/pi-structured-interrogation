@@ -64,7 +64,7 @@ import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../co
 // imports merge.js + state.js only, never panel.js).
 import { isUpsertArgs, upsertQuestionIds } from "../lifecycle.js";
 import { getState, type InterrogationState, type SerializedState } from "../state.js";
-import { nextUnanswered, writeInEnter, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
+import { applyChatAnswer, nextUnanswered, writeInEnter, type RippleConfirmFn, type SubmitDeps } from "./actions.js";
 import {
   applyConfirmedEdit,
   applyTextConfirm,
@@ -513,6 +513,25 @@ function resolveSidechatHostSeams(
     port: settleInvalidatingPort(streamSimplePort, () => currentPanel?.invalidate()),
     registry: registryPort,
     notify,
+    // SIDECHAT-004 answer settle (P1.M2.T6.S1): the question read mirrors
+    // buildSystemPrompt's staleness pattern one closure above (lastOpts so a
+    // retargetState is honored); autoApply arrives from config — sidechat.ts
+    // itself stays behind its zero-pi wall.
+    answerContext: (qid) => {
+      const state = lastOpts?.state;
+      const q = state?.getQuestion(qid);
+      if (state === undefined || q === undefined) return undefined;
+      return { question: q, autoApply: config.sideChatAutoApply };
+    },
+    // The engine fires this ONLY on (decision && ctx.autoApply) — no
+    // confirm state exists under the bypass. Route into the LIVE panel via
+    // the module host record (the same settle-forwarding target the port
+    // wrapper above uses): a pre-suspend stream's settle reaches the fresh
+    // panel after resume.
+    onAutoApply: (decision) => {
+      const p = currentPanel;
+      if (p !== undefined) applyChatAnswer(p, decision);
+    },
   });
   return { chatRebindDeps, sidechatEngine, sidechatNotify: notify };
 }
@@ -859,12 +878,16 @@ export class InterrogationPanel implements Component {
    */
   chatReturnView: PanelView = "short";
   /**
-   * Apply seam for the pendingConfirm confirm row (P1.M2.T3.S1 ROUTING
-   * stub — P1.M2.T6.S1 replaces it with the real acceptOptionIndex /
-   * write-in commit routing). Nullable: unset → confirm-enter is a consumed
-   * no-op. Fires ONLY from the pendingConfirm enter branch (focus outside
-   * the chat editor); tests assert the routing (the stub fires with the
-   * decision), never apply semantics.
+   * Apply seam for the pendingConfirm confirm row (SIDECHAT-004,
+   * P1.M2.T6.S1): the constructor binds it to applyChatAnswer — the decision
+   * routes VERBATIM through acceptOptionIndex / writeInEnter, so a
+   * chat-proposed answer is INDISTINGUISHABLE from a user-made one in every
+   * model-facing record (no new answer path — architecture ruling
+   * §Open/replace/discard). Fires ONLY from the pendingConfirm enter branch
+   * (focus outside the chat editor); esc declines via clearPendingConfirm
+   * WITHOUT touching this seam. Nullable in principle (unset →
+   * confirm-enter is a consumed no-op) — the default construction always
+   * binds it; tests may override to observe routing.
    */
   onApplyConfirm?: (decision: ApplyDecision) => void;
   /** The config-driven dispatcher — always present (router is the default). */
@@ -1039,6 +1062,13 @@ export class InterrogationPanel implements Component {
       if (p.view !== "chat") p.chatReturnView = p.view; // keep prior on re-open
       p.setView("chat"); // seeds scroll-bottom + chat focus (once-only via no-op)
     };
+    // SIDECHAT-004 apply routing (P1.M2.T6.S1): the confirm row's enter
+    // routes VERBATIM through the ordinary answer seams (applyChatAnswer —
+    // acceptOptionIndex / writeInEnter). Provenance is byte-identical to a
+    // user-made answer by construction — no new answer path exists.
+    this.onApplyConfirm = (decision) => {
+      applyChatAnswer(this, decision);
+    };
     this.keys = args.keys ?? buildKeyRouter(args.config, routed);
     this.labels = resolveKeyLabels(args.config);
     this.delivery = args.delivery;
@@ -1189,8 +1219,8 @@ export class InterrogationPanel implements Component {
     const enter = key === "enter" && data !== "\n";
     // SIDECHAT-001 pendingConfirm confirm row (P1.M2.T3.S1): interactive
     // while focus is OUTSIDE the chat editor (the row replaces the chat
-    // view's footer hints). enter → the apply seam (onApplyConfirm — the
-    // ROUTING stub; P1.M2.T6.S1 owns the real handler), esc → decline
+    // view's footer hints). enter → the apply seam (onApplyConfirm →
+    // applyChatAnswer — SIDECHAT-004 routing, P1.M2.T6.S1), esc → decline
     // (clearPendingConfirm). Routed BEFORE the duty fork and the router so
     // a confirm-enter/esc can never double-fire as an answer gesture or
     // descend the esc ladder; AFTER ctrl+c and the CONFIRM-MODE modal, both

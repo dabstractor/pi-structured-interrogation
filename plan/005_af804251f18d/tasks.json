@@ -457,14 +457,14 @@
               "type": "Task",
               "id": "P1.M2.T6",
               "title": "Apply from the confirm row through the ordinary seams",
-              "status": "Ready",
+              "status": "Complete",
               "description": "SIDECHAT-004 wiring half: enter on the confirm row (or immediately with sideChatAutoApply) routes the parsed answer verbatim through acceptOptionIndex / the write-in commit path — ripple confirms, ANSWER-PIN-001 no-ops, advance, and auto-submit behave exactly as for a user selection, with byte-identical records and no provenance marker.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T6.S1",
                   "title": "Confirm-row apply/decline and autoApply bypass routed via acceptOptionIndex / write-in commit",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M2.T1.S2",

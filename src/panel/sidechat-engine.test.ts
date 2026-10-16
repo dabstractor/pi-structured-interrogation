@@ -25,7 +25,11 @@ import {
   type Model,
 } from "@earendil-works/pi-ai";
 import type { InterrogatorConfig } from "../config.js";
+import { DEFAULT_CONFIG } from "../config.js";
+import { createInterrogationState } from "../state.js";
 import type { Question } from "../state.js";
+import { applyChatAnswer } from "./actions.js";
+import { InterrogationPanel } from "./panel.js";
 import {
   createSidechatEngine,
   modelSnapshotFromModel,
@@ -952,6 +956,48 @@ describe("createSidechatEngine — freeze-site answer settle (P1.M1.T6.S2, SIDEC
     expect(record.pendingConfirm).toBeUndefined();
     expect(record.streamState).toBe("idle");
     expect(record.notices).toEqual([]);
+  });
+
+  test("autoApply routes through a REAL panel via applyChatAnswer — the answer lands (P1.M2.T6.S1)", async () => {
+    // A real panel over a state carrying the same q1 — the dep closure is
+    // exactly what resolveSidechatHostSeams binds (applyChatAnswer into the
+    // live panel); no stub in the routing path.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion({ ...applyQuestion });
+    const panel = new InterrogationPanel({
+      tui: { requestRender: vi.fn() } as never,
+      theme: { fg: (_n: string, s: string) => s, bold: (s: string) => s } as never,
+      done: () => {},
+      state,
+      config: DEFAULT_CONFIG,
+      editorFactory: () =>
+        ({
+          getText: () => "",
+          setText: () => {},
+          handleInput: () => {},
+          render: () => ["e"],
+        }) as never,
+    } as never);
+    panel.currentId = "q1";
+    openOrReplace("q1", rebindDeps());
+    const engine = engineOverRecord({
+      port: fakePort(() => doneStream(blockReply)),
+      answerContext: vi.fn(() => ({ question: applyQuestion, autoApply: true })),
+      onAutoApply: (decision) => {
+        applyChatAnswer(panel, decision); // the production binding shape
+      },
+    });
+    expect(engine.sendTurn("which store?")).toBe(true);
+    await flush();
+    // The decision {acceptOptionIndex, 0} is a DISPLAY index — recommended
+    // sqlite first — applied through the ORDINARY seam (applyAnswer ran:
+    // answered status, real commit shape), not a new answer path.
+    expect(state.getQuestion("q1")?.answer?.value).toBe("sqlite");
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.getQuestion("q1")?.answer?.custom).toBeUndefined();
+    // The apply answered the question → the T5.S1 discard hook removed the
+    // record — no confirm state ever existed under the bypass.
+    expect(get()).toBeUndefined();
   });
 
   test("no answerContext dep at all: nothing settles, pendingConfirm never set (pre-T6.S2 behavior byte-identical)", async () => {

@@ -6,6 +6,13 @@
  * nothing, so neither does this suite.
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_CONFIG } from "../config.js";
+import { buildCompletion, buildSubmission } from "../delivery.js";
+import { createInterrogationState, type InterrogationState } from "../state.js";
+import { answerSummary, computeDiff, submissionBaselineOf } from "../snapshots.js";
+import { acceptOptionIndex, applyChatAnswer, writeInEnter } from "./actions.js";
+import { InterrogationPanel, type InterrogationPanelArgs } from "./panel.js";
 import {
   classifyChatCommand,
   clearPendingConfirm,
@@ -672,5 +679,258 @@ describe("settleApplyDecision — lastRejection bookkeeping (P1.M2.T1.S2 render 
     settleApplyDecision(record, "no block here", twoOptionQuestion(), true);
     expect(record.lastRejection).toBe("no-block");
     expect(record.pendingConfirm).toBeUndefined();
+  });
+});
+
+// ---------------- applyChatAnswer — SIDECHAT-004 apply routing (P1.M2.T6.S1)
+
+describe("applyChatAnswer — SIDECHAT-004 apply routing (P1.M2.T6.S1)", () => {
+  const T0 = "2026-01-01T00:00:00.000Z";
+
+  const theme = {
+    fg: (_name: string, s: string) => s,
+    bold: (s: string) => s,
+  } as unknown as Theme;
+
+  /** Two-option choice with a recommendation: display order [sqlite, postgres]. */
+  function applyChoiceQ(id: string, overrides: Partial<Question> = {}): Question {
+    return {
+      id,
+      rev: 1,
+      status: "open",
+      prompt: "which store?",
+      type: "choice",
+      options: [
+        { value: "postgres", label: "Postgres" },
+        { value: "sqlite", label: "SQLite" },
+      ],
+      recommendation: "sqlite",
+      ...overrides,
+    };
+  }
+
+  /** Closure-backed stub editor — the established panel fixture editor. */
+  function stubEditor() {
+    let text = "";
+    return {
+      getText: vi.fn(() => text),
+      setText: vi.fn((t: string) => {
+        text = t;
+      }),
+      handleInput: vi.fn(),
+      render: vi.fn(() => ["e1", "e2", "e3"]),
+      focused: false,
+    };
+  }
+
+  function makePanel(
+    specs: Question[],
+    extra: Partial<InterrogationPanelArgs> = {},
+  ): { panel: InterrogationPanel; state: InterrogationState } {
+    const state = createInterrogationState("goal");
+    for (const q of specs) state.upsertQuestion(q);
+    const panel = new InterrogationPanel({
+      tui: { requestRender: vi.fn() } as never,
+      theme,
+      done: () => {},
+      state,
+      config: DEFAULT_CONFIG,
+      editorFactory: () => stubEditor() as never,
+      ...extra,
+    } as unknown as InterrogationPanelArgs);
+    return { panel, state };
+  }
+
+  test("option seam: answer + advance + auto-submit + record discarded + usage notify", () => {
+    const send = vi.fn();
+    const notify = vi.fn();
+    const { panel, state } = makePanel([applyChoiceQ("q1")], {
+      delivery: { sendMessage: send, isIdle: () => true },
+      sidechatNotify: notify,
+    });
+    openOrReplace("q1", fakeDeps());
+    panel.currentId = "q1";
+
+    expect(applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 1 })).toBe(true);
+
+    const q1 = state.getQuestion("q1");
+    expect(q1?.answer).toMatchObject({ value: "postgres" }); // display [sqlite, postgres][1]
+    expect(q1?.answer?.custom).toBeUndefined(); // no custom marker — an ordinary option accept
+    expect(q1?.status).toBe("submitted"); // answered by the accept, then FLUSHED by the auto-submit
+    expect(panel.currentId).toBe("q1"); // advance: no other unanswered → stays
+    expect(send).toHaveBeenCalledTimes(1); // maybeAutoSubmit — last-open transition
+    expect(get()).toBeUndefined(); // T5.S1 discard hook tore the chat down
+    expect(notify).toHaveBeenCalledTimes(1); // usage notify, exactly once
+    // SPEC-PINNED string — zero-usage record → the canonical close notice.
+    expect(notify).toHaveBeenCalledWith(formatChatCloseNotice({ input: 0, output: 0, totalCost: 0 }));
+  });
+
+  test("writeIn seam: RAW text committed custom:true — no trim, then advance", () => {
+    const { panel, state } = makePanel([applyChoiceQ("q1"), applyChoiceQ("q2")]);
+    openOrReplace("q1", fakeDeps());
+    panel.currentId = "q1";
+    const RAW = "  my own answer  "; // whitespace survives — byte-identical provenance
+
+    expect(applyChatAnswer(panel, { seam: "writeIn", text: RAW })).toBe(true);
+
+    const q1 = state.getQuestion("q1");
+    expect(q1?.answer).toMatchObject({ value: RAW, custom: true });
+    expect(q1?.status).toBe("answered");
+    expect(panel.currentId).toBe("q2"); // advance
+    expect(panel.focus).toBe("options"); // writeInEnter's tail blurred
+  });
+
+  test("currentId alignment: a record on another question commits THERE (sanctioned re-entry)", () => {
+    const { panel, state } = makePanel([applyChoiceQ("q1"), applyChoiceQ("q2")]);
+    openOrReplace("q2", fakeDeps());
+    panel.currentId = "q1"; // the panel sits elsewhere
+    panel.textField.setText("stale q1 draft"); // a draft the write-through must preserve
+
+    expect(applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 0 })).toBe(true);
+
+    expect(state.getQuestion("q2")?.answer?.value).toBe("sqlite"); // applied on q2, not q1
+    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // a draft, never an answer
+    expect(panel.draftTextFor("q1")).toBe("stale q1 draft"); // setter's write-through preserved it
+  });
+
+  test("byte-identical provenance: keyboard vs applyChatAnswer (option seam)", () => {
+    vi.useFakeTimers(); // identical answer.at — serialize()/payload equality is meaningful
+    try {
+      const specs = (): Question[] => [applyChoiceQ("q1"), applyChoiceQ("q2")];
+      // Run A — keyboard: the plain seams, exactly a user gesture.
+      const a = makePanel(specs());
+      const baselineA = submissionBaselineOf(a.state);
+      acceptOptionIndex(a.panel, a.state.getQuestion("q1")!, 1);
+
+      // Run B — side chat: the routing under test.
+      const b = makePanel(specs());
+      const baselineB = submissionBaselineOf(b.state);
+      openOrReplace("q1", fakeDeps());
+      b.panel.currentId = "q1";
+      applyChatAnswer(b.panel, { seam: "acceptOptionIndex", optionIndex: 1 });
+
+      // The full record — byte-identical.
+      expect(a.state.serialize()).toEqual(b.state.serialize());
+      // The submission delta payload + shipped message.
+      const diffA = computeDiff(baselineA, a.state.serialize());
+      const diffB = computeDiff(baselineB, b.state.serialize());
+      expect(diffA).toEqual(diffB);
+      expect(buildSubmission(a.state, diffA)).toEqual(buildSubmission(b.state, diffB));
+      // The diff-card line + the completion-record line.
+      expect(answerSummary(a.state.getQuestion("q1"))).toBe(answerSummary(b.state.getQuestion("q1")));
+      expect(buildCompletion(a.state)).toEqual(buildCompletion(b.state));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("byte-identical provenance: keyboard write-in commit vs the writeIn seam", () => {
+    vi.useFakeTimers();
+    try {
+      const RAW = "  sqlite, but honestly mine  ";
+      const specs = (): Question[] => [applyChoiceQ("q1"), applyChoiceQ("q2")];
+      // Run A — keyboard: buffer content + writeInEnter (the commit's arguments).
+      const a = makePanel(specs());
+      a.panel.currentId = "q1";
+      a.panel.focusTextField("writein"); // claims the buffer (keyboard duty entry)
+      a.panel.textField.setText(RAW);
+      writeInEnter(a.panel);
+
+      // Run B — side chat: the routing under test.
+      const b = makePanel(specs());
+      openOrReplace("q1", fakeDeps());
+      b.panel.currentId = "q1";
+      applyChatAnswer(b.panel, { seam: "writeIn", text: RAW });
+
+      expect(a.state.serialize()).toEqual(b.state.serialize()); // {value: RAW, custom: true} — byte-identical
+      expect(answerSummary(a.state.getQuestion("q1"))).toBe(answerSummary(b.state.getQuestion("q1")));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("ripple veto: nothing applied, confirm row + chat untouched (FR-18 precedence)", () => {
+    const { panel, state } = makePanel([applyChoiceQ("q1"), applyChoiceQ("q2")]);
+    acceptOptionIndex(panel, state.getQuestion("q1")!, 0); // first answer: sqlite (display 0)
+    const answeredAt = state.getQuestion("q1")!.answer!.at;
+    openOrReplace("q1", fakeDeps());
+    const record = get()!;
+    record.pendingConfirm = { seam: "acceptOptionIndex", optionIndex: 1 }; // DIFFERENT value: postgres
+    panel.currentId = "q1";
+    panel.confirmRippleEdit = () => false; // the established veto test seam
+
+    expect(applyChatAnswer(panel, record.pendingConfirm)).toBe(true); // consumed ("veto" is truthy)
+
+    expect(state.getQuestion("q1")!.answer!.value).toBe("sqlite"); // unchanged
+    expect(state.getQuestion("q1")!.answer!.at).toBe(answeredAt); // nothing re-applied
+    expect(panel.currentId).toBe("q1"); // no advance — the user re-decides
+    expect(record.pendingConfirm).toBeDefined(); // never hand-cleared (the T5.S1 hook owns removal)
+    expect(record.messages).toHaveLength(0); // chat intact
+  });
+
+  test("writeIn victims route into the beginWriteInConfirm modal (FR-18 deferral)", () => {
+    const { panel, state } = makePanel([
+      applyChoiceQ("q1"),
+      applyChoiceQ("q2", { dependsOn: [{ id: "q1", equals: "postgres" }] }),
+    ]);
+    state.applyAnswer("q1", { value: "postgres", at: T0 });
+    state.applyAnswer("q2", { value: "follow-up", at: T0 }); // met dependent = the victim
+    openOrReplace("q1", fakeDeps());
+    const record = get()!;
+    record.pendingConfirm = { seam: "writeIn", text: "actually sqlite" };
+    panel.currentId = "q1";
+
+    expect(applyChatAnswer(panel, record.pendingConfirm)).toBe(true); // consumed — deferred
+
+    expect(panel.confirmMode?.kind).toBe("writein"); // beginWriteInConfirm raised, not confirmRippleEdit
+    expect(state.getQuestion("q1")!.answer!.value).toBe("postgres"); // nothing applied yet
+  });
+
+  test("ANSWER-PIN: same-value apply is the inert no-op — advance only", () => {
+    const send = vi.fn();
+    const { panel, state } = makePanel([applyChoiceQ("q1"), applyChoiceQ("q2")], {
+      delivery: { sendMessage: send, isIdle: () => true },
+    });
+    state.applyAnswer("q1", { value: "postgres", at: T0 }); // already recorded
+    openOrReplace("q1", fakeDeps());
+    const record = get()!;
+    record.pendingConfirm = { seam: "acceptOptionIndex", optionIndex: 1 }; // display 1 = postgres (same)
+    panel.currentId = "q1";
+
+    expect(applyChatAnswer(panel, record.pendingConfirm)).toBe(true);
+
+    const q1 = state.getQuestion("q1");
+    expect(q1?.answer?.value).toBe("postgres");
+    expect(q1?.answer?.at).toBe(T0); // no fresh timestamp — inert
+    expect(panel.currentId).toBe("q2"); // advance only (Q14 rhythm)
+    expect(send).not.toHaveBeenCalled(); // no auto-submit
+    expect(panel.confirmMode).toBeNull(); // no modal
+  });
+
+  test("decline (esc semantics): confirm state cleared, chat + messages intact", () => {
+    openOrReplace("q1", fakeDeps());
+    const record = get()!;
+    record.pendingConfirm = { seam: "writeIn", text: "x" };
+    record.lastRejection = "no-block";
+    record.messages.push({ role: "user", text: "hello", at: "t" });
+
+    clearPendingConfirm(record); // the panel's esc branch calls exactly this
+
+    expect(record.pendingConfirm).toBeUndefined();
+    expect(record.lastRejection).toBeUndefined();
+    expect(record.messages).toHaveLength(1); // messages intact
+    expect(get()).toBe(record); // chat stays open
+  });
+
+  test("stale record / gone question: consumed true, nothing done", () => {
+    const { panel, state } = makePanel([applyChoiceQ("q1")]);
+    // No record at all.
+    expect(applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 0 })).toBe(true);
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    // Record whose question is gone from state.
+    openOrReplace("ghost", fakeDeps());
+    expect(applyChatAnswer(panel, { seam: "acceptOptionIndex", optionIndex: 0 })).toBe(true);
+    expect(panel.currentId).not.toBe("ghost"); // no alignment onto a ghost
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
   });
 });

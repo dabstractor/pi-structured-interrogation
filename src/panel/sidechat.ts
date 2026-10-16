@@ -135,7 +135,9 @@ export interface ChatUsage {
  * SIDECHAT-004 owner ruling: no marker, no normalization, anywhere).
  * Consumed by P1.M2.T1.S2 (the confirm row renders off
  * `SidechatRecord.pendingConfirm`) and P1.M2.T6.S1 (routing: enter applies
- * through the named seam; esc declines via `clearPendingConfirm`). */
+ * through the named seam; esc declines via `clearPendingConfirm`).
+ * P1.M2.T6.S1 routing LANDED: actions.ts applyChatAnswer routes it; the
+ * seams' provenance is byte-identical by construction (SIDECHAT-004). */
 export type ApplyDecision =
   | { seam: "acceptOptionIndex"; optionIndex: number }
   | { seam: "writeIn"; text: string };

@@ -3925,7 +3925,7 @@ describe("sidechat discard — transition semantics (BUG-002)", () => {
     // Direct-opened record: the first hook run (an unrelated mutation)
     // SEEDS the baseline without deciding; the record's own later
     // non-terminal → terminal transition still discards.
-    const { panel, state } = makePanel2([choiceQ("q1"), choiceQ("q3")]);
+    const { state } = makePanel2([choiceQ("q1"), choiceQ("q3")]);
     openOrReplace("q3", rebind());
 
     state.applyAnswer("q1", { value: "a", at: T }); // unrelated → seed-only run
@@ -3942,7 +3942,7 @@ describe("sidechat discard — transition semantics (BUG-002)", () => {
     // the replacement's first observation re-seeds (no cross-record
     // comparison), so an opened-on-terminal replacement survives unrelated
     // mutations.
-    const { panel, state } = makePanel2([choiceQ("q1"), choiceQ("q2"), choiceQ("q4")]);
+    const { state } = makePanel2([choiceQ("q1"), choiceQ("q2"), choiceQ("q4")]);
     openOrReplace("q1", rebind()); // chat on open q1
     state.applyAnswer("q2", { value: "a", at: T }); // unrelated (seeds the q1 baseline)
     state.setStatus("q2", "answered"); // q2 terminal BEFORE its chat opens

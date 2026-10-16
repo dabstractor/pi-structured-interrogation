@@ -189,7 +189,7 @@ Remappable actions (`interrogator.keys.*`):
 | Elaborate            | `keys.elaborate`      | `t`             | Enter the editor — duty follows context (elaboration on a selected option, write-in on the `✎ Other` row or a text question); close via `enter` or double-`esc` (a re-pressed `t` types the letter) |
 | Batch note           | `keys.batchNote`      | `m`             | Attach a batch note shipped with the next submit; close via `enter` or double-`esc` |
 | Submit               | `keys.submit`         | `ctrl+s`        | Submit answers now (partial ok — also the deliberate override while the gate hold blocks auto-submit) |
-| Side chat            | `keys.chat`           | `e`             | Open the in-panel side chat on the current question (one chat at a time; applies converged answers through the confirm row) |
+| Side chat            | `keys.chat`           | `e`             | Open the in-panel side chat on the current question — in the overview, on the cursor row's question (one chat at a time; applies converged answers through the confirm row) |
 | External editor      | `keys.externalEditor` | `ctrl+g`        | Open the draft in an external editor — any editor duty (answer, elaboration, or note; in note duty the finished text lands in the batch note) |
 | Previous question    | `keys.prevQuestion`   | `tab`           | Move to the previous question                 |
 | Next question        | `keys.nextQuestion`   | `shift+tab`     | Move to the next question                     |
@@ -287,25 +287,40 @@ editor. The config key is `keys.chat` (default `e`); a settings file
 carrying the pre-rename key name is silently honored — the same alias
 precedent as the editor key's rename.
 
-- **One chat at a time.** Opening `e` on another question replaces it
-  without confirm, and it is discarded automatically when its question is
+- **One chat at a time.** Opening `e` on another question aborts the
+  current chat's in-flight reply, announces its usage, and replaces it
+  without confirm. The chat is discarded when its question *becomes*
   answered or closed by any path (panel accept, write-in, the chat's own
-  apply, moot/withdraw/upsert close). It survives suspend/resume (`esc`,
-  then `/interrogate`).
+  apply, moot/withdraw/upsert close) — a chat opened on an already-answered
+  question survives unrelated changes (answers to other questions,
+  re-asks), and a same-value re-answer keeps it. It survives
+  suspend/resume (`esc`, then `/interrogate`).
 - **Escape hatches.** `/clear` and `/new` — byte-exact first input tokens
   (a `/usr/bin` path is just a message) — reset the chat fresh on the
-  current question. While a reply is streaming, `esc` aborts it; when idle,
-  `esc` leaves the view with the chat retained.
+  current question. Resetting while a reply is streaming aborts the
+  in-flight stream first and still fires the usage-close notice —
+  unconditionally, even for a chat that never sent a token
+  (`chat closed · 0 in · 0 out · $0.00`). While a reply is streaming,
+  `esc` aborts it; when idle, `esc` leaves the view with the chat retained.
 - **Converged answers.** The side model ends a converged reply with a
   fenced `answer` block (`{"value": …}` byte-matching an option, or
   `{"text": …}` for a write-in). The panel shows an inline confirm row —
-  `apply ★ sqlite? · enter = yes · esc = no` — and `enter` applies through
-  the ordinary accept seams: ripple confirms, advance, auto-submit, and
-  every record behave (and look) exactly as for a hand-made selection.
-  `"sideChatAutoApply": true` skips the confirm.
+  `apply ★ sqlite? · enter = yes · esc = no` — and the input blurs itself
+  the moment the row appears, so `enter` and `esc` work right away in the
+  default focused state — no pre-blur needed. `enter` applies through the
+  ordinary accept seams: ripple confirms, advance, auto-submit, and every
+  record behave (and look) exactly as for a hand-made selection. Applying
+  a value the question already has is a clean no-op: the confirm row is
+  consumed and the chat closes with its usage notice — never a stuck
+  `apply ★` row. `"sideChatAutoApply": true` skips the confirm.
 - **Usage on close.** Any close or discard notifies compactly
   (`chat closed · 12.4K in · 3.1K out · $0.07`); chat usage never enters
   session stats.
+
+While a reply is streaming, pressing `enter` is refused and your typed
+text stays in the input — press `enter` again once the stream settles (or
+abort the stream with `esc`) to send it. `/clear`, `/new`, and `enter` on
+an empty buffer still clear the input.
 
 The chat lives in extension memory only — nothing about it is written to
 the session file — and it is TUI-only (inert in `pi -p` and other non-TUI
@@ -315,7 +330,7 @@ modes). See [Limitations](#limitations).
 
 The acceptance list lives in
 [`spec/product-requirements.md`](spec/product-requirements.md); this delta
-extends it to 2a–2d, 15, and 16. Summary (scripted where possible — see
+extends it to 2a–2d, 15, 16, and 17. Summary (scripted where possible — see
 the spec for the full text and the scripted tests proving each):
 
 1. Model upserts questions across groups with one gate group → panel opens; gate focused; other groups dimmed but answerable.
@@ -338,6 +353,7 @@ the spec for the full text and the scripted tests proving each):
 14. All questions closed → completion record injected once; recap card in transcript.
 15. **Reads never surface (SURFACE-001)**: a model `interrogate({})` read completes → panel stays closed, editor untouched — for live, all-answered, and completed states alike.
 16. **Answer pinning (ANSWER-PIN-001)**: revisit an answered question → caret + highlight sit on the recorded answer (★ visible on its own row, never owning the caret); `enter` on the recorded value is a zero-state-change advance and a byte-identical write-in re-commit is inert — except on a re-asked question, where same-value `enter` (or a byte-identical write-in) re-confirms and ships; a DIFFERENT choice raises the FR-18 invalidation confirm.
+17. **Side chat (SIDECHAT-001)**: `e` opens the per-question in-panel chat (in the overview, on the cursor row's question); a streaming reply aborts with a single `esc` in the default focused state; `enter` on a refused mid-stream send keeps the typed input; a converged answer shows a confirm row that works immediately (the input self-blurs on settle) — `enter` applies indistinguishably from a panel selection and a same-value no-op apply consumes the row and closes the chat; `/clear` and `/new` reset the chat, aborting any in-flight reply with the usage notice always firing (zero usage included); the chat dies when its question becomes answered/closed and survives suspend/resume.
 
 ## Limitations
 
@@ -365,7 +381,10 @@ From the spec's confirmed non-goals — pi-interrogator does **not** do any of t
 - Compaction: `/compact` mid-interrogation triggers the preservation flow
   (the summary is generated with the interrogation preservation instructions
   prepended) and state reconstructs afterwards from the append-only
-  `interrogation-state` mirror.
+  `interrogation-state` mirror. Reconstruction pools every state-carrying
+  `interrogate` tool result, newest-first — if the newest one fails to
+  deserialize, it degrades to the next-older valid result, so a single
+  unreadable entry never loses the restoration.
 
 ## Development
 

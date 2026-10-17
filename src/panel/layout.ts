@@ -96,18 +96,68 @@ export interface HeaderRender {
 // ----------------------------------------------------------------- helpers
 
 /**
+ * SANITIZE-001 (2026-10-17, owner report "accumulating artifacts"): flatten
+ * line-break controls and delete row-corrupting stray controls from text
+ * BEFORE it becomes a rendered panel line.
+ *
+ * The contract every panel renderer owes pi-tui's differential renderer is
+ * ONE ARRAY ELEMENT = ONE TERMINAL ROW. pi-tui paints each element with
+ * `\x1b[2K` + text + `\r\n` and its `visibleWidth` counts C0 controls as
+ * ZERO-width (`\p{Control}` → zeroWidthRegex), so a literal `\n` riding in a
+ * word survives `wrapText` (space-split) and `truncateVisible` (width math)
+ * alike — and the terminal then EXECUTES it as a line feed (ONLCR ⇒ CRLF):
+ * every later row of the frame paints one row below the renderer's model
+ * (`previousLines` / `hardwareCursorRow` / `previousViewportTop`), stale
+ * short-view rows stay un-overwritten, short new rows overlay long stale
+ * rows mid-row, and because the model never learns of the shift, each
+ * view switch compounds the desync — stale blocks accumulate in scrollback
+ * at +1 per cycle on terminals tall enough for the diff path (on short
+ * terminals the `firstChanged < prevViewportTop` full-clear masks it).
+ *
+ * Model-authored question text (`description`, `ramification`, labels,
+ * moot reasons, chat transcripts, write-ins) is free-form multi-paragraph
+ * prose, so this is not a hypothetical: the deep view has rendered full
+ * text un-truncated since the caps engine was removed (e6e2f3a).
+ *
+ * Treatment (display-only — NEVER applied to model-facing records):
+ * - Line-break controls `\r\n`, `\r`, `\n`, `\x0b` (VT), `\x0c` (FF) —
+ *   including a RUN of them with the surrounding spaces/tabs — flatten to
+ *   ONE space (word-wrap then re-flows the joined text normally).
+ * - Row/cell-corrupting strays `\x00`-`\x06`, `\x08` (BS), `\x0e`/`\x0f`
+ *   (SO/SI charset shift), `\x11`/`\x13` (XON/XOFF), `\x14`-`\x1a`,
+ *   `\x1c`-`\x1f`, `\x7f` (DEL) are DELETED (invisible; replacing them
+ *   with spaces would corrupt spacing).
+ * - Preserved: `\x1b` (ANSI CSI/OSC payload — themed fragments flow through
+ *   these helpers), `\x07` (BEL — terminates OSC-8 hyperlink sequences),
+ *   `\x09` (tab — pi-tui width-accounts it as 3 and normalizes it to
+ *   spaces at the terminal seam).
+ *
+ * Idempotent; identity for already-clean text.
+ */
+export function sanitizeDisplayText(text: string): string {
+  return (
+    text
+      // eslint-disable-next-line no-control-regex -- SANITIZE-001: matching the line-break controls IS this function's job
+      .replace(/(?:[ \t]*(?:\r\n|\r|\n|\x0b|\x0c))+[ \t]*/g, " ")
+      // eslint-disable-next-line no-control-regex -- SANITIZE-001: deleting row-corrupting C0 bytes IS this function's job
+      .replace(/[\x00-\x06\x08\x0e-\x1a\x1c-\x1f\x7f]/g, "")
+  );
+}
+
+/**
  * Char-safe truncate with a single `…` ellipsis. ANSI-aware and wide-char
  * aware (delegates to pi-tui truncateToWidth); returns the input unchanged
- * when it already fits. `maxWidth <= 0` yields "".
- *
- * NOTE: pi-tui adorns a cut with reset sequences (`…\u001b[0m`); since this
- * module composes theme-wrapping AFTER truncation (module contract), the
- * adornment is stripped so callers always receive plain text back.
+ * when it already fits. `maxWidth <= 0` yields "". SANITIZE-001: the input
+ * is {@link sanitizeDisplayText}-cleaned FIRST — every truncated fragment
+ * (labels, teasers, hints, markers, moot reasons, the header goal) is
+ * guaranteed a single terminal row even when the source text carried
+ * paragraph breaks or stray control bytes.
  */
 export function truncateVisible(text: string, maxWidth: number): string {
+  const clean = sanitizeDisplayText(text);
   if (maxWidth <= 0) return "";
-  if (visibleWidth(text) <= maxWidth) return text;
-  return stripTerminalSequences(truncateToWidth(text, maxWidth, "…"));
+  if (visibleWidth(clean) <= maxWidth) return clean;
+  return stripTerminalSequences(truncateToWidth(clean, maxWidth, "…"));
 }
 
 /**
@@ -525,7 +575,15 @@ export function renderFooter(
     (position !== undefined ? ` · q${position.n}/${position.total}` : "");
 
   const keyActions = narrow ? NARROW_FOOTER_ACTIONS : SCREEN_KEYS[screen];
-  const hints: string[] = keyActions.map((action) => `${labels[action]} ${ACTION_WORDS[action]}`);
+  // SANITIZE-001: key labels (config-resolved) and the pre-rendered chat
+  // hint string are the only footer fragments that reach the line WITHOUT
+  // passing truncateVisible/wrapText — sanitize them at composition so the
+  // footer line keeps the one-element-one-row contract unconditionally
+  // (the fit loop below measures visibleWidth only, which counts control
+  // bytes as zero-width and would happily pass a stray \n through).
+  const hints: string[] = keyActions.map(
+    (action) => `${sanitizeDisplayText(labels[action])} ${ACTION_WORDS[action]}`,
+  );
   // Chat (SIDECHAT-001): swap the mapped hints for the pre-rendered string
   // BEFORE the static pushes (none of which target chat) and the fit loop.
   // The narrow NARROW_FOOTER_ACTIONS swap never reaches a chat screen's
@@ -533,7 +591,7 @@ export function renderFooter(
   // budget handling.
   if (screen === "chat") {
     hints.length = 0;
-    hints.push(chatHints ?? `${labels.chat} ${ACTION_WORDS.chat}`);
+    hints.push(sanitizeDisplayText(chatHints ?? `${labels.chat} ${ACTION_WORDS.chat}`));
   }
   if (screen === "short") hints.unshift("enter accept"); // enter is not remappable
   if (screen === "short") hints.push(`${labels.elaborate} explain`); // D-R11: the footer permanently names the chord

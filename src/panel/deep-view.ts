@@ -90,7 +90,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Question } from "../state.js";
 import { acceptOptionIndex } from "./actions.js";
-import { truncateVisible } from "./layout.js";
+import { sanitizeDisplayText, truncateVisible } from "./layout.js";
 import type { InterrogationPanel } from "./panel.js";
 import { OTHER_AFFORDANCE, RIGHT, displayOptions, initialCursorIndex, mootReason } from "./short-view.js";
 
@@ -268,10 +268,20 @@ export interface DeepContent {
  * budget is hard-truncated with `…` via truncateVisible (which also bounds
  * every emitted line). Never returns an empty array — a blank input yields
  * one empty line so block separators stay symmetrical.
+ *
+ * SANITIZE-001: the input is sanitizeDisplayText-cleaned FIRST (layout.ts).
+ * wrapText splits ONLY on spaces, so a literal `\n` would otherwise ride
+ * inside a word into one emitted "line" while visibleWidth counts it as
+ * zero-width — the terminal executes it as a line feed and desyncs pi-tui's
+ * differential renderer (one-element-one-row contract; see layout.ts
+ * SANITIZE-001 for the full failure chain). Multi-paragraph prose flattens
+ * to single-spaced text here and re-flows normally. This is the wrap choke
+ * point for the deep view's description/ramification blocks and the chat
+ * transcript — the truncateVisible choke point covers everything else.
  */
 export function wrapText(text: string, budget: number): string[] {
   const b = Math.max(1, budget);
-  const words = text.split(" ").filter((w) => w !== "");
+  const words = sanitizeDisplayText(text).split(" ").filter((w) => w !== "");
   const lines: string[] = [];
   let cur = "";
   for (const word of words) {

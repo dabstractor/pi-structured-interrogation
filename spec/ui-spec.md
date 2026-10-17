@@ -26,6 +26,7 @@ The panel is hosted by `ctx.ui.custom()` (non-overlay): it *is* the bottom edito
 
 - Height < 24 rows: hint line suppressed; deep view still available (it's a full replacement). Height < 12: overview list paginates 5 rows.
 - Width < 60 cols: option labels truncate with `…`; ramifications wrap; footer shows 2 keys max (`submit`, `deep`).
+- **One line = one terminal row (SANITIZE-001, 2026-10-17).** Every emitted panel line is exactly one terminal row: pi-tui's differential renderer paints each array element as one row and width-accounts C0 controls as zero-width, so a literal line break (`\n`, `\r`, VT, FF) inside an element executes on the terminal as a real line feed — the renderer's row model desyncs and view switches compound it into accumulating scrollback artifacts (observed with multi-paragraph question text in the deep view). `sanitizeDisplayText` (layout.ts) flattens line-break runs to one space and deletes row-corrupting stray controls at the two display choke points — `truncateVisible` and `wrapText` — plus the footer's label composition; ESC/BEL/tab pass untouched (ANSI sequences, OSC-8 terminators, width-accounted tabs). Display-only: model-facing records (submissions, sidechat prompts, persistence) keep newlines. The embedded editor is exempt (pi's Editor renders multi-line buffers natively).
 
 ## Free-text field (Q17=A, as amended by WRITEIN-001/002 — 2026-09-18 interrogation)
 

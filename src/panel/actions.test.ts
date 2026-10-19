@@ -1172,7 +1172,7 @@ describe("submit — flush pending answers", () => {
       { value: "b", label: "Beta" },
       { value: "d", label: "Delta" },
     ];
-    const state = seed([{ id: "q1", overrides: { options: OPTS_ABC } }]);
+    const state = seed([{ id: "q1", overrides: { title: "Choice One", options: OPTS_ABC } }]);
     const { panel } = makePanel(state);
     const { deps, sendMessage } = makeDeps(true);
 
@@ -1185,7 +1185,7 @@ describe("submit — flush pending answers", () => {
     // 2. Agent rule-2 re-ask: options changed [a,b,c] → [a,b,d]; the exact
     // wholesale-replace shape merge.ts hands upsertQuestion.
     state.upsertQuestion({
-      ...choiceQ("q1", { options: OPTS_ABD }),
+      ...choiceQ("q1", { title: "Choice One", options: OPTS_ABD }),
       rev: 2,
       status: "reasked",
     });
@@ -1205,7 +1205,7 @@ describe("submit — flush pending answers", () => {
     expect(panel.footerFlash?.text).not.toBe("nothing to submit");
     const msg = sendMessage.mock.calls[1][0] as {
       content: string;
-      details: { changed: Array<{ id: string; from: string; to: string }> };
+      details: { changed: Array<{ id: string; from: string; to: string; prompt?: string }> };
     };
     expect(msg.content).toContain("q1");
     expect(msg.content).toContain("(state epoch 3)");
@@ -1213,6 +1213,9 @@ describe("submit — flush pending answers", () => {
     expect(msg.details.changed.map((e) => e.id)).toEqual(["q1"]);
     expect(msg.details.changed[0]?.from).toBe("(unanswered)"); // synthetic shape
     expect(msg.details.changed[0]?.to).toBe("Alpha"); // answerSummary, label-preferred
+    // FULL-TRANSCRIPT-001 mirror: the synthesized entry carries the full
+    // prompt through the SAME transcriptPrompt rule computeEntries uses.
+    expect(msg.details.changed[0]?.prompt).toBe("prompt:q1");
   });
 
   // DEFECT FIX regression (P1.M7.T6.S1): the ctrl+s flush performs the

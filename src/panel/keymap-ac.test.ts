@@ -262,7 +262,7 @@ describe("AC-1 — two-tier dispatch/typing + surviving chords (delta_prd §3.1)
 
     const actions2 = makeActions();
     const router2 = makeRouter(DEFAULT_CONFIG, actions2);
-    expect(route(LETTER_BYTES.elaborate, makeStub({ view: "overview" }) as never)).toBe(false);
+    expect(router2.route(LETTER_BYTES.elaborate, makeStub({ view: "overview" }) as never)).toBe(false);
     expect(actions2.onElaborate).not.toHaveBeenCalled();
     expect(actions2.onDeep).not.toHaveBeenCalled();
     expect(actions2.onOverview).not.toHaveBeenCalled();

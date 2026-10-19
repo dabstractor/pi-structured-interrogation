@@ -66,6 +66,22 @@ export function submissionBaselineOf(state: InterrogationState): SerializedState
 export const UNANSWERED_SUMMARY = "(unanswered)";
 
 /**
+ * FULL-TRANSCRIPT-001 (h2.36 amendment, 2026-10-19): the prompt value a
+ * DiffEntry carries for the user-only transcript line — the full prompt
+ * when the title does not already show it in full, `undefined` otherwise
+ * (title === prompt, blank/absent prompt, legacy entries). ONE shared
+ * rule for BOTH DiffEntry producers (computeEntries here and the panel's
+ * BUG-002 synthetic-entry seam in actions.ts) so the two shapes stay
+ * mirrored by construction, not by discipline.
+ */
+export function transcriptPrompt(
+  prompt: string | undefined,
+  title: string,
+): string | undefined {
+  return typeof prompt === "string" && prompt !== "" && prompt !== title ? prompt : undefined;
+}
+
+/**
  * One changed answer in a submission diff (h2.36 / AC-13).
  *
  * Plain data only — no live question objects are referenced, so entries are
@@ -76,6 +92,16 @@ export interface DiffEntry {
   id: string;
   /** `title ?? prompt` (next side preferred) — display name for the card. */
   title: string;
+  /**
+   * FULL-TRANSCRIPT-001 (h2.36 amendment, 2026-10-19): the question's FULL
+   * prompt — next side preferred — for the user-only transcript line under
+   * the entry. Key present ONLY when the prompt is a non-empty string the
+   * `title` does not already show in full (title === prompt is the common
+   * prompt-only question; the renderer never duplicates it). Optional
+   * because entries written before this field existed carry no `prompt` —
+   * the renderer degrades to the title line alone.
+   */
+  prompt?: string;
   /** Answer summary before (label-preferred; "(unanswered)" if none). */
   from: string;
   /** Answer summary after (label-preferred; "(unanswered)" if none). */
@@ -262,9 +288,12 @@ function computeEntries(prev: SerializedState, next: SerializedState): DiffEntry
     const before = prev.questions[id];
     const after = next.questions[id];
     if (answerSignature(before) === answerSignature(after)) continue;
+    const title = after?.title ?? after?.prompt ?? before?.title ?? before?.prompt ?? id;
+    const prompt = transcriptPrompt(after?.prompt ?? before?.prompt, title); // FULL-TRANSCRIPT-001
     entries.push({
       id,
-      title: after?.title ?? after?.prompt ?? before?.title ?? before?.prompt ?? id,
+      title,
+      ...(prompt !== undefined ? { prompt } : {}),
       from: answerSummary(before),
       to: answerSummary(after),
       editedArchived: before?.status === "closed",
@@ -286,6 +315,8 @@ function computeEntries(prev: SerializedState, next: SerializedState): DiffEntry
  *   changed: Array<{
  *     id: string;              // question id
  *     title: string;           // q.title ?? q.prompt (next side preferred)
+ *     prompt?: string;         // FULL question prompt (FULL-TRANSCRIPT-001) — key present
+ *                              // ONLY when the title does not already show it in full
  *     from: string;            // label-preferred summary before ("(unanswered)" if none)
  *     to: string;              // label-preferred summary after
  *     editedArchived: boolean; // prev status was "closed" → renderer appends "(changed)" (AC-13)

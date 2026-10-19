@@ -105,6 +105,27 @@ describe("computeDiff", () => {
     expect(diff.epoch).toBe(state.epoch);
   });
 
+  test("FULL-TRANSCRIPT-001: prompt key present only when the title hides it", () => {
+    // title set and DIFFERENT from prompt → the full prompt rides the entry
+    // (next side preferred over the prev side).
+    state.upsertQuestion(q({ id: "t1", title: "Titled", prompt: "The full question text" }));
+    state.applyAnswer("t1", ans("a"));
+    const prev = state.serialize();
+    state.upsertQuestion(q({ id: "t1", title: "Titled", prompt: "The REVISED question text" }));
+    state.applyAnswer("t1", ans("b"));
+    const entries = computeDiff(prev, state.serialize()).changed;
+    expect(entries[0]?.prompt).toBe("The REVISED question text");
+
+    // prompt-only question (title === prompt) → key OMITTED (title line
+    // already shows the full question; never duplicated).
+    state.upsertQuestion(q({ id: "t2" })); // prompt "prompt for t2", no title
+    state.applyAnswer("t2", ans("x"));
+    const diff2 = computeDiff(prev, state.serialize());
+    const t2 = diff2.changed.find((e) => e.id === "t2");
+    expect(t2?.title).toBe("prompt for t2");
+    expect("prompt" in (t2 ?? {})).toBe(false);
+  });
+
   test("choice_value_change_uses_labels_exact_entry", () => {
     state.upsertQuestion(
       q({
@@ -163,6 +184,7 @@ describe("computeDiff", () => {
       {
         id: "q7",
         title: "Elaboration",
+        prompt: "prompt for q7", // FULL-TRANSCRIPT-001: prompt the title hides
         from: "sqlite — we keep it simple",
         to: "sqlite — elaboration added",
         editedArchived: false,

@@ -77,7 +77,13 @@ materialize; runtime loads via jiti against pi's tree.
    deliberate override. Each submit streams a compact delta message to the
    model (rendered as a diff card in your transcript), ending with
    `(state epoch {n})` — the epoch the model must echo when upserting
-   existing questions afterwards.
+   existing questions afterwards. The diff card is your durable record of
+   what you told the model (FULL-TRANSCRIPT-001): every changed answer in
+   full — option labels, ✎ write-ins, and the elaborations you attached
+   with `t` — each under its full question prompt when the short title
+   doesn't already show it, plus the full batch note. Nothing is
+   truncated, capped, or hidden behind the transcript's expand toggle —
+   so you can always scroll back and read exactly what you said.
 4. Break out any time with `esc` (from the short view): the panel suspends,
    a widget with question counts stays visible, and you can run side chats.
    Type `/interrogate` to get the panel back immediately — it invokes the
@@ -100,7 +106,9 @@ materialize; runtime loads via jiti against pi's tree.
    suspend widget line (live counts, `/interrogate`) is the only cue — run
    `/interrogate` and the restored questions and answers come right back.
 5. When every question is closed, the panel dismisses and the model receives
-   **one full completion record** (a recap card lands in the transcript).
+   **one full completion record** (a recap card lands in the transcript —
+   every question with its final answer, free text, full prompts, and all
+   batch notes, in full in both compact and expanded modes).
 
 **Model behavior note** — the model drives the `interrogate` tool, not you: it
 upserts questions **surgically** — only the ids it sends are created or
@@ -227,7 +235,10 @@ a dimmed preview of the recorded value) renders it as `✎ {text}`. Focused
 on a real option, the
 editor is the **elaboration** duty: the text attaches to whichever option
 you select and ships as the answer's text — an elaboration, not an answer
-of its own. Accepting an option after a committed write-in supersedes the
+of its own. The shipped elaboration rides the model-visible delta
+(`answer — text`) AND the diff card in full (FULL-TRANSCRIPT-001) — scroll
+back to any submission card to reread exactly the elaboration you sent.
+Accepting an option after a committed write-in supersedes the
 answer and re-binds the kept slot text as elaboration — the re-bound text
 is that question's draft (✎ marker; edit or clear it any time before it
 ships), and on an already-complete set the same gesture can auto-submit it

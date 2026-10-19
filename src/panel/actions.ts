@@ -27,6 +27,7 @@ import {
   answerSummary,
   computeDiff,
   submissionBaselineOf,
+  transcriptPrompt,
   UNANSWERED_SUMMARY,
 } from "../snapshots.js";
 import type { Question, QuestionAnswer, SerializedState } from "../state.js";
@@ -906,9 +907,12 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
       .filter((id) => !shippedIds.has(id))
       .map((id) => {
         const q = panel.state.getQuestion(id)!; // ids came from orderedQuestions
+        const title = q.title ?? q.prompt ?? id;
+        const prompt = transcriptPrompt(q.prompt, title); // FULL-TRANSCRIPT-001 mirror
         return {
           id,
-          title: q.title ?? q.prompt ?? id,
+          title,
+          ...(prompt !== undefined ? { prompt } : {}),
           from: UNANSWERED_SUMMARY,
           to: answerSummary(q),
           editedArchived: false,

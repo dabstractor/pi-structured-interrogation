@@ -10,10 +10,13 @@
  * `(changed)` marker is styled distinctly (theme.fg("warning", …)).
  *
  * Covered: (a) collapsed happy path, (b) AC-13 marker + styling, (c) note
- * present/absent/empty, (d) expanded full submission (no cap, no
- * truncation, epoch footer), (e) collapsed 80-col truncation + entry cap
- * rollup, (f) defensive fallbacks (no details / no card / sparse changed),
- * (g) zero-changes card, plus the registerSubmissionCardRenderer shim.
+ * present/absent/empty, (d) expanded full submission (epoch footer), (e)
+ * FULL-TRANSCRIPT-001 — user-authored input never truncated, capped, or
+ * hidden in either mode: full entry/note text when collapsed, no entry
+ * cap, dim full-prompt lines, row-safe " / " flattening, NOTES visible in
+ * the collapsed recap, (f) defensive fallbacks (no details / no card /
+ * sparse changed), (g) zero-changes card, plus the
+ * registerSubmissionCardRenderer shim.
  *
  * P1.M7.T3.S2 appends: buildCompletionRecapCard (completion recap card,
  * AC-14) suite + its registration shim — same stub-theme patterns as
@@ -22,15 +25,13 @@
  */
 import { describe, expect, test } from "vitest";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { Text, visibleWidth } from "@earendil-works/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import { buildCompletion, type CompletionRecapEntry } from "./delivery.js";
 import { computeDiff } from "./snapshots.js";
 import { createInterrogationState } from "./state.js";
 import {
   buildCompletionRecapCard,
   buildSubmissionCard,
-  COLLAPSED_ENTRY_CAP,
-  COLLAPSED_LINE_BUDGET,
   registerCompletionRecapRenderer,
   registerSubmissionCardRenderer,
   type CardRenderOptions,
@@ -169,20 +170,34 @@ describe("buildSubmissionCard", () => {
     expect(ls[0]).not.toContain("epoch");
   });
 
-  test("collapsed truncation: long entry line is cut to the visible budget", () => {
+  test("FULL-TRANSCRIPT-001: long entry line renders IN FULL when collapsed", () => {
     const data = card({ changed: [entry({ to: "y".repeat(200) })] });
-    const out = buildSubmissionCard(msg(data), collapsed, stubTheme);
-    const line = lines(out).find((l) => l.includes("Database:"));
-    expect(line).toBeDefined();
-    expect(visibleWidth(line as string)).toBeLessThanOrEqual(COLLAPSED_LINE_BUDGET);
-    // Head of the value survives (truncation cuts the tail, keeps the start).
-    expect(line).toContain("Database: sqlite → yyy");
+    for (const opts of [collapsed, expanded]) {
+      const out = buildSubmissionCard(msg(data), opts, stubTheme);
+      const line = lines(out).find((l) => l.includes("Database:"));
+      expect(line).toBeDefined();
+      // The ENTIRE value survives in the default (collapsed) view — no
+      // 80-column cut; the look-back record shows every word the model got.
+      expect(line).toContain(`Database: sqlite → ${"y".repeat(200)}`);
+    }
   });
 
-  test("WRITEIN-001: ✎ write-in entry renders; collapsed truncates to budget; expanded shows full text", () => {
+  test("FULL-TRANSCRIPT-001: multi-line elaboration flattens row-safely, never truncates", () => {
+    // A \n inside a card line would execute a real line feed and desync
+    // the differential renderer (SANITIZE-001 lesson) — display-only
+    // flatten to " / ", the model-visible grammar (BUG-006).
+    const data = card({ changed: [entry({ to: "postgres — line one\nline two\n\nline three" })] });
+    for (const opts of [collapsed, expanded]) {
+      const ls = lines(buildSubmissionCard(msg(data), opts, stubTheme));
+      expect(ls.some((l) => l.includes("postgres — line one / line two / line three"))).toBe(true);
+      expect(ls.some((l) => l.includes("\n"))).toBe(false);
+    }
+  });
+
+  test("WRITEIN-001: ✎ write-in entry renders IN FULL in both modes", () => {
     const longWriteIn = "✎ " + "w".repeat(200);
 
-    // Collapsed: prefix survives, line obeys the visible budget.
+    // Collapsed (default): the FULL write-in text renders — never budget-cut.
     const collapsedOut = buildSubmissionCard(
       msg(card({ changed: [entry({ from: "SQLite", to: longWriteIn })] })),
       collapsed,
@@ -190,16 +205,53 @@ describe("buildSubmissionCard", () => {
     );
     const line = lines(collapsedOut).find((l) => l.includes("Database:"));
     expect(line).toBeDefined();
-    expect(line).toContain("Database: SQLite → ✎ www");
-    expect(visibleWidth(line as string)).toBeLessThanOrEqual(COLLAPSED_LINE_BUDGET);
+    expect(line).toBe(`  Database: SQLite → ${longWriteIn}`);
 
-    // Expanded: the full write-in text renders untruncated.
+    // Expanded: identical user-input content.
     const expandedOut = buildSubmissionCard(
       msg(card({ changed: [entry({ from: "SQLite", to: longWriteIn })] })),
       expanded,
       stubTheme,
     );
     expect(lines(expandedOut).some((l) => l.includes(longWriteIn))).toBe(true);
+  });
+
+  test("FULL-TRANSCRIPT-001: entry prompt renders as a dim indented line under the entry", () => {
+    const data = card({
+      changed: [
+        entry({ prompt: "Which database engine should back the service?" }),
+        entry({ id: "q2", title: "Cache", from: "none", to: "redis", prompt: "Cache?" }),
+      ],
+    });
+    for (const opts of [collapsed, expanded]) {
+      const ls = lines(buildSubmissionCard(msg(data), opts, stubTheme));
+      // Full prompt text on its own deeper-indented line, both modes.
+      expect(ls).toContainEqual("    Which database engine should back the service?");
+      expect(ls).toContainEqual("    Cache?");
+    }
+
+    // Prompt is dim-styled (metadata tint; the user still reads every word).
+    const tagged = lines(buildSubmissionCard(msg(data), collapsed, tagTheme));
+    expect(tagged).toContainEqual("[dim]    Which database engine should back the service?[/]");
+  });
+
+  test("FULL-TRANSCRIPT-001: prompt line skipped when title already shows it (or key absent)", () => {
+    // title === prompt (prompt-only question) and a legacy entry without
+    // the key: the title line IS the full question — never duplicated.
+    const data = card({
+      changed: [entry({ title: "Which database?", prompt: "Which database?" }), entry()],
+    });
+    for (const opts of [collapsed, expanded]) {
+      const ls = lines(buildSubmissionCard(msg(data), opts, stubTheme));
+      expect(ls.filter((l) => l.includes("Which database?"))).toHaveLength(1);
+    }
+  });
+
+  test("FULL-TRANSCRIPT-001: multi-line prompt flattens row-safely", () => {
+    const data = card({ changed: [entry({ prompt: "line one\nline two" })] });
+    const ls = lines(buildSubmissionCard(msg(data), collapsed, stubTheme));
+    expect(ls).toContainEqual("    line one / line two");
+    expect(ls.some((l) => l.includes("\n"))).toBe(false);
   });
 
   test("WRITEIN-001 end-to-end: custom answer flows answerSummary → computeDiff → card line", () => {
@@ -222,14 +274,27 @@ describe("buildSubmissionCard", () => {
     expect(lines(out).some((l) => l.includes("Wildcard: Alpha → ✎ my own text"))).toBe(true);
   });
 
-  test("collapsed entry cap: 10 entries → cap lines + `+{m} more` rollup", () => {
+  test("FULL-TRANSCRIPT-001: NO entry cap — every changed entry renders when collapsed", () => {
     const data = card({
       changed: Array.from({ length: 10 }, (_, i) => entry({ id: `q${i}`, title: `T${i}` })),
     });
     const out = buildSubmissionCard(msg(data), collapsed, stubTheme);
     const ls = lines(out);
-    expect(ls.filter((l) => /T\d+: sqlite → postgres/.test(l)).length).toBe(COLLAPSED_ENTRY_CAP);
-    expect(ls.some((l) => l.includes("+2 more"))).toBe(true);
+    // ALL ten render — no `+{m} more` rollup hides what the user shipped.
+    expect(ls.filter((l) => /T\d+: sqlite → postgres/.test(l)).length).toBe(10);
+    expect(ls.some((l) => l.includes("more"))).toBe(false);
+  });
+
+  test("FULL-TRANSCRIPT-001: NOTE line renders IN FULL when collapsed (multi-line flattened)", () => {
+    const longNote = "n".repeat(200);
+    const data = card({ note: longNote, changed: [entry()] });
+    const ls = lines(buildSubmissionCard(msg(data), collapsed, stubTheme));
+    expect(ls.some((l) => l.includes(`NOTE: ${longNote}`))).toBe(true);
+
+    const multi = card({ note: "first line\nsecond line" });
+    const mls = lines(buildSubmissionCard(msg(multi), collapsed, stubTheme));
+    expect(mls.some((l) => l.includes("NOTE: first line / second line"))).toBe(true);
+    expect(mls.some((l) => l.includes("\n"))).toBe(false);
   });
 
   test("defensive: missing details, missing card, or sparse changed → no throw", () => {
@@ -369,36 +434,69 @@ describe("buildCompletionRecapCard", () => {
     expect(ls.some((l) => l.includes("NOTE:"))).toBe(false);
   });
 
-  test("collapsed truncation: long free-text line cut to the visible budget", () => {
+  test("FULL-TRANSCRIPT-001: long free-text renders IN FULL when collapsed", () => {
+    const longFree = "f".repeat(300);
     const d = recapDetails({
-      groups: [{ group: "Storage", questions: [recap({ freeText: "f".repeat(300) })] }],
+      groups: [{ group: "Storage", questions: [recap({ freeText: longFree })] }],
     });
-    const line = lines(buildCompletionRecapCard(d, collapsed, stubTheme, "")).find((l) =>
-      l.includes("Database:"),
-    );
-    expect(line).toBeDefined();
-    expect(visibleWidth(line as string)).toBeLessThanOrEqual(COLLAPSED_LINE_BUDGET);
-    expect(line).toContain("Database: postgres — fff");
+    for (const opts of [collapsed, expanded]) {
+      const line = lines(buildCompletionRecapCard(d, opts, stubTheme, "")).find((l) =>
+        l.includes("Database:"),
+      );
+      expect(line).toBeDefined();
+      expect(line).toContain(`Database: postgres — ${longFree}`);
+    }
   });
 
-  test("WRITEIN-001: ✎ write-in entry in the recap card; collapsed keeps the prefix within budget; expanded shows the full text", () => {
+  test("FULL-TRANSCRIPT-001: multi-line free-text flattens row-safely in both modes", () => {
+    const d = recapDetails({
+      groups: [{ group: "Storage", questions: [recap({ freeText: "para one\npara two" })] }],
+    });
+    for (const opts of [collapsed, expanded]) {
+      const ls = lines(buildCompletionRecapCard(d, opts, stubTheme, ""));
+      expect(ls.some((l) => l.includes("postgres — para one / para two"))).toBe(true);
+      expect(ls.some((l) => l.includes("\n"))).toBe(false);
+    }
+  });
+
+  test("FULL-TRANSCRIPT-001: recap entry prompt renders dim-indented under the question line", () => {
+    const d = recapDetails({
+      groups: [
+        {
+          group: "Storage",
+          questions: [recap({ prompt: "Which database engine should back the service?" })],
+        },
+      ],
+    });
+    for (const opts of [collapsed, expanded]) {
+      const ls = lines(buildCompletionRecapCard(d, opts, stubTheme, ""));
+      expect(ls).toContainEqual("  Which database engine should back the service?");
+    }
+    const tagged = lines(buildCompletionRecapCard(d, collapsed, tagTheme, ""));
+    expect(tagged).toContainEqual("[dim]  Which database engine should back the service?[/]");
+  });
+
+  test("FULL-TRANSCRIPT-001: NOTES render when collapsed (user input is never mode-gated)", () => {
+    const d = recapDetails({ notes: ["prefer sqlite compat", "second batch note"] });
+    const ls = lines(buildCompletionRecapCard(d, collapsed, stubTheme, ""));
+    expect(ls).toContainEqual(expect.stringContaining("NOTE: prefer sqlite compat"));
+    expect(ls).toContainEqual(expect.stringContaining("NOTE: second batch note"));
+  });
+
+  test("WRITEIN-001: ✎ write-in recap entry renders IN FULL in both modes", () => {
     const longWriteIn = "✎ " + "w".repeat(200); // what completionAnswerSummary ships
     const d = recapDetails({
       groups: [
         { group: "Storage", questions: [recap({ id: "w1", title: "Wildcard", answer: longWriteIn })] },
       ],
     });
-    const collapsedLine = lines(buildCompletionRecapCard(d, collapsed, stubTheme, "")).find((l) =>
-      l.includes("Wildcard:"),
-    );
-    expect(collapsedLine).toBeDefined();
-    expect(collapsedLine).toContain("✎ ");
-    expect(visibleWidth(collapsedLine as string)).toBeLessThanOrEqual(COLLAPSED_LINE_BUDGET);
-
-    const expandedLine = lines(buildCompletionRecapCard(d, expanded, stubTheme, "")).find((l) =>
-      l.includes("Wildcard:"),
-    );
-    expect(expandedLine?.includes(longWriteIn)).toBe(true); // no truncation expanded
+    for (const opts of [collapsed, expanded]) {
+      const line = lines(buildCompletionRecapCard(d, opts, stubTheme, "")).find((l) =>
+        l.includes("Wildcard:"),
+      );
+      expect(line).toBeDefined();
+      expect(line).toContain(longWriteIn);
+    }
   });
 
   test("WRITEIN-001 end-to-end: custom answer flows completionAnswerSummary → recap entry → card line", () => {

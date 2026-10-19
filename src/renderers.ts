@@ -26,42 +26,55 @@
  *    final answer and ★, completion timestamp; expanded adds the
  *    withdrawn/moot reasons, full free-text, NOTES and the epoch line.
  *
- * [Mode A] Display budgets (collapsed):
+ * [Mode A] Display budgets (collapsed) — FULL-TRANSCRIPT-001 (2026-10-19
+ * owner ruling, h2.36 amendment): the card is the user's DURABLE record of
+ * what they told the model, so user-authored input is NEVER truncated,
+ * capped, or hidden — in EITHER mode:
  * - Header line: `Submitted {k} changed · epoch {n}` (k = change count).
- * - One line per changed answer, capped at {@link COLLAPSED_ENTRY_CAP}
- *   entries with a `+{m} more` rollup line when exceeded.
- * - Each entry/note line is truncated to {@link COLLAPSED_LINE_BUDGET}
- *   visible columns via `truncateToWidth` (ANSI-aware; never String.slice).
- *   A very long entry may therefore lose its `(changed)` suffix to the
- *   budget — the budget is the contract.
+ * - One line per changed answer — ALL of them, no entry cap — each showing
+ *   the full `{from} → {to}` summary (write-ins as `✎ {text}`, elaborations
+ *   as `— {text}`; single-line via the " / " flatten, never column-cut).
+ * - Under each entry, a dim indented line with the FULL question prompt
+ *   whenever the entry carries a `prompt` the title does not already show
+ *   in full (DiffEntry.prompt; prompt-only questions render it as the
+ *   title line itself — never duplicated).
  * - `NOTE: {note}` line only when a note shipped (card.note is ABSENT, not
- *   empty, when none — truthiness check).
+ *   empty, when none — truthiness check), in full.
  * - Footer `{remainOpen} remain open`.
  *
  * [Mode A] Display budgets (expanded):
- * - NO truncation, NO entry cap: every changed entry in full, the note in
- *   full. The header omits the inline epoch (it moves to a dedicated dim
+ * - IDENTICAL user-input content (the full-transcript rule is mode-blind);
+ * - the header omits the inline epoch (it moves to a dedicated dim
  *   `epoch {n}` footer line so it is not rendered twice).
+ *
+ * The collapsed/expanded toggle therefore differentiates METADATA only —
+ * never what the user said. The old 80-column truncation and 8-entry cap
+ * are DELETED (superseded; the same FR-23 "nothing is truncated" principle
+ * the panel already follows).
  *
  * GOTCHAS honored here: relative imports use `.js` (repo ESM convention);
  * theme.fg is applied PER LINE (styles don't survive Text wrapping across
- * lines); truncateToWidth runs AFTER composing the themed string; the
+ * lines); every full-text line passes through {@link flattenLine} so a
+ * literal newline can never desync the differential renderer's row model
+ * (the SANITIZE-001 lesson — display-only; `details` keep raw text); the
  * renderer is synchronous, cheap, and never throws on sparse shapes — a
  * message without `details.card` falls back to the plain content text.
  */
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { Box, Text } from "@earendil-works/pi-tui";
 import type { CompletionMessage } from "./delivery.js";
 import { UNANSWERED_SUMMARY, type SubmissionCardData } from "./snapshots.js";
 
-/** Visible-column budget for each collapsed card line (h2.36 compact card). */
-export const COLLAPSED_LINE_BUDGET = 80;
-
 /**
- * Max changed-answer lines shown collapsed; overflow rolls up into a
- * `+{m} more` line instead of unbounded vertical growth.
+ * Display-only single-line flatten for full-text card lines (FULL-TRANSCRIPT-001):
+ * newline/tab runs collapse to `" / "` — the same grammar the model-visible
+ * NOTE/continuation lines use (BUG-006). The user sees the same single-line
+ * form the model received, while `details` keep the raw multi-line text.
+ * Row-model safety (SANITIZE-001 lesson): pi-tui paints each array element
+ * as one terminal row, so a literal `\n` inside a card line would execute a
+ * real line feed and desync the differential renderer.
  */
-export const COLLAPSED_ENTRY_CAP = 8;
+const flattenLine = (s: string): string => s.replace(/[\n\t]+/g, " / ");
 
 /** AC-13 suffix (theme-styled) for `editedArchived` entries. */
 const CHANGED_MARKER = " (changed)";
@@ -94,29 +107,33 @@ export interface SubmissionCardMessage {
  * Build the submission diff card component (PURE — a function of the
  * message and options only; reads no live state, mutates nothing).
  *
- * Collapsed (default, h2.36 compact):
+ * FULL-TRANSCRIPT-001 (h2.36 amendment, 2026-10-19): the card is the
+ * user's durable look-back record of exactly what they told the model —
+ * question text, answer, elaboration, note — so user-authored input
+ * renders IN FULL in BOTH modes. Collapsed (default):
  *
  * ```
  * Submitted {k} changed · epoch {n}
  *   {title}: {to}[ (changed)]              ← FIRST answers — never
- *                                           "(unanswered)" (≤ cap lines,
- *                                           80-col truncation)
+ *                                           "(unanswered)" (ALL entries,
+ *                                           never column-truncated)
  *   {title}: {from} → {to}[ (changed)]     ← RE-answers (real prior answer)
- *   [+{m} more]                            ← rollup when over the cap
- *   [NOTE: {note}]                         ← only when a note shipped
+ *     {prompt}                              ← dim, ONLY when the title does
+ *                                           not already show the full prompt
+ *   [NOTE: {note}]                         ← only when a note shipped, in full
  * {remainOpen} remain open
  * ```
  *
  * `editedArchived` entries get the ` (changed)` suffix styled
  * `theme.fg("warning", …)` (AC-13); the `NOTE:` label is styled
  * `theme.fg("accent", …)`; header suffix and footer are
- * `theme.fg("muted", …)`. Every line is a separate Text child inside a
- * padding-free Box so per-line theming survives rendering.
+ * `theme.fg("muted", …)`; prompt lines are `theme.fg("dim", …)`. Every
+ * line is a separate Text child inside a padding-free Box so per-line
+ * theming survives rendering.
  *
- * Expanded: the same card with NO truncation and NO entry cap — every
- * changed entry in full and the note in full — plus a dim
- * `epoch {n}` footer line (the collapsed header's inline `· epoch {n}`
- * moves here so the epoch is never rendered twice).
+ * Expanded: IDENTICAL user-input content (the full-transcript rule is
+ * mode-blind) — plus a dim `epoch {n}` footer line (the collapsed header's
+ * inline `· epoch {n}` moves here so the epoch is never rendered twice).
  *
  * Defensive: a message without `details` or `details.card` (sparse shape,
  * foreign message, older payload) renders the plain `message.content`
@@ -163,44 +180,48 @@ export function buildSubmissionCard(
   );
 
   // Entry lines — one Text child per line (per-line theming; styles do not
-  // survive across lines of a single Text). truncateToWidth runs AFTER the
-  // themed string is composed (it is ANSI-aware); String.slice would be
-  // ANSI-unsafe. Collapsed truncates to the budget; expanded never does.
-  // Write-in answers (h2.42) arrive PRE-PREFIXED as `✎ {text}` in from/to
-  // from the summary layer (snapshots.answerSummary / delivery
-  // completionAnswerSummary) — no special-casing here: the existing
-  // truncateToWidth satisfies "truncated to fit" when collapsed, and the
-  // expanded branch shows the full write-in text.
-  const shown = expanded ? entries : entries.slice(0, COLLAPSED_ENTRY_CAP);
-  for (const e of shown) {
+  // survive across lines of a single Text). FULL-TRANSCRIPT-001: EVERY
+  // changed entry renders in BOTH modes — no entry cap, no rollup, no
+  // column truncation; `to`/`from` are already single-line (BUG-006 flatten
+  // in snapshots.answerSummary) and carry the elaboration (`— {text}`,
+  // NEW-003) in full. Write-in answers (h2.42) arrive PRE-PREFIXED as
+  // `✎ {text}` in from/to from the summary layer — no special-casing here.
+  for (const e of entries) {
     // A FIRST-TIME answer never renders the "(unanswered)" sentinel as the
     // from side — "Question q1: (unanswered) → Alpha" reads as unanswered
-    // AFTER the user answered it (and collapsed 80-col truncation can cut
-    // the answer off right after the sentinel, making "(unanswered)" the
-    // visible takeaway). First answers render `{title}: {to}` alone; only
-    // re-answers — a real prior answer existed — show `{from} → {to}`.
-    // Answer CLEARANCES keep the full form: `Alpha → (unanswered)` is
-    // honest (the question IS unanswered now).
+    // AFTER the user answered it. First answers render `{title}: {to}`
+    // alone; only re-answers — a real prior answer existed — show
+    // `{from} → {to}`. Answer CLEARANCES keep the full form:
+    // `Alpha → (unanswered)` is honest (the question IS unanswered now).
     const from = e?.from ?? "";
     const hadPriorAnswer = from !== "" && from !== UNANSWERED_SUMMARY;
     let line = hadPriorAnswer
-      ? `${INDENT}${e?.title ?? ""}: ${from} → ${e?.to ?? ""}`
-      : `${INDENT}${e?.title ?? ""}: ${e?.to ?? ""}`;
+      ? `${INDENT}${e?.title ?? ""}: ${from} → ${flattenLine(e?.to ?? "")}`
+      : `${INDENT}${e?.title ?? ""}: ${flattenLine(e?.to ?? "")}`;
     if (e?.editedArchived) line += theme.fg("warning", CHANGED_MARKER); // AC-13
-    box.addChild(new Text(expanded ? line : truncateToWidth(line, COLLAPSED_LINE_BUDGET), outputPad, 0));
-  }
+    box.addChild(new Text(line, outputPad, 0));
 
-  // Collapsed cap rollup: summarize what the budget hid.
-  if (!expanded && entries.length > COLLAPSED_ENTRY_CAP) {
-    const rollup = `${INDENT}+${entries.length - COLLAPSED_ENTRY_CAP} more`;
-    box.addChild(new Text(truncateToWidth(theme.fg("muted", rollup), COLLAPSED_LINE_BUDGET), outputPad, 0));
+    // FULL-TRANSCRIPT-001: the question's full prompt rides under the
+    // entry — dim, indented one level deeper — ONLY when the entry carries
+    // a `prompt` the title line does not already show in full (prompt-only
+    // questions ARE their own title; legacy entries without the key render
+    // the title line alone; the data layer omits equal prompts, and this
+    // display-side check makes the dedupe defensive against hand-built
+    // payloads). flattenLine keeps the row model safe on multi-line prompts
+    // (SANITIZE-001 lesson).
+    if (typeof e?.prompt === "string" && e.prompt !== "" && e.prompt !== (e?.title ?? "")) {
+      box.addChild(
+        new Text(theme.fg("dim", `${INDENT}${INDENT}${flattenLine(e.prompt)}`), outputPad, 0),
+      );
+    }
   }
 
   // NOTE line — card.note is ABSENT (not empty string) when no note shipped
-  // (computeDiff omits it), so truthiness — never .length.
+  // (computeDiff omits it), so truthiness — never .length. FULL-TRANSCRIPT-
+  // 001: in full, both modes (flattenLine for row-model safety).
   if (card.note) {
-    const line = `${INDENT}${theme.fg("accent", "NOTE:")} ${card.note}`;
-    box.addChild(new Text(expanded ? line : truncateToWidth(line, COLLAPSED_LINE_BUDGET), outputPad, 0));
+    const line = `${INDENT}${theme.fg("accent", "NOTE:")} ${flattenLine(card.note)}`;
+    box.addChild(new Text(line, outputPad, 0));
   }
 
   // Footer.
@@ -276,8 +297,8 @@ export type CompletionRecapDetails = CompletionMessage["details"];
  * - `goal: string` — interrogation goal (header).
  * - `groups: CompletionRecapGroup[]` — `{ group, questions }` in
  *   first-appearance order; entries are `CompletionRecapEntry`
- *   `{ id, title, answer, star, freeText?, answeredAt? }` where the
- *   `freeText`/`answeredAt` keys are OMITTED when absent (truthiness —
+ *   `{ id, title, prompt?, answer, star, freeText?, answeredAt? }` where the
+ *   `prompt`/`freeText`/`answeredAt` keys are OMITTED when absent (truthiness —
  *   never `.length`).
  * - `notes: string[]` — batch notes in order; may be [].
  * - `withdrawnMoot: { id, status: "withdrawn"|"moot", reason }[]` —
@@ -285,23 +306,26 @@ export type CompletionRecapDetails = CompletionMessage["details"];
  *   dependencies. May be [].
  * - `completedAt: string` (ISO), `epoch: number` (frozen at build).
  *
- * [Mode A] Display budgets (collapsed — AC-14):
+ * [Mode A] Display budgets (collapsed — AC-14, FULL-TRANSCRIPT-001
+ * amendment 2026-10-19: user-authored input is never truncated or hidden in
+ * either mode):
  * - Header `INTERROGATION COMPLETE — {goal}` (toolTitle+bold title).
  * - One line per question, grouped: `[group] {id} {title}: {answer}{ ★}`
- *   (★ accent-styled when the answer followed the recommendation). Each
- *   line — free-text included — is truncated to {@link COLLAPSED_LINE_BUDGET}
- *   visible columns via truncateToWidth (ANSI-aware; never String.slice).
+ *   (★ accent-styled when the answer followed the recommendation), with
+ *   `— {freeText}` in full on the line — write-ins as `✎ {text}` — plus a
+ *   dim indented line with the FULL prompt when the entry carries one the
+ *   title does not already show in full. NEVER column-truncated.
+ * - `NOTE: {note}` per details.notes — user input, so BOTH modes (section
+ *   skipped silently when empty).
  * - Dim footer `completed {toLocaleString}`; plus `{n} withdrawn/moot`
- *   count hint when n > 0 (details are expanded-only).
+ *   count hint when n > 0 (agent-side metadata: reasons are expanded-only).
  *
  * [Mode A] Display budgets (expanded):
- * - NO truncation: `— {freeText}` in full on the question line, a dim
- *   `answered {toLocaleString}` line under each answered question,
- *   `NOTE: {note}` per details.notes (section skipped silently when
- *   empty), a `Withdrawn/moot:` section with `{id} ({status}: {reason})`
- *   lines (or `(none)`), the dim `completed …` footer, and a dim
- *   `epoch {n}` line. The collapsed count hint is suppressed — the full
- *   section replaces it.
+ * - The same never-truncated user-input lines, plus METADATA: a dim
+ *   `answered {toLocaleString}` line under each answered question, a
+ *   `Withdrawn/moot:` section with `{id} ({status}: {reason})` lines (or
+ *   `(none)`), the dim `completed …` footer, and a dim `epoch {n}` line.
+ *   The collapsed count hint is suppressed — the full section replaces it.
  *
  * Defensive: undefined `details` or empty/absent `groups` renders plain
  * `fallbackContent` (the shim passes message.content) as a Text.
@@ -344,17 +368,28 @@ export function buildCompletionRecapCard(
   );
 
   // Question lines — one Text child per line (per-line theming; styles do
-  // not survive across lines of a single Text). Collapsed truncates the
-  // whole themed line to the shared budget (free-text included; composed
-  // first, truncated after — truncateToWidth is ANSI-aware). Expanded never
-  // truncates and adds the dim answeredAt line under answered questions.
+  // not survive across lines of a single Text). FULL-TRANSCRIPT-001: never
+  // column-truncated in EITHER mode — answer + free-text render in full
+  // (flattenLine keeps multi-line text row-safe, SANITIZE-001 lesson). Under
+  // each line, the FULL prompt when the entry carries one the title does
+  // not already show. Expanded additionally adds the dim answeredAt line
+  // under answered questions (metadata, mode-gated).
   for (const g of groups) {
     const questions = Array.isArray(g?.questions) ? g.questions : [];
     for (const q of questions) {
-      let line = `[${g?.group ?? ""}] ${q?.id ?? ""} ${q?.title ?? ""}: ${q?.answer ?? ""}`;
+      let line = `[${g?.group ?? ""}] ${q?.id ?? ""} ${q?.title ?? ""}: ${flattenLine(q?.answer ?? "")}`;
       if (q?.star) line += ` ${theme.fg("accent", "★")}`;
-      if (q?.freeText) line += ` — ${q.freeText}`; // key omitted when absent → truthiness
-      box.addChild(new Text(expanded ? line : truncateToWidth(line, COLLAPSED_LINE_BUDGET), outputPad, 0));
+      if (q?.freeText) line += ` — ${flattenLine(q.freeText)}`; // key omitted when absent → truthiness
+      box.addChild(new Text(line, outputPad, 0));
+      if (
+        typeof q?.prompt === "string" &&
+        q.prompt !== "" &&
+        q.prompt !== (q?.title ?? "")
+      ) {
+        box.addChild(
+          new Text(theme.fg("dim", `${INDENT}${flattenLine(q.prompt)}`), outputPad, 0),
+        );
+      }
       if (expanded && q?.answeredAt) {
         box.addChild(
           new Text(
@@ -367,12 +402,11 @@ export function buildCompletionRecapCard(
     }
   }
 
-  // NOTES — expanded-only, one line per note; skipped silently when empty.
-  if (expanded) {
-    for (const note of notes) {
-      if (!note) continue;
-      box.addChild(new Text(`${INDENT}${theme.fg("accent", "NOTE:")} ${note}`, outputPad, 0));
-    }
+  // NOTES — user-authored input (FULL-TRANSCRIPT-001): BOTH modes, one line
+  // per note in full; skipped silently when empty.
+  for (const note of notes) {
+    if (!note) continue;
+    box.addChild(new Text(`${INDENT}${theme.fg("accent", "NOTE:")} ${flattenLine(note)}`, outputPad, 0));
   }
 
   // Withdrawn/moot — collapsed gets a count hint, expanded the full

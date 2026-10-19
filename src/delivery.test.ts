@@ -735,6 +735,7 @@ describe("buildCompletion (P1.M2.T1.S3 — the one full injection)", () => {
     expect(storage.find((e) => e.id === "storage")).toEqual({
       id: "storage",
       title: "Storage engine",
+      prompt: "prompt for storage", // FULL-TRANSCRIPT-001: prompt the title hides
       answer: "SQLite",
       star: true,
       freeText: "We already run sqlite everywhere.",

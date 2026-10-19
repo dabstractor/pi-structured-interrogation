@@ -617,6 +617,7 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
     expect(diff.changed[0]).toEqual({
       id: "q1",
       title: "Database",
+      prompt: "Which database?", // FULL-TRANSCRIPT-001: prompt the title hides
       from: "SQLite",
       to: "Postgres",
       editedArchived: true,

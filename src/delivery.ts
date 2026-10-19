@@ -36,7 +36,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { evaluateDependsOn } from "./depends-on.js";
-import { takeSnapshot, type DiffEntry, type SubmissionCardData } from "./snapshots.js";
+import { takeSnapshot, transcriptPrompt, type DiffEntry, type SubmissionCardData } from "./snapshots.js";
 import { UNGROUPED_LABEL, type InterrogationState, type Question } from "./state.js";
 
 /** Fixed reminder line (h3.6) — the second content line, byte-exact. */
@@ -301,6 +301,13 @@ export interface CompletionRecapEntry {
   id: string;
   /** `title ?? prompt`. */
   title: string;
+  /**
+   * FULL-TRANSCRIPT-001 (h2.36 amendment, 2026-10-19): the question's FULL
+   * prompt — key present ONLY when the title does not already show it in
+   * full, mirroring DiffEntry.prompt (snapshots.transcriptPrompt rule).
+   * Recap-card-only data: the h2.46 record's `content` stays byte-exact.
+   */
+  prompt?: string;
   /** Label-preferred answer summary; "(unanswered)" when no answer exists. */
   answer: string;
   /** True iff the answer followed the recommendation. */
@@ -468,6 +475,8 @@ export function buildCompletion(state: InterrogationState, notes?: string[]): Co
       answer: completionAnswerSummary(q),
       star,
     };
+    const prompt = transcriptPrompt(q.prompt, entry.title); // FULL-TRANSCRIPT-001
+    if (prompt !== undefined) entry.prompt = prompt;
     if (hasFreeText) entry.freeText = freeText;
     if (q.answer !== undefined) entry.answeredAt = q.answer.at;
     group.questions.push(entry);

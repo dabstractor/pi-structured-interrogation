@@ -356,25 +356,36 @@ export async function loadConfig(cwd: string): Promise<InterrogatorConfig> {
 }
 
 /**
- * Normalize one accelerator string into a display label: split on "+",
- * trim, lowercase, then capitalize each token. "ctrl+shift+m" →
- * "Ctrl+Shift+M"; "tab" → "Tab"; "shift+tab" → "Shift+Tab".
+ * Normalize one accelerator string into a display label. BARE keys (no
+ * "+") render EXACTLY as bound — a lowercase `d` displays as `d`, never
+ * `D`: a capitalized hint implies shift and lies about the binding
+ * (KEYMNEMONICS-001 amendment, 2026-10-19). Chords title-case each token
+ * for readability — "ctrl+shift+m" → "Ctrl+Shift+M"; "tab" → "Tab" —
+ * harmless there because modifier chords normalize letter case at match
+ * time.
  */
 function labelFor(accelerator: string): string {
-  return accelerator
-    .split("+")
-    .map((token) => {
-      const t = token.trim().toLowerCase();
-      return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
-    })
+  const tokens = accelerator.split("+").map((token) => token.trim().toLowerCase());
+  // BARE single-LETTER keys render verbatim — "d" is not "D": a
+  // capitalized letter implies shift and lies about the binding
+  // (KEYMNEMONICS-001 amendment, 2026-10-19). Named keys (tab, f9) and
+  // chords keep title-case typography — names, not shifted letters.
+  if (tokens.length === 1) {
+    const t = tokens[0] ?? "";
+    return t.length === 1 ? t : t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  return tokens
+    .map((t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t))
     .join("+");
 }
 
 /**
  * Display labels for every {@link KeyAction}, derived from the resolved
  * (possibly rebound) `config.keys` — e.g. `{ submit: "ctrl+enter" }` labels
- * submit as "Ctrl+Enter". Guarantees one label per action so that NO display
- * string in the extension ever hardcodes a key name (PRD h2.52).
+ * submit as "Ctrl+Enter", while bare keys display verbatim (`d` stays `d` —
+ * a capitalized bare letter would imply shift). Guarantees one label per
+ * action so that NO display string in the extension ever hardcodes a key
+ * name (PRD h2.52).
  *
  * Consumers: panel footer (P1.M3.T1.S2), widget (P1.M6.T1.S1), dialogs.
  */

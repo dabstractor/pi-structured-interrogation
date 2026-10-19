@@ -328,11 +328,11 @@ describe("renderFooter", () => {
     const labels = resolveKeyLabels(mkConfig());
     const line = renderFooter(mkState(), "short", labels, theme, 120);
     expect(line).toContain("0/1 answered ·"); // re-asked segment omitted at zero (2026-09-30)
-    expect(line).toContain("D deep");
-    expect(line).toContain("I list");
-    expect(line).toContain("C chat");
-    expect(line).toContain("E explain");
-    expect(line).toContain("N note");
+    expect(line).toContain("d deep");
+    expect(line).toContain("i list");
+    expect(line).toContain("c chat");
+    expect(line).toContain("e explain");
+    expect(line).toContain("n note");
     expect(line).toContain("Ctrl+S submit");
     expect(line).not.toContain("enter"); // FOOTER-001: ubiquitous keys never hinted
     expect(line).not.toContain("esc");
@@ -343,14 +343,14 @@ describe("renderFooter", () => {
     const labels = resolveKeyLabels(mkConfig());
     const deep = renderFooter(mkState(), "deep", labels, theme, 120);
     expect(deep).toContain("Ctrl+S submit");
-    expect(deep).toContain("I list");
-    expect(deep).toContain("C chat");
-    expect(deep).toContain("E explain");
+    expect(deep).toContain("i list");
+    expect(deep).toContain("c chat");
+    expect(deep).toContain("e explain");
     expect(deep).not.toContain("esc back");
     expect(deep).not.toContain("↑/↓ scroll");
     const overview = renderFooter(mkState(), "overview", labels, theme, 120);
-    expect(overview).toContain("D deep");
-    expect(overview).toContain("C chat");
+    expect(overview).toContain("d deep");
+    expect(overview).toContain("c chat");
     expect(overview).not.toContain("enter jump");
     expect(overview).not.toContain("esc back");
   });
@@ -361,11 +361,11 @@ describe("renderFooter", () => {
     const reboundLabels = resolveKeyLabels(mkConfig({ deep: "ctrl+x", submit: "f9" }));
     const before = renderFooter(state, "short", defaultLabels, theme, 120);
     const after = renderFooter(state, "short", reboundLabels, theme, 120);
-    expect(before).toContain("D deep");
+    expect(before).toContain("d deep");
     expect(before).toContain("Ctrl+S submit");
     expect(after).toContain("Ctrl+X deep");
     expect(after).toContain("F9 submit");
-    expect(after).not.toContain("D deep");
+    expect(after).not.toContain("d deep");
     expect(after).not.toContain("Ctrl+S submit");
   });
 
@@ -374,11 +374,11 @@ describe("renderFooter", () => {
     const state = mkState();
 
     const wide = renderFooter(state, "short", labels, theme, 60);
-    expect(wide).toContain("D deep"); // leftmost feature hint survives first
-    expect(wide).toContain("I list");
-    expect(wide).toContain("C chat");
-    expect(wide).toContain("E explain");
-    expect(wide).not.toContain("N note"); // rightmost features yield first
+    expect(wide).toContain("d deep"); // leftmost feature hint survives first
+    expect(wide).toContain("i list");
+    expect(wide).toContain("c chat");
+    expect(wide).toContain("e explain");
+    expect(wide).not.toContain("n note"); // rightmost features yield first
     expect(wide).not.toContain("Ctrl+S submit");
     expect(wide).not.toContain("enter");
     expect(visibleWidth(wide)).toBeLessThanOrEqual(60);
@@ -412,9 +412,9 @@ describe("renderFooter", () => {
     });
     expect(text).toContain("Ctrl+S submit");
     expect(text).toContain("Ctrl+G editor");
-    expect(text).not.toContain("D deep");
-    expect(text).not.toContain("C chat");
-    expect(text).not.toContain("E explain");
+    expect(text).not.toContain("d deep");
+    expect(text).not.toContain("c chat");
+    expect(text).not.toContain("e explain");
     expect(text).not.toContain("enter save"); // ubiquitous keys never labeled
     expect(text).not.toContain("esc esc");
 
@@ -707,14 +707,14 @@ describe("renderFooter narrow mode (h2.30, P1.M7.T5.S1)", () => {
     // Roomy width: the narrow FILTER (not the fit loop) must do the work.
     const short = renderFooter(mkState(), "short", labels, theme, 120, true);
     expect(short).toContain("Ctrl+S submit");
-    expect(short).toContain("D deep");
-    expect(short).not.toContain("I list"); // excluded by the 2-key cap
+    expect(short).toContain("d deep");
+    expect(short).not.toContain("i list"); // excluded by the 2-key cap
     expect(short).not.toContain("enter"); // no statics exist to keep (FOOTER-001)
 
     const deep = renderFooter(mkState(), "deep", labels, theme, 120, true);
     expect(deep).toContain("Ctrl+S submit");
-    expect(deep).toContain("D deep"); // replaces deep's own list hint
-    expect(deep).not.toContain("I list");
+    expect(deep).toContain("d deep"); // replaces deep's own list hint
+    expect(deep).not.toContain("i list");
   });
 
   test("width 59 keeps exactly the submit + deep key hints — statics drop first", () => {
@@ -722,8 +722,8 @@ describe("renderFooter narrow mode (h2.30, P1.M7.T5.S1)", () => {
     // hints AND the statics fit at 59 — the ladder only sheds statics when
     // width demands it.
     const line = renderFooter(mkState(), "overview", shortLabels, theme, 59, true);
-    expect(line).toContain("S submit");
-    expect(line).toContain("D deep");
+    expect(line).toContain("s submit");
+    expect(line).toContain("d deep");
     expect(visibleWidth(line)).toBeLessThanOrEqual(59);
   });
 
@@ -731,7 +731,7 @@ describe("renderFooter narrow mode (h2.30, P1.M7.T5.S1)", () => {
     // Far below 59 every hint yields; the progress-only footer is still
     // exactly 1 line (progress + ⏎ never drop — module contract).
     const line = renderFooter(mkState(), "overview", shortLabels, theme, 31, true);
-    expect(line).toBe("└ 0/1 answered · S submit ⏎ ┘"); // enter jump/esc back/deep yielded; submit (leftmost key hint) survives
+    expect(line).toBe("└ 0/1 answered · s submit ⏎ ┘"); // enter jump/esc back/deep yielded; submit (leftmost key hint) survives
     expect(line.includes("\n")).toBe(false);
   });
 });

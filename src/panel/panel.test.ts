@@ -712,8 +712,8 @@ describe("view switching (built-in S1 bindings)", () => {
     const panel = new InterrogationPanel(panelArgsFor(state));
     panel.handleInput(CTRL_L);
     const lines = panel.render(120); // wide enough that no hint degrades away
-    expect(lines[lines.length - 1]).toContain("D deep"); // FOOTER-001: features advertised
-    expect(lines[lines.length - 1]).toContain("C chat");
+    expect(lines[lines.length - 1]).toContain("d deep"); // FOOTER-001: features advertised
+    expect(lines[lines.length - 1]).toContain("c chat");
     expect(lines[lines.length - 1]).not.toContain("enter jump"); // statics deleted
     expect(lines[lines.length - 1]).not.toContain("esc back");
   });
@@ -1043,16 +1043,16 @@ describe("terminal fallbacks (h2.30, P1.M7.T5.S1)", () => {
     // alongside enter accept (zero-re-asked omission freed the budget);
     // list is excluded by the 2-key cap, never by width.
     const narrowFooter = panel.render(59)[panel.render(59).length - 1]!;
-    expect(narrowFooter).toContain("S submit");
-    expect(narrowFooter).toContain("D deep");
+    expect(narrowFooter).toContain("s submit");
+    expect(narrowFooter).toContain("d deep");
     expect(narrowFooter).not.toContain("list");
 
     // 60 cols → NOT narrow: the full per-screen set returns; the fit loop
     // drops submit first and keeps deep + list — the boundary is visible.
     const wideLines = panel.render(60);
     const wideFooter = wideLines[wideLines.length - 1]!;
-    expect(wideFooter).toContain("D deep");
-    expect(wideFooter).not.toContain("S submit");
+    expect(wideFooter).toContain("d deep");
+    expect(wideFooter).not.toContain("s submit");
   });
 });
 

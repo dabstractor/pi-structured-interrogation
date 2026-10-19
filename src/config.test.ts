@@ -137,12 +137,12 @@ test("test_resolve_key_labels_covers_all_actions_with_default_config", async () 
   const labels = resolveKeyLabels(DEFAULT_CONFIG);
   expect(Object.keys(labels).sort()).toEqual(Object.keys(DEFAULT_CONFIG.keys).sort());
   expect(Object.keys(labels)).toHaveLength(9);
-  expect(labels.deep).toBe("D");
-  expect(labels.overview).toBe("I");
-  expect(labels.elaborate).toBe("E");
-  expect(labels.batchNote).toBe("N");
+  expect(labels.deep).toBe("d");
+  expect(labels.overview).toBe("i");
+  expect(labels.elaborate).toBe("e");
+  expect(labels.batchNote).toBe("n");
   expect(labels.submit).toBe("Ctrl+S");
-  expect(labels.chat).toBe("C");
+  expect(labels.chat).toBe("c");
   expect(labels.externalEditor).toBe("Ctrl+G");
   expect(labels.prevQuestion).toBe("Tab");
   expect(labels.nextQuestion).toBe("Shift+Tab");
@@ -157,7 +157,7 @@ test("test_resolve_key_labels_reflects_rebound_keys", async () => {
   expect(labels.submit).toBe("Ctrl+Enter");
   expect(labels.overview).toBe("Ctrl+Shift+L");
   // untouched actions still labeled from config
-  expect(labels.deep).toBe("D");
+  expect(labels.deep).toBe("d");
 });
 
 test("test_load_config_from_with_no_paths_returns_defaults", async () => {
@@ -199,7 +199,7 @@ describe("focusText→elaborate legacy alias (BAREKEYS-001)", () => {
     );
     const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
     expect(cfg.keys.elaborate).toBe(DEFAULT_CONFIG.keys.elaborate);
-    expect(resolveKeyLabels(cfg).elaborate).toBe("E");
+    expect(resolveKeyLabels(cfg).elaborate).toBe("e");
   });
 
   test("test_alias_invalid_elaborate_does_not_win_over_focusText", async () => {

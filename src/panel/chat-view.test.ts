@@ -67,7 +67,7 @@ describe("chat-view layout", () => {
       "  you › Should we use transactions?",
       "  Yes.",
       "",
-      "enter send · /clear · esc exit",
+      "/clear",
     ]);
   });
 
@@ -130,12 +130,11 @@ describe("chat-view layout", () => {
     expect(clampChatScroll(5, 999)).toBe(0); // short transcript: no scroll range
   });
 
-  test("footer_esc_word_variants", () => {
+  test("footer_is_state_invariant_clear_only (FOOTER-001)", () => {
     const idle = buildChatContent(80, 40, view([]), Q, keys);
-    expect(idle.at(-1)).toContain("esc exit");
+    expect(idle.at(-1)).toBe("/clear");
     const streaming = buildChatContent(80, 40, view([], "streaming"), Q, keys);
-    expect(streaming.at(-1)).toContain("esc abort");
-    expect(streaming.at(-1)).not.toContain("exit");
+    expect(streaming.at(-1)).toBe("/clear"); // no enter-send, no esc wording
   });
 
   test("footer_names_binding_when_remapped", () => {
@@ -150,17 +149,17 @@ describe("chat-view layout", () => {
   test("narrow_degradation", () => {
     const lines = buildChatContent(50, 40, view([]), Q, { ...keys, chat: "x" });
     const footer = lines.at(-1)!;
-    expect(footer).toBe("enter send · esc exit"); // /clear gone, statics survive
-    expect(footer).not.toContain("opens the chat on"); // binding-name dropped next
+    expect(footer).toBe("/clear"); // /clear never drops (FOOTER-001)
+    expect(footer).not.toContain("opens the chat on"); // binding-name dropped first
   });
 
   test("hint_suppress_and_tiny_rows", () => {
     const suppressed = buildChatContent(80, 20, view([]), Q, keys);
-    expect(suppressed.at(-1)).toBe("esc exit"); // statics suppressed, safety word alone
+    expect(suppressed.at(-1)).toBe("/clear"); // /clear survives hint suppression
 
     const many = Array.from({ length: 30 }, (_, i) => msg("user", `m${i}`));
     const tiny = buildChatContent(80, 10, view(many), Q, keys);
-    expect(tiny.at(-1)).toBe("esc exit");
+    expect(tiny.at(-1)).toBe("/clear");
     const windowLines = tiny.length - 3; // minus header, blank, footer
     expect(windowLines).toBeLessThanOrEqual(6); // max(1, rows - 4)
     expect(tiny[1]).toBe("  you › m24"); // still tail-pinned in the tiny window
@@ -199,7 +198,7 @@ describe("chat-view extras — engine notice row (latest wins)", () => {
       keys,
     );
     expect(lines.some((l) => l.startsWith("  ! "))).toBe(false); // notice gone
-    expect(lines.at(-1)).toBe("enter send · esc exit"); // statics survive (drop AFTER the notice)
+    expect(lines.at(-1)).toBe("/clear"); // footer survives (drop AFTER the notice)
   });
 });
 

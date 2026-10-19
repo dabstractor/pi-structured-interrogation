@@ -146,7 +146,7 @@ const SPY_FOR: Record<KeyAction, Exclude<keyof ReturnType<typeof makeActions>, "
 const WORDS: Record<KeyAction, string> = {
   deep: "deep",
   overview: "list",
-  elaborate: "text",
+  elaborate: "explain",
   batchNote: "note",
   submit: "submit",
   chat: "chat",
@@ -157,11 +157,11 @@ const WORDS: Record<KeyAction, string> = {
 
 /** Footer key-hint set per screen (mirror of layout SCREEN_KEYS — drift fails loudly below). */
 const FOOTER_ACTIONS: Record<ScreenKind, KeyAction[]> = {
-  short: ["deep", "overview", "submit"],
-  deep: ["submit", "overview"],
-  overview: ["submit", "deep"],
+  short: ["deep", "overview", "chat", "elaborate", "batchNote", "submit"],
+  deep: ["overview", "chat", "elaborate", "submit"],
+  overview: ["deep", "chat", "submit"],
   // Chat (SIDECHAT-001): the fallback hint shape — production threads the
-  // pre-rendered chatHints string (stream-state-dependent esc word) so the
+  // pre-rendered chatHints string (/clear + reopen clause) so the
   // remap-drift loop below (which renders WITHOUT chatHints) pins only the
   // fallback.
   chat: ["chat"],
@@ -169,12 +169,12 @@ const FOOTER_ACTIONS: Record<ScreenKind, KeyAction[]> = {
 
 /** Static (fixed-key) footer hints per screen — enter/esc/arrows are NOT config-driven. */
 const STATIC_HINTS: Record<ScreenKind, string[]> = {
-  short: ["enter accept"],
-  deep: ["esc back", "↑/↓ scroll"],
-  overview: ["enter jump", "esc back"],
-  // Chat statics (enter send · /clear · esc {abort|exit}) ride INSIDE the
-  // pre-rendered chatHints string (chat-view.ts's footerHints owns them —
-  // the esc word is stream-state-dependent); the layout renders none itself.
+  // FOOTER-001: ubiquitous keys (enter, esc, arrows) are never hinted on
+  // any screen — no statics exist. The mirror stays a Record so a future
+  // re-introduction must update it consciously.
+  short: [],
+  deep: [],
+  overview: [],
   chat: [],
 };
 
@@ -438,7 +438,10 @@ describe("label propagation — full remap (h2.52: config-generated display stri
     const remapped = resolveKeyLabels(FULL_REMAP);
     const defaults = resolveKeyLabels(DEFAULT_CONFIG);
     for (const screen of ["short", "deep", "overview"] as ScreenKind[]) {
-      const footer = renderFooter(footerState(), screen, remapped, theme, 120);
+      // FOOTER-001 widened the hint set (six features on short) — render
+      // wide enough that the fit loop never drops one; this test pins
+      // label PROPAGATION, not degradation.
+      const footer = renderFooter(footerState(), screen, remapped, theme, 200);
       for (const action of FOOTER_ACTIONS[screen]) {
         expect(footer, `${screen}: remapped hint for ${action}`).toContain(
           `${remapped[action]} ${WORDS[action]}`,
@@ -455,16 +458,17 @@ describe("label propagation — full remap (h2.52: config-generated display stri
       }
     }
 
-    // Editor-focused (editorExit set — P1.M1.T2.S3): remapped labels still
-    // resolve (h2.52), the dropped statics stay gone, and the footer names
-    // NEITHER the explain surface NOR any close gesture (D-R11 as amended —
-    // the editor's own exits need no panel label).
+    // Editor-focused (editorExit set — P1.M1.T2.S3): FOOTER-001 collapses
+    // to the chord hints — remapped submit + externalEditor — and nothing
+    // else (bare-key features would lie; enter/esc are never labeled).
     const editorFooter = renderFooter(footerState(), "short", remapped, theme, 160, false, {
       mode: "text",
       escEscHint: true,
     });
-    expect(editorFooter).toContain("enter save");
-    expect(editorFooter).toContain("esc esc back");
+    expect(editorFooter).toContain(`${remapped.submit} submit`);
+    expect(editorFooter).toContain(`${remapped.externalEditor} editor`);
+    expect(editorFooter).not.toContain("enter");
+    expect(editorFooter).not.toContain("esc");
     for (const action of ALL_ACTIONS) {
       expect(
         editorFooter,

@@ -712,8 +712,10 @@ describe("view switching (built-in S1 bindings)", () => {
     const panel = new InterrogationPanel(panelArgsFor(state));
     panel.handleInput(CTRL_L);
     const lines = panel.render(120); // wide enough that no hint degrades away
-    expect(lines[lines.length - 1]).toContain("enter jump");
-    expect(lines[lines.length - 1]).toContain("esc back");
+    expect(lines[lines.length - 1]).toContain("D deep"); // FOOTER-001: features advertised
+    expect(lines[lines.length - 1]).toContain("E chat");
+    expect(lines[lines.length - 1]).not.toContain("enter jump"); // statics deleted
+    expect(lines[lines.length - 1]).not.toContain("esc back");
   });
 
   test("test_overview_empty_state_renders_header_and_footer_only", () => {
@@ -3645,9 +3647,10 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
     expect(text).toContain("┌ interrogation"); // shared header
     expect(text).toContain("chat · q1 — "); // identity header (chat-view)
     expect(lines.some((l) => l.startsWith("└ "))).toBe(true); // framed footer
-    expect(text).toContain("enter send");
-    expect(text).toContain("esc exit"); // IDLE esc word
-    expect(text).not.toContain("abort"); // not streaming
+    const footerLine = lines[lines.length - 1];
+    expect(footerLine).toContain("/clear"); // FOOTER-001: the one non-ubiquitous affordance
+    expect(footerLine).not.toContain("enter"); // ubiquitous keys never hinted
+    expect(footerLine).not.toContain("esc");
     expect(text).toContain("0/2 answered"); // progress rides the frame
   });
 

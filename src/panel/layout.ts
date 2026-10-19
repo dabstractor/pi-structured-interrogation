@@ -46,27 +46,29 @@ import { UNGROUPED_LABEL, type Question, type SerializedState } from "../state.j
 export type ScreenKind = "short" | "deep" | "overview" | "chat";
 
 /**
- * Keys relevant per screen (FR-10: 3–4 key hints). Order = display order.
- * Screen-specific static hints (non-remappable keys) are appended by
- * {@link renderFooter}: short prefixes "enter accept"; deep appends
- * "esc back · ↑/↓ scroll"; overview appends "enter jump · esc back".
+ * Keys relevant per screen (FR-10 as amended by FOOTER-001). Order =
+ * display order; the fit loop drops right-to-left. Every REMAPPABLE
+ * feature is advertised on the screens where it acts — deep, list, chat,
+ * explain, note, submit — while ubiquitous keys (enter, esc) are NEVER
+ * hinted: enter is the only thing enter ever does, and esc is right in
+ * the name. A feature nobody advertises is a feature that does not exist
+ * (the side chat shipped invisible until this ruling).
  */
 export const SCREEN_KEYS: Record<ScreenKind, KeyAction[]> = {
-  short: ["deep", "overview", "submit"],
-  deep: ["submit", "overview"],
-  overview: ["submit", "deep"],
+  short: ["deep", "overview", "chat", "elaborate", "batchNote", "submit"],
+  deep: ["overview", "chat", "elaborate", "submit"],
+  overview: ["deep", "chat", "submit"],
   // The remappable chat key is the only KeyAction relevant on the chat
-  // screen; its hint content (enter send · /clear · esc {abort|exit}) is
-  // stream-STATE-dependent and arrives pre-rendered via chatHints.
+  // screen; its hint content (/clear + the binding-name reopen clause)
+  // arrives pre-rendered via chatHints.
   chat: ["chat"],
 };
 
 /**
  * Narrow-footer key actions (h2.30, cols < 60 — P1.M7.T5.S1): the key hints
  * collapse to at most TWO — submit + deep — on every screen. Deep is the
- * always-available full replacement, so it never leaves the eligible set;
- * the screen's static hints (enter accept / esc back / ↑/↓ scroll / enter
- * jump) remain and the right-to-left fit loop below stays the width safety
+ * always-available full replacement, so it never leaves the eligible set,
+ * and the right-to-left fit loop below stays the width safety
  * net. Labels resolve through the caller's `labels` argument — never
  * hardcoded (h2.52).
  */
@@ -76,7 +78,7 @@ const NARROW_FOOTER_ACTIONS: readonly KeyAction[] = ["submit", "deep"];
 const ACTION_WORDS: Record<KeyAction, string> = {
   deep: "deep",
   overview: "list",
-  elaborate: "text",
+  elaborate: "explain",
   batchNote: "note",
   submit: "submit",
   chat: "chat",
@@ -486,16 +488,13 @@ export function renderHintLine(q: Question, theme: Theme, width: number, dim = f
 }
 
 /**
- * Footer hints for the embedded-editor exit affordances (ESC-002). While
- * the editor holds focus the standard "enter accept" prefix becomes
- * "enter save" and an "esc esc back" hint is appended when the double-esc
- * window is armed (escEscHint) — everything else per screen survives minus
- * the lying statics (which include the elaborate explain hint: DROPPED, not
- * swapped — D-R11 as amended, h2.37). No close hint is rendered: since
- * BAREKEYS-001 (h2.74) removed the re-press-to-close toggles, no close
- * gesture exists to advertise, and a bare key must type while the editor
- * holds focus (h2.35) — the editor's own exits (enter, double-esc) need no
- * panel label.
+ * Editor-focus footer marker (ESC-002 / FOOTER-001): PRESENCE alone
+ * collapses the footer to the chord-only hints (`{submit} submit ·
+ * `{externalEditor} editor`). The fields are retained for CALL-SITE
+ * STABILITY ONLY (panel.ts's footerLine still passes them) — renderFooter
+ * no longer reads them: enter/double-esc affordances are never labeled
+ * (ubiquitous keys), and the double-esc window no longer changes the
+ * footer.
  */
 export interface FooterEditorExit {
   /**
@@ -513,8 +512,10 @@ export interface FooterEditorExit {
  * Footer line (h2.29): `└ {progress} · {key hints} ⏎ ┘` where progress is
  * `"{answered}/{total} answered · {reasked} re-asked ·"` (the trailing `·`
  * separates progress from the hints) and key hints are `"{label} {action}"`
- * pairs for the 3–4 keys relevant to {@link screen}, labels resolved by the
- * caller via `resolveKeyLabels(config)` (h2.52 — never hardcoded).
+ * pairs for the remappable features relevant to {@link screen}, labels
+ * resolved by the caller via `resolveKeyLabels(config)` (h2.52 — never
+ * hardcoded). FOOTER-001: ubiquitous keys (enter, esc) are never hinted;
+ * every feature key is, so undiscoverable features cannot ship.
  *
  * Budget: exactly 1 line at width ≥ 40. Degradation drops key hints
  * right-to-left (last first); at extreme widths the footer degrades to
@@ -527,11 +528,11 @@ export interface FooterEditorExit {
  * key hints survive longest. Default false → byte-identical to the
  * pre-P1.M7.T5.S1 behavior for every existing caller.
  *
- * Editor exit (ESC-002): `editorExit` swaps the prefix to the embedded
- * editor's own affordances (see {@link FooterEditorExit}) — "enter save",
- * optional "esc esc back", screen hints minus the lying statics; the
- * explain hint is dropped (not swapped) and no close hint exists
- * (D-R11 as amended). Omitted → the standard hints.
+ * Editor exit (ESC-002): `editorExit` collapses the hints to the only
+ * actions that stay true while the editor holds focus — the chords
+ * (`{submit} submit · {externalEditor} editor`). Bare-key feature hints
+ * would lie (they type), and ubiquitous keys are never hinted
+ * (FOOTER-001). Omitted → the standard feature hints.
  *
  * @param state   plain-JSON state snapshot (read-only)
  * @param screen  which view the footer is for (selects SCREEN_KEYS + statics)
@@ -547,8 +548,8 @@ export interface FooterEditorExit {
  *        `q{n}/{total}` — the status line carries WHERE you are (computed
  *        from state; never agent-supplied). Omit to render progress only.
  * @param chatHints SIDECHAT-001 (P1.M2.T4.S1): the PRE-RENDERED chat hint
- *        string from chat-view.ts's footerHints (`enter send · /clear ·
- *        esc {abort|exit}` + the binding-named reopen hint) — composed as
+ *        string from chat-view.ts's footerHints (`/clear` + the
+ *        binding-named reopen hint) — composed as
  *        ONE fit-loop entry so degradation drops it whole (progress-only is
  *        the floor, as every screen). Consulted only when `screen` is
  *        "chat"; omitted → the SCREEN_KEYS.chat fallback (`{label} chat`).
@@ -593,27 +594,17 @@ export function renderFooter(
     hints.length = 0;
     hints.push(sanitizeDisplayText(chatHints ?? `${labels.chat} ${ACTION_WORDS.chat}`));
   }
-  if (screen === "short") hints.unshift("enter accept"); // enter is not remappable
-  if (screen === "short") hints.push(`${labels.elaborate} explain`); // D-R11: the footer permanently names the chord
-  if (screen === "deep")
-    hints.push("esc back", "↑/↓ scroll", `${labels.elaborate} explain`); // DEEP-EDITOR-001: D-R11 parity — deep is a first-class editing surface
-  if (screen === "overview") hints.push("enter jump", "esc back");
   if (editorExit !== undefined) {
-    // While the editor holds focus the screen statics lie: enter no longer
-    // accepts/jumps (it SAVES — two-stage, h2.31), esc does not descend
-    // (single esc forwards to the editor), arrows do not scroll. Drop the
-    // descent statics and the elaborate explain hint with them; swap in the
-    // editor's own affordances. D-R11 as amended (h2.37 / ui-spec :116):
-    // the explain hint is DROPPED, not swapped — bare keys never intercept
-    // in editor focus (h2.35/BAREKEYS-001), and the editor's own exits
-    // (enter save, double-esc) need no panel label, so NO close hint is
-    // advertised either. The fit loop's first casualty while editor-focused
-    // is therefore "esc esc back" (right-to-left pop order).
-    const statics = new Set(["enter accept", "enter jump", "esc back", "↑/↓ scroll", `${labels.elaborate} explain`]);
-    const kept = hints.filter((h) => !statics.has(h));
+    // While the editor holds focus the bare-key feature hints would LIE:
+    // BAREKEYS-001 bare keys type instead of acting, so advertising
+    // "d deep" over a focused editor sells a keystroke that inserts a
+    // letter. Only the two modifier-bearing actions remain true — submit
+    // (fires from every focus state) and externalEditor (whose ONLY valid
+    // context IS editor focus — FOOTER-001 finally gives it a home). The
+    // editor's own exits (enter, double-esc) get no labels: ubiquitous
+    // keys are never hinted.
     hints.length = 0;
-    hints.push("enter save", ...kept);
-    if (editorExit.escEscHint) hints.push("esc esc back");
+    hints.push(`${labels.submit} submit`, `${labels.externalEditor} editor`);
   }
 
   // Drop hints right-to-left until the full form fits; progress-only is the

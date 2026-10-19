@@ -1058,7 +1058,11 @@ describe("AC-17.8 — streaming abort and non-commands", () => {
     expect(record?.streamState).toBe("streaming");
     expect(record?.streamingText).toBe("partial th");
     panel.invalidate();
-    expect(panel.render(100).join("\n")).toContain("esc abort");
+    // FOOTER-001: the footer no longer advertises esc-abort (ubiquitous
+    // keys earn no labels) — /clear is the standing hint mid-stream too.
+    const midStream = panel.render(100).join("\n");
+    expect(midStream).toContain("/clear");
+    expect(midStream).not.toContain("esc abort");
 
     // BUG-001 fix (shape i, ui-spec §Side chat Esc ladder): the FOCUSED
     // single esc aborts directly — no blur-then-escape detour; the footer's
@@ -1080,7 +1084,8 @@ describe("AC-17.8 — streaming abort and non-commands", () => {
     expect(settled?.messages.some((m) => m.text === "why sqlite?")).toBe(false);
     expect(settled?.notices).toHaveLength(0); // esc is deliberate silence
     panel.invalidate();
-    expect(panel.render(100).join("\n")).toContain("esc exit"); // hint restored
+    // FOOTER-001: state-invariant footer — /clear before, during, and after.
+    expect(panel.render(100).join("\n")).toContain("/clear");
   });
 
   test("AC-17.8_usr_bin_path_is_a_message", async () => {

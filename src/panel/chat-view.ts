@@ -236,7 +236,7 @@ export function buildChatContent(
   const footerLine =
     chat.pendingConfirm !== undefined
       ? confirmRow(chat.pendingConfirm, question, width)
-      : footerHints(chat, question, resolvedKeys, budget);
+      : footerHints(question, resolvedKeys, budget);
 
   return [headerLine(question, width), ...banner, ...window, ...extras, "", footerLine];
 }
@@ -286,23 +286,21 @@ function transcriptLines(chat: ChatViewState, width: number): string[] {
 }
 
 /**
- * Footer hint string (frame composed at the panel seam). Degrades per the
- * h2.30 ladder: narrow drops `/clear` then the binding-name clause;
- * hint-suppress and tiny rows keep only the safety-critical
- * `esc {abort|exit}`. The esc word flips on the stream state; the chat
- * binding's name flows ONLY from resolvedKeys.
+ * Footer hint string (frame composed at the panel seam). FOOTER-001: the
+ * one non-ubiquitous affordance worth its chars is `/clear` — the
+ * confused-chat escape hatch (SIDECHAT-005) — and it never drops; the
+ * binding-name reopen clause yields first under narrow/suppressed
+ * budgets. Enter-send and esc-abort/exit wording is deleted (ubiquitous
+ * keys earn no labels). The chat binding's name flows ONLY from
+ * resolvedKeys.
  */
 function footerHints(
-  chat: ChatViewState,
   question: ChatViewQuestion,
   resolvedKeys: Record<KeyAction, string>,
   budget: TerminalBudget,
 ): string {
-  const escWord = chat.streamState === "streaming" ? "abort" : "exit";
-  if (budget.suppressHint) return `esc ${escWord}`;
-  const hints =
-    budget.narrow ? ["enter send", `esc ${escWord}`] : ["enter send", "/clear", `esc ${escWord}`];
-  if (!budget.narrow && resolvedKeys.chat !== CHAT_DEFAULT_LABEL) {
+  const hints = ["/clear"];
+  if (!budget.narrow && !budget.suppressHint && resolvedKeys.chat !== CHAT_DEFAULT_LABEL) {
     hints.push(`${resolvedKeys.chat} opens the chat on ${question.id}`);
   }
   return hints.join(" · ");

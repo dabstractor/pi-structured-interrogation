@@ -595,7 +595,8 @@ export function renderFooter(
   }
   if (screen === "short") hints.unshift("enter accept"); // enter is not remappable
   if (screen === "short") hints.push(`${labels.elaborate} explain`); // D-R11: the footer permanently names the chord
-  if (screen === "deep") hints.push("esc back", "↑/↓ scroll");
+  if (screen === "deep")
+    hints.push("esc back", "↑/↓ scroll", `${labels.elaborate} explain`); // DEEP-EDITOR-001: D-R11 parity — deep is a first-class editing surface
   if (screen === "overview") hints.push("enter jump", "esc back");
   if (editorExit !== undefined) {
     // While the editor holds focus the screen statics lie: enter no longer

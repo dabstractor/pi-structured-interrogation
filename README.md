@@ -186,7 +186,7 @@ Remappable actions (`interrogator.keys.*`):
 | -------------------- | --------------------- | --------------- | --------------------------------------------- |
 | Deep-dive view       | `keys.deep`           | `d`             | Open the deep-dive (ramification) view        |
 | Overview list        | `keys.overview`       | `o`             | Open the question overview list               |
-| Elaborate            | `keys.elaborate`      | `t`             | Enter the editor — duty follows context (elaboration on a selected option, write-in on the `✎ Other` row or a text question); close via `enter` or double-`esc` (a re-pressed `t` types the letter) |
+| Elaborate            | `keys.elaborate`      | `t`             | Enter the editor — duty follows context (elaboration on a selected option, write-in on the `✎ Other` row or a text question); **works in the short AND deep views** — in deep, the editor pins below the pane (the pane stays as context); close via `enter` or double-`esc` (a re-pressed `t` types the letter) |
 | Batch note           | `keys.batchNote`      | `m`             | Attach a batch note shipped with the next submit; close via `enter` or double-`esc` |
 | Submit               | `keys.submit`         | `ctrl+s`        | Submit answers now (partial ok — also the deliberate override while the gate hold blocks auto-submit) |
 | Side chat            | `keys.chat`           | `e`             | Open the in-panel side chat on the current question — in the overview, on the cursor row's question (one chat at a time; applies converged answers through the confirm row) |

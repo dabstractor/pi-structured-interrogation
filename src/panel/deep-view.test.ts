@@ -1054,29 +1054,57 @@ describe("Other section (P1.M2.T6.S1)", () => {
     expect(panel.cursorIndex).toBe(0);
   });
 
-  test("test_accept_other_returns_to_short_in_writein_duty_editor_focused", () => {
+  test("test_accept_other_opens_writein_in_deep_view_editor_pinned_below_pane", () => {
+    // DEEP-EDITOR-001: enter on the ✎ Other section opens the write-in
+    // editor IN the deep view — no setView("short") ejection, no scroll
+    // reset (nothing the user was reading moves).
     const panel = setup([choiceQ("q1")]);
     panel.setView("deep");
     deepSelectionDown(panel);
     deepSelectionDown(panel); // Other
     expect(acceptFromDeep(panel)).toBe(true);
-    expect(panel.view).toBe("short");
+    expect(panel.view).toBe("deep");
     expect(panel.textDuty).toBe("writein");
     expect(panel.focus).toBe("text"); // editor focused
     expect(panel.textField.focused).toBe(true);
     expect(panel.scrollOffset).toBe(0);
     expect(panel.state.getQuestion("q1")?.answer).toBeUndefined(); // nothing answered
     expect(panel.currentId).toBe("q1"); // no advance — the duty is open
-    expect(panel.cursorIndex).toBe(2); // parked on the short form's ✎ row
+    expect(panel.cursorIndex).toBe(2); // still parked on the Other section
+    // The editor region renders pinned below the pane (duty label visible).
+    expect(
+      panel.render(80).some((l) => l.includes("OTHER — this text is the answer")),
+    ).toBe(true);
   });
 
   test("test_accept_other_on_zero_option_choice_opens_writein", () => {
     const panel = setup([choiceQ("z", { options: [] })]);
     panel.setView("deep");
     expect(acceptFromDeep(panel)).toBe(true);
-    expect(panel.view).toBe("short");
+    expect(panel.view).toBe("deep"); // DEEP-EDITOR-001: stays deep
     expect(panel.textDuty).toBe("writein");
     expect(panel.state.getQuestion("z")?.answer).toBeUndefined();
+  });
+
+  test("test_t_in_deep_view_opens_elaboration_editor_below_the_pane (DEEP-EDITOR-001)", () => {
+    const panel = setup([choiceQ("q1")]);
+    panel.setView("deep");
+    // The router path: `t` from options focus in deep → onElaborate →
+    // focusTextField(desiredTextDuty) — cursor on a real option →
+    // elaboration duty.
+    panel.focusTextField("elaboration");
+    const lines = panel.render(80);
+    // Editor region: duty label + editor, pinned below the pane.
+    expect(lines.some((l) => l.includes("EXPLAIN — attaches to your selection"))).toBe(true);
+    // The pane above SURVIVES — the editor takes new space at the bottom
+    // (the prompt-box position); it does not replace the deep content
+    // (the pane's option headers are still rendered).
+    expect(lines.some((l) => l.includes("sqlite"))).toBe(true);
+    // Blur drops the region again — unfocused deep renders unchanged.
+    panel.blurTextField();
+    expect(
+      panel.render(80).some((l) => l.includes("EXPLAIN — attaches to your selection")),
+    ).toBe(false);
   });
 });
 

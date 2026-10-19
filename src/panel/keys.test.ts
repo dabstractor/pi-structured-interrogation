@@ -1074,18 +1074,18 @@ describe("deep view routing gates (P1.M5.T1.S1)", () => {
     expect(actions.accept).not.toHaveBeenCalled(); // short-view accept untouched
   });
 
-  test("test_ctrl_t_gate_does_not_break_deep_view_neighbor_bindings", () => {
-    // BUG-011 fall-through: `t` in deep returns false WITHOUT dispatching,
-    // and the view-specific handlers downstream still work — enter here
-    // still runs the acceptFromDeep path (accepts highlighted, → short).
+  test("test_elaborate_dispatches_in_deep_view_neighbors_untouched", () => {
+    // DEEP-EDITOR-001: `t` in deep OPENS the editor (rendered pinned below
+    // the pane) — dispatched + consumed; afterwards the view-specific
+    // handlers still work — enter still runs the acceptFromDeep path
+    // (accepts highlighted, lands per deepSticky).
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
     const { panel, applied } = makeDeepPanel();
     panel.cursorIndex = 1;
 
-    expect(route(DEFAULT_DATA.elaborate, panel as unknown as InterrogationPanel)).toBe(false);
-    expect(actions.onElaborate).not.toHaveBeenCalled();
-    expect(dispatchCount(actions)).toBe(0); // nothing else consumed it either
+    expect(route(DEFAULT_DATA.elaborate, panel as unknown as InterrogationPanel)).toBe(true);
+    expect(actions.onElaborate).toHaveBeenCalledTimes(1);
 
     expect(route(ENTER, panel as unknown as InterrogationPanel)).toBe(true);
     expect(applied).toEqual([{ id: "q1", value: "b" }]);
@@ -1279,17 +1279,18 @@ describe("buildKeyRouter — overview view-gating (P1.M5.T2.S1)", () => {
   });
 });
 
-// --------------------------------------- elaborate view gate (BUG-011)
+// ------------------------- elaborate dispatch (DEEP-EDITOR-001 / BUG-011)
 
-describe("elaborate gated to the short view (BUG-011)", () => {
-  test("test_ctrl_t_in_deep_view_falls_through_without_dispatching", () => {
-    // The editor renders only in the short view — `t` in deep must be a
-    // no-op FALL-THROUGH (return false), never a swallowed keystroke.
+describe("elaborate dispatches in short + deep; overview stays gated (DEEP-EDITOR-001)", () => {
+  test("test_ctrl_t_in_deep_view_dispatches_the_editor_open", () => {
+    // DEEP-EDITOR-001: the deep view renders the editor pinned below the
+    // pane — `t` in deep OPENS it (dispatched, consumed), no longer the
+    // BUG-011 fall-through no-op.
     const actions = makeActions();
     const { route } = makeRouter(DEFAULT_CONFIG, actions);
-    expect(route(DEFAULT_DATA.elaborate, makePanel({ view: "deep" }))).toBe(false);
-    expect(actions.onElaborate).not.toHaveBeenCalled();
-    expect(dispatchCount(actions)).toBe(0);
+    expect(route(DEFAULT_DATA.elaborate, makePanel({ view: "deep" }))).toBe(true);
+    expect(actions.onElaborate).toHaveBeenCalledTimes(1);
+    expect(dispatchCount(actions)).toBe(1);
   });
 
   test("test_ctrl_t_in_overview_view_falls_through_without_dispatching", () => {

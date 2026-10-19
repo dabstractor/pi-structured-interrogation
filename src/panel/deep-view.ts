@@ -747,12 +747,14 @@ export function acceptFromDeep(panel: InterrogationPanel): boolean {
   const index = Math.min(Math.max(0, panel.cursorIndex), count);
   if (index === count) {
     // ✎ Other section (WRITEIN-001 deep parity, P1.M2.T6.S1): enter only
-    // OPENS the write-in duty — short form + editor focused, seeded from
-    // the freshest draft by focusTextField; writeInEnter owns the commit
-    // (h2.32). Branch order mirrors actions.ts accept()'s Other row.
+    // OPENS the write-in duty — editor focused IN THE DEEP VIEW
+    // (DEEP-EDITOR-001: buildLines renders the editor pinned below the
+    // pane; the old setView("short") ejection treated deep as a
+    // second-class surface), seeded from the freshest draft by
+    // focusTextField; writeInEnter owns the commit (h2.32). The pane and
+    // its scroll stay untouched — nothing the user was reading moves.
+    // Branch order mirrors actions.ts accept()'s Other row.
     panel.textDuty = "writein";
-    panel.setView("short");
-    panel.scrollOffset = 0;
     panel.focusTextField();
     return true;
   }

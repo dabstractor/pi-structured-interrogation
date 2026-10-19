@@ -603,17 +603,20 @@ export function buildKeyRouter(
       actions.onOverview(panel);
       return true;
     }
-    // BUG-011: the embedded editor renders only in the short view (and
-    // note mode, a separate focus); focusing it from deep/overview would
-    // arm an invisible editor (blind typing, silent stage-1 draft saves).
-    // In those views the elaborate key falls through to normal panel
-    // handling (arrows scroll/navigate, enter keeps its view-specific
-    // meaning). NOTE focus (ESC-002): it also falls through — the note
-    // editor owns the buffer. TIER (BAREKEYS-001): with the bare default
-    // `t` (or any bare remap) the key forwards in TEXT focus too — it must
-    // type; a chord remap keeps every-focus reachability.
+    // DEEP-EDITOR-001: the embedded editor now renders in BOTH the short
+    // view and PINNED BELOW THE PANE in the deep view (panel.ts buildLines),
+    // so focusing it from either is visible-editor territory — the old
+    // BUG-011 gate (editor rendered in short only) is lifted for deep.
+    // OVERVIEW stays excluded: its cursor is a QUESTION index, not an
+    // option index (BUG-004), so duty derivation is meaningless there and
+    // the editor would target an ambiguous question — in overview the key
+    // falls through to normal panel handling. NOTE focus (ESC-002): it
+    // also falls through — the note editor owns the buffer. TIER
+    // (BAREKEYS-001): with the bare default `t` (or any bare remap) the
+    // key forwards in TEXT focus too — it must type; a chord remap keeps
+    // every-focus reachability.
     if (
-      panel.view === "short" &&
+      (panel.view === "short" || panel.view === "deep") &&
       panel.focus !== "note" &&
       matchesKey(data, b.elaborate)
     ) {

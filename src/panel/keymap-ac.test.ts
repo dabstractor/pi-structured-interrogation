@@ -248,20 +248,26 @@ describe("AC-1 — two-tier dispatch/typing + surviving chords (delta_prd §3.1)
     expect(actions.onElaborate).toHaveBeenCalledTimes(1);
   });
 
-  test("test_ac1_t_falls_through_outside_the_short_view_bug011_gate_style_a", () => {
-    // BUG-011: the embedded editor renders only in the short view — the
-    // elaborate key must NOT focus an invisible editor from deep/overview.
-    // (d/o/m/e still dispatch there — keys.test.ts owns that half.)
-    for (const view of ["deep", "overview"] as PanelView[]) {
-      const actions = makeActions();
-      const { route } = makeRouter(DEFAULT_CONFIG, actions);
-      expect(route(LETTER_BYTES.elaborate, makeStub({ view }) as never), view).toBe(false);
-      expect(actions.onElaborate).not.toHaveBeenCalled();
-      expect(actions.onDeep).not.toHaveBeenCalled();
-      expect(actions.onOverview).not.toHaveBeenCalled();
-      expect(actions.onBatchNote).not.toHaveBeenCalled();
-      expect(actions.onChat).not.toHaveBeenCalled();
-    }
+  test("test_ac1_t_dispatches_in_deep_overview_still_gated_deep_editor_001_style_a", () => {
+    // DEEP-EDITOR-001: the deep view RENDERS the editor pinned below the
+    // pane — `t` dispatches from deep too. OVERVIEW stays gated (BUG-004:
+    // its cursor is a question index, not an option index — duty
+    // derivation is meaningless there; the old BUG-011 rationale survives
+    // only for this view). (d/o/m/e still dispatch everywhere —
+    // keys.test.ts owns that half.)
+    const actions = makeActions();
+    const { route } = makeRouter(DEFAULT_CONFIG, actions);
+    expect(route(LETTER_BYTES.elaborate, makeStub({ view: "deep" }) as never)).toBe(true);
+    expect(actions.onElaborate).toHaveBeenCalledTimes(1);
+
+    const actions2 = makeActions();
+    const router2 = makeRouter(DEFAULT_CONFIG, actions2);
+    expect(route(LETTER_BYTES.elaborate, makeStub({ view: "overview" }) as never)).toBe(false);
+    expect(actions2.onElaborate).not.toHaveBeenCalled();
+    expect(actions2.onDeep).not.toHaveBeenCalled();
+    expect(actions2.onOverview).not.toHaveBeenCalled();
+    expect(actions2.onBatchNote).not.toHaveBeenCalled();
+    expect(actions2.onChat).not.toHaveBeenCalled();
   });
 
   test("test_ac1_bare_letters_type_through_the_full_panel_in_text_focus_style_b", () => {

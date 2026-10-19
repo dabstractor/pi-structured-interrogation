@@ -2396,6 +2396,21 @@ export class InterrogationPanel implements Component {
           width,
         });
         lines.push(...renderDeepWindow(content, this.cursorIndex, this.scrollOffset, this.theme, width));
+        // DEEP-EDITOR-001: the editor PINNED BELOW THE PANE — the prompt-
+        // box position. While the user is typing, the pane above stays
+        // rendered as composing context (which option/ramification the
+        // elaboration attaches to; which question a write-in answers) —
+        // deep is a first-class editing surface, not a view that ejects
+        // to short. Same region shape as the short view's editor block:
+        // duty label + the SAME embedded editor. Every lifecycle seam
+        // (enter commit at handleInput, double-esc exit, draft scoping)
+        // was already view-agnostic — only this render branch and the
+        // keys.ts gate kept deep out.
+        if (this.focus === "text" && !this.textField.focused) this.textField.focus();
+        if (this.focus === "text") {
+          lines.push(renderDutyLabel(this.textDuty, this.theme, width));
+          lines.push(...this.textField.render(width));
+        }
       }
       lines.push(""); // variation A: breathing room below the scroll area, above the footer
       const notice = this.footerNoticeLine(width);

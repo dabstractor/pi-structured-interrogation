@@ -93,11 +93,11 @@ const ALL_ACTIONS = Object.keys(DEFAULT_CONFIG.keys) as KeyAction[];
 /** Raw terminal data for each h2.35 DEFAULT accelerator (post-BAREKEYS-001). */
 const DEFAULT_DATA: Record<KeyAction, string> = {
   deep: "d",
-  overview: "o",
-  elaborate: "t",
-  batchNote: "m",
+  overview: "i",
+  elaborate: "e",
+  batchNote: "n",
   submit: "\u0013", // ctrl+s — load-bearing chord
-  chat: "e",
+  chat: "c",
   externalEditor: "\u0007", // ctrl+g — load-bearing chord
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",

@@ -85,7 +85,7 @@ import {
 const ENTER = "\r";
 const ESCAPE = "\u001b";
 const RIGHT = "\u001b[C"; // next question (fixed key)
-const CHAT_KEY = "e"; // DEFAULT_CONFIG.keys.chat
+const CHAT_KEY = "c"; // DEFAULT_CONFIG.keys.chat
 
 /** Identity theme (panel.test.ts stubTheme). */
 const stubTheme = {
@@ -1339,7 +1339,7 @@ const OVERVIEW_DOWN = "\u001b[B"; // fixed arrow — the overview cursor mover
  * overview cursor syncs to the CURRENT question on entry, so the target is
  * addressed by question id through the cursor's index in display order. */
 function jumpTo(panel: InterrogationPanel, id: string): void {
-  expect(panel.handleInput("o")).toBe(true); // DEFAULT_CONFIG.keys.overview
+  expect(panel.handleInput("i")).toBe(true); // DEFAULT_CONFIG.keys.overview
   const cursorPanel = panel as InterrogationPanel & { overviewCursor: number };
   const targetIndex =
     panel.state.orderedQuestions().findIndex((q) => q.id === id);
@@ -1626,14 +1626,14 @@ describe("NEW-002 — the pending confirm row is view-gated to the chat view", (
 
     // `o` → overview; the retained (now invisible) confirm must not hijack
     // the documented gestures there.
-    chat.panel.handleInput("o");
+    chat.panel.handleInput("i");
     expect(chat.panel.view).toBe("overview");
     chat.panel.handleInput(ENTER); // overviewJump — NOT an invisible apply
     expect(chat.panel.view).toBe("short");
     expect(chat.state.getQuestion("q3")?.answer).toBeUndefined();
     expect(getSidechat()?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
 
-    chat.panel.handleInput("o"); // back to the overview
+    chat.panel.handleInput("i"); // back to the overview
     chat.panel.handleInput(ESCAPE); // esc-ladder descent — NOT an invisible decline
     expect(getSidechat()?.pendingConfirm).toEqual({ seam: "acceptOptionIndex", optionIndex: 0 });
 
@@ -1692,7 +1692,7 @@ describe("NEW-003 — refocus gesture + typing-safe settle blur", () => {
     expect(chat.panel.focus).toBe("chat");
     const chatEditor = (chat.panel.chatField as unknown as { editor: { handleInput: Mock } }).editor;
     const forwardsBefore = chatEditor.handleInput.mock.calls.length;
-    chat.panel.handleInput("o");
+    chat.panel.handleInput("i");
     expect(chat.panel.view).toBe("chat"); // NOT hijacked into the overview
     expect(chat.panel.focus).toBe("chat");
     expect(chatEditor.handleInput.mock.calls.length).toBe(forwardsBefore + 1);

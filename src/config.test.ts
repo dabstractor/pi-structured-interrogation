@@ -138,11 +138,11 @@ test("test_resolve_key_labels_covers_all_actions_with_default_config", async () 
   expect(Object.keys(labels).sort()).toEqual(Object.keys(DEFAULT_CONFIG.keys).sort());
   expect(Object.keys(labels)).toHaveLength(9);
   expect(labels.deep).toBe("D");
-  expect(labels.overview).toBe("O");
-  expect(labels.elaborate).toBe("T");
-  expect(labels.batchNote).toBe("M");
+  expect(labels.overview).toBe("I");
+  expect(labels.elaborate).toBe("E");
+  expect(labels.batchNote).toBe("N");
   expect(labels.submit).toBe("Ctrl+S");
-  expect(labels.chat).toBe("E");
+  expect(labels.chat).toBe("C");
   expect(labels.externalEditor).toBe("Ctrl+G");
   expect(labels.prevQuestion).toBe("Tab");
   expect(labels.nextQuestion).toBe("Shift+Tab");
@@ -199,7 +199,7 @@ describe("focusText→elaborate legacy alias (BAREKEYS-001)", () => {
     );
     const cfg = await loadConfigFrom({ global: g, project: await missingPath() });
     expect(cfg.keys.elaborate).toBe(DEFAULT_CONFIG.keys.elaborate);
-    expect(resolveKeyLabels(cfg).elaborate).toBe("T");
+    expect(resolveKeyLabels(cfg).elaborate).toBe("E");
   });
 
   test("test_alias_invalid_elaborate_does_not_win_over_focusText", async () => {

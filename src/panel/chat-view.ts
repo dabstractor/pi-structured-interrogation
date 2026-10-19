@@ -105,7 +105,7 @@ const USER_PREFIX = "you › ";
 /** Streaming cursor glyph (h2.38: "streaming cursor while a reply is in flight"). */
 const CURSOR = "▌";
 /** The chat action's DEFAULT binding — the only literal compared against a label. */
-const CHAT_DEFAULT_LABEL = "e";
+const CHAT_DEFAULT_LABEL = "c";
 
 /**
  * Inert no-model banner text (P1.M2.T1.S2) — BYTE-PINNED to sidechat-engine.ts's

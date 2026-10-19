@@ -28,11 +28,11 @@ import { InterrogationPanel, type PanelFocus, type PanelView } from "./panel.js"
 /** Raw terminal data for each h2.35 default accelerator (post-BAREKEYS-001). */
 const DEFAULT_DATA: Record<KeyAction, string> = {
   deep: "d",
-  overview: "o",
-  elaborate: "t",
-  batchNote: "m",
+  overview: "i",
+  elaborate: "e",
+  batchNote: "n",
   submit: "\u0013", // ctrl+s — load-bearing chord (decisions :113-115)
-  chat: "e",
+  chat: "c",
   externalEditor: "\u0007", // ctrl+g — load-bearing chord
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",

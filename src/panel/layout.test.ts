@@ -72,11 +72,11 @@ function mkConfig(keys: Partial<Record<string, string>> = {}): InterrogatorConfi
       // d/o/t/m/e are bare keys; submit keeps its chord, externalEditor
       // keeps ctrl+g, prev/next keep tab/shift+tab.
       deep: "d",
-      overview: "o",
-      elaborate: "t",
-      batchNote: "m",
+      overview: "i",
+      elaborate: "e",
+      batchNote: "n",
       submit: "ctrl+s",
-      chat: "e",
+      chat: "c",
       externalEditor: "ctrl+g",
       prevQuestion: "tab",
       nextQuestion: "shift+tab",
@@ -329,10 +329,10 @@ describe("renderFooter", () => {
     const line = renderFooter(mkState(), "short", labels, theme, 120);
     expect(line).toContain("0/1 answered ·"); // re-asked segment omitted at zero (2026-09-30)
     expect(line).toContain("D deep");
-    expect(line).toContain("O list");
-    expect(line).toContain("E chat");
-    expect(line).toContain("T explain");
-    expect(line).toContain("M note");
+    expect(line).toContain("I list");
+    expect(line).toContain("C chat");
+    expect(line).toContain("E explain");
+    expect(line).toContain("N note");
     expect(line).toContain("Ctrl+S submit");
     expect(line).not.toContain("enter"); // FOOTER-001: ubiquitous keys never hinted
     expect(line).not.toContain("esc");
@@ -343,14 +343,14 @@ describe("renderFooter", () => {
     const labels = resolveKeyLabels(mkConfig());
     const deep = renderFooter(mkState(), "deep", labels, theme, 120);
     expect(deep).toContain("Ctrl+S submit");
-    expect(deep).toContain("O list");
-    expect(deep).toContain("E chat");
-    expect(deep).toContain("T explain");
+    expect(deep).toContain("I list");
+    expect(deep).toContain("C chat");
+    expect(deep).toContain("E explain");
     expect(deep).not.toContain("esc back");
     expect(deep).not.toContain("↑/↓ scroll");
     const overview = renderFooter(mkState(), "overview", labels, theme, 120);
     expect(overview).toContain("D deep");
-    expect(overview).toContain("E chat");
+    expect(overview).toContain("C chat");
     expect(overview).not.toContain("enter jump");
     expect(overview).not.toContain("esc back");
   });
@@ -375,10 +375,10 @@ describe("renderFooter", () => {
 
     const wide = renderFooter(state, "short", labels, theme, 60);
     expect(wide).toContain("D deep"); // leftmost feature hint survives first
-    expect(wide).toContain("O list");
-    expect(wide).toContain("E chat");
-    expect(wide).toContain("T explain");
-    expect(wide).not.toContain("M note"); // rightmost features yield first
+    expect(wide).toContain("I list");
+    expect(wide).toContain("C chat");
+    expect(wide).toContain("E explain");
+    expect(wide).not.toContain("N note"); // rightmost features yield first
     expect(wide).not.toContain("Ctrl+S submit");
     expect(wide).not.toContain("enter");
     expect(visibleWidth(wide)).toBeLessThanOrEqual(60);
@@ -413,8 +413,8 @@ describe("renderFooter", () => {
     expect(text).toContain("Ctrl+S submit");
     expect(text).toContain("Ctrl+G editor");
     expect(text).not.toContain("D deep");
-    expect(text).not.toContain("E chat");
-    expect(text).not.toContain("T explain");
+    expect(text).not.toContain("C chat");
+    expect(text).not.toContain("E explain");
     expect(text).not.toContain("enter save"); // ubiquitous keys never labeled
     expect(text).not.toContain("esc esc");
 
@@ -708,13 +708,13 @@ describe("renderFooter narrow mode (h2.30, P1.M7.T5.S1)", () => {
     const short = renderFooter(mkState(), "short", labels, theme, 120, true);
     expect(short).toContain("Ctrl+S submit");
     expect(short).toContain("D deep");
-    expect(short).not.toContain("O list"); // excluded by the 2-key cap
+    expect(short).not.toContain("I list"); // excluded by the 2-key cap
     expect(short).not.toContain("enter"); // no statics exist to keep (FOOTER-001)
 
     const deep = renderFooter(mkState(), "deep", labels, theme, 120, true);
     expect(deep).toContain("Ctrl+S submit");
     expect(deep).toContain("D deep"); // replaces deep's own list hint
-    expect(deep).not.toContain("O list");
+    expect(deep).not.toContain("I list");
   });
 
   test("width 59 keeps exactly the submit + deep key hints — statics drop first", () => {

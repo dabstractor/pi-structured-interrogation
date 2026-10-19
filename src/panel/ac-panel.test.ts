@@ -93,8 +93,8 @@ const DOWN = "\u001b[B";
 const ENTER = "\r";
 const ESCAPE = "\u001b";
 const CTRL_D = "d"; // DEFAULT_CONFIG.keys.deep (BAREKEYS-001 bare default)
-const CTRL_L = "o"; // DEFAULT_CONFIG.keys.overview (BAREKEYS-001 bare default)
-const CTRL_T = "t"; // DEFAULT_CONFIG.keys.elaborate (BAREKEYS-001 bare default)
+const CTRL_L = "i"; // DEFAULT_CONFIG.keys.overview (BAREKEYS-001 bare default)
+const CTRL_T = "e"; // DEFAULT_CONFIG.keys.elaborate (BAREKEYS-001 bare default)
 const NEXT_Q = "\u001b[Z"; // shift+tab — DEFAULT_CONFIG.keys.nextQuestion
 
 /** Identity theme (panel.test.ts stubTheme): layout renderers run bare. */

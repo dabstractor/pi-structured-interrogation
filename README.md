@@ -34,8 +34,8 @@ materialize; runtime loads via jiti against pi's tree.
    panel **auto-opens** on the first upsert.
 2. Answer in the panel: move between questions with `←` / `→` (or `h` / `l`,
    `tab` / `shift+tab`), pick an option with `↑` / `↓` (or `k` / `j`) and
-   accept with `enter`; `d` opens the deep-dive view, `o` the overview, `t`
-   enters the free-text editor (short view), `m` attaches a batch note, `e`
+   accept with `enter`; `d` opens the deep-dive view, `i` the overview, `e`
+   enters the free-text editor (short view), `n` attaches a batch note, `c`
    opens the side chat on the current question (see
    [Side chat](#side-chat)), `ctrl+g` finishes the draft in an
    external editor, `ctrl+s` submits a partial set. The editor's duty follows
@@ -150,11 +150,11 @@ All settings live under a top-level `"interrogator"` key in either
     // Accelerators, in pi's lowercase form (bare letters or chords like "ctrl+s").
     "keys": {
       "deep": "d",                // open the deep-dive (ramification) view
-      "overview": "o",            // open the question overview list
-      "elaborate": "t",           // enter the editor (elaboration / write-in duty)
-      "batchNote": "m",           // attach a batch note
+      "overview": "i",            // open the question overview list
+      "elaborate": "e",           // enter the editor (elaboration / write-in duty)
+      "batchNote": "n",           // attach a batch note
       "submit": "ctrl+s",         // submit answers (partial ok; gate-hold override)
-      "chat": "e",                // open the in-panel side chat on the current question
+      "chat": "c",                // open the in-panel side chat on the current question
       "externalEditor": "ctrl+g", // open the draft in an external editor
       "prevQuestion": "tab",      // previous question
       "nextQuestion": "shift+tab" // next question
@@ -193,11 +193,11 @@ Remappable actions (`interrogator.keys.*`):
 | Action               | Config key            | Default         | Effect                                        |
 | -------------------- | --------------------- | --------------- | --------------------------------------------- |
 | Deep-dive view       | `keys.deep`           | `d`             | Open the deep-dive (ramification) view        |
-| Overview list        | `keys.overview`       | `o`             | Open the question overview list               |
-| Elaborate            | `keys.elaborate`      | `t`             | Enter the editor — duty follows context (elaboration on a selected option, write-in on the `✎ Other` row or a text question); **works in the short AND deep views** — in deep, the editor pins below the pane (the pane stays as context); close via `enter` or double-`esc` (a re-pressed `t` types the letter) |
-| Batch note           | `keys.batchNote`      | `m`             | Attach a batch note shipped with the next submit; close via `enter` or double-`esc` |
+| Overview list        | `keys.overview`       | `i`             | Open the question overview list               |
+| Elaborate            | `keys.elaborate`      | `e`             | Enter the editor — duty follows context (elaboration on a selected option, write-in on the `✎ Other` row or a text question); **works in the short AND deep views** — in deep, the editor pins below the pane (the pane stays as context); close via `enter` or double-`esc` (a re-pressed `e` types the letter) |
+| Batch note           | `keys.batchNote`      | `n`             | Attach a batch note shipped with the next submit; close via `enter` or double-`esc` |
 | Submit               | `keys.submit`         | `ctrl+s`        | Submit answers now (partial ok — also the deliberate override while the gate hold blocks auto-submit) |
-| Side chat            | `keys.chat`           | `e`             | Open the in-panel side chat on the current question — in the overview, on the cursor row's question (one chat at a time; applies converged answers through the confirm row) |
+| Side chat            | `keys.chat`           | `c`             | Open the in-panel side chat on the current question — in the overview, on the cursor row's question (one chat at a time; applies converged answers through the confirm row) |
 | External editor      | `keys.externalEditor` | `ctrl+g`        | Open the draft in an external editor — any editor duty (answer, elaboration, or note; in note duty the finished text lands in the batch note) |
 | Previous question    | `keys.prevQuestion`   | `tab`           | Move to the previous question                 |
 | Next question        | `keys.nextQuestion`   | `shift+tab`     | Move to the next question                     |
@@ -285,7 +285,7 @@ Unknown subcommands print a usage line — nothing ever throws.
 
 ## Side chat
 
-Press `e` on any question to open the side chat — a short private
+Press `c` on any question to open the side chat — a short private
 conversation about that one question, rendered inside the panel: a one-line
 header (`chat · q3 — {prompt, truncated}`), a transcript with your lines
 prefixed `you ›`, and its own input where `enter` sends and `shift+enter` /
@@ -294,7 +294,7 @@ the main conversation — the model is reached through nested calls only,
 using the session's current model at chat open (`sideChatModel` pins an
 override; an invalid id notifies and falls back to the session model).
 Like every bare key, `e` works from non-editor focus and types inside the
-editor. The config key is `keys.chat` (default `e`); a settings file
+editor. The config key is `keys.chat` (default `c`); a settings file
 carrying the pre-rename key name is silently honored — the same alias
 precedent as the editor key's rename.
 

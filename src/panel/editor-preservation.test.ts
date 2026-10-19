@@ -380,7 +380,7 @@ describe("side-chat open — draft write-through successor (R4/BUG-002, P1.M2.T7
     panel.focusTextField("writein");
     panel.textField.setText("precious unsaved typing");
     panel.blurTextField(); // blur stages nothing — the buffer stays unstaged
-    expect(panel.handleInput("e")).toBe(true);
+    expect(panel.handleInput("c")).toBe(true);
     expect(panel.view).toBe("chat"); // the gesture IS the open path
     expect(panel.focus).toBe("chat");
     expect(firstCall(mock).resolved).toBe(false); // AC-17.1: never suspends

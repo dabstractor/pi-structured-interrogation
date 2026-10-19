@@ -1774,8 +1774,8 @@ describe("handleInput — config-driven router (keys.ts, P1.M3.T3.S1)", () => {
     const state = seed(BASIC);
     const keys = vi.fn(() => true);
     const { panel } = makePanel(state, { keys });
-    panel.handleInput("o"); // bare overview key (BAREKEYS-001) — printable, non-enter
-    expect(keys).toHaveBeenCalledWith("o", panel);
+    panel.handleInput("i"); // bare overview key (BAREKEYS-001) — printable, non-enter
+    expect(keys).toHaveBeenCalledWith("i", panel);
     expect(state.getQuestion("q1")?.status).toBe("open"); // matcher never ran
     expect(panel.view).toBe("short"); // the seam swallowed it pre-router
   });
@@ -1783,7 +1783,7 @@ describe("handleInput — config-driven router (keys.ts, P1.M3.T3.S1)", () => {
   test("test_router_fixed_arrows_work_in_any_view", () => {
     const state = seed(BASIC);
     const { panel } = makePanel(state);
-    panel.handleInput("o"); // overview (bare default, BAREKEYS-001)
+    panel.handleInput("i"); // overview (bare default, BAREKEYS-001)
     expect(panel.view).toBe("overview");
     // Arrows are FIXED keys (h2.34): the router checks them before anything
     // else, in ANY view — only enter/externalEditor carry focus

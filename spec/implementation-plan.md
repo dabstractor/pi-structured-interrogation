@@ -16,7 +16,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 **M3 — Panel short form.** `panel/panel.ts`, `short-view.ts`, `keys.ts`: replace-editor hosting, header/goal, options with ★ marks + preselect, enter accept-advance (digits removed — DIGIT-OUT-001), tab navigation, footer status. Verify AC-1 (minus gate dimming), AC-5 partially.
 
-**M4 — Text field + drafts.** `text-field.ts`: compose `getEditorComponent()`, `ctrl+g` `$EDITOR`, per-question drafts + batch note + `m`. ~~Two-stage enter~~ REMOVED (WRITEIN-001): the editor has three duties (write-in via the Other row / elaboration via `t` / note), `enter` commits wherever the text completes an answer. Verify draft survival across navigation and upserts (R4).
+**M4 — Text field + drafts.** `text-field.ts`: compose `getEditorComponent()`, `ctrl+g` `$EDITOR`, per-question drafts + batch note + `n`. ~~Two-stage enter~~ REMOVED (WRITEIN-001): the editor has three duties (write-in via the Other row / elaboration via `e` / note), `enter` commits wherever the text completes an answer. Verify draft survival across navigation and upserts (R4).
 
 **M5 — Deep view, overview, gate, ripples.** `deep-view.ts` (scrollable pane, sticky option headers, select-from-deep), `overview.ts`, group dimming + gate warnings, `dependsOn` evaluator + moot marks + ripple confirm. Verify AC-5, 6, 7.
 
@@ -79,9 +79,9 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 
 ```jsonc
 {
-  "keys": { "deep": "d", "overview": "o", "elaborate": "t",
-            "batchNote": "m", "submit": "ctrl+s",
-            "chat": "e", "externalEditor": "ctrl+g",
+  "keys": { "deep": "d", "overview": "i", "elaborate": "e",
+            "batchNote": "n", "submit": "ctrl+s",
+            "chat": "c", "externalEditor": "ctrl+g",
             "prevQuestion": "tab", "nextQuestion": "shift+tab" },
   "gateWarnings": true, "roundDetection": true,
   "editorMode": "composed",

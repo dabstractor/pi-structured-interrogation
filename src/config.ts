@@ -117,11 +117,11 @@ const KEY_ACTIONS = [
 export const DEFAULT_CONFIG: InterrogatorConfig = {
   keys: {
     deep: "d",
-    overview: "o",
-    elaborate: "t",
-    batchNote: "m",
+    overview: "i",
+    elaborate: "e",
+    batchNote: "n",
     submit: "ctrl+s",
-    chat: "e",
+    chat: "c",
     externalEditor: "ctrl+g",
     prevQuestion: "tab",
     nextQuestion: "shift+tab",
@@ -308,11 +308,11 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * | field           | default         | purpose                                        | label consumer |
  * |-----------------|-----------------|------------------------------------------------|----------------|
  * | `deep`          | `"d"`           | Open the deep-dive/ramification view           | footer, dialogs |
- * | `overview`      | `"o"`           | Open the question overview list                | footer, dialogs |
- * | `elaborate`     | `"t"`           | Enter the editor: elaboration on the selection / write-in duty (FR-12) | footer          |
- * | `batchNote`     | `"m"`           | Attach a batch note                            | footer, dialogs |
+ * | `overview`      | `"i"`           | Open the question overview list                | footer, dialogs |
+ * | `elaborate`     | `"e"`           | Enter the editor: elaboration on the selection / write-in duty (FR-12) | footer          |
+ * | `batchNote`     | `"n"`           | Attach a batch note                            | footer, dialogs |
  * | `submit`        | `"ctrl+s"`      | Submit answers / close the panel               | footer, widget  |
- * | `chat`         | `"e"`           | Open the per-question side chat                | footer, dialogs |
+ * | `chat`         | `"c"`           | Open the per-question side chat                | footer, dialogs |
  * | `externalEditor`| `"ctrl+g"`      | Open the draft in an external editor           | footer, widget  |
  * | `prevQuestion`  | `"tab"`         | Move to the previous question                  | footer          |
  * | `nextQuestion`  | `"shift+tab"`   | Move to the next question                      | footer          |

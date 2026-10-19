@@ -14,7 +14,7 @@
 #     of our defaults fails this script immediately.
 #
 # [Mode A] BARE-LETTER WORLD (2026-10-12 trilogy): the defaults are now the
-# bare letters `d/o/t/m/e` plus fixed tab/shift+tab and the two surviving
+# bare letters `d/i/e/n/c` plus fixed tab/shift+tab and the two surviving
 # chords ctrl+s/ctrl+g. Bare letters collide with nothing BY CONSTRUCTION:
 # while the panel is open it owns the whole keyboard via custom() raw-input
 # dispatch, and the extension registers NO global shortcut (the historical
@@ -177,7 +177,7 @@ if [[ -z "$PI_DOCS" ]]; then
 	echo "WARN: pi docs/keybindings.md not found in the known install locations — built-in INFO column may be incomplete (this is not a failure)."
 fi
 echo "Checked $checked default key(s) from src/config.ts against ${#AVOIDED[@]} avoided keys + live extension registerShortcut claims."
-echo "[Mode A] Bare-letter defaults (d/o/t/m/e) are panel-owned by construction: the panel owns the whole keyboard while open (custom() raw-input dispatch) and no global shortcut is registered — the AVOIDED list guards REBINDS onto taken chords, not the defaults."
+echo "[Mode A] Bare-letter defaults (d/i/e/n/c) are panel-owned by construction: the panel owns the whole keyboard while open (custom() raw-input dispatch) and no global shortcut is registered — the AVOIDED list guards REBINDS onto taken chords, not the defaults."
 echo "Known limitation: the live grep sees string-literal registerShortcut arguments only; variable-indirect registrations are covered by the curated AVOIDED list (re-check manually when rebinding)."
 
 if [[ "$failures" -gt 0 ]]; then

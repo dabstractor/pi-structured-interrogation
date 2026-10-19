@@ -78,7 +78,7 @@ const editMock = vi.mocked(editInExternalEditor);
 // ------------------------------------------------------------------ fixtures
 
 const CTRL_D = "d"; // BAREKEYS-001: bare defaults (was ctrl+d)
-const CTRL_L = "o"; // BAREKEYS-001: bare defaults (was ctrl+l)
+const CTRL_L = "i"; // BAREKEYS-001: bare defaults (was ctrl+l)
 const ESCAPE = "\u001b";
 
 /** Identity theme so S2 layout renderers run in tests (stub per tool.test.ts). */
@@ -713,7 +713,7 @@ describe("view switching (built-in S1 bindings)", () => {
     panel.handleInput(CTRL_L);
     const lines = panel.render(120); // wide enough that no hint degrades away
     expect(lines[lines.length - 1]).toContain("D deep"); // FOOTER-001: features advertised
-    expect(lines[lines.length - 1]).toContain("E chat");
+    expect(lines[lines.length - 1]).toContain("C chat");
     expect(lines[lines.length - 1]).not.toContain("enter jump"); // statics deleted
     expect(lines[lines.length - 1]).not.toContain("esc back");
   });
@@ -1675,7 +1675,7 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     };
     const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
 
-    panel.handleInput("t"); // elaborate = config.keys.elaborate (bare default)
+    panel.handleInput("e"); // elaborate = config.keys.elaborate (bare default)
     expect(panel.focus).toBe("text");
     expect(panel.textField.focused).toBe(true);
     expect(panel.textField.getText()).toBe("saved draft");
@@ -1714,7 +1714,7 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     const panel = new InterrogationPanel(panelArgsFor(state));
     panel.currentId = "t1";
 
-    panel.handleInput("t"); // elaborate — focus the editor on t1
+    panel.handleInput("e"); // elaborate — focus the editor on t1
     panel.textField.setText("half-typed on t1");
     expect(panel.focus).toBe("text");
 
@@ -1825,7 +1825,7 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     };
     const panel = new InterrogationPanel(panelArgsFor(state, { drafts }));
 
-    panel.handleInput("t"); // open (bare default, BAREKEYS-001 — entry-only)
+    panel.handleInput("e"); // open (bare default, BAREKEYS-001 — entry-only)
     panel.textField.setText("elaboration");
     panel.handleInput(ESCAPE); // single esc forwards to the editor
     panel.handleInput(ESCAPE); // pair completes → exitTextField
@@ -1840,8 +1840,8 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
     expect(panel.currentId).toBe("q2"); // accept-advance, not the armed skip
   });
 
-  test("test_t_in_text_focus_types_and_does_not_exit", () => {
-    // BAREKEYS-001: the re-press toggle is REMOVED — a bare `t` while the
+  test("test_e_in_text_focus_types_and_does_not_exit", () => {
+    // BAREKEYS-001: the re-press toggle is REMOVED — a bare `e` while the
     // editor holds focus is a letter, not an exit (two-tier rule: the
     // router forwards it; the buffer grows; no close side effects).
     const state = createInterrogationState("goal");
@@ -1856,10 +1856,10 @@ describe("embedded editor — focus + input forwarding (P1.M4.T1.S1)", () => {
       panelArgsFor(state, { drafts, editorFactory: () => typingEditor() }),
     );
 
-    panel.handleInput("t"); // open (options focus intercept — entry-only seam)
+    panel.handleInput("e"); // open (options focus intercept — entry-only seam)
     expect(panel.focus).toBe("text");
-    expect(panel.handleInput("t")).toBe(true); // forwarded to the editor
-    expect(panel.textField.getText()).toBe("t"); // buffer grew by the letter — it TYPED
+    expect(panel.handleInput("e")).toBe(true); // forwarded to the editor
+    expect(panel.textField.getText()).toBe("e"); // buffer grew by the letter — it TYPED
     expect(panel.focus).toBe("text"); // no exit
     expect(drafts.setDraft).not.toHaveBeenCalled(); // no write-through — still editing
   });
@@ -2174,7 +2174,7 @@ describe("openExternalEditor — ctrl+g handoff (P1.M4.T1.S3)", () => {
 import { DraftStore as RealDraftStore } from "../draft-store.js";
 
 /** kitty CSI-u ctrl+shift+m (keys.test.ts DEFAULT_DATA convention). */
-const BATCH_NOTE = "m"; // BAREKEYS-001: bare default (was ctrl+shift+m)
+const BATCH_NOTE = "n"; // BAREKEYS-001: bare default (was ctrl+shift+m)
 
 /**
  * Stateful composed editor that APPENDS printable input (stock-editor
@@ -2281,8 +2281,8 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     expect(panel.textField.focused).toBe(false);
   });
 
-  test("test_m_in_note_focus_types_and_does_not_exit", () => {
-    // BAREKEYS-001: the re-press toggle is REMOVED — a bare `m` while the
+  test("test_n_in_note_focus_types_and_does_not_exit", () => {
+    // BAREKEYS-001: the re-press toggle is REMOVED — a bare `n` while the
     // note editor holds focus is a letter, not an exit (two-tier rule: the
     // router forwards it; the buffer grows; no close side effects).
     const state = createInterrogationState("goal");
@@ -2294,8 +2294,8 @@ describe("note mode (R3, P1.M4.T2.S2)", () => {
     panel.handleInput(BATCH_NOTE); // open
     panel.textField.setText("no");
 
-    expect(panel.handleInput("m")).toBe(true); // panel consumes by forwarding to the editor
-    expect(panel.textField.getText()).toBe("nom"); // buffer grew by the letter — it TYPED
+    expect(panel.handleInput("n")).toBe(true); // panel consumes by forwarding to the editor
+    expect(panel.textField.getText()).toBe("non"); // buffer grew by the letter — it TYPED
     expect(panel.focus).toBe("note"); // no exit
     expect(drafts.setNote).not.toHaveBeenCalled(); // no write-through — still editing
   });
@@ -2644,7 +2644,7 @@ describe("deep view (P1.M5.T1.S1)", () => {
     const panel = new InterrogationPanel(panelArgsFor(state));
     panel.handleInput(CTRL_D);
     expect(panel.view).toBe("deep");
-    panel.handleInput("m"); // batchNote → note mode (bare default)
+    panel.handleInput("n"); // batchNote → note mode (bare default)
     const lines = panel.render(80);
     expect(lines[0]).toBe("┌ NOTE — ships with next submission ┐");
     expect(lines.join("\n")).not.toContain("Fast, embedded, single-writer.");
@@ -2887,7 +2887,7 @@ describe("gate group — focus, dimming, warning (P1.M5.T3.S1)", () => {
 // ------------------------------------------------- elaborate (`t`) duty
 
 describe("elaborate duty — EXPLAIN vs OTHER (WRITEIN-001, P1.M2.T3.S1)", () => {
-  const CTRL_T = "t"; // DEFAULT_CONFIG.keys.elaborate (BAREKEYS-001 bare default)
+  const CTRL_T = "e"; // DEFAULT_CONFIG.keys.elaborate (BAREKEYS-001 bare default)
 
   /** Panel with the stateful fake composed editor (label/enter assertions). */
   function makeDutyPanel(state: InterrogationState): InterrogationPanel {
@@ -3175,7 +3175,7 @@ describe("navigation duty re-derivation — BUG-004 (WRITEIN-001 cursor-follow)"
     state.upsertQuestion(textQ("t1"));
     const panel = makeDutyPanel(state);
 
-    panel.handleInput("t"); // elaborate on c1 → elaboration duty
+    panel.handleInput("e"); // elaborate on c1 → elaboration duty
     expect(panel.textDuty).toBe("elaboration");
 
     panel.handleInput(NEXT_Q); // → t1 (type:text): re-derivation flips to writein
@@ -3471,7 +3471,7 @@ describe("overview chat targeting — cursor row, not currentId (BUG-004)", () =
     panel.setView("overview"); // background question stays the entry point (q1)
     panel.overviewCursor = 1; // q2's row
 
-    expect(panel.handleInput("e")).toBe(true);
+    expect(panel.handleInput("c")).toBe(true);
 
     expect(panel.view).toBe("chat");
     expect(getSidechat()?.questionId).toBe("q2"); // the ROW, not background q1
@@ -3483,7 +3483,7 @@ describe("overview chat targeting — cursor row, not currentId (BUG-004)", () =
     panel.setView("overview");
     panel.overviewCursor = 2; // q3 — last row
 
-    expect(panel.handleInput("e")).toBe(true);
+    expect(panel.handleInput("c")).toBe(true);
     expect(getSidechat()?.questionId).toBe("q3");
   });
 
@@ -3492,7 +3492,7 @@ describe("overview chat targeting — cursor row, not currentId (BUG-004)", () =
     panel.setView("overview");
     panel.overviewCursor = 0;
 
-    expect(panel.handleInput("e")).toBe(true); // consumed…
+    expect(panel.handleInput("c")).toBe(true); // consumed…
     expect(getSidechat()).toBeUndefined(); // …but nothing opened
   });
 
@@ -3500,7 +3500,7 @@ describe("overview chat targeting — cursor row, not currentId (BUG-004)", () =
     const { panel } = makeOverviewChatPanel();
     panel.overviewCursor = 1; // would be q2's row — irrelevant outside the overview
 
-    expect(panel.handleInput("e")).toBe(true);
+    expect(panel.handleInput("c")).toBe(true);
     expect(getSidechat()?.questionId).toBe("q1"); // currentId — unchanged contract
   });
 
@@ -3508,13 +3508,13 @@ describe("overview chat targeting — cursor row, not currentId (BUG-004)", () =
     const { panel, deps } = makeOverviewChatPanel();
     panel.setView("overview");
     panel.overviewCursor = 1;
-    panel.handleInput("e"); // open on q2
+    panel.handleInput("c"); // open on q2
     const before = getSidechat();
 
     panel.setView("overview"); // simulate the esc exit (re-seeds the cursor to
     // currentId's row — landed overview-entry behavior)
     panel.overviewCursor = 1; // navigate back to q2's row
-    panel.handleInput("e"); // same row again
+    panel.handleInput("c"); // same row again
 
     expect(getSidechat()).toBe(before); // SAME record — singleton reuse
     expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(1); // no rebuild
@@ -3524,7 +3524,7 @@ describe("overview chat targeting — cursor row, not currentId (BUG-004)", () =
     const { panel } = makeOverviewChatPanel();
     panel.setView("overview");
     panel.overviewCursor = 1;
-    panel.handleInput("e"); // chatReturnView seeds the pre-chat view
+    panel.handleInput("c"); // chatReturnView seeds the pre-chat view
     expect(panel.chatReturnView).toBe("overview");
 
     panel.blurChatInput(); // leave the input editor (options focus in chat view)
@@ -3576,7 +3576,7 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
   test("e_opens_the_chat_view_seeds_focus_scroll_and_builds_the_snapshot_once", () => {
     const { panel, deps, done } = makeOpenPanel();
 
-    expect(panel.handleInput("e")).toBe(true); // router dispatch (options focus)
+    expect(panel.handleInput("c")).toBe(true); // router dispatch (options focus)
 
     expect(panel.view).toBe("chat");
     expect(panel.focus).toBe("chat"); // chat input claimed (focusChatInput)
@@ -3594,11 +3594,11 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
 
   test("same_question_reopen_reuses_the_frozen_record_without_rebuilds", () => {
     const { panel, deps } = makeOpenPanel();
-    panel.handleInput("e");
+    panel.handleInput("c");
     const before = getSidechat();
 
     panel.setView("short"); // simulate the esc exit (T3.S1 rung) — blurs chat
-    panel.handleInput("e"); // re-open on the SAME question
+    panel.handleInput("c"); // re-open on the SAME question
 
     expect(getSidechat()).toBe(before); // SAME record object — nothing rebuilt
     expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(1);
@@ -3610,11 +3610,11 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
 
   test("different_question_replaces_the_record_wholesale", () => {
     const { panel, deps } = makeOpenPanel();
-    panel.handleInput("e"); // q1
+    panel.handleInput("c"); // q1
     panel.setView("short");
     panel.currentId = "q2";
 
-    panel.handleInput("e");
+    panel.handleInput("c");
 
     expect(getSidechat()?.questionId).toBe("q2"); // replaced
     expect(deps.resolveModelSnapshot).toHaveBeenCalledTimes(2); // once per record
@@ -3626,7 +3626,7 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
 
   test("setView_seeding_is_once_only_per_entry", () => {
     const { panel } = makeOpenPanel();
-    panel.handleInput("e");
+    panel.handleInput("c");
     expect(panel.chatScrollOffset).toBe(Number.MAX_SAFE_INTEGER);
 
     panel.chatScrollOffset = 5;
@@ -3640,7 +3640,7 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
 
   test("chat_view_renders_header_transcript_frame_and_idle_footer", () => {
     const { panel } = makeOpenPanel();
-    panel.handleInput("e");
+    panel.handleInput("c");
 
     const lines = panel.render(100);
     const text = lines.join("\n");
@@ -3660,7 +3660,7 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
     const done = vi.fn();
     const panel = new InterrogationPanel(panelArgsFor(state, { done })); // no chatRebindDeps
 
-    expect(panel.handleInput("e")).toBe(true); // the key is consumed by the router
+    expect(panel.handleInput("c")).toBe(true); // the key is consumed by the router
     expect(panel.view).toBe("short"); // inert: no view flip
     expect(getSidechat()).toBeUndefined(); // no record
     expect(done).not.toHaveBeenCalled();
@@ -3900,7 +3900,7 @@ describe("sidechat discard — transition semantics (BUG-002)", () => {
     const { panel, state } = makePanel2([choiceQ("q1"), choiceQ("q2"), choiceQ("q3"), choiceQ("q4")]);
     state.applyAnswer("q1", { value: "a", at: T }); // q1 answered BEFORE the chat opens
     panel.currentId = "q1";
-    panel.handleInput("e"); // the chat binding → onChat opens + seeds {q1, answered}
+    panel.handleInput("c"); // the chat binding → onChat opens + seeds {q1, answered}
     expect(panel.view).toBe("chat");
     expect(getSidechat()?.questionId).toBe("q1");
 
@@ -3965,7 +3965,7 @@ describe("sidechat discard — transition semantics (BUG-002)", () => {
     const { panel, state } = makePanel2([choiceQ("q1")]);
     state.applyAnswer("q1", { value: "a", at: T }); // answered BEFORE open
     panel.currentId = "q1";
-    panel.handleInput("e"); // onChat seeds {q1, answered}
+    panel.handleInput("c"); // onChat seeds {q1, answered}
     expect(getSidechat()?.questionId).toBe("q1");
 
     state.applyAnswer("q1", { value: "b", at: T }); // answered → answered
@@ -4080,7 +4080,7 @@ describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", 
     const { host, mock, deps } = makeSuspendHost({ sidechatEngine: engine });
     const panel1 = firstCall(mock).component;
 
-    panel1.handleInput("e"); // open the chat on q1 — snapshot built once
+    panel1.handleInput("c"); // open the chat on q1 — snapshot built once
     const before = getSidechat();
     expect(before).toBeDefined();
     expect(engine.sendTurn("hi")).toBe(true); // one settled turn pre-suspend
@@ -4103,7 +4103,7 @@ describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", 
     // in sendChatInput's clear; there is no restore call anywhere).
     expect(panel2.chatField.getText()).toBe("");
 
-    panel2.handleInput("e"); // re-`e` on the record's question → rebind
+    panel2.handleInput("c"); // re-`e` on the record's question → rebind
     expect(panel2.view).toBe("chat");
     expect(getSidechat()).toBe(before); // BYTE-UNCHANGED reuse — same object
     expect(getSidechat()!.messages).toEqual(transcript); // transcript intact
@@ -4129,7 +4129,7 @@ describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", 
     const panel1 = firstCall(mock).component;
     expect(panel1.sidechatEngine).toBeDefined();
     expect(panel1.chatRebindDeps).toBeDefined();
-    panel1.handleInput("e");
+    panel1.handleInput("c");
     expect(getSidechat()!.modelSnapshot).toEqual({ provider: "", modelId: "" });
 
     firstCall(mock).done(null);
@@ -4149,7 +4149,7 @@ describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", 
       return stream;
     });
     const { host, mock, deps } = makeSuspendHost({ sidechatEngine: engine });
-    firstCall(mock).component.handleInput("e");
+    firstCall(mock).component.handleInput("c");
     expect(engine.sendTurn("hello")).toBe(true);
     expect(getSidechat()!.streamState).toBe("streaming");
 
@@ -4160,7 +4160,7 @@ describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", 
 
     expect(resumeOpenPanel(mock.pi)).toBe(true);
     const panel2 = mock.calls[1]!.component;
-    panel2.handleInput("e"); // the user re-`e`s the still-streaming question
+    panel2.handleInput("c"); // the user re-`e`s the still-streaming question
     expect(panel2.view).toBe("chat");
 
     // The pre-suspend turn completes AFTER resume: the old engine's settle
@@ -4275,7 +4275,7 @@ describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", 
       panelArgsFor(state, { chatRebindDeps: deps, sidechatEngine: engine }),
     );
 
-    expect(panel.handleInput("e")).toBe(true); // consumed; the view opens
+    expect(panel.handleInput("c")).toBe(true); // consumed; the view opens
     expect(panel.view).toBe("chat");
     expect(getSidechat()!.modelSnapshot).toEqual({ provider: "", modelId: "" });
 

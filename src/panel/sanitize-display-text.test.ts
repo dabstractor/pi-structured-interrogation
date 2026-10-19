@@ -252,11 +252,11 @@ describe("panel render — SANITIZE-001 one-line-per-row invariant", () => {
     const serialized = state.serialize();
     const labels = {
       deep: "d\x0b",
-      overview: "o",
-      elaborate: "t",
+      overview: "i",
+      elaborate: "e",
       batchNote: "n",
       submit: "ctrl+s\n",
-      chat: "e",
+      chat: "c",
       externalEditor: "ctrl+g",
       prevQuestion: "p",
       nextQuestion: "N",

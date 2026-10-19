@@ -179,7 +179,7 @@ function makePanel(state: InterrogationState, keysSpy = false): Handle {
 
 /** Focus the embedded editor through the real router seam (bare `t`, BAREKEYS-001). */
 function elaborate(panel: InterrogationPanel): void {
-  panel.handleInput("t");
+  panel.handleInput("e");
 }
 
 // ------------------------------------------------------------------- tests
@@ -459,7 +459,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
     expect(panel.focus).toBe("options");
 
     const seedSpy = vi.spyOn(panel.textField, "seed");
-    panel.handleInput("t"); // elaborate → focusTextField
+    panel.handleInput("e"); // elaborate → focusTextField
     expect(seedSpy).toHaveBeenCalledWith("the draft");
     expect(panel.textField.getText()).toBe("the draft");
   });
@@ -478,7 +478,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
     panel.handleInput("\t"); // tab = prevQuestion → back to q1
     expect(panel.currentId).toBe("q1");
 
-    panel.handleInput("t"); // refocus → seeded from the q1 slot
+    panel.handleInput("e"); // refocus → seeded from the q1 slot
     expect(panel.textField.getText()).toBe("q1 draft");
   });
 
@@ -493,7 +493,7 @@ describe("two-stage enter — refocus seeding + draft survival", () => {
     // re-seeds the buffer: q2 has no draft, so the field empties.
     panel.handleInput("\x1b[Z"); // shift+tab = nextQuestion → q2
     expect(panel.currentId).toBe("q2");
-    panel.handleInput("t"); // explicit refocus on q2
+    panel.handleInput("e"); // explicit refocus on q2
     expect(panel.textField.getText()).toBe(""); // never q1's leftover
   });
 });

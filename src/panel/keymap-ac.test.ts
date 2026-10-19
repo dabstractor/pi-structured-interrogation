@@ -82,11 +82,11 @@ function choiceQ(id: string, overrides: Partial<Question> = {}): Question {
 /** The bare-letter/chord default data (mirrors keys.test.ts DEFAULT_DATA). */
 const LETTER_BYTES: Record<KeyAction, string> = {
   deep: "d",
-  overview: "o",
-  elaborate: "t",
-  batchNote: "m",
+  overview: "i",
+  elaborate: "e",
+  batchNote: "n",
   submit: "\u0013",
-  chat: "e",
+  chat: "c",
   externalEditor: "\u0007",
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
@@ -495,9 +495,9 @@ describe("AC-5 — re-press types; exits via enter/double-esc (delta_prd §3.5)"
     const { panel, editor } = makePanel(state);
     panel.focusTextField("elaboration");
     panel.handleInput("first");
-    expect(panel.handleInput("t")).toBe(true); // re-press TYPES (no toggle)
-    expect(panel.textField.getText()).toBe("firstt");
-    expect(editor.received).toContain("t");
+    expect(panel.handleInput("e")).toBe(true); // re-press TYPES (no toggle)
+    expect(panel.textField.getText()).toBe("firste");
+    expect(editor.received).toContain("e");
     expect(panel.focus).toBe("text");
     expect(panel.handleInput("\r")).toBe(true); // enter = the exit gesture
     expect(panel.focus).toBe("options"); // stage-1 save + blur (two-stage.test.ts territory)

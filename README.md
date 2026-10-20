@@ -427,29 +427,30 @@ Human acceptance runbook:
 
 ### Keymap conflict re-verification
 
-Re-verified at build time on **2026-10-16** (commit `378b9ee`, the side-chat
+Re-verified at build time on **2026-10-20** (commit `eb09516`, the KEYMNEMONICS-001
 changeset) against pi **1.0.2**
 (`~/.local/lib/node_modules/@earendil-works/pi-coding-agent/docs/keybindings.md`)
 and all installed extension trees (`~/.pi/agent/npm/node_modules`,
 `~/.pi/agent/git`, `~/.pi/extensions`). Method:
 `bash scripts/verify-keymap-conflicts.sh` — exit 0, all 9 defaults clear (the
 run this section records). Result: **no default collides with a genuinely
-global claim; `e` unchanged — passes untouched** (bare panel-owned letter, no
-global claim possible). Drift since the 2026-10-14 record: none — the only
-string-literal global registrations in the extension trees remain
-pi-patty-bg-tasks' five (`src/shortcuts.ts:28-49`); pi-subagents' fleet-open
-shortcut is still registered variable-indirectly (invisible to the
-string-literal grep — re-checked manually; overlaps no interrogator key).
+global claim; all five bare letters are panel-owned by construction** (bare
+keys never intercept in editor focus; no global claim possible). Drift since
+the 2026-10-16 record: none — the only string-literal global registrations in
+the extension trees remain pi-patty-bg-tasks' five (`src/shortcuts.ts:28-49`);
+pi-subagents' fleet-open shortcut remains registered variable-indirectly
+(invisible to the string-literal grep — re-checked manually; overlaps no
+interrogator key).
 
 Verified defaults (`src/config.ts` `DEFAULT_CONFIG.keys`):
 
 | Key (action)                                   | Status             | Owner / evidence                                                                                       |
 | ---------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
 | `d` (`deep`)                                   | panel-owned        | bare letter — no global claim possible: the panel owns the whole keyboard while open, and bare keys never intercept in editor focus |
-| `o` (`overview`)                               | panel-owned        | bare letter — same construction: collides with nothing in pi's or extensions' global vocabulary        |
-| `t` (`elaborate`)                              | panel-owned        | bare letter — same construction                                                                        |
-| `m` (`batchNote`)                              | panel-owned        | bare letter — same construction                                                                        |
-| `e` (`chat`)                                   | panel-owned        | bare letter — same construction                                                                        |
+| `i` (`overview`)                               | panel-owned        | bare letter — same construction: collides with nothing in pi's or extensions' global vocabulary        |
+| `e` (`elaborate`)                              | panel-owned        | bare letter — same construction                                                                        |
+| `n` (`batchNote`)                              | panel-owned        | bare letter — same construction                                                                        |
+| `c` (`chat`)                                   | panel-owned        | bare letter — same construction                                                                        |
 | `ctrl+s` (`submit`)                            | panel-safe reuse   | pi: `app.session.toggleSort`, `app.models.save`, `app.thinking.save` (keybindings.md:141,154,156) — stays a chord: submit must fire from text focus, where a bare key could never be typed |
 | `ctrl+g` (`externalEditor`)                    | panel-safe reuse   | pi: `app.editor.external`, `tui.altScreen.searchNext` (keybindings.md:115,129) — stays a chord: its only valid context is editor focus, where a bare key would have to type, never act |
 | `tab` (`prevQuestion`)                         | fixed/nav (panel)  | pi: `tui.input.tab` (keybindings.md:65) — consumed inside the panel only                               |
@@ -477,7 +478,7 @@ Avoided keys — a default must never be set to any of these:
 config keys (`ctrl+s`, `ctrl+g`, `shift+tab`) intercept everywhere in-panel —
 pi's binding layer never sees them while the panel is open — so their
 panel-safe reuse of pi built-ins costs nothing outside the panel. Bare
-config keys (`d` `o` `t` `m` `e`) intercept only from non-editor focus and
+config keys (`d` `i` `e` `n` `c`) intercept only from non-editor focus and
 always type in the editor, so they are panel-scope-only by construction —
 and the panel owns the whole keyboard while open regardless
 (`ctx.ui.custom()` raw-input dispatch; `src/panel/keys.ts` header, "Mode A —

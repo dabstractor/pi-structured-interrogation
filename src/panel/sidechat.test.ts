@@ -760,9 +760,14 @@ describe("applyChatAnswer — SIDECHAT-004 apply routing (P1.M2.T6.S1)", () => {
     expect(panel.currentId).toBe("q1"); // advance: no other unanswered → stays
     expect(send).toHaveBeenCalledTimes(1); // maybeAutoSubmit — last-open transition
     expect(get()).toBeUndefined(); // T5.S1 discard hook tore the chat down
-    expect(notify).toHaveBeenCalledTimes(1); // usage notify, exactly once
+    // TWO distinct-purpose notifies share the channel (BUG-003): the chat
+    // close notice (hook — fires synchronously inside applyAnswer) and —
+    // new — the auto-submit confirmation (maybeAutoSubmit's tail, after
+    // submit() suspends). Close notice first, auto-submit receipt second.
+    expect(notify).toHaveBeenCalledTimes(2);
     // SPEC-PINNED string — zero-usage record → the canonical close notice.
-    expect(notify).toHaveBeenCalledWith(formatChatCloseNotice({ input: 0, output: 0, totalCost: 0 }));
+    expect(notify).toHaveBeenNthCalledWith(1, formatChatCloseNotice({ input: 0, output: 0, totalCost: 0 }));
+    expect(notify).toHaveBeenNthCalledWith(2, "submitted — 1 answer(s)");
   });
 
   test("writeIn seam: RAW text committed custom:true — no trim, then advance", () => {

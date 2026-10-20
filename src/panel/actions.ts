@@ -800,10 +800,13 @@ function reconcileDraftsForSubmit(panel: InterrogationPanel): void {
  *   panel (SURFACE-001 / handleUpserted, focused on the first upserted
  *   active question), `{reopen:true}` resumes it, `/interrogate` opens it.
  *   The zero-shipped early return above NEVER suspends — nothing shipped
- *   means the user keeps working. maybeAutoSubmit's post-submit flash
- *   still fires (it can only paint pre-restore frames; it is the
- *   auto-path's test-observable receipt — the card and the widget are the
- *   real confirmation surfaces).
+ *   means the user keeps working. maybeAutoSubmit's post-submit
+ *   confirmation fires on BOTH channels (BUG-003): the footerFlash field
+ *   is kept as the auto-path's test-observable receipt — it can only
+ *   paint pre-restore frames — while panel.notify (the host ui.notify
+ *   closure, callable after done(null)) is the USER-OBSERVABLE surface,
+ *   fired after submit() suspends. The card and the widget are the real
+ *   confirmation surfaces.
  */
 export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // NEW-002/NEW-003 (h2.45): typed drafts ship with the submission — text
@@ -1064,7 +1067,14 @@ export function maybeAutoSubmit(
   // One firing = one full submission (h2.41: epoch bumps per firing).
   const shipped = submit(panel, d);
   if (shipped) {
-    panel.flash(`submitted — ${pending} answer(s)`); // verbatim, literal "answer(s)"
+    // Keep the flash field (existing assertions read it; harmless) AND emit
+    // through the post-suspend notify channel — submit() already suspended
+    // the panel (FR-3d), so only the notify is user-observable (BUG-003:
+    // a sync invalidate never paints once resolved). Verbatim
+    // AUTOSUBMIT-001 string; literal "answer(s)", no pluralization.
+    const confirmation = `submitted — ${pending} answer(s)`;
+    panel.flash(confirmation);
+    panel.notify(confirmation);
   }
 }
 

@@ -2777,6 +2777,64 @@ describe("maybeAutoSubmit — completeness hook", () => {
     expect(state.epoch).toBe(2);
   });
 
+  test("test_auto_submit_notifies_verbatim_string_post_suspend", () => {
+    // BUG-003: the footerFlash field alone is unobservable post-suspend
+    // (sync invalidate never paints once resolved) — the confirmation must
+    // ALSO reach the host notify closure, exactly once, verbatim
+    // (em-dash, literal "answer(s)"), AFTER done(null) inside submit().
+    const state = seed([
+      { id: "q1", overrides: { recommendation: "a" } },
+      { id: "q2", overrides: { recommendation: "a" } },
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const notify = vi.fn();
+    const { panel } = makePanel(state, { delivery: deps, sidechatNotify: notify });
+    const suspendSpy = vi.spyOn(panel, "suspend");
+    panel.currentId = "q1";
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true); // q1 answered; q2 still open → no firing yet
+    expect(notify).not.toHaveBeenCalled();
+
+    panel.currentId = "q2";
+    panel.cursorIndex = 0;
+    expect(accept(panel)).toBe(true); // last open answered → ships the whole pending set
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith("submitted — 2 answer(s)");
+    expect(panel.footerFlash?.text).toBe("submitted — 2 answer(s)"); // field kept
+    // Suspend ordering: done(null) inside submit() precedes the notify.
+    expect(suspendSpy.mock.invocationCallOrder[0]).toBeLessThan(notify.mock.invocationCallOrder[0]);
+  });
+
+  test("test_notify_without_closure_is_silent_no_throw", () => {
+    // Direct construction without sidechatNotify → optional chain degrades.
+    const state = seed([{ id: "q1", overrides: { recommendation: "a" } }]);
+    const { deps } = makeDeps(true);
+    const { panel } = makePanel(state, { delivery: deps }); // no closure
+    expect(() => panel.notify("submitted — 1 answer(s)")).not.toThrow();
+  });
+
+  test("test_non_shipped_path_no_notify", () => {
+    // commit === undefined (inert same-value accept) → maybeAutoSubmit
+    // returns before the tail → no submission, no flash, no notify.
+    const state = seed([
+      { id: "q1", overrides: { status: "answered" } },
+      { id: "q2", overrides: { status: "answered" } },
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+    const notify = vi.fn();
+    const { panel } = makePanel(state, { delivery: deps, sidechatNotify: notify });
+    panel.currentId = "q1"; // caret pins to the recorded "a"; same-value accept
+    panel.cursorIndex = 0;
+
+    expect(accept(panel)).toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledTimes(0);
+    expect(notify).not.toHaveBeenCalled();
+    expect(panel.footerFlash?.text).toBeUndefined();
+  });
+
   test("test_auto_edit_on_complete_set_fires_only_on_last_sequential", () => {
     // AUTOSUBMIT-003 (2026-09-30): completeness alone no longer fires — an
     // edit of a NON-last question on a complete set ships nothing (the

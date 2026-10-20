@@ -916,6 +916,21 @@ export class InterrogationPanel implements Component {
    * the onChanged discard hook. Undefined → silent discard.
    */
   readonly sidechatNotify: ((message: string) => void) | undefined;
+
+  /**
+   * [Mode A] Post-suspend notification channel (BUG-003 / AUTOSUBMIT-001):
+   * the auto-submit confirmation (`submitted — {n} answer(s)`) fires AFTER
+   * submit() has suspended the panel (FR-3d post-submit exit), so a footer
+   * flash can never paint — the component is unmounted. This method routes
+   * through the SAME host ui.notify closure as the sidechat close notices
+   * (resolveSidechatHostSeams, log-safe swallow on failure) which remains
+   * callable after done(null). Optional-chained: hosts/tests without the
+   * closure degrade silently — no second try/catch here (the closure
+   * already has one).
+   */
+  notify(message: string): void {
+    this.sidechatNotify?.(message);
+  }
   /**
    * Chat transcript scroll offset (SIDECHAT-001, P1.M2.T3.S1) — the
    * panel-owned offset chat-view.ts's contract describes ("the panel-owned

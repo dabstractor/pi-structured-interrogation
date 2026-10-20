@@ -1,0 +1,5 @@
+{
+  "hasIssues": true,
+  "issueCount": 1,
+  "summary": "All 4 PRD bugs verified fixed (independent 37-check probe suite + 1643 unit tests + 13 live headless pi journeys incl. real restart fidelity); 0 regressions; 1 new minor pre-existing defect: question-header line renders width+1 when combined status markers fill the budget (layout.ts renderQuestionLine)."
+}

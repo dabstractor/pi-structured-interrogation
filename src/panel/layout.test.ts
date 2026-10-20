@@ -291,6 +291,29 @@ describe("renderQuestionLine", () => {
     expect(line.endsWith("⟳ re-asked")).toBe(true);
     expect(visibleWidth(line)).toBeLessThanOrEqual(60);
   });
+
+  test("combined ★/✎ markers never overflow at narrow widths (VAL-001)", () => {
+    // Committed write-in = the exact `★ answered · ✎ text answer` state
+    // BUG-001 replay restores. When the marker string alone fills the
+    // budget, the markers truncate to budget − 1 so
+    // `2 + leftFloor(1) + markers` stays inside `width` (was width + 1,
+    // e.g. 21 cols at width 20 — VAL-001).
+    const q = mkQuestion("q1", {
+      status: "answered",
+      answer: { value: "my write-in", custom: true, at: "2026-01-01T00:00:00Z" },
+    });
+    expect(visibleWidth(statusMarkers(q, theme))).toBeGreaterThanOrEqual(25); // combined markers fill sub-31 budgets
+    for (let width = 18; width <= 30; width++) {
+      const line = renderQuestionLine(q, 1, 2, theme, width);
+      expect(line, `width ${width}: no wrap`).not.toContain("\n");
+      expect(visibleWidth(line), `width ${width}: fits`).toBeLessThanOrEqual(width);
+    }
+    // Degenerate widths (budget ≤ 1): must not crash, never wrap.
+    for (const width of [3, 2, 1, 0]) {
+      const line = renderQuestionLine(q, 1, 2, theme, width);
+      expect(line, `width ${width}: no wrap`).not.toContain("\n");
+    }
+  });
 });
 
 // ------------------------------------------------------------ renderHintLine

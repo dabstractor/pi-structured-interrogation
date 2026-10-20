@@ -442,8 +442,12 @@ export function renderQuestionLine(
   let markerW = markers === "" ? 0 : visibleWidth(markers);
   // Last resort (pathological marker content): shrink the markers too —
   // truncateVisible is ANSI-aware, so themed markers survive this intact.
+  // VAL-001: cap at budget − 1, reserving the left part's 1-column floor —
+  // truncating to the FULL budget let `2 + leftFloor(1) + budget` measure
+  // width + 1 and wrap (truncateVisible(…, ≤ 0) yields "", so width-3
+  // panels degrade to the marker-less branch cleanly).
   if (markerW >= budget) {
-    markers = truncateVisible(markers, budget);
+    markers = truncateVisible(markers, budget - 1);
     markerW = visibleWidth(markers);
   }
   // Left part yields to markers: reserve their width (the marker fragment

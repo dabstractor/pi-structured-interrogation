@@ -1,0 +1,290 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Bugfix changeset 001_3e88fb340e1d: full-fidelity restart replay, Other-row width safety, observable auto-submit confirmation, SURFACE-002 comment truth",
+      "status": "Ready",
+      "description": "Fix the 4 validated defects in pi-interrogator at HEAD 3a302a9 (1624 tests green). BUG-001 (Major): interrogation-submission deltas carry answer.value only — restart reconstruction inside a missed 2s mirror-flush window silently drops answer.text elaborations and answer.custom write-in markers, degrading the read surface, ANSWER-PIN-001 caret pinning, WRITEIN-001 ✎ markers, and the FR-5 completion record; fix = extend DiffEntry at BOTH producers (computeEntries + the actions.ts synthetic seam) with optional text/custom and apply them in replaySubmission, plus the PRD-required regression test. BUG-002: otherLine never truncates OTHER_AFFORDANCE — panel lines overflow sub-32-col terminals. BUG-003: maybeAutoSubmit flashes 'submitted — {n} answer(s)' after submit()'s panel.suspend() — dead on an unmounted component; route an observable confirmation (post-suspend notify channel or final frame). BUG-004: index.ts createReconstruction wiring comment still claims session_start auto-opens the panel, contradicting locked ruling SURFACE-002. spec/ is read-only locked prose; no PRD-external behavior changes.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "BUG-001: submission deltas carry and replay the full answer shape (text + custom)",
+          "status": "Planned",
+          "description": "Make the interrogation-submission delta round-trip the complete Answer shape — {value, text?, custom?} — from both DiffEntry producers through replaySubmission, so restart reconstruction inside the missed-mirror window (hard kill/SSH drop/SIGKILL before the 2s debounce flush) restores elaborations and write-in markers exactly. Grounded in plan/006_45773b259b06/bugfix/001_3e88fb340e1d/architecture/bug001-submission-replay.md.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Extend DiffEntry producers with text/custom and apply them in replaySubmission (end-to-end fidelity + regression)",
+              "status": "Planned",
+              "description": "One coherent seam change: (1) DiffEntry gains optional text?/custom? (src/snapshots.ts:90-115) with computeEntries copying them from after?.answer; (2) the synthetic-entry seam in src/panel/actions.ts:912-922 copies them from q.answer; (3) replaySubmission (src/reconstruct.ts:420-439) applies them under the state.ts:595-596 strict-guard precedent while keeping value-first resolution (BUG-007) and the UNANSWERED_SUMMARY clearance skip intact; (4) the PRD-required regression test replays a real delivered submission carrying an elaborated option answer and a ✎ custom write-in. Legacy entries without the new keys degrade to current behavior.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Confirm green baseline at HEAD (npm test, typecheck, lint)",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": [],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.4"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/bugfix/001_3e88fb340e1d/architecture/system_context.md — HEAD 3a302a9, suite green (54 files / 1624 tests), scripts: npm test (vitest run), npm run typecheck (tsc --noEmit), npm run lint (eslint src scripts *.ts). Known benign: persistence.test.ts logs a mocked 'state mirror appendEntry failed' error in verbose mode; a one-off timeout flake was observed in a prior changeset — on a single failure, re-run once before concluding it is real.\n2. INPUT: clean checkout at HEAD 3a302a9 (verify `git rev-parse --short HEAD`); no dependency on other subtasks.\n3. LOGIC: Run all three commands; record exact pass counts. Do NOT fix anything — a reproducible failure is a pre-existing bug to report and stop on, per changeset scope (the PRD's 4 bugs are the only authorized work). No mocking (hermetic unit suite).\n4. OUTPUT: Baseline record {head, testFiles, tests, typecheck, lint, anomalies[]} consumed as precondition by P1.M1.T1.S2+ and as the diff reference for P1.M3.T1.S1 (expect: prior count + only newly added tests, zero regressions).\n5. DOCS: none — read-only verification, no user-facing/config/API surface change."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S2",
+                  "title": "DiffEntry += optional text/custom; computeEntries copies them (src/snapshots.ts)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.2",
+                    "h3.0",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-submission-replay.md §2-§3 — DiffEntry (snapshots.ts:90-115) currently carries id/title/prompt?/from/to/editedArchived/value? only; computeEntries (snapshots.ts:284-309) copies `value: after?.answer?.value`. answerSignature is value+text, so text-only elaboration edits already produce entries — the elaboration is then dropped. Optional-key convention in this interface: keys present only when meaningful (see prompt? and value? JSDoc).\n2. INPUT: none from prior subtasks beyond the green baseline (P1.M1.T1.S1). Answer shape from src/state.ts:43-49: { value: string; text?: string; custom?: boolean; at?: string }.\n3. LOGIC: Implement PRD h3.0 Recommendation 1 producer half A. Add to DiffEntry: optional `text?: string` (free-text elaboration; key present ONLY when after?.answer?.text is a non-empty string) and `custom?: boolean` (WRITEIN-001 write-in marker; key present ONLY when after?.answer?.custom === true), each with JSDoc mirroring value?'s 'machine-readable for reconstruction' contract. Copy both in computeEntries' entries.push using the interface's conditional-spread convention so absent elaborations leave keys absent (legacy shape byte-identical when no elaboration/write-in). Do NOT touch from/to summaries (display-only) or editedArchived. Mock nothing (pure module).\n4. OUTPUT: Extended DiffEntry interface + enriched entries from computeDiff/computeEntries for consumption by P1.M1.T1.S3 (synthetic seam parity) and P1.M1.T1.S4 (replaySubmission reads entry.text/entry.custom). Tests colocated in src/snapshots.test.ts: entry carries text/custom for an elaborated answer and a custom write-in; keys absent for plain/absent answers; existing entries' fields unchanged.\n5. DOCS: [Mode A] JSDoc on the two new DiffEntry fields (and the computeEntries doc block if it discusses carried answer fields) rides WITH this change — no separate docs subtask. README changeset sync is P1.M3.T2's job."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S3",
+                  "title": "Synthetic-entry seam copies text/custom (src/panel/actions.ts submit path)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S2"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.2",
+                    "h3.0",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-submission-replay.md §4 — the SECOND DiffEntry producer (snapshots.ts JSDoc 'BOTH DiffEntry producers'): synthesized entries for pending ids at src/panel/actions.ts:912-922 read `q.answer?.value` only; comment there says 'Synthesized entries mirror computeEntries' DiffEntry shape exactly'. buildSubmission (delivery.ts:163) packs details.changed untruncated (delivery.ts:128, :200 — SUBMISSION_LIST_MAX_CHARS caps the display line only, so growing entries is contract-safe).\n2. INPUT: Extended DiffEntry interface from P1.M1.T1.S2 (this seam's literals must type-check against it).\n3. LOGIC: Implement PRD h3.0 Recommendation 1 producer half B. In the synthetic-entry object literal add text/custom from the live question using the same conditional-spread convention as prompt (text when non-empty string, custom when === true), keeping `from: UNANSWERED_SUMMARY` and all existing fields byte-identical. Update the seam comment to state the entries mirror the FULL answer shape (value/text/custom). Do NOT reorder around buildSubmission's takeSnapshot/bumpEpoch. Tests in src/actions.test.ts following the existing submit-path harness: a committed elaboration (draft via `e` + commit → commitTextDraft seam) and a ✎ Other write-in (writeInEnter) each produce details.changed entries carrying text/custom; plain answers still omit the keys. Mock the delivery capture exactly as existing submit tests do.\n4. OUTPUT: Delivered interrogation-submission messages whose details.changed carries the complete answer shape, consumed by P1.M1.T1.S4 (replay) and P1.M1.T1.S5 (e2e regression) and by reconstruction in production.\n5. DOCS: [Mode A] Update the seam's adjacent comment (actions.ts ~898-911) to name the carried text/custom fields — rides WITH the change. No user-facing/config surface change beyond the message payload documented in P1.M1.T1.S2's JSDoc."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S4",
+                  "title": "replaySubmission applies text/custom with legacy guards (src/reconstruct.ts)",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S2"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.2",
+                    "h3.0",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-submission-replay.md §5 — replaySubmission (reconstruct.ts:420-439) resolves value-first (BUG-007: entry.value, fallback entry.to), skips clearances (resolved === UNANSWERED_SUMMARY), then applies `state.applyAnswer(id, { value: resolved, at: new Date().toISOString() })` — text/custom never carried. applyAnswer (state.ts:379-386) shallow-copies `{...answer}` so passing the fields through preserves them. Strict-guard precedent for untrusted persisted data: state.ts:595-596.\n2. INPUT: DiffEntry entries possibly carrying optional text/custom from P1.M1.T1.S2 (interface) — and in production from P1.M1.T1.S3's seam; legacy history entries carry neither key.\n3. LOGIC: Implement PRD h3.0 Recommendation 1 consumer half. In replaySubmission, build the answer object as today, then add `...(typeof entry.text === 'string' && entry.text !== '' ? { text: entry.text } : {})` and `...(entry.custom === true ? { custom: true } : {})` (strict guards per the state.ts deserialize precedent — corrupt truthy values must not leak into state). Keep value-first resolution, the sentinel/clearance skip, the one-submission-one-epoch-bump rule (h3.6), and `at`-not-carried behavior EXACTLY as-is; update the BUG-007 comment block that says elaborations/at are not carried — text/custom now ARE, `at` still is not. Mock nothing: drive via reconstructFromBranch with fixture entries (reconstruct.test.ts helpers makeCtx/makeOpts/makeHost/toolResultEntry/submissionEntry/diff).\n4. OUTPUT: LiveState whose replayed answers restore {value, text?, custom?} — consumed by P1.M1.T1.S5 (e2e), by the read surface/digest elaboration lines (TRUST-001), ANSWER-PIN-001 caret pinning to the ✎ Other row, and buildCompletion (delivery.ts:373, :469 — FR-5 record). Tests in src/reconstruct.test.ts: replay of submissionEntry entries with text/custom restores both; entries without the keys behave exactly as today (legacy); clearance entries still skip; text-only elaboration edits (same value, new text) now restore the elaboration.\n5. DOCS: [Mode A] Update replaySubmission's BUG-007 comment block (reconstruct.ts ~425-434) to reflect carried text/custom — rides WITH the change."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S5",
+                  "title": "End-to-end regression: delivered submission (elaboration + write-in) reconstructs with full answer shape",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S3",
+                    "P1.M1.T1.S4"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.2",
+                    "h3.0",
+                    "h2.4",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug001-submission-replay.md §Pipeline + Test harness — this is the PRD's exact repro (h3.0 Steps to Reproduce) turned into the PRD-required regression test (h2.5 Recommendation 1). Existing regression-file convention: src/regression-*.test.ts (see regression-phantom-submissions.test.ts). Delivery capture: buildSubmission/deliverSubmission exported (delivery.ts:163); panel seams per actions.test.ts (acceptOptionIndex + commitTextDraft + writeInEnter, auto-submit path); reconstruction fixtures per reconstruct.test.ts (toolResultEntry/submissionEntry/makeCtx/makeOpts/makeHost).\n2. INPUT: Extended producers (P1.M1.T1.S2, P1.M1.T1.S3) and replay consumer (P1.M1.T1.S4).\n3. LOGIC: New file src/regression-replay-fidelity.test.ts reproducing the hard-kill window: (a) upsert two choice questions via the real interrogate tool path — its tool-result details.state is the reconstruction base candidate; (b) answer q1 = option with elaboration committed and q2 = ✎ Other write-in, letting auto-submit deliver the interrogation-submission; capture the delivered message; (c) build the branch [toolResultEntry(base), submissionEntry(capturedMessage.details)] — NO mirror entry, modeling process death inside the 2s STATE_MIRROR_DEBOUNCE_MS window before session_shutdown's flush; (d) reconstructFromBranch and assert q1.answer = { value, text: <elaboration> } and q2.answer = { value: <write-in text>, custom: true } (value-first resolution also asserted: raw write-in value, not a label), plus result.source/'replayed' sanity. Include the header comment naming BUG-001 and the missed-flush-window reachability. Mock only the delivery/ctx seams the existing suites mock.\n4. OUTPUT: Permanent regression pin for FR-27/TRUST-001/WRITEIN-001/ANSWER-PIN-001/FR-5 fidelity across restart; feeds P1.M3.T1.S1 (gate) and P1.M3.T2.S1 (README restart-section sync).\n5. DOCS: none beyond the regression file's explanatory header — behavior now matches the documented restart contract; README blurb handled at changeset level (P1.M3.T2.S1)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M2",
+          "title": "Minor fixes: BUG-002 Other-row truncation, BUG-003 observable auto-submit confirmation, BUG-004 SURFACE-002 comment truth",
+          "status": "Planned",
+          "description": "The three minor defects, each an isolated seam with no cross-dependency: width-safe ✎ Other row (short-view.ts), an actually-observable 'submitted — {n} answer(s)' confirmation on auto-submit (actions.ts/panel.ts notify channel), and the index.ts wiring comment rewritten to the locked SURFACE-002 ruling plus a raw-source static guard. Grounded in architecture/bug002-003-panel-render-flash.md and architecture/bug004-surface002-comment.md.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M2.T1",
+              "title": "BUG-002: route otherLine's OTHER_AFFORDANCE label through truncateVisible",
+              "status": "Planned",
+              "description": "Thread the render budget into otherLine() and truncate its label with the same head-width math as optionLine so every short-view line satisfies the documented 'visibleWidth ≤ width' contract on sub-32-col terminals, keeping width-80 output byte-identical.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T1.S1",
+                  "title": "Truncate the ✎ Other row label to the render budget (src/panel/short-view.ts)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.3",
+                    "h3.1",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-panel-render-flash.md §BUG-002 — otherLine (short-view.ts:279-294) takes no budget and never truncates; the caller renderShortViewOptions (short-view.ts:220) already computes `budget = Math.max(1, width - INSET.length - RIGHT.length)` (INSET 2 + right margin 2) and passes it to optionLine/textAffordanceLine/mootLine. Sibling math: optionLine `headW = visibleWidth(prefix) + visibleWidth(star); truncateVisible(opt.label, Math.max(1, budget - headW))`. truncateVisible (layout.ts:158-163) is ANSI/ellipsis-safe. Existing byte-pin at short-view.test.ts:299-300 must stay green at width 80. ui-spec.md:28 already covers the Other row (it is an option row); spec/ is read-only — NO spec edit.\n2. INPUT: none from other subtasks (independent file); requires only the green baseline (P1.M1.T1.S1).\n3. LOGIC: Implement PRD h3.1. Add a `budget: number` param to otherLine, pass it at the call site, and truncate the RAW label BEFORE any theme.fg wrap: `const label = truncateVisible(OTHER_AFFORDANCE, Math.max(1, budget - visibleWidth(prefix)))`, then apply the success/dim coloring to the truncated string exactly as today. Do not change OTHER_AFFORDANCE itself (exported, short-view.ts:84), the prefix/cursor logic, or the write-in success-color rule. Tests in src/short-view.test.ts following the :575-586 narrow-width pattern: render at widths 10/20/30 → every returned line visibleWidth(line) ≤ w, '…' present when truncated; width-80 golden line unchanged; write-in-colored variant also truncates. Mock nothing.\n4. OUTPUT: Every renderShortViewOptions line width-safe (terminal-budget.ts contract restored; pi-tui no longer word-waps the Other row into extra rows); consumed by P1.M3.T1.S1 (gate) and P1.M3.T2.S2 (README truncation-claims sweep).\n5. DOCS: none — internal renderer fix conforming to the existing ui-spec fallback row; no user-facing/config/API surface change beyond corrected rendering."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T2",
+              "title": "BUG-003: make the auto-submit 'submitted — {n} answer(s)' confirmation observable",
+              "status": "Planned",
+              "description": "The AUTOSUBMIT-001/AC-2c confirmation currently lands on an unmounted panel (flash after submit()'s suspend). Route an observable confirmation through the existing post-suspend notify channel (ctx.ui.notify closure, sidechatNotify precedent) while keeping the footerFlash field-level state that dozens of tests read.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T2.S1",
+                  "title": "Emit the auto-submit confirmation via the post-suspend notify channel (src/panel/actions.ts + panel seam)",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.3",
+                    "h3.2",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug002-003-panel-render-flash.md §BUG-003 — maybeAutoSubmit tail (actions.ts:1060-1063) flashes after submit(); submit() tail (~951-957) calls panel.suspend() (panel.ts:1639-1644: resolved=true, done(null) → pi unmounts); panel.flash (panel.ts:1660-1668) never repaints post-suspend, so moving flash() alone before submit() does NOT make it observable. A working post-suspend channel EXISTS: ctx.ui?.notify?.(message) closure built in resolveSidechatHostSeams (panel.ts:523-545), exposed as sidechatNotify (panel.ts:598), log-safe-swallowed on failure — used for sidechat close notices. PRD h3.2 authorizes either final-frame or notify; notify is deterministic.\n2. INPUT: none from other subtasks (baseline P1.M1.T1.S1 only). NOTE: P1.M1.T1.S3 also edits src/panel/actions.ts but a different function (submit()'s entry seam vs maybeAutoSubmit's tail) — keep the diffs disjoint.\n3. LOGIC: Implement PRD h3.2. In maybeAutoSubmit: keep/arrange `panel.footerFlash` state set to the VERBATIM string `submitted — ${pending} answer(s)` (literal 'answer(s)', no pluralization) so existing field-reading assertions (e.g. actions.test.ts:2686-2692) stay green; after `submit(panel, d)` returns shipped, emit the same verbatim string through a notify surface reachable from actions.ts — expose the captured closure on the panel (e.g. a small `notify(message)` method delegating to the sidechatNotify closure; optional-chained so hosts without ui.notify degrade silently per the swallow pattern). If, while implementing, you verify a deterministic final-frame paint IS achievable via pi-tui's render API (node_modules/@earendil-works/pi-tui), that alternative is equally PRD-compliant — but do not ship a paint that cannot be asserted. Tests in src/actions.test.ts: mock ui.notify alongside the existing delivery mocks; after the last open question is answered (auto-submit fires): notify called once with the verbatim string, footerFlash.text still set, done(null)/suspend ordering unchanged, no notify on the non-shipped path. Update the maybeAutoSubmit tail comment (~line 803 'maybeAutoSubmit's post-submit flash…') to describe the new channel.\n4. OUTPUT: An observable, test-assertable no-keypress delivery confirmation for AUTOSUBMIT-001/AC-2c; consumed by P1.M3.T1.S1 (gate) and P1.M3.T2.S2 (README auto-submit rows).\n5. DOCS: [Mode A] Update the adjacent code comments (maybeAutoSubmit tail + any flash JSDoc that claims observability) to match the new mechanism — rides WITH the change. README AUTOSUBMIT-001 row sweep is P1.M3.T2.S2."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M2.T3",
+              "title": "BUG-004: rewrite the stale SURFACE-002 wiring comment + raw-source static guard",
+              "status": "Planned",
+              "description": "Correct the createReconstruction wiring comment in src/index.ts (session_start NEVER auto-opens; silent install + suspend-widget line only) and pin it with a static guard test that scans the raw source, so the R6/SURFACE-002 requirement can no longer be misdocumented at the one wiring site maintainers read.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M2.T3.S1",
+                  "title": "Fix the 'session_start auto-opens the panel' comment and guard it with a source-scan test",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.3",
+                    "h3.3",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug004-surface002-comment.md — offending clause at src/index.ts:148-149 inside the createReconstruction block (:142-160); the following session_tree sentence is already correct — change ONLY the session_start clause. Truth sources: reconstruct.ts module JSDoc (~95-110) + session-start tail (:627-636, updateSuspendWidget only) and locked ruling spec/decisions.md:26 (SURFACE-002, 'Disable auto-open entirely', panel returns only via /interrogate, agent upsert, or {reopen:true}; empty-box-after-esc data-loss trap context at decisions.md:25). Raw-source guard precedent: fs.readFileSync(new URL(...)) + regex (delivery.test.ts:287, guards.test.ts:534, merge.test.ts:348, results.test.ts:344, snapshots.test.ts:483, state.test.ts:484, tool.test.ts:861) — scan RAW source; no-hardcoded-keys.test.ts strips comments, so do NOT reuse that pipeline.\n2. INPUT: none (comment-only change; baseline P1.M1.T1.S1). Behavior pins that must stay green untouched: ac-panel.test.ts:794 (AC-9), reconstruct.test.ts:302/:756/:897, tree-nav-repro.test.ts, README.md:367.\n3. LOGIC: Implement PRD h3.3 + h2.5 Recommendation 4. (a) Rewrite only the stale clause, e.g. 'then split BY ORIGIN: session_start NEVER opens the panel (SURFACE-002/FR-28: silent install + suspend-widget line only; the panel returns only via /interrogate, an agent upsert, or {reopen:true}); session_tree is SILENT — …', keeping the rest of the block verbatim. (b) Add the static guard (e.g. in src/reconstruct.test.ts or a small dedicated file): read src/index.ts raw, assert it does NOT match /auto-opens the panel/ and DOES match /SURFACE-002/ and /NEVER opens the panel/. TDD: write the failing guard first, then fix the comment. Mock nothing - comment-only change; the guard reads source files directly, no service mocks needed.\n4. OUTPUT: Truthful wiring documentation + a permanent comment-drift guard; consumed by P1.M3.T1.S1 (gate) and P1.M3.T2.S2 (README sweep — README already documents the correct behavior at :367, likely no-op).\n5. DOCS: none — comment-only; the guarded text IS the doc."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P1.M3",
+          "title": "Changeset closure: final gate + changeset-level documentation sync",
+          "status": "Planned",
+          "description": "Validate the whole changeset (full suite + typecheck + lint, zero regressions vs P1.M1.T1.S1 baseline) and then sync changeset-level documentation: README.md restart/reconstruction sections gain the restored replay fidelity, and the truncation/auto-submit/SURFACE-002 claims get a staleness sweep.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M3.T1",
+              "title": "Final changeset gate: full suite, typecheck, lint, zero regressions",
+              "status": "Planned",
+              "description": "Re-run the complete quality gate after all four fixes land and diff against the baseline record: every prior test still green, only newly added tests appear, typecheck and lint clean.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T1.S1",
+                  "title": "Run the full gate and diff against the P1.M1.T1.S1 baseline",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S5",
+                    "P1.M2.T1.S1",
+                    "P1.M2.T2.S1",
+                    "P1.M2.T3.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.4",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/system_context.md — commands npm test / npm run typecheck / npm run lint; known benign persistence.test.ts mocked-appendEntry log line; one-off flake policy (re-run once).\n2. INPUT: All implementing subtasks landed (deps); baseline record from P1.M1.T1.S1 {head: 3a302a9, testFiles, tests, typecheck, lint}.\n3. LOGIC: Run all three commands. Diff pass counts against the baseline: expect prior tests all green plus ONLY the new tests added by P1.M1.T1.S2-S5, P1.M2.T1.S1, P1.M2.T2.S1, P1.M2.T3.S1; typecheck/lint exit 0. Any pre-existing-test failure = regression introduced by this changeset — fix at the faulting subtask's seam before proceeding (do not widen scope). No mocking.\n4. OUTPUT: Gate record {testsBefore, testsAfter, delta: only-new, typecheck: pass, lint: pass} for P1.M3.T2's doc task and the changeset's validation report.\n5. DOCS: none — verification only."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M3.T2",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Mode B catch-all: update README.md so the whole delta ships with accurate overview docs — the restart/reconstruction sections gain restored elaboration/write-in replay fidelity (BUG-001), and the truncation/auto-submit/SURFACE-002-adjacent claims get a staleness sweep (BUG-002/003/004).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S1",
+                  "title": "README restart/reconstruction sections: restored replay fidelity (BUG-001)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M1.T1.S2",
+                    "P1.M1.T1.S3",
+                    "P1.M1.T1.S4",
+                    "P1.M1.T1.S5",
+                    "P1.M3.T1.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.2",
+                    "h3.0",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug004-surface002-comment.md §README map — candidate sections: README.md:105 ('session restart/resume never opens it either'), :348-376 (Acceptance criteria; :367 AC-9 restart, :368 /compact), :377-407 (Limitations; :384 restart restores questions, :402-404 reconstructs from append-only mirror), :526 (project-structure line for reconstruct.ts). No docs/ dir; README.md is the changeset-level doc surface; spec/ is read-only.\n2. INPUT: Landed BUG-001 fix (deps) — submission deltas now carry answer.text/answer.custom and replaySubmission restores them; gate record from P1.M3.T1.S1.\n3. LOGIC: Sweep those sections for statements implying restart replay is value-only or loses elaborations/write-ins; update the restart/reconstruction prose (a sentence or clause suffices — e.g. AC-9/Limitations restart row) to state that replayed answers keep elaborations and ✎ write-in markers. Keep edits minimal and consistent with existing README voice; do not restate implementation internals (DiffEntry) in user docs. If every sentence is already accurate at the fidelity level users see, record that no-op decision explicitly — do not force a rewrite. Mock nothing (docs-only).\n4. OUTPUT: Updated (or verified-current) README.md restart/reconstruction sections, consistent with the new behavior.\n5. DOCS: [Mode B] THIS SUBTASK IS the changeset-level doc sync for BUG-001 — README.md only; spec/ untouched."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M3.T2.S2",
+                  "title": "README staleness sweep: truncation, auto-submit confirmation, SURFACE-002 wording (BUG-002/003/004)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P1.M2.T1.S1",
+                    "P1.M2.T2.S1",
+                    "P1.M2.T3.S1",
+                    "P1.M3.T1.S1"
+                  ],
+                  "prd_selectors": [
+                    "h2.0",
+                    "h2.3",
+                    "h3.1",
+                    "h3.2",
+                    "h3.3",
+                    "h2.5"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: architecture/bug004-surface002-comment.md §README map — README.md:85 ('truncated, capped, or hidden'), :163 (CAPS-OUT-001 nothing-truncated claim), :359-360 (AUTOSUBMIT-001/002 acceptance rows), :367 (AC-9 'NO panel appears (SURFACE-002)' — already correct). architecture/bug002-003-panel-render-flash.md — BUG-003 confirmation is now a post-suspend notify with the verbatim 'submitted — {n} answer(s)' string; BUG-002 makes every short-view line width-safe including the ✎ Other row.\n2. INPUT: Landed minor fixes (deps) + gate record from P1.M3.T1.S1.\n3. LOGIC: Sweep each listed row/section: if any row claims the footer flash is the auto-submit confirmation mechanism or describes width behavior the Other-row fix changed, update it to match shipped behavior; verify :367/:105 SURFACE-002 wording still matches (BUG-004 fixed only a code comment — README is expected to already be correct). Minimal-diff edits in existing voice; an explicit no-op decision with rationale is acceptable per section. Mock nothing (docs-only).\n4. OUTPUT: README.md consistent with all four fixes; final task of the changeset.\n5. DOCS: [Mode B] THIS SUBTASK IS the changeset-level doc sync for the minor fixes — README.md only; spec/ untouched."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

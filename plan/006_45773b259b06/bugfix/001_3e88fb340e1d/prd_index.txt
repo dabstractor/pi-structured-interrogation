@@ -1,0 +1,13 @@
+h1.0 Bug Fix Requirements
+ h2.0 Overview
+ h2.1 Critical Issues (Must Fix)
+ h2.2 Major Issues (Should Fix)
+  h3.0 Issue 1: Restart reconstruction loses answer elaborations (answer.text) and write-in markers (answer.custom) when replaying submission deltas
+ h2.3 Minor Issues (Nice to Fix)
+  h3.1 Issue 1: Synthetic ✎ Other row label is never width-truncated — panel lines exceed terminal width below ~31 columns
+  h3.2 Issue 2: Auto-submit 'submitted — {n} answer(s)' footer flash is set after the panel already suspended — never observable
+  h3.3 Issue 3: index.ts wiring comment claims session_start auto-opens the panel — contradicts the locked SURFACE-002 ruling it sits next to
+ h2.4 Testing Summary
+ h2.5 Recommendations
+---
+para:17 list:3

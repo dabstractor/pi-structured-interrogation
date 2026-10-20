@@ -4,8 +4,9 @@
  *
  * The deep view (FR-8 / h2.29 / Q19-Q20) is a FULL replacement of the Q&A
  * region between header and footer, split into TWO regions (owner ruling
- * 2026-10-05, DEEP-PIN-001): a PINNED question region on top — the full
- * `question.description` (plus a `⊘ moot` reason line first when moot) —
+ * 2026-10-05, DEEP-PIN-001): a PINNED question region on top — the
+ * question PROMPT always, then the full `question.description` when
+ * present (plus a `⊘ moot` reason line first when moot) —
  * and a SCROLLABLE options region under
  * it with one section per option (`▸ ★ sqlite` header + wrapped
  * ramification text) and — on choice questions — the synthetic
@@ -313,8 +314,11 @@ export function wrapText(text: string, budget: number): string[] {
 // ---------------------------------------------------------- content builder
 
 /**
- * Pure deep-pane content builder (h2.29 layout, FR-8): the FULL
- * `question.description` (wrapped), a blank separator, then one
+ * Pure deep-pane content builder (h2.29 layout, FR-8): the question PROMPT
+ * (ALWAYS — 2026-10-20 fix, live report: the region drew only the
+ * description, so description-less questions rendered NO question text)
+ * followed by the full `question.description` when present (both wrapped),
+ * a blank separator, then one
  * section per option in state order (never filtered or reordered — R1):
  * a header line — `▸ label ★` when highlighted / `  label ★` otherwise
  * (TRAILING ★, amendment 8; the highlighted section carries the `▸ `
@@ -388,6 +392,12 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
   const qBudget = budget - 1; // extra right-padding col (DEEP-PIN-002)
   const rail = questionIndent(theme);
   const descBlock: string[] = [];
+  // PROMPT-FIRST (2026-10-20 fix, live report): the PROMPT renders ALWAYS;
+  // the description follows it in the same railed block when present. The
+  // old region drew ONLY q.description — a description-less question
+  // (every question in the reporting session) rendered NO question text:
+  // header → blank lines → options. The prompt is the question.
+  pushBlock(descBlock, q.prompt, theme, qBudget, dimAll, "", rail);
   if (q.description !== undefined && q.description !== "") {
     pushBlock(descBlock, q.description, theme, qBudget, dimAll, "", rail);
   }

@@ -630,12 +630,16 @@ describe("AC-5 — deep view: full scroll + select-from-deep (FR-8)", () => {
     // the scroll window — the scroll range spans the OPTIONS region at
     // its (reduced) viewport height, not the whole pane at 20.
     // DEEP-PIN-002: line 0 is the air line below the panel header; the
-    // description head follows it, on the accent ▌ rail (uncolored under
-    // the stub theme).
+    // PROMPT head follows it (PROMPT-FIRST 2026-10-20: the question's own
+    // text always leads the region), on the accent ▌ rail (uncolored
+    // under the stub theme); the description follows in the same block.
     expect(content.questionLines[0]).toBe("");
     const pinnedHead = content.questionLines[1]!;
     expect(pinnedHead.startsWith("▌ ")).toBe(true);
-    expect(pinnedHead).toContain("Context you should read before choosing.");
+    expect(pinnedHead).toContain("prompt:d1"); // the PROMPT leads the region
+    expect(content.questionLines.join("\n")).toContain(
+      "Context you should read before choosing.",
+    );
     expect(content.questionLines.join("\n")).not.toContain("deep goal"); // header-only, never the pane
     const maxOffset = content.lines.length - content.viewportHeight;
     // The pinned question is visible at EVERY offset — top of range AND

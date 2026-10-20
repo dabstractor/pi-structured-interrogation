@@ -476,8 +476,25 @@ describe("pinned question region (DEEP-PIN-001)", () => {
       const w = renderDeepWindow(content, 1, o, theme, 80);
       expect(w[0]).toBe(""); // breathing room below the panel header
       expect(w[1].startsWith("▌ ")).toBe(true); // accent rail (stub theme: uncolored)
-      expect(w[1]).toContain("Which database should back the build?");
+      // PROMPT-FIRST (2026-10-20): the question's own text leads the
+      // pinned region; the description follows in the same railed block
+      // (presence-checked in `text` above).
+      expect(w[1]).toContain("Which database?");
     }
+  });
+
+  test("test_prompt_renders_when_no_description (2026-10-20 live report)", () => {
+    // The live failure: every question in the reporting session had NO
+    // description, and the pinned region drew ONLY the description — so
+    // the deep pane rendered NO question text at all (header → blank
+    // lines → options) for every question at once. The prompt is the
+    // question; it must render regardless of description presence.
+    const q = choiceQ("db", {}); // description: undefined
+    const content = buildDeepContent(deepInputFor(q));
+    const railLines = content.questionLines.filter((l) => l.startsWith("▌ "));
+    expect(railLines.join("\n")).toContain("Which database?"); // the PROMPT
+    const window = renderDeepWindow(content, 0, 0, theme, 80);
+    expect(window.join("\n")).toContain("Which database?"); // and it renders
   });
 
   test("test_tall_question_region_truncates_bottom_first_with_marker", () => {

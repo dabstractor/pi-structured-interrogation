@@ -2309,6 +2309,14 @@ export class InterrogationPanel implements Component {
       );
       const chatHints = content.pop(); // frame-less hint string (chat-view contract)
       lines.push(...content); // ends with the blank padding line (variation A)
+      // SIDECHAT-001 chat INPUT row (2026-10-20 fix, live report): the
+      // second TextField's lines embed HERE — transcript above, input
+      // directly above the footer. The field was fully wired (focus,
+      // routing, enter-send) but never rendered, so the chat view opened
+      // with an invisible focused editor and no prompt row to type into.
+      // Always rendered in the chat view — the view's primary affordance
+      // (same shape as the short view's editor block).
+      lines.push(...this.chatField.render(width));
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
       lines.push(this.footerLine(snapshot, width, budget.narrow, chatHints));

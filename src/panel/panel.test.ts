@@ -190,7 +190,16 @@ function makeMockPi(mode: string | undefined = "tui"): MockPi {
   const sendMessage = vi.fn();
   // The real surface carries the submit transport (NEW-001) — mock it so
   // surfaceSubmitDeps can bind the production path in these tests too.
-  const surface = { mode, ui: { custom }, on, sendMessage };
+  // 2026-10-20: the chat input now RENDERS in the chat view — openPanel
+  // captures this seam (panel.ts editorFactory) and without it the stock
+  // pi-tui Editor is built against the mock TUI, whose render crashes on
+  // `.rows`. Every openPanel-built panel gets the inert fake editor.
+  const surface = {
+    mode,
+    ui: { custom, getEditorComponent: () => () => fakePanelEditor() },
+    on,
+    sendMessage,
+  };
   // Cast mirrors lifecycle.test.ts's mock convention: the mock's call
   // signature is a widened superset of the surface the host uses.
   const pi = surface as unknown as PiUISurface & Pick<ExtensionAPI, "on">;
@@ -3646,6 +3655,11 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
     const text = lines.join("\n");
     expect(text).toContain("┌ interrogation"); // shared header
     expect(text).toContain("chat · q1 — "); // identity header (chat-view)
+    // INPUT ROW (2026-10-20 live report): the chat branch embeds the
+    // chatField's rendered lines — the field was fully wired (focus,
+    // routing, enter-send) but never drawn, so the view opened with an
+    // invisible focused editor and nothing to type into.
+    expect(text).toContain("e1"); // fake editor's line, via chatField.render
     expect(lines.some((l) => l.startsWith("└ "))).toBe(true); // framed footer
     const footerLine = lines[lines.length - 1];
     expect(footerLine).toContain("/clear"); // FOOTER-001: the one non-ubiquitous affordance

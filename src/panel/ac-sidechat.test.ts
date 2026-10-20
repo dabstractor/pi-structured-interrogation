@@ -202,6 +202,10 @@ function makeMockPi(mode: string | undefined = "tui"): {
       setEditorText: (text: string) => {
         editorText = text;
       },
+      // 2026-10-20: the chat input now RENDERS in the chat view — openPanel
+      // captures this seam; without it the stock pi-tui Editor renders
+      // against the mock TUI and crashes on `.rows`.
+      getEditorComponent: () => () => fakePanelEditor(),
     },
     on,
     sendMessage,

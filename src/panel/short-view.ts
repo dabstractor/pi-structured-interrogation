@@ -217,7 +217,7 @@ export function renderShortViewOptions(input: ShortViewInput): string[] {
     for (let i = 0; i < options.length; i++) {
       lines.push(optionLine(q, options[i], i, cursorIndex, theme, budget, dimAll));
     }
-    lines.push(otherLine(q, options.length, cursorIndex, theme, dimAll));
+    lines.push(otherLine(q, options.length, cursorIndex, theme, budget, dimAll));
     // BUG-005 part 2: choice write-ins preview here too — only custom
     // write-ins produce a line (plain option answers return undefined; the
     // option rows already carry the recorded selection).
@@ -285,17 +285,23 @@ function optionLine(
  * the cursor range. DEEP-PIN-003: when the recorded answer is a committed
  * write-in (custom: true), the label renders SUCCESS (green) — the same
  * one-signal answered coloring as option rows and deep-view titles.
+ * BUG-002: the label truncates to the caller's budget like every option
+ * row (ui-spec sub-60-col fallback table) — the color wraps the TRUNCATED
+ * string.
  */
 function otherLine(
   q: Question,
   optionCount: number,
   cursorIndex: number,
   theme: Theme,
+  budget: number,
   dimAll: boolean,
 ): string {
   const prefix = cursorIndex === optionCount ? CURSOR : BLANK;
+  const labelBudget = Math.max(1, budget - visibleWidth(prefix));
+  const raw = truncateVisible(OTHER_AFFORDANCE, labelBudget); // truncate RAW, color SECOND
   const isWriteInAnswer = q.answer?.custom === true;
-  const label = isWriteInAnswer ? theme.fg("success", OTHER_AFFORDANCE) : OTHER_AFFORDANCE;
+  const label = isWriteInAnswer ? theme.fg("success", raw) : raw;
   const content = `${prefix}${label}`;
   const focused = cursorIndex === optionCount && !dimAll;
   return `${INSET}${focused ? content : theme.fg("dim", content)}`;

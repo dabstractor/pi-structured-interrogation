@@ -119,14 +119,14 @@
               "type": "Task",
               "id": "P1.M2.T1",
               "title": "BUG-002: route otherLine's OTHER_AFFORDANCE label through truncateVisible",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Thread the render budget into otherLine() and truncate its label with the same head-width math as optionLine so every short-view line satisfies the documented 'visibleWidth ≤ width' contract on sub-32-col terminals, keeping width-80 output byte-identical.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T1.S1",
                   "title": "Truncate the ✎ Other row label to the render budget (src/panel/short-view.ts)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

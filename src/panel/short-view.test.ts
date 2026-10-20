@@ -590,4 +590,63 @@ describe("narrow width (h2.30 cols < 60)", () => {
     const lines = render(textQ(), 0, theme, 59);
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(59);
   });
+
+  test("other_row_truncates_at_widths_10_20_30 (BUG-002)", () => {
+    // The ✎ Other row is the one label that never truncated — the full line
+    // is 28 visible cols (24-col label + 4-col inset/prefix), overflowing
+    // any width < 28 and letting pi-tui wrap it into extra rows. Every line
+    // must fit; where the budget genuinely clips the label it carries … .
+    const q = choiceQ(); // short option labels — the Other row is the longest
+    for (const w of [10, 20, 30]) {
+      const lines = render(q, 0, theme, w);
+      expect(lines.length).toBeGreaterThan(0);
+      for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(w);
+    }
+    // Widths 10/20 genuinely clip the 24-col label → the … adornment shows.
+    for (const w of [10, 20]) {
+      const other = render(q, 0, theme, w).at(-1)!;
+      expect(other).toContain("…"); // truncated, never overflowed
+      expect(other).not.toContain("write your own"); // full label cannot fit
+    }
+    // Width 30 fits the whole 28-col line (24-col label + inset/prefix) —
+    // no truncation needed, no overflow either.
+    const at30 = render(q, 0, theme, 30).at(-1)!;
+    expect(at30).toBe("    ✎ Other — write your own");
+    expect(visibleWidth(at30)).toBeLessThanOrEqual(30);
+  });
+
+  test("writein_colored_other_row_also_truncates (BUG-002)", () => {
+    // Truncate the RAW label FIRST, then color: the success wrap must cover
+    // the final visible string (wrap-then-truncate would clip unpredictably).
+    const successTheme = {
+      fg: (name: string, s: string) => (name === "success" ? `\u001b[32m${s}\u001b[0m` : s),
+      bold: (s: string) => s,
+    } as unknown as Theme;
+    const q = choiceQ({
+      status: "answered",
+      answer: { value: "my own answer", custom: true, at: AT },
+    });
+    const lines = render(q, 0, successTheme, 20);
+    const other = lines.at(-2)!; // answered custom → LAST line is the preview; Other is second-to-last
+    expect(visibleWidth(other)).toBeLessThanOrEqual(20); // ANSI-transparent width
+    expect(other).toContain("\u001b[32m"); // still success-colored
+    expect(other).toContain("…"); // …and truncated
+    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(20);
+  });
+
+  test("truncation_preserves_prefix_and_focus_intensity (BUG-002)", () => {
+    const q = choiceQ();
+    const last = (q.options ?? []).length;
+
+    // Cursor ON the Other row: focused — `  ▸ ` prefix, NO dim wrap.
+    const focused = render(q, last, dimTheme, 20).at(-1)!;
+    expect(focused.startsWith("  ▸ ")).toBe(true);
+    expect(focused).not.toContain(DIM);
+    expect(visibleWidth(focused)).toBeLessThanOrEqual(20);
+
+    // Cursor elsewhere: dim variant, still inside the width.
+    const idle = render(q, 0, dimTheme, 20).at(-1)!;
+    expect(idle).toContain(DIM);
+    expect(visibleWidth(idle)).toBeLessThanOrEqual(20);
+  });
 });

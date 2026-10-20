@@ -11,14 +11,14 @@
           "type": "Milestone",
           "id": "P1.M1",
           "title": "BUG-001: submission deltas carry and replay the full answer shape (text + custom)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Make the interrogation-submission delta round-trip the complete Answer shape — {value, text?, custom?} — from both DiffEntry producers through replaySubmission, so restart reconstruction inside the missed-mirror window (hard kill/SSH drop/SIGKILL before the 2s debounce flush) restores elaborations and write-in markers exactly. Grounded in plan/006_45773b259b06/bugfix/001_3e88fb340e1d/architecture/bug001-submission-replay.md.",
           "tasks": [
             {
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Extend DiffEntry producers with text/custom and apply them in replaySubmission (end-to-end fidelity + regression)",
-              "status": "Planned",
+              "status": "Ready",
               "description": "One coherent seam change: (1) DiffEntry gains optional text?/custom? (src/snapshots.ts:90-115) with computeEntries copying them from after?.answer; (2) the synthetic-entry seam in src/panel/actions.ts:912-922 copies them from q.answer; (3) replaySubmission (src/reconstruct.ts:420-439) applies them under the state.ts:595-596 strict-guard precedent while keeping value-first resolution (BUG-007) and the UNANSWERED_SUMMARY clearance skip intact; (4) the PRD-required regression test replays a real delivered submission carrying an elaborated option answer and a ✎ custom write-in. Legacy entries without the new keys degrade to current behavior.",
               "subtasks": [
                 {
@@ -55,7 +55,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "Synthetic-entry seam copies text/custom (src/panel/actions.ts submit path)",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2"
@@ -72,7 +72,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S4",
                   "title": "replaySubmission applies text/custom with legacy guards (src/reconstruct.ts)",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2"
@@ -89,7 +89,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S5",
                   "title": "End-to-end regression: delivered submission (elaboration + write-in) reconstructs with full answer shape",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S3",

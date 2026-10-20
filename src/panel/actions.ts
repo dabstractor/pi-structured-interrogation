@@ -896,7 +896,10 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // the empty/filtered diff lacks (dedupe by id) — so buildSubmission's k,
   // the "Submitted {k}:" line, and details.changed stay consistent
   // ({ ...diff } spread keeps epoch and any other card fields). Synthesized
-  // entries mirror computeEntries' DiffEntry shape exactly; `from` is the
+  // entries mirror computeEntries' FULL DiffEntry shape — value plus the
+  // elaboration text and the write-in custom marker (BUG-001 producer B:
+  // reconstruction replays submission deltas, so value-only entries lost
+  // the user's words and ✎ marker); `from` is the
   // UNANSWERED sentinel because the baseline contributed no diff-visible
   // prior for the re-answered value. buildSubmission still performs its own
   // takeSnapshot + bumpEpoch exactly once — never reorder around it.
@@ -917,6 +920,8 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
           to: answerSummary(q),
           editedArchived: false,
           value: q.answer?.value,
+          ...(q.answer?.text !== undefined && q.answer.text !== "" ? { text: q.answer.text } : {}),
+          ...(q.answer?.custom === true ? { custom: true } : {}),
         };
       }),
   ];

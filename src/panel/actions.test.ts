@@ -879,6 +879,38 @@ describe("write-in same-value — inert no-op + buffer consume (ANSWER-PIN-001 /
     const msg = sendMessage.mock.calls[0]?.[0] as SubmissionMessage;
     expect(msg.content).toContain("✎ alpha"); // the write-in renders in the submission list
   });
+
+  test("test_wi_reasked_reconfirm_synthetic_entry_carries_custom_bug001_producerB", () => {
+    // BUG-001 producer B: the SYNTHETIC seam (not computeEntries) must copy
+    // the write-in marker. Cycle 1 ships the answer (producer A entry; the
+    // snapshot baseline now holds the alpha signature). POST-SUBMIT EXIT
+    // (FR-3d) resolves panel1 — cycle 2 runs on the REOPENED panel (the
+    // SURFACE-001 shape: agent re-ask upsert → host reopens over the same
+    // state). The rule-1 re-ask + byte-identical re-confirm re-creates the
+    // identical signature → empty diff → the re-confirmed pending id ships
+    // a SYNTHESIZED entry, which must carry custom:true (and no text key).
+    const state = writeInSeed(); // q1 answered {value:"alpha", custom:true, at:T0}
+    const { deps, sendMessage } = makeDeps(true);
+    const panel1 = makePanel(state, { delivery: deps }).panel;
+    expect(submit(panel1, deps)).toBe(true); // cycle 1: ring empty → producer A entry
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    state.setStatus("q1", "reasked"); // rule-1 simulation: answer kept
+    const panel2 = makePanel(state, { delivery: deps }).panel; // reopened session
+    panel2.currentId = "q1";
+    panel2.focusTextField("writein");
+    panel2.textField.setText("alpha"); // byte-identical → REASKED EXCEPTION re-confirm
+    expect(writeInEnter(panel2)).toBe(true); // completing set → auto-submit delivers
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    const msg = sendMessage.mock.calls[1][0] as SubmissionMessage;
+    const e = msg.details.changed[0]!;
+    expect(e.id).toBe("q1");
+    expect(e.from).toBe("(unanswered)"); // synthetic shape (baseline matched)
+    expect(e.value).toBe("alpha");
+    expect(e.custom).toBe(true); // ← BUG-001 producer B fix
+    expect("text" in e).toBe(false);
+    expect(msg.content).toContain("✎ alpha");
+  });
 });
 
 
@@ -1216,6 +1248,59 @@ describe("submit — flush pending answers", () => {
     // FULL-TRANSCRIPT-001 mirror: the synthesized entry carries the full
     // prompt through the SAME transcriptPrompt rule computeEntries uses.
     expect(msg.details.changed[0]?.prompt).toBe("prompt:q1");
+    // BUG-001 producer B guard: a plain answer's synthetic entry stays the
+    // byte-identical legacy shape — neither extended key ever appears.
+    expect("text" in msg.details.changed[0]!).toBe(false);
+    expect("custom" in msg.details.changed[0]!).toBe(false);
+  });
+
+  test("test_bug001_synthetic_entry_carries_elaboration_text_after_rule1_reask", () => {
+    // BUG-001 producer B: the synthetic seam must mirror computeEntries'
+    // FULL shape — the elaboration rides the synthetic entry too. Cycle 1
+    // answers q1 with an elaboration and ships it (producer A entry; the
+    // baseline snapshot holds the a+because signature). The rule-1 re-ask
+    // keeps the answer; the byte-identical re-confirm wipes text in state
+    // (option proposed = {value, at} only); re-staging restores it at
+    // submit → identical signature → empty diff → the SYNTHETIC entry
+    // must still carry text.
+    const state = seed([
+      { id: "q1", overrides: { title: "Choice One", options: OPTS_AB } },
+      { id: "q2", overrides: { type: "text", prompt: "p2" } }, // blocks auto-submit
+    ]);
+    const { deps, sendMessage } = makeDeps(true);
+
+    // CYCLE 1: accept "a", stage the elaboration after the advance
+    // (write-through hazard), submit — producer A ships the elaboration.
+    // POST-SUBMIT EXIT (FR-3d) resolves panel1; cycle 2 runs on the
+    // REOPENED panel (SURFACE-001: agent re-ask upsert → host reopens).
+    const panel1 = makePanel(state, { delivery: deps }).panel;
+    panel1.currentId = "q1";
+    panel1.cursorIndex = 0; // option "a" (no recommendation → natural order)
+    expect(panel1.handleInput("\r")).toBe(true); // accept "a" → advance → q2
+    panel1.commitTextDraft("q1", "because"); // stage AFTER the advance
+    expect(submit(panel1, deps)).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    // S2's half: the producer-A entry already carries the elaboration.
+    const e1 = (sendMessage.mock.calls[0][0] as SubmissionMessage).details.changed[0]!;
+    expect(e1.id).toBe("q1");
+    expect(e1.text).toBe("because");
+
+    // CYCLE 2: rule-1 re-ask (answer kept: {a, "because"}), re-confirm on
+    // the reopened panel, re-stage → signature matches the baseline →
+    // empty diff → synthetic entry.
+    state.setStatus("q1", "reasked");
+    const panel2 = makePanel(state, { delivery: deps }).panel; // reopened session
+    panel2.currentId = "q1"; // cursor reseeds to the recorded "a" (ANSWER-PIN-001)
+    expect(panel2.handleInput("\r")).toBe(true); // REASKED EXCEPTION → re-confirm; advance → q2
+    panel2.commitTextDraft("q1", "because"); // re-stage AFTER the advance
+    expect(submit(panel2, deps)).toBe(true); // empty diff → SYNTHETIC path
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    const e2 = (sendMessage.mock.calls[1][0] as SubmissionMessage).details.changed[0]!;
+    expect(e2.id).toBe("q1");
+    expect(e2.from).toBe("(unanswered)"); // synthetic shape (baseline matched)
+    expect(e2.value).toBe("a");
+    expect(e2.text).toBe("because"); // ← BUG-001 producer B fix
+    expect("custom" in e2).toBe(false);
   });
 
   // DEFECT FIX regression (P1.M7.T6.S1): the ctrl+s flush performs the

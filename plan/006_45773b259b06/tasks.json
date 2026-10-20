@@ -62,14 +62,14 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Refresh the README keymap-conflict re-verification record and cross-check keymap doc rows",
-              "status": "Ready",
+              "status": "Researching",
               "description": "Rewrite README.md's 'Keymap conflict re-verification' block (lines 428-504) from the fresh verification run — header date/commit/pi-version, stale per-key rows (o/t/m/e -> i/e/n/c), stale drift claims — and verify the keymap table and sample settings still match src/config.ts defaults (PRD AC-2).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Rewrite the keymap-conflict re-verification record block (README.md:428-504)",
-                  "status": "Complete",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2"
@@ -88,7 +88,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S2",
                   "title": "Cross-check README keymap table and sample settings against config.ts defaults",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 0.5,
                   "dependencies": [
                     "P1.M1.T1.S2"
@@ -114,7 +114,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Sweep README for remaining stale key fossils (changeset-level consistency)",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1",

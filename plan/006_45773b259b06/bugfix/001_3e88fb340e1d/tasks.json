@@ -4,7 +4,7 @@
       "type": "Phase",
       "id": "P1",
       "title": "Bugfix changeset 001_3e88fb340e1d: full-fidelity restart replay, Other-row width safety, observable auto-submit confirmation, SURFACE-002 comment truth",
-      "status": "Ready",
+      "status": "Complete",
       "description": "Fix the 4 validated defects in pi-interrogator at HEAD 3a302a9 (1624 tests green). BUG-001 (Major): interrogation-submission deltas carry answer.value only — restart reconstruction inside a missed 2s mirror-flush window silently drops answer.text elaborations and answer.custom write-in markers, degrading the read surface, ANSWER-PIN-001 caret pinning, WRITEIN-001 ✎ markers, and the FR-5 completion record; fix = extend DiffEntry at BOTH producers (computeEntries + the actions.ts synthetic seam) with optional text/custom and apply them in replaySubmission, plus the PRD-required regression test. BUG-002: otherLine never truncates OTHER_AFFORDANCE — panel lines overflow sub-32-col terminals. BUG-003: maybeAutoSubmit flashes 'submitted — {n} answer(s)' after submit()'s panel.suspend() — dead on an unmounted component; route an observable confirmation (post-suspend notify channel or final frame). BUG-004: index.ts createReconstruction wiring comment still claims session_start auto-opens the panel, contradicting locked ruling SURFACE-002. spec/ is read-only locked prose; no PRD-external behavior changes.",
       "milestones": [
         {
@@ -199,7 +199,7 @@
           "type": "Milestone",
           "id": "P1.M3",
           "title": "Changeset closure: final gate + changeset-level documentation sync",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Validate the whole changeset (full suite + typecheck + lint, zero regressions vs P1.M1.T1.S1 baseline) and then sync changeset-level documentation: README.md restart/reconstruction sections gain the restored replay fidelity, and the truncation/auto-submit/SURFACE-002 claims get a staleness sweep.",
           "tasks": [
             {
@@ -234,7 +234,7 @@
               "type": "Task",
               "id": "P1.M3.T2",
               "title": "Sync changeset-level documentation",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Mode B catch-all: update README.md so the whole delta ships with accurate overview docs — the restart/reconstruction sections gain restored elaboration/write-in replay fidelity (BUG-001), and the truncation/auto-submit/SURFACE-002-adjacent claims get a staleness sweep (BUG-002/003/004).",
               "subtasks": [
                 {
@@ -262,7 +262,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S2",
                   "title": "README staleness sweep: truncation, auto-submit confirmation, SURFACE-002 wording (BUG-002/003/004)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M2.T1.S1",

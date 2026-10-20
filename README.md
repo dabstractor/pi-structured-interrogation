@@ -67,8 +67,9 @@ materialize; runtime loads via jiti against pi's tree.
    answered questions carry the ★ answered marker on the question line.
 3. Submitting is mostly automatic: answering the last open question — by
    option accept, `✎ Other` write-in, or text `enter` — ships the submission
-   for you (footer flashes `submitted — {n} answer(s)`), and an edit made
-   while the set is already complete ships immediately too (one submission
+   for you (a `submitted — {n} answer(s)` notification appears as the panel
+   exits), and an edit made while the set is already complete ships
+   immediately too (one submission
    per commit — the deliberate one-model-turn-per-edit trade-off while
    complete). `ctrl+s` still submits partial sets — unanswered questions
    stay open. While a foundational gate question is unanswered, auto-submit
@@ -356,7 +357,7 @@ the spec for the full text and the scripted tests proving each):
 2. Partial `ctrl+s` → compact delta + reminder; epoch bumps; remainder stays open.
 2a. **Write-in (WRITEIN-001)**: accept `✎ Other`, type, `enter` → `answer.value = <text>`, `custom: true`, no option selected; card/delta render `✎ {text}`.
 2b. **Elaboration (WRITEIN-001/002)**: `e`, type, `enter` → draft saved, still unanswered; option accept attaches it as `answer.text`; a real option after a committed write-in re-binds the slot as elaboration.
-2c. **Auto-submit (AUTOSUBMIT-001)**: answering the LAST question ships with no keypress beyond the answer (`submitted — {n} answer(s)`); editing while complete ships the edit immediately.
+2c. **Auto-submit (AUTOSUBMIT-001)**: answering the LAST question ships with no keypress beyond the answer (a `submitted — {n} answer(s)` notification); editing while complete ships the edit immediately.
 2d. **Gate hold (AUTOSUBMIT-002)**: with a gate question unanswered, commits show `⚠ … foundational unanswered` and do NOT auto-submit; answering it releases the next commit; `ctrl+s` submits anyway.
 3. Agent reply closes answered questions / re-asks preserve drafts; a re-asked question re-confirms on same-value `enter`.
 4. Break out → widget with counts → side chat → agent `{reopen:true}` → panel returns, drafts intact.

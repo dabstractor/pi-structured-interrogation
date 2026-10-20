@@ -18,7 +18,7 @@
               "type": "Task",
               "id": "P1.M1.T1",
               "title": "Re-establish green baseline and produce the authoritative keymap-conflict verification record",
-              "status": "Researching",
+              "status": "Complete",
               "description": "Confirm the delta's precondition (suite/typecheck/lint green at HEAD) and re-run scripts/verify-keymap-conflicts.sh to capture the fresh claim matrix (date, commit, pi version, per-key status, drift since 2026-10-16) that the README record block will cite.",
               "subtasks": [
                 {
@@ -40,7 +40,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "Run scripts/verify-keymap-conflicts.sh and capture the fresh claim record",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -69,7 +69,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Rewrite the keymap-conflict re-verification record block (README.md:428-504)",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2"

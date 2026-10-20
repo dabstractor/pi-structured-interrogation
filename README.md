@@ -364,7 +364,7 @@ the spec for the full text and the scripted tests proving each):
 6. Contradicting a `dependsOn` → dependent greys as moot instantly, with the real reason (`moot: {dep}={value}`); overview shows ⊘.
 7. Edit invalidating dependents → confirm dialog; esc cancels cleanly.
 8. Stale upsert (wrong `rev`/`epoch`) → rejected with current text/rev; re-apply heals.
-9. Restart pi mid-interrogation → NO panel appears (SURFACE-002); the widget line shows live counts; `/interrogate` reopens restored state; drafts gone (documented); pending answers ship on the next commit or submit (AUTOSUBMIT-001).
+9. Restart pi mid-interrogation → NO panel appears (SURFACE-002); the widget line shows live counts; `/interrogate` reopens restored state (answers with their elaborations and ✎ write-ins); drafts gone (documented); pending answers ship on the next commit or submit (AUTOSUBMIT-001).
 10. `/compact` mid-interrogation → preservation flow; state reconstructs from the append-only mirror.
 11. `pi -p` print mode → numbered markdown digest; `answers[]` records chat answers; completion record on settle.
 12. Every default hotkey remappable; footer/widget strings reflect the remap.
@@ -382,7 +382,8 @@ From the spec's confirmed non-goals — pi-interrogator does **not** do any of t
 
 - Drafts are in-session only: they survive suspend/resume and panel
   close/reopen, but restarting pi mid-interrogation restores questions and
-  submitted answers with their exact values — never in-progress drafts.
+  submitted answers with their exact values — elaborations and ✎ write-in
+  answers included — never in-progress drafts.
   Drafts of questions the agent re-asked survive a panel submit (only
   shipped answers flush).
 - The side chat is ephemeral: it lives only for the session — restarting pi

@@ -241,7 +241,7 @@
                   "type": "Subtask",
                   "id": "P1.M3.T2.S1",
                   "title": "README restart/reconstruction sections: restored replay fidelity (BUG-001)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2",

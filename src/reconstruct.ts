@@ -57,8 +57,10 @@
  *    one submission = one bump). CAVEAT: entries replay VALUE-FIRST —
  *    DiffEntry.value is the raw answer.value (P1.M2.T2.S1), with a legacy
  *    fallback to `to` (the label-preferred display summary) for history
- *    written before the field existed; answer `at` timestamps are not
- *    carried. On real restarts the base (tool result or mirror) already
+ *    written before the field existed; elaboration `text` and write-in
+ *    `custom` ARE carried when the entry has them (BUG-001, strict guards
+ *    — persisted data is untrusted), while answer `at` timestamps still
+ *    are not. On real restarts the base (tool result or mirror) already
  *    contains the true values; deltas only bridge the gap AFTER the base
  *    (e.g. a submission whose post-submit mirror flush never landed). The
  *    "(unanswered)" sentinel is skipped (an answer CLEARANCE cannot be
@@ -428,15 +430,29 @@ function replaySubmission(state: LiveState, details: SubmissionMessage["details"
     // restores canonical values even when the option label differs. Legacy
     // history written before that field existed carries no `value` — fall
     // back to `to`, the label-preferred display summary (best-effort: may
-    // restore a label when labels differ). `at` timestamps are not carried
-    // in deltas either. See module JSDoc.
+    // restore a label when labels differ). Elaboration `text` and write-in
+    // `custom` ARE carried when the entry has them (BUG-001 — strict
+    // guards; persisted data is untrusted, state.ts deserialize precedent).
+    // Answer `at` timestamps are still not carried. See module JSDoc.
     const raw = entry.value;
     const resolved = typeof raw === "string" && raw !== "" ? raw : entry.to;
     // The sentinel check applies to the RESOLVED value: it skips answer
     // CLEARANCES (`to` sentinel) and guards a hypothetical legacy entry
     // whose `value` is unset while `to` is the sentinel.
     if (typeof resolved !== "string" || resolved === "" || resolved === UNANSWERED_SUMMARY) continue;
-    state.applyAnswer(id, { value: resolved, at: new Date().toISOString() });
+    state.applyAnswer(id, {
+      value: resolved,
+      // BUG-001 consumer half: carry the elaboration / write-in marker when
+      // the entry has it. STRICT guards — session files are untrusted
+      // persisted data (state.ts deserialize precedent): a corrupt truthy
+      // `custom` or a non-string/empty `text` must NOT leak into state.
+      // Keys stay ABSENT for legacy entries (identical convention to the
+      // producers: snapshots.ts computeEntries, panel actions.ts seam —
+      // BUG-001 producer halves).
+      ...(typeof entry.text === "string" && entry.text !== "" ? { text: entry.text } : {}),
+      ...(entry.custom === true ? { custom: true } : {}),
+      at: new Date().toISOString(), // still fresh — `at` is never carried in deltas
+    });
     applied++;
   }
   if (applied > 0) state.bumpEpoch();

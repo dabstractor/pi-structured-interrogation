@@ -120,6 +120,8 @@ function submissionEntry(details: {
     to: string;
     editedArchived: boolean;
     value?: string;
+    text?: string;
+    custom?: boolean;
   }>;
   epoch: number;
 }): SessionEntry {
@@ -139,8 +141,20 @@ function diff(
   id: string,
   to: string,
   value?: string,
-): { id: string; title: string; from: string; to: string; editedArchived: boolean; value?: string } {
-  return { id, title: id, from: "(unanswered)", to, editedArchived: false, value };
+  extra?: { text?: string; custom?: boolean },
+): {
+  id: string;
+  title: string;
+  from: string;
+  to: string;
+  editedArchived: boolean;
+  value?: string;
+  text?: string;
+  custom?: boolean;
+} {
+  // `...extra` (NOT unconditional keys): legacy rows pin key-ABSENCE on the
+  // replayed answer — text/custom must never materialize as null/false/"".
+  return { id, title: id, from: "(unanswered)", to, editedArchived: false, value, ...extra };
 }
 
 /**
@@ -996,6 +1010,124 @@ describe("reconstructFromBranch — submission replay values (BUG-007)", () => {
     const { result, state } = branchWithSubmission([diff("q1", "Beta", "")]);
     expect(result.replayed).toBe(1);
     expect(state.getQuestion("q1")?.answer?.value).toBe("Beta");
+  });
+});
+
+// ------------------- submission replay fidelity (BUG-001)
+
+describe("reconstructFromBranch — submission replay fidelity (BUG-001)", () => {
+  /**
+   * Base seeds q1 AND q2 as plain choice questions on the same options
+   * (label 'Beta' ≠ value 'b'; no dependsOn — these rows pin answer-shape
+   * fidelity, not moot recomputation). Base = interrogate tool result; the
+   * submission delta lands AFTER it (position filter keeps it).
+   */
+  function branchWithSubmission(changed: ReturnType<typeof diff>[]) {
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1", { options: [{ value: "b", label: "Beta" }] })]);
+      applyUpsert(s, [choiceQ("q2", { options: [{ value: "b", label: "Beta" }] })]);
+    });
+    const entries = [toolResultEntry(base), submissionEntry({ changed, epoch: 1 })];
+    const ctx = makeCtx(entries);
+    const host = makeHost();
+    const result = reconstructFromBranch(ctx, makeOpts(host));
+    return { base, result, state: getState()! };
+  }
+
+  test("elaboration and write-in markers replay from a submission delta", () => {
+    const { base, result, state } = branchWithSubmission([
+      diff("q1", "Beta — because sqlite", "b", { text: "because sqlite" }),
+      diff(
+        "q2",
+        "✎ Neither — we use a custom vector store",
+        "Neither — we use a custom vector store",
+        { custom: true },
+      ),
+    ]);
+    expect(result.source).toBe("tool-result");
+    expect(result.replayed).toBe(1);
+    expect(state.epoch).toBe(base.epoch + 1); // one submission = one bump (h3.6)
+    const q1 = state.getQuestion("q1")?.answer;
+    expect(q1?.value).toBe("b"); // raw value, not the display summary
+    expect(q1?.text).toBe("because sqlite"); // elaboration restored (BUG-001)
+    expect("custom" in (q1 ?? {})).toBe(false); // marker key ABSENT when the entry lacks it
+    expect(typeof q1?.at).toBe("string"); // fresh `at` — never carried from the entry
+    const q2 = state.getQuestion("q2")?.answer;
+    expect(q2?.value).toBe("Neither — we use a custom vector store");
+    expect(q2?.custom).toBe(true); // ✎ write-in marker restored (WRITEIN-001)
+    expect("text" in (q2 ?? {})).toBe(false);
+  });
+
+  test("text-only elaboration edit (same value, new text) restores the elaboration", () => {
+    // answerSignature covers value+text (snapshots.ts) — which is why a
+    // text-only edit produces an entry at all. The base already answers q1;
+    // replay must overwrite the elaboration without touching the value.
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1", { options: [{ value: "b", label: "Beta" }] })]);
+      markAnswered(s, "q1", { value: "b", at: "t0" });
+    });
+    const entries = [
+      toolResultEntry(base),
+      submissionEntry({
+        changed: [diff("q1", "Beta — new reason", "b", { text: "new reason" })],
+        epoch: 1,
+      }),
+    ];
+    const result = reconstructFromBranch(makeCtx(entries), makeOpts(makeHost()));
+    expect(result.replayed).toBe(1);
+    const answer = getState()!.getQuestion("q1")?.answer;
+    expect(answer?.value).toBe("b");
+    expect(answer?.text).toBe("new reason");
+  });
+
+  test("legacy entries without text/custom replay exactly as before", () => {
+    // Distinct from the BUG-007 value-legacy row (which pins the `to`
+    // fallback): `value` exists here but text/custom are ABSENT — pinning
+    // that no phantom keys materialize on the replayed answer (keys absent,
+    // never null/false/"").
+    const { result, state } = branchWithSubmission([diff("q1", "Beta", "b")]);
+    expect(result.replayed).toBe(1);
+    const answer = state.getQuestion("q1")?.answer;
+    expect(answer?.value).toBe("b");
+    expect("text" in (answer ?? {})).toBe(false);
+    expect("custom" in (answer ?? {})).toBe(false);
+  });
+
+  test("clearance entries still skip — stray text/custom ignored", () => {
+    // The sentinel check runs on the RESOLVED value BEFORE applyAnswer: a
+    // clearance entry is skipped WHOLE, even if stray text/custom ride
+    // along (no phantom answer, no replay count, no epoch bump — h3.6).
+    const { base, result, state } = branchWithSubmission([
+      diff("q1", "(unanswered)", undefined, { text: "stray", custom: true }),
+    ]);
+    expect(result.replayed).toBe(0);
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(state.epoch).toBe(base.epoch);
+  });
+
+  test("corrupt text/custom values do not leak into state (strict guards)", () => {
+    // Session files are untrusted persisted data (state.ts deserialize
+    // precedent): a hand-edited entry must not poison state — the value
+    // still replays while a non-string/empty `text` and a truthy-but-not-
+    // true `custom` attach NOTHING.
+    const hostile = {
+      ...diff("q1", "Beta", "b"),
+      text: 42 as unknown as string,
+      custom: "yes" as unknown as boolean,
+    };
+    const { result, state } = branchWithSubmission([
+      hostile,
+      diff("q2", "Beta — x", "b", { text: "" }), // empty string must not attach either
+    ]);
+    expect(result.replayed).toBe(1);
+    const q1 = state.getQuestion("q1")?.answer;
+    expect(q1?.value).toBe("b"); // value still replays
+    expect(q1?.text).toBeUndefined();
+    expect("custom" in (q1 ?? {})).toBe(false);
+    const q2 = state.getQuestion("q2")?.answer;
+    expect(q2?.value).toBe("b");
+    expect(q2?.text).toBeUndefined();
+    expect("custom" in (q2 ?? {})).toBe(false);
   });
 });
 

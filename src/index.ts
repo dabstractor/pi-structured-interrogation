@@ -145,8 +145,10 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // already reflects the new leaf), rebuild the state from the RAW branch
   // (compaction not applied, so the canonical tool-result details.state
   // survives /compact), newest-mirror fallback, replay submission deltas,
-  // recompute moot-ness, then split BY ORIGIN: session_start auto-opens the
-  // panel (TUI, FR-28) or sets the non-TUI digest fallback flag; session_tree
+  // recompute moot-ness, then split BY ORIGIN: session_start NEVER opens the panel
+  // (SURFACE-002/FR-28: silent install + suspend-widget line only; the panel
+  // returns only via /interrogate, an agent upsert, or {reopen:true}; non-TUI
+  // runs set the digest fallback flag with no surface); session_tree
   // is SILENT — state follows the branch but NO surface ever appears (no
   // panel open/reopen); a still-open panel suspends and
   // the host retargets onto the fresh state so the next deliberate resume

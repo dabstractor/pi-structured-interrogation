@@ -9,6 +9,7 @@
  * PiUISurface (panel.test.ts pattern, factory never invoked), so "panel
  * opened" is asserted via `ui.custom` calls and the live host phase.
  */
+import * as fs from "node:fs";
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import { attemptCompletion } from "./completion.js";
@@ -1215,5 +1216,21 @@ describe("reconstruction tool-result candidate pool (BUG-008)", () => {
 
     expect(result).toEqual({ source: "none", replayed: 0, opened: false, fallbackActive: false });
     expect(getState()).toBeUndefined();
+  });
+});
+
+// ------------------------------------------------- wiring-comment guard (BUG-004)
+
+describe("wiring-comment guard (BUG-004)", () => {
+  test("index_ts_wiring_comment_matches_SURFACE_002_no_auto_open_claim", () => {
+    // RAW source read (delivery.test.ts:287 module-hygiene precedent) — the
+    // no-hardcoded-keys pipeline STRIPS comments, which would make the
+    // guarded text invisible. This guard pins the SURFACE-002 wording at the
+    // reconstruction wiring site so comment drift back to the pre-SURFACE-002
+    // "session_start auto-opens the panel" claim is a build failure.
+    const src = fs.readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/auto-opens the panel/);
+    expect(src).toMatch(/SURFACE-002/);
+    expect(src).toMatch(/NEVER opens the panel/);
   });
 });

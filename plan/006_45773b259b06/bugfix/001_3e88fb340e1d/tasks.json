@@ -112,7 +112,7 @@
           "type": "Milestone",
           "id": "P1.M2",
           "title": "Minor fixes: BUG-002 Other-row truncation, BUG-003 observable auto-submit confirmation, BUG-004 SURFACE-002 comment truth",
-          "status": "Ready",
+          "status": "Complete",
           "description": "The three minor defects, each an isolated seam with no cross-dependency: width-safe ✎ Other row (short-view.ts), an actually-observable 'submitted — {n} answer(s)' confirmation on auto-submit (actions.ts/panel.ts notify channel), and the index.ts wiring comment rewritten to the locked SURFACE-002 ruling plus a raw-source static guard. Grounded in architecture/bug002-003-panel-render-flash.md and architecture/bug004-surface002-comment.md.",
           "tasks": [
             {
@@ -171,14 +171,14 @@
               "type": "Task",
               "id": "P1.M2.T3",
               "title": "BUG-004: rewrite the stale SURFACE-002 wiring comment + raw-source static guard",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Correct the createReconstruction wiring comment in src/index.ts (session_start NEVER auto-opens; silent install + suspend-widget line only) and pin it with a static guard test that scans the raw source, so the R6/SURFACE-002 requirement can no longer be misdocumented at the one wiring site maintainers read.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M2.T3.S1",
                   "title": "Fix the 'session_start auto-opens the panel' comment and guard it with a source-scan test",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"

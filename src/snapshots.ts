@@ -121,6 +121,23 @@ export interface DiffEntry {
    * history written before this field existed carries no `value`.
    */
   value?: string;
+  /**
+   * Free-text elaboration attached to the answer (`answer.text` of the
+   * `next`-side question). Key present ONLY when a non-empty string —
+   * machine-readable reconstruction data mirroring `value?` (BUG-001
+   * producer half: replay restores the elaboration); `to` stays the
+   * display-only summary. Optional because history written before this
+   * field existed carries no `text`.
+   */
+  text?: string;
+  /**
+   * WRITEIN-001 write-in marker (`answer.custom === true` of the
+   * `next`-side question) — `value` holds free text, not an option value.
+   * Key present ONLY when true; ✎ rendering and ANSWER-PIN-001 ✎-row
+   * pinning derive from it after replay (BUG-001 producer half). Optional
+   * because history written before this field existed carries no `custom`.
+   */
+  custom?: boolean;
 }
 
 /**
@@ -298,6 +315,11 @@ function computeEntries(prev: SerializedState, next: SerializedState): DiffEntry
       to: answerSummary(after),
       editedArchived: before?.status === "closed",
       value: after?.answer?.value, // RAW post-change value; undefined when unanswered/missing
+      // BUG-001 producer half: carry the FULL answer shape for replay —
+      // keys ABSENT (never null/empty/false) when not applicable, matching
+      // the prompt spread's optional-key convention.
+      ...(after?.answer?.text !== undefined && after.answer.text !== "" ? { text: after.answer.text } : {}),
+      ...(after?.answer?.custom === true ? { custom: true } : {}),
     });
   }
   return entries;

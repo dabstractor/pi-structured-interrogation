@@ -170,6 +170,60 @@ describe("computeDiff", () => {
     ]);
   });
 
+  test("BUG-001: elaborated answer entry carries text, custom key absent", () => {
+    state.upsertQuestion(
+      q({ id: "q1", type: "choice", options: [{ value: "a", label: "Alpha" }] }),
+    );
+    const prev = state.serialize(); // unanswered
+    state.applyAnswer("q1", ans("a", "because"));
+    const entry = computeDiff(prev, state.serialize()).changed[0]!;
+    expect(entry.text).toBe("because"); // the elaboration rides for replay
+    expect("custom" in entry).toBe(false); // no write-in marker → key ABSENT
+    expect(entry.value).toBe("a"); // raw value unchanged
+  });
+
+  test("BUG-001: write-in entry carries custom true, text key absent", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize(); // unanswered
+    state.applyAnswer("q1", { value: "free text", custom: true, at: T0 });
+    const entry = computeDiff(prev, state.serialize()).changed[0]!;
+    expect(entry.custom).toBe(true); // ✎ marker rides for replay
+    expect("text" in entry).toBe(false); // no elaboration → key ABSENT
+    expect(entry.value).toBe("free text");
+    expect(entry.to).toBe("✎ free text");
+  });
+
+  test("BUG-001: plain answer entry has neither key (legacy byte-identical)", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("yes"));
+    const entry = computeDiff(prev, state.serialize()).changed[0]!;
+    expect("text" in entry).toBe(false);
+    expect("custom" in entry).toBe(false);
+    // Key-for-key the legacy shape — additive keys never leak into plain diffs.
+    expect(entry).toEqual({
+      id: "q1",
+      title: "prompt for q1",
+      from: "(unanswered)",
+      to: "yes",
+      editedArchived: false,
+      value: "yes",
+    });
+  });
+
+  test("BUG-001: text-only edit still produces an entry and now carries text", () => {
+    state.upsertQuestion(q({ id: "q9", title: "Elaboration" }));
+    state.applyAnswer("q9", ans("sqlite")); // plain first answer
+    const prev = state.serialize();
+    state.applyAnswer("q9", ans("sqlite", "updated reasoning")); // same value, new text
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed).toHaveLength(1); // answerSignature (value+text) detected the edit
+    const entry = diff.changed[0]!;
+    expect(entry.text).toBe("updated reasoning"); // no longer dropped
+    expect("custom" in entry).toBe(false);
+    expect(entry.value).toBe("sqlite");
+  });
+
   test("text_only_edit_same_value_new_text_counts_as_change", () => {
     state.upsertQuestion(q({ id: "q7", title: "Elaboration" }));
     state.applyAnswer("q7", ans("sqlite", "we keep it simple"));
@@ -189,6 +243,10 @@ describe("computeDiff", () => {
         to: "sqlite — elaboration added",
         editedArchived: false,
         value: "sqlite",
+        // BUG-001 producer half (001_3e88fb340e1d): the entry now CARRIES
+        // the elaboration for replay instead of dropping it — this row
+        // previously pinned the drop (S3/S5 build on the carried key).
+        text: "elaboration added",
       },
     ]);
   });
@@ -328,6 +386,9 @@ describe("write-in answers (✎ custom, WRITEIN-001)", () => {
         to: "✎ my own text",
         editedArchived: false,
         value: "my own text",
+        // BUG-001 producer half (001_3e88fb340e1d): the write-in marker now
+        // rides the entry for replay (✎ rendering + ✎-row pinning).
+        custom: true,
       },
     ]);
   });

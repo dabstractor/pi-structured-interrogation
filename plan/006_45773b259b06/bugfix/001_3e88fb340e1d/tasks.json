@@ -38,7 +38,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S2",
                   "title": "DiffEntry += optional text/custom; computeEntries copies them (src/snapshots.ts)",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S1"
@@ -55,7 +55,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "Synthetic-entry seam copies text/custom (src/panel/actions.ts submit path)",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T1.S2"

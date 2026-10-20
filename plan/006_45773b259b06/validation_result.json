@@ -1,0 +1,5 @@
+{
+  "hasIssues": true,
+  "issueCount": 3,
+  "summary": "All gates green (lint, typecheck, 1624 unit tests, 6 static guards, 12 live headless pi E2E probes); 3 minor issues found: README stale-key fossils from the unfinished KEYMNEMONICS-001 docs sweep, a wrong-commit citation in the keymap record block, and a merge-rejected upsert leaving an installed empty state (non-atomic executor state creation)."
+}

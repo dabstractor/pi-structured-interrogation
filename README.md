@@ -39,15 +39,15 @@ materialize; runtime loads via jiti against pi's tree.
    opens the side chat on the current question (see
    [Side chat](#side-chat)), `ctrl+g` finishes the draft in an
    external editor, `ctrl+s` submits a partial set. The editor's duty follows
-   context: focused
-   from a selected option it is the **elaboration** duty — `enter` saves the
-   text and returns to the options (double-`esc` also closes the editor — a
-   re-pressed `t` just types the letter), and the option you then accept
+   context: focused from a selected option it is the **elaboration** duty —
+   `enter` saves the text and returns to the options (double-`esc` also
+   closes the editor — a re-pressed `e` just types the letter), and the
+   option you then accept
    ships with your explanation attached; on the `✎ Other — write your own`
    row (and on `type:"text"` questions) it is the **write-in** duty — the
    text IS the answer and `enter` commits it immediately. On a `type:"text"`
    question, `enter` on the `✎ answer…` affordance itself opens the editor
-   in the write-in duty — `t` is not the only entry.
+   in the write-in duty — `e` is not the only entry.
    Revisits are answer-first: on any question that already carries an answer,
    the caret and highlight sit on that recorded answer in every view — the
    ★ recommendation stays visible on its own row but never owns the caret
@@ -80,7 +80,7 @@ materialize; runtime loads via jiti against pi's tree.
    existing questions afterwards. The diff card is your durable record of
    what you told the model (FULL-TRANSCRIPT-001): every changed answer in
    full — option labels, ✎ write-ins, and the elaborations you attached
-   with `t` — each under its full question prompt when the short title
+   with `e` — each under its full question prompt when the short title
    doesn't already show it, plus the full batch note. Nothing is
    truncated, capped, or hidden behind the transcript's expand toggle —
    so you can always scroll back and read exactly what you said.
@@ -260,10 +260,10 @@ a toggle, never a key combo).
 While the panel is open, panel keys are intercepted before the embedded
 editor sees them — in two tiers. Modifier-bearing config keys (`ctrl+s`,
 `ctrl+g`) intercept everywhere, including while the editor holds focus: a
-chord is never a typed character. Bare config keys (`d`, `o`, `t`, `m`, `e`)
+chord is never a typed character. Bare config keys (`d`, `i`, `e`, `n`, `c`)
 and the fixed `h`/`j`/`k`/`l` are printable: they intercept only from
-non-editor focus and always type while the editor holds focus — typing `t`
-in an answer must insert a `t`. Number keys do nothing at panel level; they
+non-editor focus and always type while the editor holds focus — typing `e`
+in an answer must insert an `e`. Number keys do nothing at panel level; they
 only ever type inside the editor. A single `esc` and `↑`/`↓` forward to the
 focused editor (caret movement, pi-vim mode exit).
 
@@ -293,12 +293,12 @@ prefixed `you ›`, and its own input where `enter` sends and `shift+enter` /
 the main conversation — the model is reached through nested calls only,
 using the session's current model at chat open (`sideChatModel` pins an
 override; an invalid id notifies and falls back to the session model).
-Like every bare key, `e` works from non-editor focus and types inside the
+Like every bare key, `c` works from non-editor focus and types inside the
 editor. The config key is `keys.chat` (default `c`); a settings file
 carrying the pre-rename key name is silently honored — the same alias
 precedent as the editor key's rename.
 
-- **One chat at a time.** Opening `e` on another question aborts the
+- **One chat at a time.** Opening `c` on another question aborts the
   current chat's in-flight reply, announces its usage, and replaces it
   without confirm. The chat is discarded when its question *becomes*
   answered or closed by any path (panel accept, write-in, the chat's own
@@ -337,7 +337,7 @@ While a reply is streaming, pressing `enter` is refused and your typed
 text stays in the input — press `enter` again once the stream settles (or
 abort the stream with `esc`) to send it. `/clear`, `/new`, and `enter` on
 an empty buffer still clear the input. After the settle blur — or after
-declining with `esc` — pressing `e` again re-focuses the chat input
+declining with `esc` — pressing `c` again re-focuses the chat input
 without leaving the view or touching the transcript, so "keep chatting"
 needs no exit-and-reopen.
 
@@ -355,7 +355,7 @@ the spec for the full text and the scripted tests proving each):
 1. Model upserts questions across groups with one gate group → panel opens; gate focused; other groups dimmed but answerable.
 2. Partial `ctrl+s` → compact delta + reminder; epoch bumps; remainder stays open.
 2a. **Write-in (WRITEIN-001)**: accept `✎ Other`, type, `enter` → `answer.value = <text>`, `custom: true`, no option selected; card/delta render `✎ {text}`.
-2b. **Elaboration (WRITEIN-001/002)**: `t`, type, `enter` → draft saved, still unanswered; option accept attaches it as `answer.text`; a real option after a committed write-in re-binds the slot as elaboration.
+2b. **Elaboration (WRITEIN-001/002)**: `e`, type, `enter` → draft saved, still unanswered; option accept attaches it as `answer.text`; a real option after a committed write-in re-binds the slot as elaboration.
 2c. **Auto-submit (AUTOSUBMIT-001)**: answering the LAST question ships with no keypress beyond the answer (`submitted — {n} answer(s)`); editing while complete ships the edit immediately.
 2d. **Gate hold (AUTOSUBMIT-002)**: with a gate question unanswered, commits show `⚠ … foundational unanswered` and do NOT auto-submit; answering it releases the next commit; `ctrl+s` submits anyway.
 3. Agent reply closes answered questions / re-asks preserve drafts; a re-asked question re-confirms on same-value `enter`.
@@ -372,7 +372,7 @@ the spec for the full text and the scripted tests proving each):
 14. All questions closed → completion record injected once; recap card in transcript.
 15. **Reads never surface (SURFACE-001)**: a model `interrogate({})` read completes → panel stays closed, editor untouched — for live, all-answered, and completed states alike.
 16. **Answer pinning (ANSWER-PIN-001)**: revisit an answered question → caret + highlight sit on the recorded answer (★ visible on its own row, never owning the caret); `enter` on the recorded value is a zero-state-change advance and a byte-identical write-in re-commit is inert — except on a re-asked question, where same-value `enter` (or a byte-identical write-in) re-confirms and ships; a DIFFERENT choice raises the FR-18 invalidation confirm.
-17. **Side chat (SIDECHAT-001)**: `e` opens the per-question in-panel chat (in the overview, on the cursor row's question); a streaming reply aborts with a single `esc` in the default focused state; `enter` on a refused mid-stream send keeps the typed input; a converged answer shows a confirm row that works immediately (the input self-blurs on settle) — `enter` applies indistinguishably from a panel selection and a same-value no-op apply consumes the row and closes the chat; `/clear` and `/new` reset the chat, aborting any in-flight reply with the usage notice always firing (zero usage included); the chat dies when its question becomes answered/closed and survives suspend/resume.
+17. **Side chat (SIDECHAT-001)**: `c` opens the per-question in-panel chat (in the overview, on the cursor row's question); a streaming reply aborts with a single `esc` in the default focused state; `enter` on a refused mid-stream send keeps the typed input; a converged answer shows a confirm row that works immediately (the input self-blurs on settle) — `enter` applies indistinguishably from a panel selection and a same-value no-op apply consumes the row and closes the chat; `/clear` and `/new` reset the chat, aborting any in-flight reply with the usage notice always firing (zero usage included); the chat dies when its question becomes answered/closed and survives suspend/resume.
 
 ## Limitations
 
@@ -390,7 +390,7 @@ From the spec's confirmed non-goals — pi-interrogator does **not** do any of t
   and nothing about a chat is written to the session file.
 - The side chat's view of the main conversation is snapshotted once at chat
   creation; submissions made while chatting do not refresh it (accepted v1).
-- The side chat is TUI-only: in non-TUI modes `e` is inert (and without a
+- The side chat is TUI-only: in non-TUI modes `c` is inert (and without a
   model seam it opens with an inert notice).
 - TUI-first: in non-TUI modes (`pi -p` print mode, rpc, json) there is no
   panel — the tool returns a numbered markdown digest that the model relays in
@@ -427,8 +427,8 @@ Human acceptance runbook:
 
 ### Keymap conflict re-verification
 
-Re-verified at build time on **2026-10-20** (commit `eb09516`, the KEYMNEMONICS-001
-changeset) against pi **1.0.2**
+Re-verified at build time on **2026-10-20** at run commit `eb09516` (the
+KEYMNEMONICS-001 changeset itself is `a2f1d70`) against pi **1.0.2**
 (`~/.local/lib/node_modules/@earendil-works/pi-coding-agent/docs/keybindings.md`)
 and all installed extension trees (`~/.pi/agent/npm/node_modules`,
 `~/.pi/agent/git`, `~/.pi/extensions`). Method:

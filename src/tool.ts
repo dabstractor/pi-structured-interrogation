@@ -255,7 +255,22 @@ export function executeInterrogate(
       // Goal: the upsert's goal when sent, else the prior goal RETAINED
       // (FR-30 — the goal anchors re-asks; a blank header helps nobody).
       // Decision (spec gap pinned; recorded in P1.M5.T2.S2).
+      // Atomicity (2026-10-20 validation issue 3): a brand-new or swapped-in
+      // state is NOT installed as the session singleton until the batch has
+      // actually merged (installAfterMerge, applied right after applyUpsert
+      // below). A merge-level rejection (e.g. `duplicate question id in
+      // upsert batch`) must leave NO state behind — a read between the
+      // rejection and the next upsert sees the epoch-0 "no interrogation"
+      // view, not a live goal-bearing 0/0 epoch-1 state. Parse-level
+      // rejections never reach this point (nothing mutated); this closes the
+      // merge-level half of the "malformed input never mutates" contract.
+      // Deferred install is safe: no listener reads the singleton
+      // synchronously inside applyUpsert's events — the persistence mirror
+      // attaches on tool_execution_end (seeded with the then-current
+      // snapshot), the panel subscribes to its own state reference, and
+      // maybeAutoOpen reads getState() only after this executor returns.
       let state: InterrogationState;
+      let installAfterMerge: boolean;
       if (existing !== undefined && existing.completed === true) {
         // BUG-002: fresh interrogation on a completed session. The goal is
         // CONSTRUCTOR-atomic — never setGoal on this path (a follow-up would
@@ -263,12 +278,12 @@ export function executeInterrogate(
         state = createInterrogationState(
           parsed.action.goal !== undefined ? parsed.action.goal : existing.serialize().goal,
         );
-        setState(state);
+        installAfterMerge = true;
       } else {
         // Create stores the goal verbatim; goal-omitted creates still start from
         // "" (explicit ternary keeps that semantic visible).
         state = existing ?? createInterrogationState(parsed.action.goal !== undefined ? parsed.action.goal : "");
-        if (!existing) setState(state);
+        installAfterMerge = existing === undefined;
       }
 
       // StaleError propagates (h2.22) — BEFORE any mutation. Runs against the
@@ -284,6 +299,11 @@ export function executeInterrogate(
       // withdrawOmitted (2026-09-15 pin): default patch semantics — omitted
       // live ids untouched; true switches rule 4 to set-replace mode.
       const merged = applyUpsert(state, parsed.action.questions.map(toMergeQuestion), parsed.action.withdrawOmitted);
+
+      // Merge succeeded — NOW the fresh/swap state becomes the session
+      // singleton (atomicity: see installAfterMerge above). A pre-existing
+      // live state was already the singleton; only new instances install.
+      if (installAfterMerge) setState(state);
 
       // BUG-006(a) / FR-17: re-derive moot-ness from the just-merged state —
       // agent edits to dependsOn conditions take effect INSTANTLY, on this

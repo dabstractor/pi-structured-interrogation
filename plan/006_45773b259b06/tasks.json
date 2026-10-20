@@ -1,0 +1,109 @@
+{
+  "backlog": [
+    {
+      "type": "Phase",
+      "id": "P1",
+      "title": "Delta residue: keymap-conflict re-verification record refresh and README changeset sync (docs-only)",
+      "status": "Ready",
+      "description": "The six rulings bundled in spec d18bc39..7377318 (SANITIZE-001, DEEP-EDITOR-001, FULL-TRANSCRIPT-001, FOOTER-001, KEYMNEMONICS-001 + amendment, description-REQUIRED) are ALREADY IMPLEMENTED and verified green at HEAD 7377318 (54 files / 1624 tests, typecheck, lint). The only unshipped remainder is Mode B documentation: re-run scripts/verify-keymap-conflicts.sh, confirm the KEYMNEMONICS-001 defaults d/i/e/n/c (plus chords) claim nothing in pi built-ins or installed extensions' registerShortcut, refresh the README 'Keymap conflict re-verification' record block (README.md:428-504 — research confirmed it still cites the 2026-10-16 side-chat run and stale o/t/m/e letter rows), and sweep README for residual key fossils. HARD CONSTRAINT (PRD AC-3): README.md is the ONLY file this changeset may modify; any gap found in the six rulings is a BUG at the existing seam, never a rebuild. spec/ and plan/004_* are read-only (declared stale prose / historical records).",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P1.M1",
+          "title": "Keymap verification re-run recorded; README fully synced to the KEYMNEMONICS-001 changeset",
+          "status": "Planned",
+          "description": "Re-establish the green baseline, produce a fresh authoritative keymap-conflict verification record (post-2026-10-16), rewrite the README record block from it, cross-check the keymap table and sample settings against src/config.ts defaults, sweep remaining README key fossils, and pass the final delta gate with a README-only diff.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P1.M1.T1",
+              "title": "Re-establish green baseline and produce the authoritative keymap-conflict verification record",
+              "status": "Planned",
+              "description": "Confirm the delta's precondition (suite/typecheck/lint green at HEAD) and re-run scripts/verify-keymap-conflicts.sh to capture the fresh claim matrix (date, commit, pi version, per-key status, drift since 2026-10-16) that the README record block will cite.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S1",
+                  "title": "Confirm green baseline at HEAD (npm test, typecheck, lint)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "prd_selectors": ["h2.10", "h2.56", "table.0", "list.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/system_context.md — at HEAD 7377318 the full suite is green (54 files / 1624 tests), `npm run typecheck` (tsc --noEmit) and `npm run lint` (eslint src scripts *.ts) exit 0. Known one-off flake: a timeout-class failure observed once in three runs (src/persistence.test.ts also logs a benign mocked 'state mirror appendEntry failed' error in verbose mode) — on failure, re-run once before concluding.\n2. INPUT: clean checkout at HEAD 7377318 (verify with `git rev-parse --short HEAD`); no dependencies on other subtasks.\n3. LOGIC: In /home/dustin/projects/pi-structured-interrogation run `npm test`, `npm run typecheck`, `npm run lint`. Record exact counts (expect 54 passed files / 1624 passed tests). Do NOT fix anything: a reproducible failure is a BUG at the existing seam per PRD AC-3 — report and stop. No mocking needed (hermetic unit suite, no external services).\n4. OUTPUT: Baseline record {head, testFiles: 54, tests: 1624, typecheck: pass, lint: pass, anomalies[]} for consumption by P1.M1.T1.S2 (pre-condition) and P1.M1.T3.S2 (gate reference).\n5. DOCS: none — read-only verification, no user-facing/config/API surface change."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S2",
+                  "title": "Run scripts/verify-keymap-conflicts.sh and capture the fresh claim record",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T1.S1"],
+                  "prd_selectors": ["h2.83", "h2.77", "h2.36", "h2.19", "h2.58", "list.0", "table.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/keymap-verification-and-readme-drift.md — the script parses DEFAULT_CONFIG.keys from src/config.ts:118-128 (9 defaults: d, i, e, n, ctrl+s, c, ctrl+g, tab, shift+tab), checks each against an 11-entry AVOIDED list plus a live grep of `pi.registerShortcut(\"<key>\"` across ~/.pi/agent/npm/node_modules, ~/.pi/agent/git, ~/.pi/extensions; exit 0 = all clear. Verified run 2026-10-20: EXIT 0 — d/i/e/n/c panel-owned by construction; ctrl+s/ctrl+g/tab/shift+tab panel-safe reuse of pi built-ins; pi 1.0.2 at ~/.local/lib/node_modules/@earendil-works/pi-coding-agent.\n2. INPUT: green baseline from P1.M1.T1.S1; src/config.ts DEFAULT_CONFIG.keys.\n3. LOGIC: Run `bash scripts/verify-keymap-conflicts.sh`; require exit 0. Capture: run date (`date +%F`, must be post-2026-10-16), HEAD sha (expect 7377318), pi version from the install the script found, the full per-key status table, and the list of string-literal registerShortcut claims in the extension trees (drift since the 2026-10-16 record — previously only pi-patty-bg-tasks' five at src/shortcuts.ts:28-49). If exit 1 (a default collides): that is a ruling-level BUG — report and stop; do NOT rebind keys. No mocking: the script reads the real installed trees by design.\n4. OUTPUT: VerificationRecord {date, headCommit, piVersion, perKeyStatus[9], driftSince20261016[], exitCode: 0} for consumption by P1.M1.T2.S1 (record block rewrite).\n5. DOCS: none — this subtask produces data only; the README record citing it is written by P1.M1.T2.S1."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T2",
+              "title": "Refresh the README keymap-conflict re-verification record and cross-check keymap doc rows",
+              "status": "Planned",
+              "description": "Rewrite README.md's 'Keymap conflict re-verification' block (lines 428-504) from the fresh verification run — header date/commit/pi-version, stale per-key rows (o/t/m/e -> i/e/n/c), stale drift claims — and verify the keymap table and sample settings still match src/config.ts defaults (PRD AC-2).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S1",
+                  "title": "Rewrite the keymap-conflict re-verification record block (README.md:428-504)",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": ["P1.M1.T1.S2"],
+                  "prd_selectors": ["h2.83", "h2.82", "h2.77", "h2.36", "h2.19", "list.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/keymap-verification-and-readme-drift.md — the block spans README.md:428-504 (heading '### Keymap conflict re-verification' at :428; next heading at :505). Confirmed stale: :430 cites 2026-10-16 / commit 378b9ee / pi 1.0.2; :437 claims '`e` unchanged — passes untouched' (predates KEYMNEMONICS-001); :449-452 per-key rows show `o`/`t`/`m`/`e` — must be `i` (overview) / `e` (elaborate) / `n` (batchNote) / `c` (chat); :480 letter set '(`d` `o` `t` `m` `e`)' must be '(`d` `i` `e` `n` `c`)'. Rows :448, :453-456 and the avoided-keys table :466-475 are already correct.\n2. INPUT: VerificationRecord from P1.M1.T1.S2 (date, headCommit, piVersion, perKeyStatus, driftSince20261016).\n3. LOGIC: Edit ONLY README.md within 428-504. Refresh the header (date = fresh run date, post-2026-10-16; commit = the verified HEAD sha — expect 7377318, the KEYMNEMONICS-001 changeset; pi version from the run; method line unchanged: `bash scripts/verify-keymap-conflicts.sh`, exit 0, all 9 defaults clear). Replace the stale :437 claim with the panel-owned-by-construction statement for d/i/e/n/c. Rewrite the verified-defaults table rows to the resolved defaults with the fresh statuses. Fix the :480 letter set. Re-derive the drift prose from the fresh grep output — do not copy the old drift sentence blindly. Do not touch spec/ (its AC-2b/M8 `t` prose is declared stale; never assert it) or plan/004_* historical notes. No mocking — docs-only edit.\n4. OUTPUT: An updated README.md record block consistent with the fresh run, consumed by P1.M1.T2.S2 (cross-check) and P1.M1.T3.S1 (sweep).\n5. DOCS: [Mode A/B] this edit IS the changeset-level doc deliverable — every fact in the block must come from P1.M1.T1.S2's run; keep the existing block format (intro paragraph, verified-defaults table, fixed-keys prose, avoided-keys table, regression-guard section)."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S2",
+                  "title": "Cross-check README keymap table and sample settings against config.ts defaults",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": ["P1.M1.T1.S2"],
+                  "prd_selectors": ["h2.36", "h2.19", "h2.58", "h2.83"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/keymap-verification-and-readme-drift.md — research verdict: sample settings block README.md:147-179 (key lines 152-160) and keymap table rows :194-203 ALREADY MATCH DEFAULT_CONFIG.keys (src/config.ts:118-128) exactly. Expected outcome: verification no-op; PRD AC-2 requires the check regardless.\n2. INPUT: DEFAULT_CONFIG.keys from src/config.ts:118-128; the refreshed record block from P1.M1.T2.S1.\n3. LOGIC: For each of the 9 actions compare three surfaces — keymap table Default column (:195-203), sample settings values (:152-160), record block per-key table — against src/config.ts. Fix any drift in place, README.md only. Keys must read: deep d, overview i, elaborate e, batchNote n, submit ctrl+s, chat c, externalEditor ctrl+g, prevQuestion tab, nextQuestion shift+tab.\n4. OUTPUT: Per-action match verdict (9/9 match expected) consumed by P1.M1.T3.S1; any drift found is corrected in README.md in this subtask.\n5. DOCS: [Mode A] any drifted row is corrected here, with the work; if all rows already match: 'none — verification confirmed no user-facing change'."
+                }
+              ]
+            },
+            {
+              "type": "Task",
+              "id": "P1.M1.T3",
+              "title": "Sync changeset-level documentation",
+              "status": "Planned",
+              "description": "Mode B catch-all: sweep README (the only overview doc) so the whole six-ruling changeset — especially the KEYMNEMONICS-001 defaults — is surfaced consistently, fixing the residual key fossils research identified outside the record block, then run the final delta gate (suite/typecheck/lint green; diff confined to README.md).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S1",
+                  "title": "Sweep README for remaining stale key fossils (changeset-level consistency)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": ["P1.M1.T2.S1", "P1.M1.T2.S2"],
+                  "prd_selectors": ["h2.81", "h2.82", "h2.83", "h2.38", "h2.32", "h2.30", "h2.20", "h2.29", "list.0", "table.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/keymap-verification-and-readme-drift.md §fossils — README fossils OUTSIDE the record block: elaborate `t`->`e` at :45 ('a re-pressed `t` just types the letter'), :50, :83, :265-266, :358 (AC 2b row); stale bare-key set at :263 ('(`d`, `o`, `t`, `m`, `e`)' -> '(`d`, `i`, `e`, `n`, `c`)'); chat `e`->`c` at :296, :301, :340, :375 (AC 17), :393. Already-correct surfaces — do not churn: :37-38 usage, :288, :297, table :194-203, sample :147-160. DO-NOT-TOUCH: spec/ (declared stale prose, human-owned) and plan/004_*/architecture/* (past-changeset history).\n2. INPUT: canonical letter set d/i/e/n/c established by P1.M1.T2.S1 (record block) and P1.M1.T2.S2 (table/sample cross-check).\n3. LOGIC: Grep README.md for '`t`' and bare-key enumerations; fix each listed fossil to the resolved default while preserving sentence meaning (e.g. :45 -> 'a re-pressed `e` just types the letter'; :296 -> 'Like every bare key, `c` works from non-editor focus'). Re-grep until zero stale hits remain outside the DO-NOT-TOUCH list. Edit README.md ONLY — no code, no spec/ changes. No mocking — docs-only.\n4. OUTPUT: README.md fully consistent with the six-ruling changeset, consumed by P1.M1.T3.S2 (final gate).\n5. DOCS: [Mode B] this IS the changeset-level sweep — README is the repo's only overview doc (no docs/ directory exists); after the sweep confirm the usage paragraph (:37-38) and side-chat section (:287-301) read correctly with the new letters."
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T3.S2",
+                  "title": "Final delta gate: suite/typecheck/lint green, diff confined to README.md",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": ["P1.M1.T3.S1"],
+                  "prd_selectors": ["h2.10", "h2.56", "table.0", "list.0"],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/system_context.md — gates green at HEAD (54 files / 1624 tests, typecheck, lint); one-off flake precedent: re-run once before declaring failure.\n2. INPUT: all edits from P1.M1.T2.S1, P1.M1.T2.S2, P1.M1.T3.S1; baseline record from P1.M1.T1.S1.\n3. LOGIC: Run `npm test` (expect 54 files / 1624 tests green), `npm run typecheck`, `npm run lint`. Run `git diff --stat` and assert the ONLY modified file is README.md (untracked plan/006_* planning artifacts are expected and allowed — this changeset writes nothing else). PRD AC-3: no new code beyond the README record; if any gate fails or the diff exceeds README.md, report as a BUG at the existing seam — never rebuild.\n4. OUTPUT: Terminal delta verdict {ac1: tests/typecheck/lint green, ac2: record refreshed with post-2026-10-16 run, i/c/n verified unclaimed, table/sample match config.ts, ac3: diff == README.md only}.\n5. DOCS: none — verification only."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+h1.0 pi-interrogator — SPEC
+ h2.0 Core commitments (do not deviate)
+ h2.1 Deliverable files
+ h2.2 Defaulted decisions (user may veto)
+ h2.3 Naming and strings (final)
+ h2.4 Non-goals (confirmed)
+h1.1 Product Requirements — pi-interrogator
+ h2.5 Problem
+ h2.6 Goals
+ h2.7 Users
+ h2.8 Functional requirements
+  h3.0 Interrogation lifecycle
+  h3.1 Panel UX (details in ui-spec.md)
+  h3.2 Dependency and ripple semantics
+  h3.3 Agent protocol (details in tool-protocol.md)
+  h3.4 Persistence and recovery (details in state-and-persistence.md)
+  h3.5 Answer pinning (ANSWER-PIN-001, 2026-10-04 interrogation)
+ h2.9 Hard requirements (from user tooling evaluations)
+ h2.10 Acceptance criteria (all must pass; scripted where possible)
+ h2.11 Non-goals
+h1.2 Architecture — pi-interrogator
+ h2.12 Module layout
+ h2.13 Components and responsibilities
+ h2.14 Key flows
+  h3.6 Ask (non-blocking)
+  h3.7 Submit (partial, immediate; auto-submits at completeness — AUTOSUBMIT-001)
+  h3.8 Read / refresh
+  h3.9 Side chat (SIDECHAT-001; replaces discuss-in-chat)
+  h3.10 Stale guard rejection
+  h3.11 Completion
+  h3.12 Suspend / resume / reopen
+  h3.13 Restart / resume session
+  h3.14 Tree navigation (session_tree) — SILENT
+ h2.15 pi API surface used
+ h2.16 Side chat cache-isolation contract (SIDECHAT-005 — binding)
+ h2.17 Event subscriptions table
+ h2.18 Data shapes (authoritative in tool-protocol.md / state-and-persistence.md)
+ h2.19 Config surface (all hotkeys + toggles)
+h1.3 Tool Protocol — interrogate
+ h2.20 Schema (typebox)
+ h2.21 Actions
+ h2.22 Merge rules on upsert (by id)
+ h2.23 Guards (Q38=A)
+ h2.24 No caps (CAPS-OUT-001, 2026-10-08 owner ruling)
+ h2.25 Agent-facing text (resident; ≤120 words)
+ h2.26 Result rendering (TUI)
+ h2.27 Non-TUI fallback (FR-25)
+ h2.28 Plain-text round detection (FR-26, TUI only)
+ h2.29 Status line format (shared by results and panel footer)
+h1.4 UI Spec — the panel and renderers
+ h2.30 Layout (TUI, replace-editor mode)
+ h2.31 Terminal fallbacks
+ h2.32 Free-text field (Q17=A, as amended by WRITEIN-001/002 — 2026-09-18 interrogation)
+ h2.33 Auto-submit at completeness (AUTOSUBMIT-001/002 — 2026-09-18 interrogation)
+ h2.34 Batch note (R3)
+ h2.35 Ripple confirm (FR-18, Q39=B)
+ h2.36 Hotkeys — defaults and config
+ h2.37 Suspend / resume / widget
+ h2.38 Side chat (e — SIDECHAT-001…005, 2026-10-15)
+ h2.39 Color, order & breathing room (LOCKED 2026-09-30 — interrogation D-R11–D-R13 + live-review D-R14)
+ h2.40 Renderers
+ h2.41 Empty/edge states
+h1.5 State & Persistence — pi-interrogator
+ h2.42 Question state machine
+ h2.43 rev and epoch semantics
+ h2.44 Answer shape (WRITEIN-001)
+ h2.45 Storage (three layers, one source of truth)
+ h2.46 Reconstruction (session_start)
+ h2.47 Compaction (session_before_compact)
+ h2.48 Branching (/tree, /fork, /resume)
+  h3.15 Tree navigation (session_tree) — silent, never a surface
+ h2.49 Auto-close algorithm (Q9=B)
+ h2.50 Drafts lifecycle (R4)
+ h2.51 Side chat (ephemeral by design — SIDECHAT-002)
+ h2.52 Completion record format (the one full injection)
+h1.6 Implementation Plan — pi-interrogator
+ h2.53 Prerequisites
+ h2.54 Milestones
+ h2.55 File checklist
+ h2.56 Testing
+ h2.57 Risks
+ h2.58 Config reference (settings.json → "interrogator")
+h1.7 Decision Ledger — extracted from the structured interrogation session
+ h2.59 Architecture & data flow
+ h2.60 UI
+ h2.61 Protocol
+ h2.62 Remote bridge surface (2026-09-18; FR-31..34; REMOVED 2026-10-02 — see §Remote bridge surface removed below)
+ h2.63 2026-09-30 interrogation — auto-submit trigger narrowed (AUTOSUBMIT-003)
+ h2.64 Remote bridge surface removed (2026-10-02; supersedes D-R1..D-R7 / FR-31..34)
+ h2.65 Staging philosophy (discussion resolution)
+ h2.66 Defaulted (user may veto)
+ h2.67 2026-09-30 interrogation — explain-any-answer
+ h2.68 2026-10-04 interrogation — answer pinning (ANSWER-PIN-001)
+ h2.69 2026-10-05 interrogation — pinned deep-view question (DEEP-PIN-001)
+ h2.70 2026-10-05 interrogation — answer pinning re-ask amendment (ANSWER-PIN-001)
+ h2.71 2026-10-06 interrogation — FR-18 closed-edit ripple (BUG-003)
+ h2.72 2026-10-06 interrogation — moot reason persistence (BUG-004, Option A)
+ h2.73 2026-10-07 interrogation — deep-view question framing (DEEP-PIN-002)
+ h2.74 2026-10-07 interrogation — answered visibility, both views (DEEP-PIN-003)
+ h2.75 2026-10-08 interrogation — transcript noise removal (GOAL-OUT-001 / MIRROR-SILENT-001)
+ h2.76 2026-10-11 interrogation — deep-sticky advance (DEEP-STICKY-ADVANCE)
+ h2.77 2026-10-12 interrogation — vim navigation, bare-key defaults, digit quick-select removed (VIMNAV-001 / BAREKEYS-001 / DIGIT-OUT-001)
+ h2.78 2026-10-14 interrogation — landing scroll (DEEP-LAND-001)
+ h2.79 2026-10-14 interrogation — WRITEIN-002 supersede re-bind restored (BUG-001)
+ h2.80 2026-10-15 interrogation — per-question side-channel chat (SIDECHAT-001…005)
+ h2.81 2026-10-19 interrogation — full-transcript cards (FULL-TRANSCRIPT-001)
+ h2.82 2026-10-16 interrogation — feature-discovery footer (FOOTER-001)
+ h2.83 2026-10-19 interrogation — mnemonic bare-letter defaults (KEYMNEMONICS-001)
+---
+code:17 para:60 list:61 table:6 quote:3

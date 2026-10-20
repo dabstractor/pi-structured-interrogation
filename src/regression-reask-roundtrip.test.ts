@@ -180,7 +180,7 @@ describe("rule-1 re-ask: same-value re-confirm completes the loop (BUG-001)", ()
     // accept IS the last-unanswered transition, so submission 1 auto-fires
     // (epoch 2, status submitted); a manual ctrl+s adds nothing.
     executeInterrogate(
-      { goal: "Loop", questions: [{ id: "q1", prompt: "p1?", type: "choice", options: opts("a", "b") }] },
+      { goal: "Loop", questions: [{ id: "q1", prompt: "p1?", description: "context", type: "choice", options: opts("a", "b") }] },
       tuiCtx(),
       DEFAULT_CONFIG,
     );
@@ -201,7 +201,7 @@ describe("rule-1 re-ask: same-value re-confirm completes the loop (BUG-001)", ()
     // (assertFresh would StaleError otherwise). Answer is KEPT.
     reaskHost(h, {
       epoch: 2,
-      questions: [{ id: "q1", prompt: "p2?", type: "choice", options: opts("a", "b"), rev: 1 }],
+      questions: [{ id: "q1", prompt: "p2?", description: "context", type: "choice", options: opts("a", "b"), rev: 1 }],
     });
     expect(q1Status()).toBe("reasked");
     expect(getState()!.getQuestion("q1")!.answer?.value).toBe("a");
@@ -251,7 +251,7 @@ describe("rule-2 re-ask: re-answer auto-submits and completes (BUG-002)", () => 
 
     // Step 1 — seed q1 with options [a,b,c]; accept 'a' → auto submission 1.
     executeInterrogate(
-      { goal: "Loop", questions: [{ id: "q1", prompt: "p1?", type: "choice", options: opts("a", "b", "c") }] },
+      { goal: "Loop", questions: [{ id: "q1", prompt: "p1?", description: "context", type: "choice", options: opts("a", "b", "c") }] },
       tuiCtx(),
       DEFAULT_CONFIG,
     );
@@ -269,7 +269,7 @@ describe("rule-2 re-ask: re-answer auto-submits and completes (BUG-002)", () => 
     // (merge deletes it — stays undefined until re-answered), status reasked.
     reaskHost(h, {
       epoch: 2,
-      questions: [{ id: "q1", prompt: "p1?", type: "choice", options: opts("a", "b", "d"), rev: 1 }],
+      questions: [{ id: "q1", prompt: "p1?", description: "context", type: "choice", options: opts("a", "b", "d"), rev: 1 }],
     });
     expect(q1Status()).toBe("reasked");
     expect(getState()!.getQuestion("q1")!.answer).toBeUndefined();

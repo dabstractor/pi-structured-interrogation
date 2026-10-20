@@ -15,7 +15,7 @@ const QuestionSchema = Type.Object({
   id: Type.String({ description: "Stable identity you choose; never reuse for a different question" }),
   title: Type.Optional(Type.String({ description: "Short label used in digests and overview" })),
   prompt: Type.String({ description: "Short-form question text shown by default" }),
-  description: Type.Optional(Type.String({ description: "Deep-view context, fully standalone: assume the reader has NOT seen the conversation. Take the explanation you would normally give and EXPAND it — define terms/acronyms, state concrete facts, lay out the decision space — never compress to shorthand. First sentence doubles as the short-view hint" })),
+  description: Type.String({ description: "REQUIRED — never omit. Deep-view context, fully standalone: assume the reader has NOT seen the conversation. Take the explanation you would normally give and EXPAND it — define terms/acronyms, state concrete facts, lay out the decision space — never compress to shorthand. First sentence doubles as the short-view hint" }),
   type: StringEnum(["choice", "text"]),
   options: Type.Optional(Type.Array(OptionSchema, { description: "Required for type=choice" })),
   recommendation: Type.Optional(Type.String({ description: "Recommended option value; marked ★; preselected only while unanswered — a recorded answer always owns the cursor" })),

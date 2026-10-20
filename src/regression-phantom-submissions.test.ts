@@ -135,6 +135,7 @@ function choiceQ(id: string) {
   return {
     id,
     prompt: `p:${id}`,
+    description: `context:${id}`,
     type: "choice",
     options: [
       { value: "rec", label: `${id}-recommended` },

@@ -56,7 +56,7 @@ export const QuestionSchema = Type.Object({
   id: Type.String({ description: "Stable identity you choose; never reuse for a different question" }),
   title: Type.Optional(Type.String({ description: "Short label used in digests and overview" })),
   prompt: Type.String({ description: "Short-form question text shown by default" }),
-  description: Type.Optional(Type.String({ description: "Deep-view context, fully standalone: assume the reader has NOT seen the conversation. Take the explanation you would normally give and EXPAND it — define terms/acronyms, state concrete facts, lay out the decision space — never compress to shorthand. First sentence doubles as the short-view hint" })),
+  description: Type.String({ description: "REQUIRED — never omit. Deep-view context, fully standalone: assume the reader has NOT seen the conversation. Take the explanation you would normally give and EXPAND it — define terms/acronyms, state concrete facts, lay out the decision space — never compress to shorthand. First sentence doubles as the short-view hint" }),
   type: StringEnum(["choice", "text"]),
   options: Type.Optional(Type.Array(OptionSchema, { description: "Required for type=choice" })),
   recommendation: Type.Optional(Type.String({ description: "Recommended option value; marked ★; preselected only while unanswered — a recorded answer always owns the cursor" })),
@@ -126,8 +126,11 @@ export interface QuestionInput {
   title?: string;
   /** Short-form question text shown by default. */
   prompt: string;
-  /** Deep-view context, fully standalone — expand, never compress (see schema field description). */
-  description?: string;
+  /** Deep-view context — REQUIRED on every upsert (owner ruling 2026-10-20:
+   * the tool's whole point is detailed, standalone questions; a missing
+   * description is a wire error, not a silent default). Expand, never
+   * compress (see schema field description). */
+  description: string;
   /** `"choice"` requires non-empty `options`; `"text"` ignores them. */
   type: "choice" | "text";
   /** Required for type=choice. */
@@ -353,10 +356,24 @@ function narrowQuestion(raw: unknown, path: string, errors: ErrorSink): Question
     errors.push({ path: `${path}.type`, message: `type must be "choice" or "text" (question ${JSON.stringify(id)})` });
   }
 
-  const q: QuestionInput = { id, prompt, type: isText ? "text" : "choice" };
+  const q: QuestionInput = { id, prompt, description: "", type: isText ? "text" : "choice" }; // description filled below; "" only survives the error path (parse aborts on errors)
 
-  // optional string fields
-  const stringFields = ["title", "description", "group"] as const;
+  // optional string fields (description is NOT here — it is REQUIRED:
+  // owner ruling 2026-10-20, "those detailed questions are required"; a
+  // question without one rendered an empty deep pane — the live 2026-10-20
+  // report — so absence/blank/non-string is a structured wire error now).
+  const description =
+    typeof raw.description === "string" ? raw.description : "";
+  if (description.trim() === "") {
+    errors.push({
+      path: `${path}.description`,
+      message:
+        `description is REQUIRED and must be a non-empty string (question ${JSON.stringify(id)}) — ` +
+        "standalone deep-view context; the tool's purpose is detailed questions, never a bare prompt",
+    });
+  } else q.description = description;
+
+  const stringFields = ["title", "group"] as const;
   for (const field of stringFields) {
     const v = raw[field];
     if (v === undefined) continue;

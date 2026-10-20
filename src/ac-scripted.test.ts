@@ -99,6 +99,7 @@ function fixtureQuestions(): Array<Record<string, unknown>> {
       id,
       title: `Question ${id}`,
       prompt: `Decide ${id}`,
+      description: `Standalone deep-view context for question ${id}: decision space, terms, and consequences laid out in full.`,
       type: "choice",
       group,
       options: [
@@ -340,7 +341,7 @@ describe("AC-3 — auto-close vs re-ask; draft preserved (FR-4, FR-21, R4)", () 
           {
             id: "q01",
             title: "Question q01",
-            prompt: "Decide q01",
+            prompt: "Decide q01", description: "Standalone deep-view context for q01.",
             type: "choice",
             rev: closed.rev,
             options: [
@@ -389,7 +390,7 @@ describe("AC-8 — stale upsert rejected, self-heals (FR-22)", () => {
           {
             id: "q01",
             title: "Question q01",
-            prompt: "Decide q01 (revised)",
+            prompt: "Decide q01 (revised)", description: "Standalone deep-view context for q01, revised.",
             type: "choice",
             rev: 1,
             options: [
@@ -417,7 +418,7 @@ describe("AC-8 — stale upsert rejected, self-heals (FR-22)", () => {
         {
           id: "q01",
           title: "Question q01",
-          prompt: "Decide q01",
+          prompt: "Decide q01", description: "Standalone deep-view context for q01.",
           type: "choice",
           rev: 1,
           options: [
@@ -572,7 +573,7 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
           {
             id: "q1",
             title: "Database",
-            prompt: "Which database?",
+            prompt: "Which database?", description: "Standalone deep-view context for the storage choice.",
             type: "choice",
             recommendation: "sqlite",
             options: [
@@ -586,7 +587,7 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
           {
             id: "q2",
             title: "Timeline",
-            prompt: "When?",
+            prompt: "When?", description: "Standalone deep-view context for the timing choice.",
             type: "text",
           },
         ],
@@ -617,7 +618,7 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
     expect(diff.changed[0]).toEqual({
       id: "q1",
       title: "Database",
-      prompt: "Which database?", // FULL-TRANSCRIPT-001: prompt the title hides
+      prompt: "Which database?", // FULL-TRANSCRIPT-001: prompt the title hides (diff records carry prompt+title, not description)
       from: "SQLite",
       to: "Postgres",
       editedArchived: true,
@@ -687,7 +688,7 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
           {
             id: "q1",
             title: "Database",
-            prompt: "Which database?",
+            prompt: "Which database?", description: "Standalone deep-view context for the storage choice.",
             type: "choice",
             recommendation: "a",
             options: [
@@ -698,7 +699,7 @@ describe("AC-13 (end-to-end) — edited archived answer flags (changed) through 
           {
             id: "q2",
             title: "Timeline",
-            prompt: "When?",
+            prompt: "When?", description: "Standalone deep-view context for the timing choice.",
             type: "text",
           },
         ],
@@ -853,7 +854,7 @@ describe("AC-14 (state side) — completion record built once, exactly once (FR-
           {
             id: "q1",
             title: "Question q1",
-            prompt: "Decide q1",
+            prompt: "Decide q1", description: "Standalone deep-view context for q1.",
             type: "choice",
             group: "scope",
             recommendation: "alpha",
@@ -865,7 +866,7 @@ describe("AC-14 (state side) — completion record built once, exactly once (FR-
           {
             id: "q2",
             title: "Question q2",
-            prompt: "Decide q2",
+            prompt: "Decide q2", description: "Standalone deep-view context for q2.",
             type: "choice",
             group: "scope",
             options: [
@@ -1148,7 +1149,7 @@ describe("AC-16 — answer pinning: recorded answer owns the caret (FR-35, ANSWE
           {
             id: "q1",
             title: "Database",
-            prompt: "Which database?",
+            prompt: "Which database?", description: "Standalone deep-view context for the storage choice.",
             type: "choice",
             recommendation: "a",
             options: [
@@ -1159,7 +1160,7 @@ describe("AC-16 — answer pinning: recorded answer owns the caret (FR-35, ANSWE
           {
             id: "q2",
             title: "Framework",
-            prompt: "Which framework?",
+            prompt: "Which framework?", description: "Standalone deep-view context for the framework choice.",
             type: "choice",
             recommendation: "x",
             options: [
@@ -1170,7 +1171,7 @@ describe("AC-16 — answer pinning: recorded answer owns the caret (FR-35, ANSWE
           {
             id: "q3",
             title: "Process",
-            prompt: "Which process?",
+            prompt: "Which process?", description: "Standalone deep-view context for the process choice.",
             type: "choice",
             options: [
               { value: "a", label: "Alpha", ramification: RAM },
@@ -1180,7 +1181,7 @@ describe("AC-16 — answer pinning: recorded answer owns the caret (FR-35, ANSWE
           {
             id: "q4",
             title: "Migration",
-            prompt: "Migrate how?",
+            prompt: "Migrate how?", description: "Standalone deep-view context for the migration approach.",
             type: "choice",
             options: [
               { value: "x", label: "Ex", ramification: RAM },

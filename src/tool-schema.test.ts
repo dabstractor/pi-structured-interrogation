@@ -16,6 +16,7 @@ function choiceQ(id: string, overrides: Record<string, unknown> = {}): Record<st
   return {
     id,
     prompt: `prompt:${id}`,
+    description: `context:${id} — standalone deep-view prose`, // REQUIRED (2026-10-20 ruling)
     type: "choice",
     options: [
       { value: "a", label: "Alpha" },
@@ -119,6 +120,7 @@ describe("routing (h2.20 four action shapes)", () => {
         {
           id: "q1",
           prompt: "prompt:q1",
+          description: "context:q1 — standalone deep-view prose",
           type: "choice",
           rev: 3,
           options: [
@@ -204,6 +206,27 @@ describe("question validation", () => {
     expect(r.errors[0].message).toContain("non-empty");
   });
 
+  it("missing description errors — REQUIRED (2026-10-20 owner ruling)", () => {
+    // The live 2026-10-20 report: description-less questions validated
+    // fine and rendered an EMPTY deep pane (the question text drew nowhere
+    // — pre-prompt-first — and the detailed view is the tool's whole
+    // point). Description is required on the wire now: absent, blank, and
+    // non-string all error at the question's path, naming the id.
+    const missing = parseInterrogateParams({ questions: [choiceQ("q1", { description: undefined })] });
+    expect(missing.ok).toBe(false);
+    expect(missing.errors[0].path).toBe("questions[0].description");
+    expect(missing.errors[0].message).toContain('"q1"');
+    expect(missing.errors[0].message).toContain("REQUIRED");
+
+    const blank = parseInterrogateParams({ questions: [choiceQ("q1", { description: "   " })] });
+    expect(blank.ok).toBe(false);
+    expect(blank.errors[0].path).toBe("questions[0].description");
+
+    const nonString = parseInterrogateParams({ questions: [choiceQ("q1", { description: 7 })] });
+    expect(nonString.ok).toBe(false);
+    expect(nonString.errors[0].path).toBe("questions[0].description");
+  });
+
   it("missing prompt errors with the offending id", () => {
     const r = parseInterrogateParams(
       { questions: [{ id: "q1", type: "choice", options: [{ value: "a", label: "A" }] }] }
@@ -215,7 +238,7 @@ describe("question validation", () => {
 
   it("type=choice without options errors", () => {
     const r = parseInterrogateParams(
-      { questions: [{ id: "q1", prompt: "p", type: "choice" }] }
+      { questions: [{ id: "q1", prompt: "p", description: "standalone context", type: "choice" }] }
     );
     expect(r.ok).toBe(false);
     expect(r.errors[0].path).toBe("questions[0].options");
@@ -224,7 +247,7 @@ describe("question validation", () => {
 
   it("type=text without options is fine", () => {
     const r = parseInterrogateParams(
-      { questions: [{ id: "q1", prompt: "p", type: "text" }] }
+      { questions: [{ id: "q1", prompt: "p", description: "standalone context", type: "text" }] }
     );
     expect(r.ok).toBe(true);
     expect(r.action).toMatchObject({ action: "upsert" });
@@ -237,6 +260,7 @@ describe("question validation", () => {
           {
             id: "q1",
             prompt: "p",
+            description: "standalone context",
             type: "text",
             options: [{ value: "a", label: "A" }],
           },

@@ -78,7 +78,7 @@ const STALE_UPSERT: ParsedAction = {
   action: "upsert",
   epoch: 4,
   questions: [
-    { id: "q3", rev: 2, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+    { id: "q3", rev: 2, prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
   ],
 };
 
@@ -113,7 +113,7 @@ describe("assertFresh — h3.8 message shapes", () => {
       assertFresh(state, {
         action: "upsert",
         questions: [
-          { id: "q3", rev: 2, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+          { id: "q3", rev: 2, prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
         ],
       }),
     );
@@ -131,7 +131,7 @@ describe("assertFresh — h3.8 message shapes", () => {
         action: "upsert",
         epoch: 9,
         questions: [
-          { id: "q3", rev: 2, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+          { id: "q3", rev: 2, prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
         ],
       }),
     );
@@ -149,7 +149,7 @@ describe("assertFresh — h3.8 message shapes", () => {
         action: "upsert",
         epoch: 4,
         questions: [
-          { id: "q3", rev: 5, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+          { id: "q3", rev: 5, prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
         ],
       }),
     );
@@ -171,7 +171,7 @@ describe("assertFresh — h3.8 message shapes", () => {
       assertFresh(state, {
         action: "upsert",
         epoch: 4,
-        questions: [{ id: "q-new", prompt: "Fresh?", type: "text" }],
+        questions: [{ id: "q-new", prompt: "Fresh?", description: "context", type: "text" }],
       }),
     );
     const stale = err as StaleError;
@@ -195,8 +195,8 @@ describe("assertFresh — h3.8 message shapes", () => {
         action: "upsert",
         epoch: 42,
         questions: [
-          { id: "n1", prompt: "N1?", type: "text" },
-          { id: "n2", prompt: "N2?", type: "text" },
+          { id: "n1", prompt: "N1?", description: "context", type: "text" },
+          { id: "n2", prompt: "N2?", description: "context", type: "text" },
         ],
       }),
     ).not.toThrow();
@@ -209,7 +209,7 @@ describe("assertFresh — h3.8 message shapes", () => {
       assertFresh(st, {
         action: "upsert",
         epoch: 2,
-        questions: [{ id: "n2", prompt: "N2?", type: "text" }],
+        questions: [{ id: "n2", prompt: "N2?", description: "context", type: "text" }],
       }),
     );
     expect(err).toBeInstanceOf(StaleError);
@@ -260,14 +260,14 @@ describe("assertFresh — pass-through and guard matrix", () => {
     expect(() =>
       assertFresh(state, {
         action: "upsert",
-        questions: [{ id: "q-new", prompt: "Fresh?", type: "text" }],
+        questions: [{ id: "q-new", prompt: "Fresh?", description: "context", type: "text" }],
       }),
     ).not.toThrow();
     expect(() =>
       assertFresh(state, {
         action: "upsert",
         epoch: 9,
-        questions: [{ id: "q-new", prompt: "Fresh?", type: "text" }],
+        questions: [{ id: "q-new", prompt: "Fresh?", description: "context", type: "text" }],
       }),
     ).not.toThrow();
   });
@@ -277,7 +277,7 @@ describe("assertFresh — pass-through and guard matrix", () => {
       assertFresh(state, {
         action: "upsert",
         questions: [
-          { id: "q3", prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+          { id: "q3", prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
         ],
       }),
     );
@@ -295,7 +295,7 @@ describe("assertFresh — pass-through and guard matrix", () => {
         action: "upsert",
         epoch: 9,
         questions: [
-          { id: "q3", rev: 5, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+          { id: "q3", rev: 5, prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
         ],
       }),
     ).not.toThrow();
@@ -319,7 +319,7 @@ describe("assertFresh — upsert epoch presence (BUG-010)", () => {
       assertFresh(state, {
         action: "upsert",
         questions: [
-          { id: "q3", rev: 5, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+          { id: "q3", rev: 5, prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
         ],
       }),
     );
@@ -334,7 +334,7 @@ describe("assertFresh — upsert epoch presence (BUG-010)", () => {
     expect(() =>
       assertFresh(state, {
         action: "upsert",
-        questions: [{ id: "q-new", prompt: "Fresh?", type: "text" }],
+        questions: [{ id: "q-new", prompt: "Fresh?", description: "context", type: "text" }],
       }),
     ).not.toThrow();
   });
@@ -344,8 +344,8 @@ describe("assertFresh — upsert epoch presence (BUG-010)", () => {
       assertFresh(state, {
         action: "upsert",
         questions: [
-          { id: "q-new", prompt: "Fresh?", type: "text" },
-          { id: "q3", rev: 5, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+          { id: "q-new", prompt: "Fresh?", description: "context", type: "text" },
+          { id: "q3", rev: 5, prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
         ],
       }),
     );
@@ -360,7 +360,7 @@ describe("assertFresh — upsert epoch presence (BUG-010)", () => {
       assertFresh(state, {
         action: "upsert",
         questions: [
-          { id: "q3", rev: 2, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+          { id: "q3", rev: 2, prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
         ],
       }),
     );
@@ -374,7 +374,7 @@ describe("assertFresh — upsert epoch presence (BUG-010)", () => {
         action: "upsert",
         epoch: 9,
         questions: [
-          { id: "q3", rev: 5, prompt: "Which database?", type: "choice", options: DB_OPTIONS },
+          { id: "q3", rev: 5, prompt: "Which database?", description: "context", type: "choice", options: DB_OPTIONS },
         ],
       }),
     ).not.toThrow();
@@ -449,8 +449,8 @@ describe("assertFresh — multiple stale ids and purity", () => {
       assertFresh(state, {
         action: "upsert",
         questions: [
-          { id: "qb", rev: 1, prompt: "B?", type: "text" },
-          { id: "qa", rev: 1, prompt: "A?", type: "text" },
+          { id: "qb", rev: 1, prompt: "B?", description: "context b", type: "text" },
+          { id: "qa", rev: 1, prompt: "A?", description: "context a", type: "text" },
         ],
       }),
     );

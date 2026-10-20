@@ -263,7 +263,7 @@ describe("buildSubmission — (state epoch {n}) content suffix (BUG-003)", () =>
 
     // The model reads the epoch FROM content — parse it out the same way.
     const echoed = Number(/\(state epoch (\d+)\)/.exec(msg.content)![1]);
-    const reask = { id: "q1", prompt: "prompt for q1", type: "text" as const, rev: 1 };
+    const reask = { id: "q1", prompt: "prompt for q1", description: "context", type: "text" as const, rev: 1 };
 
     // Post-bump echo on an upsert touching an existing id: NOT stale (BUG-003 guard).
     expect(() => assertFresh(state, { action: "upsert", epoch: echoed, questions: [reask] })).not

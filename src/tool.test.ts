@@ -52,13 +52,13 @@ const PRD_H2_24_DESCRIPTION =
 const PRD_H2_24_GUIDELINES = [
   "Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.",
   "After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.",
-  "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords).",
+  "The user decides from description/ramification alone — every question REQUIRES a standalone, fully expanded description; define terms, concrete facts, no shorthand or codewords.",
   "Omission never withdraws: edit surgically by resending only the questions you are changing (with their current revs). Prune deliberately by resending the kept set with withdrawOmitted: true.",
 ];
 
 /** Minimal wire question; overrides win. */
 function qi(id: string, overrides: Partial<QuestionInput> = {}): QuestionInput {
-  return { id, prompt: `prompt ${id}`, type: "text", ...overrides };
+  return { id, prompt: `prompt ${id}`, description: `context ${id}`, type: "text", ...overrides };
 }
 
 /** Fresh registered singleton with the given goal. */
@@ -647,7 +647,7 @@ describe("executeInterrogate: reopen", () => {
 describe("executeInterrogate: error contracts", () => {
   test("parse errors throw with the - path: message format (never look like success)", () => {
     expect(() =>
-      executeInterrogate({ questions: [{ id: "q1", prompt: "p", type: "choice" }] }, tuiCtx()),
+      executeInterrogate({ questions: [{ id: "q1", prompt: "p", description: "context", type: "choice" }] }, tuiCtx()),
     ).toThrowError(
       'invalid interrogate params:\n- questions[0].options: type "choice" requires at least one option (question "q1")',
     );

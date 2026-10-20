@@ -74,7 +74,7 @@ export const INTERROGATE_TOOL_DESCRIPTION =
 export const INTERROGATE_PROMPT_GUIDELINES: string[] = [
   "Use interrogate for structured planning questions instead of plain-text question blocks; send the full set in one call.",
   "After answers arrive, re-ask only questions materially affected by the new answers, then let the interrogation complete.",
-  "The user decides from description/ramification alone — they must not need the conversation or external docs. Write them as fully expanded, self-contained prose (define terms, concrete facts, no shorthand or codewords).",
+  "The user decides from description/ramification alone — every question REQUIRES a standalone, fully expanded description; define terms, concrete facts, no shorthand or codewords.",
   "Omission never withdraws: edit surgically by resending only the questions you are changing (with their current revs). Prune deliberately by resending the kept set with withdrawOmitted: true.",
 ];
 

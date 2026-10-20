@@ -130,7 +130,7 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
 
     const params = {
       questions: [
-        { id: "q1", prompt: "p", type: "choice", options: [{ value: "a", label: "A" }] },
+        { id: "q1", prompt: "p", description: "context", type: "choice", options: [{ value: "a", label: "A" }] },
       ],
     };
     pi1.emit("tool_execution_start", { toolCallId: "c1", toolName: "interrogate", args: params }, ctx1);
@@ -197,7 +197,7 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
     pi1.emit("session_start", { reason: "startup" }, ctx1);
     const params = {
       questions: [
-        { id: "q1", prompt: "p", type: "choice", options: [{ value: "a", label: "A" }] },
+        { id: "q1", prompt: "p", description: "context", type: "choice", options: [{ value: "a", label: "A" }] },
       ],
     };
     pi1.emit("tool_execution_start", { toolCallId: "c1", toolName: "interrogate", args: params }, ctx1);
@@ -248,7 +248,7 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
     pi1.emit("session_start", { reason: "startup" }, ctx1);
     const params = {
       questions: [
-        { id: "q1", prompt: "p", type: "choice", options: [{ value: "a", label: "A" }] },
+        { id: "q1", prompt: "p", description: "context", type: "choice", options: [{ value: "a", label: "A" }] },
       ],
     };
     pi1.emit("tool_execution_start", { toolCallId: "c1", toolName: "interrogate", args: params }, ctx1);
@@ -280,7 +280,7 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
     const reorient = {
       epoch: 1,
       questions: [
-        { id: "q1", prompt: "p", type: "choice", rev: 1, options: [{ value: "a", label: "A" }] },
+        { id: "q1", prompt: "p", description: "context", type: "choice", rev: 1, options: [{ value: "a", label: "A" }] },
       ],
     };
     pi2.emit("tool_execution_start", { toolCallId: "c2", toolName: "interrogate", args: reorient }, pi2.ctx("tui", branch));
@@ -322,6 +322,7 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
       {
         id: "q1",
         prompt: "p",
+        description: "context",
         type: "choice",
         rev: 1,
         status: "open",

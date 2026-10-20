@@ -34,13 +34,14 @@ const FIXTURE = {
     {
       id: "q1",
       prompt: "Which database?",
+      description: "Standalone deep-view context for the migration's storage choice.",
       type: "choice",
       options: [
         { value: "sqlite", label: "SQLite" },
         { value: "postgres", label: "Postgres" },
       ],
     },
-    { id: "q2", prompt: "Timeline?", type: "text" },
+    { id: "q2", prompt: "Timeline?", description: "Standalone context for the migration schedule.", type: "text" },
   ],
 } as const;
 
@@ -330,7 +331,7 @@ describe("/state", () => {
     const { invoke, ctx } = makeHarness();
     const long = JSON.stringify({
       goal: "g",
-      questions: [{ id: "q1", prompt: "x".repeat(100), type: "text" }],
+      questions: [{ id: "q1", prompt: "x".repeat(100), description: "standalone context", type: "text" }],
     });
     await invoke("upsert", long);
     ctx.ui.notify.mockClear();

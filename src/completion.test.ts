@@ -414,3 +414,50 @@ describe("createCompletionTrigger", () => {
     expect(pi.sendMessage).not.toHaveBeenCalled();
   });
 });
+
+// ------------------------------------------- DUMP-ONCE-001 forced completion
+
+describe("attemptCompletion — DUMP-ONCE-001 force (explicit submit ends the session)", () => {
+  test("force fires with open questions remaining — dump once, dismiss, clear", () => {
+    // The owner's ctrl+s ended the session: the record ships with the open
+    // question included (answers as they stand), the panel dismisses, state
+    // clears — nothing lingers as a resumable widget for hours after.
+    const st = makeTrackedState();
+    seedSubmitted(st, ["q1"]);
+    st.upsertQuestion(choiceQ("q2")); // still open — would block unforced
+    const pi = makeMockPi();
+    const res = attemptCompletion(pi.pi, makeOpts(st), closePass(), true);
+    expect(res).toEqual({ fired: true });
+    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(log).toEqual(["build", "deliver", "dismiss", "clear"]);
+    expect(st.completed).toBe(true);
+    expect(st.orderedQuestions()).toEqual([]); // live state gone
+  });
+
+  test("force still honors the exactly-once and no-state guards", () => {
+    const pi = makeMockPi();
+    expect(attemptCompletion(pi.pi, makeOpts(undefined), closePass(), true)).toEqual({
+      fired: false,
+      reason: "no-state",
+    });
+    const st = makeTrackedState();
+    st.upsertQuestion(choiceQ("q1"));
+    st.setStatus("q1", "open");
+    expect(attemptCompletion(pi.pi, makeOpts(st), closePass(), true)).toEqual({ fired: true });
+    expect(attemptCompletion(pi.pi, makeOpts(st), closePass(), true)).toEqual({
+      fired: false,
+      reason: "already-completed",
+    });
+    expect(pi.sendMessage).toHaveBeenCalledTimes(1); // dumped ONCE
+  });
+
+  test("force never completes a never-used state", () => {
+    const pi = makeMockPi();
+    const st = makeState(); // no questions, no snapshots, epoch 1
+    expect(attemptCompletion(pi.pi, makeOpts(st), closePass(), true)).toEqual({
+      fired: false,
+      reason: "active-questions-remain",
+    });
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+});

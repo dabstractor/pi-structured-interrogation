@@ -36,6 +36,7 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
   externalEditor: "\u0007", // ctrl+g — load-bearing chord
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
+  expandDescription: "x",
 };
 
 const UP = "\u001b[A";
@@ -157,6 +158,7 @@ function makeActions() {
     accept: vi.fn((_p: InterrogationPanel) => true),
     prevQuestion: vi.fn((_p: InterrogationPanel) => true),
     nextQuestion: vi.fn((_p: InterrogationPanel) => true),
+    onExpandDescription: vi.fn((_p: InterrogationPanel) => undefined),
     submit: vi.fn((_p: InterrogationPanel) => true),
     onDeep: vi.fn((_p: InterrogationPanel) => undefined),
     onOverview: vi.fn((_p: InterrogationPanel) => undefined),
@@ -262,7 +264,11 @@ describe("buildKeyRouter — default config dispatch (h2.34 table)", () => {
       const fresh = makeActions();
       const router = makeRouter(DEFAULT_CONFIG, fresh);
       const panel = makePanel(
-        action === "externalEditor" ? { focus: "text" } : { focus: "options" },
+        action === "externalEditor"
+          ? { focus: "text" }
+          : action === "expandDescription"
+            ? { focus: "options", view: "deep" } // deep-view-gated branch
+            : { focus: "options" },
       );
       const consumed = router.route(DEFAULT_DATA[action], panel);
       expect(consumed, `${action} consumes ${JSON.stringify(DEFAULT_DATA[action])}`).toBe(true);

@@ -178,6 +178,14 @@ const MOOT_HEAD = "⊘ moot — ";
 /** Withdrawn questions collapse to this single dimmed line. */
 const WITHDRAWN_LINE = "⊗ withdrawn";
 /**
+ * DEEP-FULLSCREEN-001 — description TEASER line count while auto-fitting:
+ * when the full description + all option sections overflow the pane, the
+ * description collapses to this many lines + an honest `… +N more lines`
+ * marker so every option section stays fully visible (the options are the
+ * decision; the description is context).
+ */
+const DESC_TEASER_LINES = 4;
+/**
  * The synthetic Other section's ramification (P1.M2.T6.S1, h2.29) — a FIXED
  * extension-supplied string rendered verbatim through the SAME
  * wrapText → dim → RAM_INDENT pipeline as option ramifications.
@@ -205,6 +213,23 @@ export interface DeepViewInput {
   theme: Theme;
   /** Full panel render width; content budget = width - 2 (INSET). */
   width: number;
+  /**
+   * DEEP-FULLSCREEN-001 — the pane's content-line budget from live
+   * terminal rows (terminal-budget.ts deepViewportBudget; the historical
+   * DEEP_VIEW_HEIGHT cap is now the FLOOR). `undefined` ⇒ DEEP_VIEW_HEIGHT
+   * (test mocks, non-TTY — the old behavior exactly).
+   */
+  viewportBudget?: number;
+  /**
+   * DEEP-FULLSCREEN-001 — owner-expand override for the question
+   * description. `false`/absent ⇒ AUTO: the full description renders when
+   * it fits alongside ALL option sections, else a TEASER ({@link
+   * DESC_TEASER_LINES}) with an honest `… +N more lines` marker so every
+   * option stays fully visible (the options are the decision; the
+   * description is context). `true` ⇒ always full, `… +N more lines`
+   * marker when it alone still overflows.
+   */
+  descExpanded?: boolean;
 }
 
 /**
@@ -402,13 +427,10 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     pushBlock(descBlock, q.description, theme, qBudget, dimAll, "", rail);
   }
   const separators = 1; // one blank after the pinned region
-  const questionBudget = hasSections
-    ? DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT
-    : DEEP_VIEW_HEIGHT; // no sections → the question may use the whole pane
-  const avail = questionBudget - head.length - separators;
-  const descKept = fitBlock(descBlock, avail, theme);
-  const questionLines = [...head];
-  if (descKept.length > 0) questionLines.push(...descKept, "");
+  // DEEP-FULLSCREEN-001: the question region is fitted AFTER the options
+  // region is built and measured below — allocation needs the full-content
+  // height to decide full-description vs teaser vs hard fit.
+  const questionLines: string[] = [...head];
   // ---- scrollable options region (unchanged composition; indexes are
   // now RELATIVE TO `lines`, offset 0 = first section header's region top).
   if (q.type === "choice") {
@@ -458,9 +480,49 @@ export function buildDeepContent(input: DeepViewInput): DeepContent {
     lines.push(dimAll ? theme.fg("dim", composed) : composed);
     pushBlock(lines, OTHER_RAMIFICATION, theme, budget, dimAll, ramIndent(theme, options.length === input.cursorIndex));
   }
+  // ---- DEEP-FULLSCREEN-001 allocation (owner ruling 2026-10-24): the
+  // pane owns the full terminal minus chrome — the question region is
+  // fitted to the MEASURED content, not a fixed 16-line slice. Priority:
+  // (1) EVERYTHING (full description + all sections) when it fits — no
+  // scroll at all; (2) otherwise the description teasers to
+  // {@link DESC_TEASER_LINES} with an honest `… +N more lines` marker so
+  // ALL option sections render fully (the historical hard fit — full
+  // description, truncated bottom-first — survives only as the floor for
+  // pathological cases and as the `descExpanded` override).
+  const V = Math.max(1, input.viewportBudget ?? DEEP_VIEW_HEIGHT);
+  const Oall = lines.length; // options region's full height (measured)
+  const fullQuestionHeight = head.length + descBlock.length + separators;
+  const descKept: string[] = [];
+  if (descBlock.length > 0) {
+    if (!hasSections || fullQuestionHeight + Oall <= V) {
+      // Text questions (description-only pane) and the fits-everything
+      // case: FULL description.
+      descKept.push(...descBlock);
+    } else if (input.descExpanded === true) {
+      // Owner override: full description even when it overflows — hard fit
+      // with the +N marker (options keep the MIN_OPTIONS_VIEWPORT floor).
+      descKept.push(
+        ...fitBlock(descBlock, V - MIN_OPTIONS_VIEWPORT - head.length - separators, theme),
+      );
+    } else {
+      // AUTO teaser: keep all options fully visible; the marker confesses
+      // exactly how many description lines are hidden. Falls back to the
+      // hard fit when even the teaser cannot leave the options floor.
+      const teaserAvail = V - MIN_OPTIONS_VIEWPORT - head.length - separators;
+      if (teaserAvail >= DESC_TEASER_LINES + 1) {
+        descKept.push(
+          ...descBlock.slice(0, DESC_TEASER_LINES),
+          `${questionIndent(theme)}${theme.fg("dim", `… +${descBlock.length - DESC_TEASER_LINES} more lines`)}`,
+        );
+      } else {
+        descKept.push(...fitBlock(descBlock, teaserAvail, theme));
+      }
+    }
+  }
+  if (descKept.length > 0) questionLines.push(...descKept, "");
   const viewportHeight = Math.max(
     hasSections ? MIN_OPTIONS_VIEWPORT : 1,
-    DEEP_VIEW_HEIGHT - questionLines.length,
+    V - questionLines.length,
   );
   return { questionLines, lines, sectionHeaderLineIndex, sectionHeaders, sectionStarred, sectionAnswered, dimAll, viewportHeight };
 }
@@ -516,7 +578,13 @@ function questionIndent(theme: Theme): string {
 function fitBlock(block: string[], max: number, theme: Theme): string[] {
   if (max <= 0) return [];
   if (block.length <= max) return block;
-  return [...block.slice(0, max - 1), `${questionIndent(theme)}${theme.fg("dim", "…")}`];
+  // DEEP-FULLSCREEN-001: the marker confesses the hidden count — a bare `…`
+  // hid that anything was missing (2026-10-24 owner report).
+  const hidden = block.length - (max - 1);
+  return [
+    ...block.slice(0, max - 1),
+    `${questionIndent(theme)}${theme.fg("dim", `… +${hidden} more lines`)}`,
+  ];
 }
 
 // ----------------------------------------------------- scroll + render core
@@ -546,6 +614,17 @@ function fitBlock(block: string[], max: number, theme: Theme): string[] {
  * (header inside the final window), the global clamp wins — the header is
  * still visible there by construction.
  */
+/**
+ * Global-bounds-only clamp (DEEP-FULLSCREEN-001 free scroll): unlike
+ * {@link clampScroll}, NEVER pins the caret's header into the window — the
+ * user is READING, and may scroll any section out of view at will. Used by
+ * {@link deepScrollBy} and by {@link renderDeepWindow} in free mode.
+ */
+export function clampGlobal(content: DeepContent, scrollOffset: number): number {
+  const maxOffset = Math.max(0, content.lines.length - content.viewportHeight);
+  return Math.max(0, Math.min(Math.max(0, scrollOffset), maxOffset));
+}
+
 export function clampScroll(content: DeepContent, scrollOffset: number, cursorIndex: number): number {
   const maxOffset = Math.max(0, content.lines.length - content.viewportHeight);
   const headerIdx = content.sectionHeaderLineIndex[cursorIndex];
@@ -577,9 +656,13 @@ export function renderDeepWindow(
   scrollOffset: number,
   theme: Theme,
   width: number,
+  free = false,
 ): string[] {
   const budget = Math.max(1, width - INSET.length - RIGHT.length);
-  const offset = clampScroll(content, scrollOffset, cursorIndex);
+  // DEEP-FULLSCREEN-001: free mode trusts the caller's offset (global
+  // bounds only) — the sticky-header defensive re-clamp fires only when
+  // the caret owns the scroll (contract 5 unchanged for caret moves).
+  const offset = free ? clampGlobal(content, scrollOffset) : clampScroll(content, scrollOffset, cursorIndex);
   const end = Math.min(content.lines.length, offset + content.viewportHeight);
   const window: string[] = [];
   for (let i = offset; i < end; i++) window.push(content.lines[i]!);
@@ -626,6 +709,10 @@ function deepInput(panel: InterrogationPanel): { q: Question | undefined; input:
       scrollOffset: panel.scrollOffset,
       theme: panel.theme,
       width,
+      // DEEP-FULLSCREEN-001: actions rebuild with the SAME budget/expand
+      // state the last render used (mirrors lastWidth's pattern).
+      viewportBudget: panel.lastDeepBudget > 0 ? panel.lastDeepBudget : undefined,
+      descExpanded: panel.descExpanded,
     },
   };
 }
@@ -638,6 +725,42 @@ export function deepSelectionUp(panel: InterrogationPanel): boolean {
 /** Move the deep selection down one section (clamped at the Other section). */
 export function deepSelectionDown(panel: InterrogationPanel): boolean {
   return stepDeepSelection(panel, 1);
+}
+
+/**
+ * DEEP-FULLSCREEN-001 free scroll (2026-10-24 owner report): scroll the
+ * options window WITHOUT moving the caret — reading one option's full
+ * ramification must not destroy it by advancing the selection (the caret
+ * was previously the only scroll mechanism, so option 1's text vanished
+ * the moment the user moved toward option 2). Global-bounds clamp only —
+ * the sticky-header pin is a CARET-MOVE guarantee, not a render invariant.
+ * Sets `panel.scrollFree`; the next caret move or question landing
+ * ({@link stepDeepSelection}, {@link deepLandScroll}) re-couples the
+ * window to the caret. No sections (text questions) or unknown question:
+ * consumed no-op.
+ */
+export function deepScrollBy(panel: InterrogationPanel, delta: number): boolean {
+  const { q, input } = deepInput(panel);
+  if (q === undefined) return true;
+  if (q.type !== "choice") return true;
+  const content = buildDeepContent(input);
+  const next = clampGlobal(content, panel.scrollOffset + delta);
+  if (next !== panel.scrollOffset || panel.scrollFree !== true) {
+    panel.scrollOffset = next;
+    panel.scrollFree = true;
+    panel.invalidate();
+  }
+  return true;
+}
+
+/**
+ * DEEP-FULLSCREEN-001 page free scroll: one window minus an overlap line.
+ */
+export function deepScrollPage(panel: InterrogationPanel, dir: 1 | -1): boolean {
+  const { q, input } = deepInput(panel);
+  if (q === undefined || q.type !== "choice") return true;
+  const content = buildDeepContent(input);
+  return deepScrollBy(panel, dir * Math.max(1, content.viewportHeight - 1));
 }
 
 /**
@@ -691,6 +814,7 @@ function stepDeepSelection(panel: InterrogationPanel, delta: number): boolean {
   const next = Math.min(count, Math.max(0, panel.cursorIndex + delta));
   if (next !== panel.cursorIndex) {
     panel.cursorIndex = next;
+    panel.scrollFree = false; // DEEP-FULLSCREEN-001: caret moves re-couple the window
     const { input } = deepInput(panel);
     input.cursorIndex = next;
     panel.scrollOffset = clampScroll(buildDeepContent(input), panel.scrollOffset, next);

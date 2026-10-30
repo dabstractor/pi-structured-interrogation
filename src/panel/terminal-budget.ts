@@ -30,6 +30,31 @@
 /** Height below which the short-view hint line is suppressed (rows < 24). */
 export const HINT_SUPPRESS_ROWS = 24;
 
+/**
+ * Chrome reserve for the GROW-side budget (DEEP-FULLSCREEN-001, 2026-10-24
+ * owner ruling): panel header (1) + breathing blank (1) + transient notice
+ * line (0–1) + footer (1) + the TUI status bar (1). The deep pane's
+ * content budget is `rows - DEEP_CHROME_ROWS` — the panel may occupy the
+ * FULL remaining terminal; the transcript above shrinks to whatever is
+ * left (possibly nothing — reading a question needs no chat context: `c
+ * chat` renders the transcript INSIDE the panel, and `esc` descends to the
+ * docked short view instantly).
+ */
+export const DEEP_CHROME_ROWS = 5;
+
+/**
+ * DEEP-FULLSCREEN-001 growth formula: the deep pane's content-line budget
+ * from live rows — `max(20, rows - DEEP_CHROME_ROWS)`. The historical 20-
+ * line cap (deep-view.ts DEEP_VIEW_HEIGHT) is now the FLOOR: a 24-row
+ * terminal is byte-identical to before; every row above belongs to the
+ * pane. `undefined` rows (test mocks / non-TTY) ⇒ `undefined` ⇒ the
+ * renderer keeps its DEEP_VIEW_HEIGHT default — the old behavior exactly.
+ */
+export function deepViewportBudget(rows: number | undefined): number | undefined {
+  if (typeof rows !== "number" || !Number.isFinite(rows) || rows <= 0) return undefined;
+  return Math.max(20, rows - DEEP_CHROME_ROWS);
+}
+
 /** Height below which the overview list paginates (rows < 12). */
 export const OVERVIEW_PAGINATE_ROWS = 12;
 
@@ -43,6 +68,13 @@ export const NARROW_COLS = 60;
 export interface TerminalBudget {
   /** rows < 24 — suppress the short-view hint line (deep view unaffected). */
   suppressHint: boolean;
+  /**
+   * DEEP-FULLSCREEN-001 — the deep pane's content-line budget from live
+   * rows ({@link deepViewportBudget}); `undefined` when rows are unknown,
+   * leaving deep-view.ts's DEEP_VIEW_HEIGHT (20) as the default. This is
+   * the GROW side of the h2.30 table — the shrink side below is unchanged.
+   */
+  deepViewportHeight: number | undefined;
   /**
    * rows < 12 — overview content window height ({@link OVERVIEW_PAGE_SIZE});
    * Infinity when the default window applies (rows unknown / ≥ 12). Callers
@@ -67,6 +99,7 @@ export function terminalBudget(width: number, rows: number | undefined): Termina
     typeof rows === "number" && Number.isFinite(rows) && rows > 0 ? rows : undefined;
   return {
     suppressHint: knownRows !== undefined && knownRows < HINT_SUPPRESS_ROWS,
+    deepViewportHeight: deepViewportBudget(knownRows),
     overviewViewportHeight:
       knownRows !== undefined && knownRows < OVERVIEW_PAGINATE_ROWS
         ? OVERVIEW_PAGE_SIZE

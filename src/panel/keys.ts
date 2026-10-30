@@ -126,7 +126,7 @@
 import { Key, matchesKey, type KeyId } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG, type InterrogatorConfig, type KeyAction } from "../config.js";
 import { chatScrollDown, chatScrollUp, panelActions, type SubmitDeps } from "./actions.js";
-import { acceptFromDeep, deepSelectionDown, deepSelectionUp } from "./deep-view.js";
+import { acceptFromDeep, deepScrollPage, deepSelectionDown, deepSelectionUp } from "./deep-view.js";
 import { overviewDown, overviewJump, overviewUp } from "./overview.js";
 import type { InterrogationPanel } from "./panel.js";
 
@@ -166,6 +166,12 @@ export interface RoutedActions {
   onChat(p: InterrogationPanel): void;
   /** External editor (editor focus, any duty: write-in, elaboration, note). Wired by M4.T1.S3. */
   onExternalEditor(p: InterrogationPanel): void;
+  /**
+   * DEEP-FULLSCREEN-001: toggle the focused question's description between
+   * AUTO fit (full-when-it-fits, else teaser) and EXPANDED (always full).
+   * Deep view only; no-op (consumed) elsewhere.
+   */
+  onExpandDescription(p: InterrogationPanel): void;
 }
 
 // ------------------------------------------------------- accelerator layer
@@ -420,6 +426,15 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
       // openExternalEditor catches internally, so nothing rejects).
       void p.openExternalEditor();
     },
+    onExpandDescription: (p) => {
+      // DEEP-FULLSCREEN-001: pure panel state — the render's allocation
+      // policy reads descExpanded. Consumed no-op outside deep view.
+      if (p.view === "deep") {
+        p.descExpanded = !p.descExpanded;
+        p.scrollFree = false; // a re-fit may shift sections; re-couple the caret
+        p.invalidate();
+      }
+    },
   };
 }
 
@@ -455,6 +470,7 @@ export function buildKeyRouter(
     externalEditor: isBareBinding(b.externalEditor),
     prevQuestion: isBareBinding(b.prevQuestion),
     nextQuestion: isBareBinding(b.nextQuestion),
+    expandDescription: isBareBinding(b.expandDescription),
   };
   const escWindow = Math.max(0, config.escExitWindowMs);
   return function route(data: string, panel: InterrogationPanel): boolean {
@@ -498,6 +514,17 @@ export function buildKeyRouter(
       if (panel.view === "overview") return overviewDown(panel);
       if (panel.view === "deep") return deepSelectionDown(panel);
       return actions.optionDown(panel);
+    }
+
+    // 1a. DEEP-FULLSCREEN-001 free scroll (fixed page keys): the options
+    //     window moves WITHOUT the caret — reading one option's full
+    //     ramification must not destroy it by advancing the selection
+    //     (2026-10-24 owner report: the caret was previously the ONLY
+    //     scroll mechanism). Deep view, options focus only; every other
+    //     view/focus falls through unchanged.
+    if (!editorFocused && panel.view === "deep") {
+      if (matchesKey(data, Key.pageUp)) return deepScrollPage(panel, -1);
+      if (matchesKey(data, Key.pageDown)) return deepScrollPage(panel, 1);
     }
 
     // 1b. Fixed ←/→ — question navigation through the FULL list (R1/FR-9:
@@ -622,6 +649,14 @@ export function buildKeyRouter(
     ) {
       if (bare.elaborate && editorFocused) return false; // tier 2: must type
       actions.onElaborate(panel);
+      return true;
+    }
+    // DEEP-FULLSCREEN-001: description auto-fit ↔ expanded toggle — deep
+    // view only (the marker's `… +N more lines` confesses what auto-fit
+    // hid; this key reveals it). Bare remaps type in the editor (tier 2).
+    if (panel.view === "deep" && matchesKey(data, b.expandDescription)) {
+      if (bare.expandDescription && editorFocused) return false; // tier 2: must type
+      actions.onExpandDescription(panel);
       return true;
     }
     if (matchesKey(data, b.batchNote)) {

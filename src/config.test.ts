@@ -136,7 +136,7 @@ test("test_editor_mode_accepts_stock_and_rejects_unknown", async () => {
 test("test_resolve_key_labels_covers_all_actions_with_default_config", async () => {
   const labels = resolveKeyLabels(DEFAULT_CONFIG);
   expect(Object.keys(labels).sort()).toEqual(Object.keys(DEFAULT_CONFIG.keys).sort());
-  expect(Object.keys(labels)).toHaveLength(9);
+  expect(Object.keys(labels)).toHaveLength(10);
   expect(labels.deep).toBe("d");
   expect(labels.overview).toBe("i");
   expect(labels.elaborate).toBe("e");

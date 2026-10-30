@@ -80,6 +80,7 @@ function mkConfig(keys: Partial<Record<string, string>> = {}): InterrogatorConfi
       externalEditor: "ctrl+g",
       prevQuestion: "tab",
       nextQuestion: "shift+tab",
+      expandDescription: "x",
       ...keys,
     },
   } as unknown as InterrogatorConfig;

@@ -30,7 +30,7 @@
  * `interrogation-state` custom-entry appends + session_shutdown flush.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createCompletionTrigger } from "./completion.js";
+import { attemptCompletion, createCompletionTrigger } from "./completion.js";
 import { registerInterrogateCommand } from "./command.js";
 import { createCompactionGuard } from "./compaction.js";
 import { loadConfig } from "./config.js";
@@ -65,19 +65,32 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // time, by which point the initialization below has completed (no close
   // pass can run before this factory returns, so the binding is never
   // undefined).
+  const completionOpts = {
+    lifecycle: {
+      dismissPanel: () => lifecycle.dismissPanel(),
+    },
+    // NEW-004 (h2.46): the completion record's NOTES line collects every
+    // batch note shipped with this interrogation's submissions — in order.
+    // delivery.ts's ledger records them at the ONE transport chokepoint
+    // (deliverSubmission); draining here is the notes' final destination,
+    // so a follow-up interrogation starts from an empty ledger.
+    getBatchNotes: drainBatchNotes,
+  };
   const lifecycle = createLifecycle(pi, {
-    onAfterClosePass: createCompletionTrigger(pi, {
-      lifecycle: {
-        dismissPanel: () => lifecycle.dismissPanel(),
-      },
-      // NEW-004 (h2.46): the completion record's NOTES line collects every
-      // batch note shipped with this interrogation's submissions — in order.
-      // delivery.ts's ledger records them at the ONE transport chokepoint
-      // (deliverSubmission); draining here is the notes' final destination,
-      // so a follow-up interrogation starts from an empty ledger.
-      getBatchNotes: drainBatchNotes,
-    }),
+    onAfterClosePass: createCompletionTrigger(pi, completionOpts),
   });
+  // DUMP-ONCE-001 (2026-10-24 owner ruling): the explicit ctrl+s ENDS the
+  // interrogation session — force the completion through the SAME opts
+  // (record dumped once with open questions included, panel dismissed,
+  // state cleared, suspend widget cleared). The tool does not outlive the
+  // session it was opened for; no lingering widget line for hours after.
+  const forceCompletion = (): boolean =>
+    attemptCompletion(
+      pi,
+      completionOpts,
+      { closed: [], reasked: [], remainingActive: [] },
+      true,
+    ).fired;
 
   // P1.M7.T4.S1 — plain-text round detection (FR-26, h2.27): TUI-only,
   // config-gated (roundDetection), throttled once per 3 turns; never
@@ -122,7 +135,15 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // agent is idle, suspends via done(null) (h2.35) — also reachable through
   // lifecycle.dismissPanel() from the completion flow — and reopens when a
   // later upsert lands while suspended (h2.37). Panel host + auto-open:
-  const panelHost = createPanelHost(lifecycle, pi);
+  const panelHost = createPanelHost(
+    {
+      onPanelDismiss: (cb) => lifecycle.onPanelDismiss(cb),
+      dismissPanel: () => lifecycle.dismissPanel(),
+      noteSubmissionDelivered: () => lifecycle.noteSubmissionDelivered(),
+      onSubmittedEnd: forceCompletion, // DUMP-ONCE-001
+    },
+    pi,
+  );
   // P1.M4.T2.S1 — R4 draft store (h2.45): ONE instance per extension
   // activation, held in this closure and passed to every openPanel. Panel
   // components are destroyed on suspend/re-instantiation; this store is

@@ -90,6 +90,7 @@ const LETTER_BYTES: Record<KeyAction, string> = {
   externalEditor: "\u0007",
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
+  expandDescription: "x",
 };
 const CTRL_S = "\u0013";
 const CTRL_G = "\u0007";

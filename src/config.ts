@@ -54,7 +54,8 @@ export type KeyAction =
   | "chat"
   | "externalEditor"
   | "prevQuestion"
-  | "nextQuestion";
+  | "nextQuestion"
+  | "expandDescription";
 
 /**
  * The resolved interrogator configuration. Every user-visible string naming a
@@ -108,6 +109,7 @@ const KEY_ACTIONS = [
   "externalEditor",
   "prevQuestion",
   "nextQuestion",
+  "expandDescription",
 ] as const satisfies readonly KeyAction[];
 
 /**
@@ -125,6 +127,7 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
     externalEditor: "ctrl+g",
     prevQuestion: "tab",
     nextQuestion: "shift+tab",
+    expandDescription: "x",
   },
   gateWarnings: true,
   roundDetection: true,
@@ -316,6 +319,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * | `externalEditor`| `"ctrl+g"`      | Open the draft in an external editor           | footer, widget  |
  * | `prevQuestion`  | `"tab"`         | Move to the previous question                  | footer          |
  * | `nextQuestion`  | `"shift+tab"`   | Move to the next question                      | footer          |
+ * | `expandDescription` | `"x"`      | Deep view: full description ↔ auto-fit teaser (DEEP-FULLSCREEN-001) | footer (deep)   |
  *
  * Two-tier intercept (h2.74/BAREKEYS-001, ui-spec:70): bare keys (single
  * printable char, no modifier) intercept only from non-editor focus and

@@ -101,6 +101,7 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
   externalEditor: "\u0007", // ctrl+g — load-bearing chord
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
+  expandDescription: "x",
 };
 
 /**
@@ -121,6 +122,7 @@ const REMAPS: Record<KeyAction, { key: string; data: string }> = {
   // the exhaustive remap proves the CONFIG layer, not the fixed branch.
   prevQuestion: { key: "f5", data: "\u001b[15~" },
   nextQuestion: { key: "f6", data: "\u001b[17~" },
+  expandDescription: { key: "ctrl+alt+x", data: "\u001b\u0018" }, // legacy ESC + ctrl+x — ctrl+shift+x is TAKEN (pi-patty-bg-tasks)
 };
 
 /** A config with ALL 9 actions remapped — the PRD's example user settings. */
@@ -140,6 +142,7 @@ const SPY_FOR: Record<KeyAction, Exclude<keyof ReturnType<typeof makeActions>, "
   externalEditor: "onExternalEditor",
   prevQuestion: "prevQuestion",
   nextQuestion: "nextQuestion",
+  expandDescription: "onExpandDescription",
 };
 
 /** Human action words the footer composes ("{label} {action}" pairs). */
@@ -153,6 +156,7 @@ const WORDS: Record<KeyAction, string> = {
   externalEditor: "editor",
   prevQuestion: "prev",
   nextQuestion: "next",
+  expandDescription: "expand",
 };
 
 /** Footer key-hint set per screen (mirror of layout SCREEN_KEYS — drift fails loudly below). */
@@ -226,6 +230,7 @@ function makeActions() {
     onBatchNote: vi.fn((_p: InterrogationPanel) => undefined),
     onChat: vi.fn((_p: InterrogationPanel) => undefined),
     onExternalEditor: vi.fn((_p: InterrogationPanel) => undefined),
+    onExpandDescription: vi.fn((_p: InterrogationPanel) => undefined),
   };
   const all: Mock[] = Object.values(spies);
   return { ...spies, all };
@@ -238,7 +243,15 @@ function dispatchCount(actions: { all: Mock[] }): number {
 
 /** externalEditor is text-focus context (h2.34); everything else runs from options focus. */
 function panelFor(action: KeyAction): PanelStub {
-  return makePanel(action === "externalEditor" ? { focus: "text" } : {});
+  // expandDescription is deep-view-gated (DUMP/FULLSCREEN router branch);
+  // externalEditor needs editor focus per its own branch.
+  return makePanel(
+    action === "externalEditor"
+      ? { focus: "text" }
+      : action === "expandDescription"
+        ? { view: "deep" }
+        : {},
+  );
 }
 
 /** Round-trip guard: the raw data MUST match its accelerator via matchesKey. */
@@ -368,7 +381,11 @@ describe("AC-12 exhaustive remap — all 9 actions, both directions", () => {
       if (action === "externalEditor") continue; // already text-gated in the exhaustive test
       const actions = makeActions();
       const route = buildKeyRouter(FULL_REMAP, actions);
-      const panel = makePanel({ focus: "text" });
+      // expandDescription is deep-view-gated — keep view deep under the
+      // text focus so the tier-1 chord actually reaches its branch.
+      const panel = makePanel(
+        action === "expandDescription" ? { focus: "text", view: "deep" } : { focus: "text" },
+      );
       expect(route(REMAPS[action].data, panel), `${action} remap fires in text focus`).toBe(true);
       expect(actions[SPY_FOR[action]]).toHaveBeenCalledTimes(1);
     }
@@ -431,7 +448,7 @@ describe("label propagation — full remap (h2.52: config-generated display stri
     expect(remapped.submit).toBe("F9");
     expect(remapped.prevQuestion).toBe("F5");
     expect(remapped.nextQuestion).toBe("F6");
-    expect(Object.keys(remapped)).toHaveLength(9);
+    expect(Object.keys(remapped)).toHaveLength(10);
   });
 
   test("test_footer_reflects_remapped_labels_and_no_defaults_on_every_screen", () => {

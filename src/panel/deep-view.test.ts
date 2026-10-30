@@ -497,25 +497,46 @@ describe("pinned question region (DEEP-PIN-001)", () => {
     expect(window.join("\n")).toContain("Which database?"); // and it renders
   });
 
-  test("test_tall_question_region_truncates_bottom_first_with_marker", () => {
-    // A description long enough to overflow DEEP_VIEW_HEIGHT -
-    // MIN_OPTIONS_VIEWPORT on its own: the region is whole-line truncated
-    // with a dimmed `…` marker (bottom-first — the tail token is cut), and
-    // the options window keeps its minimum height.
+  test("test_tall_question_region_teases_with_honest_marker_options_win", () => {
+    // DEEP-FULLSCREEN-001 allocation: a description too tall to fit
+    // alongside ALL sections teasers to DESC_TEASER_LINES with an honest
+    // `… +N more lines` marker — every option section stays fully visible
+    // (the options are the decision; the description is context).
     const desc = `${"dword ".repeat(200)}dend`; // ~1200 chars → ~16 wrapped lines
     const q = choiceQ("db", { description: desc });
     const content = buildDeepContent(deepInputFor(q, { theme: dimTheme }));
-    expect(content.questionLines.length).toBeLessThanOrEqual(
-      DEEP_VIEW_HEIGHT - MIN_OPTIONS_VIEWPORT,
-    );
     const flat = content.questionLines.join(" ");
-    expect(flat).not.toContain("dend"); // bottom-first: the tail was cut
-    expect(content.questionLines).toContain(`▌ ${DIM}…${RESET}`); // marker (railed, DEEP-PIN-002)
-    expect(content.viewportHeight).toBe(MIN_OPTIONS_VIEWPORT);
+    expect(flat).not.toContain("dend"); // the tail is behind the marker
+    expect(flat).toContain("more lines"); // honest count, never a bare `…`
+    // EVERY section renders fully — the window covers all option lines.
+    expect(content.viewportHeight).toBeGreaterThanOrEqual(content.lines.length);
     const window = renderDeepWindow(content, 0, 0, theme, 80);
-    expect(window.length).toBeLessThanOrEqual(DEEP_VIEW_HEIGHT);
-    // Options still visible: the first section header renders in-window.
     expect(window.join("\n")).toContain("sqlite");
+  });
+
+  test("test_fullscreen_budget_renders_everything_no_scroll", () => {
+    // DEEP-FULLSCREEN-001: with a tall-terminal budget the SAME question
+    // keeps its full description AND all sections — nothing truncated,
+    // nothing hidden, no scroll needed.
+    const desc = `${"dword ".repeat(200)}dend`;
+    const q = choiceQ("db", { description: desc });
+    const full = buildDeepContent(deepInputFor(q, { theme: dimTheme, viewportBudget: 60 }));
+    expect(full.questionLines.join(" ")).toContain("dend"); // tail preserved
+    expect(full.questionLines.join(" ")).not.toContain("more lines"); // no marker
+    expect(full.viewportHeight).toBeGreaterThanOrEqual(full.lines.length); // all options
+  });
+
+  test("test_descExpanded_overrides_teaser_with_plus_n_marker", () => {
+    // DUMP-ONCE/FULLSCREEN companion: the owner override renders the FULL
+    // description even when it overflows — the +N marker confesses what the
+    // hard fit cut, and the options window keeps its floor.
+    const desc = `${"dword ".repeat(200)}dend`;
+    const q = choiceQ("db", { description: desc });
+    const content = buildDeepContent(
+      deepInputFor(q, { theme: dimTheme, descExpanded: true }),
+    );
+    expect(content.questionLines.join(" ")).toContain("more lines");
+    expect(content.viewportHeight).toBe(MIN_OPTIONS_VIEWPORT);
   });
 
   test("test_text_question_uses_whole_pane_for_the_question", () => {

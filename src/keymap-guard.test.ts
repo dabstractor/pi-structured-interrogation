@@ -47,6 +47,7 @@ const ALL_ACTIONS: KeyAction[] = [
 	"externalEditor",
 	"prevQuestion",
 	"nextQuestion",
+	"expandDescription",
 ];
 
 /**

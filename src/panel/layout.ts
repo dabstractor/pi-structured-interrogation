@@ -56,7 +56,7 @@ export type ScreenKind = "short" | "deep" | "overview" | "chat";
  */
 export const SCREEN_KEYS: Record<ScreenKind, KeyAction[]> = {
   short: ["deep", "overview", "chat", "elaborate", "batchNote", "submit"],
-  deep: ["overview", "chat", "elaborate", "submit"],
+  deep: ["overview", "chat", "elaborate", "expandDescription", "submit"],
   overview: ["deep", "chat", "submit"],
   // The remappable chat key is the only KeyAction relevant on the chat
   // screen; its hint content (/clear + the binding-name reopen clause)
@@ -85,6 +85,7 @@ const ACTION_WORDS: Record<KeyAction, string> = {
   externalEditor: "editor",
   prevQuestion: "prev",
   nextQuestion: "next",
+  expandDescription: "expand",
 };
 
 /** Result of {@link renderHeader}: one bordered line + the untruncated goal. */

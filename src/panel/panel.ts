@@ -396,6 +396,7 @@ export interface DeliveryTransportSurface {
 export function surfaceSubmitDeps(
   surface: PiUISurface | DeliveryTransportSurface,
   noteSubmissionDelivered?: () => void,
+  onSubmitted?: () => boolean,
 ): SubmitDeps | undefined {
   if (typeof surface.sendMessage !== "function") return undefined;
   const send = surface.sendMessage;
@@ -404,6 +405,7 @@ export function surfaceSubmitDeps(
     isIdle: () => (typeof surface.isIdle === "function" ? surface.isIdle() : true),
   };
   if (noteSubmissionDelivered !== undefined) deps.noteSubmissionDelivered = noteSubmissionDelivered;
+  if (onSubmitted !== undefined) deps.onSubmitted = onSubmitted; // DUMP-ONCE-001
   return deps;
 }
 
@@ -697,7 +699,11 @@ export class InterrogationPanel implements Component {
     // boundary no-op moves could not recover without a down+up jiggle).
     // Short/overview views skip it: scrollOffset is unused there and
     // setView("deep") re-seeds on every entry anyway.
-    if (this.view === "deep") this.scrollOffset = deepLandScroll(this);
+    if (this.view === "deep") {
+      this.scrollOffset = deepLandScroll(this);
+      this.scrollFree = false; // DEEP-FULLSCREEN-001: landings re-couple the window
+      this.descExpanded = false;
+    }
     // EXPLAIN-002: the editor buffer is QUESTION-SCOPED — switching
     // questions writes the outgoing buffer through to its owner question's
     // draft and re-seeds from the new question's draft. Without this, the
@@ -727,6 +733,24 @@ export class InterrogationPanel implements Component {
   deepSticky = false;
   /** Deep view scroll offset (driven by M5 navigation; rendered in S1). */
   scrollOffset = 0;
+  /**
+   * DEEP-FULLSCREEN-001: true while the USER owns the scroll (pageup/
+   * pagedown/shift+arrows — deepScrollBy), false while the CARET owns it
+   * (selection moves + landings re-couple). Rendered truthfully by
+   * renderDeepWindow's `free` mode (global-bounds clamp only).
+   */
+  scrollFree = false;
+  /**
+   * DEEP-FULLSCREEN-001: owner-expand override for the focused question's
+   * description (auto = full-when-it-fits, else teaser with `… +N more
+   * lines`). Reset on every question landing.
+   */
+  descExpanded = false;
+  /**
+   * DEEP-FULLSCREEN-001: the viewport budget the last deep render used
+   * (mirrors lastWidth — actions rebuild content with the same geometry).
+   */
+  lastDeepBudget = -1;
   /**
    * Overview cursor — index into orderedQuestions() (NOT into rendered
    * rows; group headers are not cursor targets). Seeded ONCE on the
@@ -1729,6 +1753,8 @@ export class InterrogationPanel implements Component {
       // pins to the ✎ Other section, which is always the LAST section;
       // so can a recorded answer on a late display row).
       this.scrollOffset = deepLandScroll(this);
+      this.scrollFree = false; // DEEP-FULLSCREEN-001
+      this.descExpanded = false;
     } else if (view === "overview") {
       // Overview entry (P1.M5.T2.S1): seed the cursor to the CURRENT
       // question's row index (ctrl+l → esc round-trips leave you where you
@@ -2411,14 +2437,37 @@ export class InterrogationPanel implements Component {
       const q =
         this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;
       if (q !== undefined) {
+        // DEEP-FULLSCREEN-001 (2026-10-24 owner ruling): the deep pane's
+        // budget is the FULL terminal minus chrome (terminal-budget.ts
+        // deepViewportBudget) — grow-side of h2.30 — minus the pinned
+        // editor block while it holds focus. The historical 20-line cap is
+        // the floor, not the ceiling; small terminals are unchanged.
+        const editorReserve =
+          this.focus === "text" ? 1 + this.textField.render(width).length : 0;
+        const deepBudget =
+          budget.deepViewportHeight !== undefined
+            ? Math.max(8, budget.deepViewportHeight - editorReserve)
+            : undefined;
+        this.lastDeepBudget = deepBudget ?? -1;
         const content = buildDeepContent({
           question: q,
           cursorIndex: this.cursorIndex,
           scrollOffset: this.scrollOffset,
           theme: this.theme,
           width,
+          viewportBudget: deepBudget,
+          descExpanded: this.descExpanded,
         });
-        lines.push(...renderDeepWindow(content, this.cursorIndex, this.scrollOffset, this.theme, width));
+        lines.push(
+          ...renderDeepWindow(
+            content,
+            this.cursorIndex,
+            this.scrollOffset,
+            this.theme,
+            width,
+            this.scrollFree,
+          ),
+        );
         // DEEP-EDITOR-001: the editor PINNED BELOW THE PANE — the prompt-
         // box position. While the user is typing, the pane above stays
         // rendered as composing context (which option/ramification the
@@ -2511,6 +2560,8 @@ let lastOpts: OpenPanelOptions | undefined;
  * Undefined until a host exists / when the lifecycle lacks the hook.
  */
 let hostNoteSubmissionDelivered: (() => void) | undefined;
+/** DUMP-ONCE-001: host-captured forced-completion hook (see createPanelHost). */
+let hostOnSubmitted: (() => boolean) | undefined;
 /** State instance currently wired for questions-upserted (for re-subscribe). */
 let upsertState: InterrogationState | undefined;
 /**
@@ -2724,6 +2775,14 @@ export function createPanelHost(
     dismissPanel(): void;
     /** Optional so test lifecycles stay valid; wired into the submit deps. */
     noteSubmissionDelivered?(): void;
+    /**
+     * DUMP-ONCE-001 (2026-10-24 owner ruling): optional forced-completion
+     * hook fired right after a REAL submit delivery — the host wires it to
+     * attemptCompletion(force): record dumped once, panel dismissed, state
+     * + suspend widget cleared. Returns TRUE when it dismissed the panel
+     * (submit then skips its own suspend).
+     */
+    onSubmittedEnd?(): boolean;
   },
   /**
    * BUGFIX (dead ctrl+s): the ExtensionAPI ROOT surface, captured at factory
@@ -2744,6 +2803,10 @@ export function createPanelHost(
   hostNoteSubmissionDelivered =
     typeof lifecycle.noteSubmissionDelivered === "function"
       ? () => lifecycle.noteSubmissionDelivered?.()
+      : undefined;
+  hostOnSubmitted =
+    typeof lifecycle.onSubmittedEnd === "function"
+      ? () => lifecycle.onSubmittedEnd?.() === true
       : undefined;
   return {
     isOpen: () => phase === "open" && !stuckOpen(),
@@ -2794,9 +2857,9 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   // spreads keep the transport across suspend/resume (R4).
   const delivery =
     opts.delivery ??
-    surfaceSubmitDeps(pi, hostNoteSubmissionDelivered) ??
+    surfaceSubmitDeps(pi, hostNoteSubmissionDelivered, hostOnSubmitted) ??
     (rootDeliveryFallbackSurface !== undefined
-      ? surfaceSubmitDeps(rootDeliveryFallbackSurface, hostNoteSubmissionDelivered)
+      ? surfaceSubmitDeps(rootDeliveryFallbackSurface, hostNoteSubmissionDelivered, hostOnSubmitted)
       : undefined);
   // SIDECHAT-001 (P1.M2.T4.S1): explicit opts win; otherwise derive the real
   // seams from THIS surface (needs a ctx-flavored surface — modelRegistry /

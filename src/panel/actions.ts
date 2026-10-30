@@ -75,6 +75,17 @@ export interface SubmitDeps {
    * return never delivers, so it never calls this.
    */
   noteSubmissionDelivered?: () => void;
+  /**
+   * DUMP-ONCE-001 (2026-10-24 owner ruling): called after a REAL delivery —
+   * the user's explicit ctrl+s ENDS the interrogation session. The host
+   * wires this to a FORCED completion (attemptCompletion force: the record
+   * dumps to output once, unanswered questions included, the panel
+   * dismisses, live state clears, the suspend widget clears). The tool
+   * does NOT outlive the session it was opened for — no lingering widget
+   * line for the rest of the terminal session. Optional: absent (test
+   * fakes) the submit path is exactly as before.
+   */
+  onSubmitted?: () => boolean;
 }
 
 /** The named action surface consumed by keys.ts (P1.M3.T3.S1). */
@@ -945,6 +956,15 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // deliverSubmission"): a submission shipped — reset the engine's
   // per-run flags for the settle that answers it.
   deps.noteSubmissionDelivered?.();
+  // DUMP-ONCE-001: the explicit submit IS the end of the session — dump
+  // the completion record once and let everything go (forced completion:
+  // fires even with open questions; they ship in the record as-is). AFTER
+  // noteSubmissionDelivered so the auto-close flags reset first; if the
+  // hook dismisses the panel, the code below must not touch panel state —
+  // `note` and flash were already captured above, and clearForCompletion
+  // has emptied the question set.
+  deps.onSubmitted?.();
+  const dismissedByHook = deps.onSubmitted !== undefined; // host hook ⇒ forced completion owns the exit
   // h2.32 "cleared after shipping": note clearing happens AFTER delivery —
   // the zero-pending early-return above never reaches this, so a note with
   // nothing else to submit is held, never dropped.
@@ -960,7 +980,10 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // questions. Suspend also runs the R4 write-through, so a buffer still
   // in the editor when ctrl+s fired (submit is intercept-before-forward)
   // survives as a draft rather than being lost to the close.
-  panel.suspend();
+  // DUMP-ONCE-001: when the host's onSubmitted hook fired (forced
+  // completion — record dumped, panel dismissed, state + widget cleared),
+  // the hook owns the exit; suspend would double-done.
+  if (!dismissedByHook) panel.suspend();
   return true;
 }
 

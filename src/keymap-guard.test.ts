@@ -25,9 +25,18 @@
  *      src/panel/keys.ts:155-168): "+"-separated tokens, modifier prefixes
  *      from {ctrl, shift, alt, super}, final token a base key name.
  *
- *   3. The keys map must stay COMPLETE: exactly the 10 configured KeyActions
+ *   3. The keys map must stay COMPLETE: exactly the 11 configured KeyActions
  *      (fixed keys enter/esc/arrows/digits are intentionally absent from
  *      config — h2.34 — so they are NOT checked here).
+ *
+ * PANELTOGGLE-001 note: the `toggle` default (ctrl+n) intentionally shares
+ * its key with pi's `app.session.toggleNamedFilter` — a PICKER-SCOPED
+ * built-in (fires only inside the session resume picker; the extension
+ * shortcut fires only from the main editor — no focus overlap). pi's
+ * runner does NOT reserve it (not in RESERVED_KEYBINDINGS_FOR_EXTENSION_
+ * CONFLICTS), so the global registration is never skipped; pi logs one
+ * startup diagnostic (extension wins). ctrl+n is therefore NOT added to
+ * AVOIDED_KEYS — it is our own default.
  *
  * The shell script additionally re-greps the installed extension trees at
  * build time (extensions drift; this static list cannot). Run it before
@@ -48,6 +57,7 @@ const ALL_ACTIONS: KeyAction[] = [
 	"prevQuestion",
 	"nextQuestion",
 	"expandDescription",
+	"toggle",
 ];
 
 /**
@@ -101,7 +111,7 @@ describe("keymap conflict guard (P1.M7.T7.S2, PRD h2.34/h2.50)", () => {
 		}
 	});
 
-	test("test_keys_map_stays_complete_over_all_ten_actions", () => {
+	test("test_keys_map_stays_complete_over_all_eleven_actions", () => {
 		for (const action of ALL_ACTIONS) {
 			const key = DEFAULT_CONFIG.keys[action];
 			expect(key, `keys.${action} lost its default binding`).toBeTruthy();

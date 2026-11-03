@@ -74,7 +74,10 @@ export const SCREEN_KEYS: Record<ScreenKind, KeyAction[]> = {
  */
 const NARROW_FOOTER_ACTIONS: readonly KeyAction[] = ["submit", "deep"];
 
-/** Human word for each KeyAction in "{label} {action}" hint pairs. */
+/** Human word for each KeyAction in "{label} {action}" hint pairs. `toggle`
+ * never appears in a footer hint (its surfaces are the global shortcut and
+ * the widget line, which names /interrogate only) — the entry exists for
+ * Record completeness (PANELTOGGLE-001). */
 const ACTION_WORDS: Record<KeyAction, string> = {
   deep: "deep",
   overview: "list",
@@ -86,6 +89,7 @@ const ACTION_WORDS: Record<KeyAction, string> = {
   prevQuestion: "prev",
   nextQuestion: "next",
   expandDescription: "expand",
+  toggle: "toggle",
 };
 
 /** Result of {@link renderHeader}: one bordered line + the untruncated goal. */

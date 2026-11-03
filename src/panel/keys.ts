@@ -114,7 +114,9 @@
  *      deep, overview, elaborate, batchNote, submit, chat,
  *      externalEditor (editor focus, any duty: write-in, elaboration,
  *      note — BUG-002), prevQuestion,
- *      nextQuestion (view-aware: overview cursor movers).
+ *      nextQuestion (view-aware: overview cursor movers),
+ *      toggle (PANELTOGGLE-001 close leg — suspend; last so it never
+ *      shadows an existing action)
  *   5. no match → return false (forward to embedded editor / default nav)
  *
  * Accelerator validation: config strings arrive RESOLVED (defaults merged by
@@ -172,6 +174,15 @@ export interface RoutedActions {
    * Deep view only; no-op (consumed) elsewhere.
    */
   onExpandDescription(p: InterrogationPanel): void;
+  /**
+   * PANELTOGGLE-001 close leg: suspend the panel (done(null) — the same
+   * exit the esc ladder ends in). The open/resume leg is the GLOBAL
+   * registerShortcut on the same accelerator (src/shortcut.ts); the chord
+   * toggles from whichever surface has focus. Tier rules apply as every
+   * config action: the default chord intercepts everywhere; a bare remap
+   * forwards while the editor holds focus (must type).
+   */
+  onToggle(p: InterrogationPanel): void;
 }
 
 // ------------------------------------------------------- accelerator layer
@@ -435,6 +446,12 @@ export function defaultRoutedActions(delivery?: SubmitDeps): RoutedActions {
         p.invalidate();
       }
     },
+    onToggle: (p) => {
+      // PANELTOGGLE-001 close leg — the esc ladder's terminal rung, chord-
+      // reachable (draft write-through + done(null) are panel.suspend's own
+      // contract, R4/BUG-002; state and drafts survive).
+      p.suspend();
+    },
   };
 }
 
@@ -471,6 +488,7 @@ export function buildKeyRouter(
     prevQuestion: isBareBinding(b.prevQuestion),
     nextQuestion: isBareBinding(b.nextQuestion),
     expandDescription: isBareBinding(b.expandDescription),
+    toggle: isBareBinding(b.toggle),
   };
   const escWindow = Math.max(0, config.escExitWindowMs);
   return function route(data: string, panel: InterrogationPanel): boolean {
@@ -701,6 +719,14 @@ export function buildKeyRouter(
       if (bare.nextQuestion && editorFocused) return false; // tier 2: must type
       if (panel.view === "overview") return overviewDown(panel);
       return actions.nextQuestion(panel);
+    }
+    // PANELTOGGLE-001 close leg — LAST in the config chain so it can never
+    // shadow an existing default action (collisions remain user error,
+    // documented single-dispatch ordering).
+    if (matchesKey(data, b.toggle)) {
+      if (bare.toggle && editorFocused) return false; // tier 2: must type
+      actions.onToggle(panel);
+      return true;
     }
 
     // 5. No match — forward (embedded editor when text-focused, else default).

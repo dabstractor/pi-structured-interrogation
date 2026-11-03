@@ -104,6 +104,7 @@ describe("regression: bridge vector gone at the factory level", () => {
       events,
       registerTool: vi.fn(),
       registerCommand: vi.fn(),
+      registerShortcut: vi.fn(), // PANELTOGGLE-001 — factory registers the toggle chord
       registerMessageRenderer: vi.fn(),
       registerEntryRenderer: vi.fn(),
       appendEntry: vi.fn(),

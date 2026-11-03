@@ -37,6 +37,7 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
   expandDescription: "x",
+  toggle: "\u000e", // ctrl+n — global toggle chord (PANELTOGGLE-001)
 };
 
 const UP = "\u001b[A";
@@ -159,6 +160,7 @@ function makeActions() {
     prevQuestion: vi.fn((_p: InterrogationPanel) => true),
     nextQuestion: vi.fn((_p: InterrogationPanel) => true),
     onExpandDescription: vi.fn((_p: InterrogationPanel) => undefined),
+    onToggle: vi.fn((_p: InterrogationPanel) => undefined),
     submit: vi.fn((_p: InterrogationPanel) => true),
     onDeep: vi.fn((_p: InterrogationPanel) => undefined),
     onOverview: vi.fn((_p: InterrogationPanel) => undefined),

@@ -48,6 +48,7 @@ import {
   registerSubmissionCardRenderer,
 } from "./renderers.js";
 import { getState } from "./state.js";
+import { registerPanelShortcut } from "./shortcut.js";
 import { createInterrogateTool } from "./tool.js";
 
 export default async function interrogatorExtension(pi: ExtensionAPI): Promise<void> {
@@ -278,10 +279,21 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // P1.M6.T1.S2 (as amended by the breakOut removal + CMD-001) — the
   // /interrogate invoke command (h2.15/h2.35/h2.37): ONE seam, invoke-only
   // semantics — an existing session gets the panel IMMEDIATELY (open stays
-  // open, suspended resumes, closed host opens fresh from state). No global
-  // shortcut is registered (the ctrl+shift+q chord closes windows on many
-  // desktop environments). Shares this closure's config, panelHost (phase
+  // open, suspended resumes, closed host opens fresh from state). The
+  // command itself registers no global shortcut (the historical ctrl+shift+q
+  // breakOut chord closes windows on many desktop environments — that
+  // removal stands; the toggle below deliberately reuses none of it).
+  // Shares this closure's config, panelHost (phase
   // state source), drafts (load-bearing for the fresh-open row), and the
   // /interrogate debug subcommand handler (h2.50 verification surface).
   registerInterrogateCommand(pi, config, panelHost, { drafts, debug: debugSubcommands });
+
+  // PANELTOGGLE-001 — the global toggle shortcut: `keys.toggle` (default
+  // ctrl+n) fires from pi's MAIN EDITOR (registerShortcut) to open/resume
+  // the panel through the same invoke core as /interrogate; the identical
+  // chord inside an open panel suspends it (panel/keys.ts close leg).
+  // Gated by the `panelShortcut` toggle (default true); non-TUI modes never
+  // dispatch extension shortcuts. Shares this closure's config, panelHost,
+  // and drafts — exactly the invoke command's deps.
+  registerPanelShortcut(pi, config, panelHost, { drafts });
 }

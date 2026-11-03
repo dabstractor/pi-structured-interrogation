@@ -81,6 +81,7 @@ function mkConfig(keys: Partial<Record<string, string>> = {}): InterrogatorConfi
       prevQuestion: "tab",
       nextQuestion: "shift+tab",
       expandDescription: "x",
+      toggle: "ctrl+n", // PANELTOGGLE-001 — global toggle chord
       ...keys,
     },
   } as unknown as InterrogatorConfig;

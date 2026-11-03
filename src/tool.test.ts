@@ -807,11 +807,12 @@ describe("extension factory wiring (index.ts)", () => {
     await mod.default(fakePi);
     // CMD-001 + breakOut removal: ONE command — /interrogate (bare =
     // open/resume invoke; ping + debug ride as subcommands inside the same
-    // registration). The interrogate tool is unchanged; NO global shortcut
-    // is registered anymore (the historical ctrl+shift+q chord closes
-    // windows on many desktop environments).
+    // registration). The interrogate tool is unchanged. The ONE global
+    // shortcut is the PANELTOGGLE-001 toggle chord on the config default
+    // (ctrl+n — WM-safe; the historical ctrl+shift+q chord stays dead:
+    // window managers close windows on it before the terminal sees bytes).
     expect(commands).toEqual(["interrogate"]);
-    expect(shortcuts).toEqual([]);
+    expect(shortcuts).toEqual([DEFAULT_CONFIG.keys.toggle]);
     // P1.M7.T3.S1+S2 — user-only renderers registered for the EXACT
     // customTypes the delivery message ships (h2.36). NO entry renderer:
     // the interrogation-state mirror entries stay durable but invisible

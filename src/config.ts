@@ -38,12 +38,20 @@ export type EditorMode =
  * Matching against actual key events happens in panel/keys.ts (P1.M3.T3.S1)
  * via pi's key utilities; this module only stores the accelerator strings.
  *
- * NOTE (breakOut removal): there is deliberately NO `breakOut` action. The
- * historical ctrl+shift+q global shortcut + in-panel accelerator was
+ * `toggle` is dual-surface (PANELTOGGLE-001): consumed BOTH by the in-panel
+ * router (suspend — the close leg of the toggle) and by the global
+ * main-editor shortcut (src/shortcut.ts, registerShortcut — the open/
+ * resume leg). Same accelerator, same semantics, two dispatch layers.
+ *
+ * NOTE (breakOut removal): there is still deliberately NO `breakOut` action.
+ * The historical ctrl+shift+q global shortcut + in-panel accelerator was
  * removed — on many desktop environments that chord never reaches the
- * terminal at all (the window manager claims it to close windows), so no
- * default ships and none is rebindable. Suspending is `esc` (fixed key,
- * view-descent ladder); resuming is `/interrogate` (immediate invoke).
+ * terminal at all (the window manager claims it to close windows), so none
+ * of THIS extension's bindings default to it and none is rebindable onto
+ * anything pi reserves. Suspending is `esc` (fixed key, view-descent
+ * ladder); resuming is `/interrogate` (immediate invoke) — and, since
+ * PANELTOGGLE-001, `keys.toggle` (default `ctrl+n`, a WM-safe chord that
+ * reliably reaches the terminal).
  */
 export type KeyAction =
   | "deep"
@@ -55,7 +63,8 @@ export type KeyAction =
   | "externalEditor"
   | "prevQuestion"
   | "nextQuestion"
-  | "expandDescription";
+  | "expandDescription"
+  | "toggle";
 
 /**
  * The resolved interrogator configuration. Every user-visible string naming a
@@ -85,6 +94,16 @@ export interface InterrogatorConfig {
   compactionPreservation: boolean;
   /** Which editor the panel composes for text entry. Default "composed". */
   editorMode: EditorMode;
+  /**
+   * Register the global main-editor shortcut that toggles the panel
+   * (PANELTOGGLE-001): `keys.toggle` (default "ctrl+n") opens/resumes a
+   * suspended-or-closed panel from pi's main editor via registerShortcut,
+   * and the same chord inside an open panel suspends it (panel/keys.ts).
+   * Default true — one chord, low blast radius (only the main editor
+   * dispatches it), disable to opt out entirely. Non-TUI modes never fire
+   * extension shortcuts, so the toggle is TUI-only by construction.
+   */
+  panelShortcut: boolean;
   escExitWindowMs: number;
   /**
    * Side-chat model override, "provider/model-id" (SIDECHAT-003). Absent,
@@ -110,6 +129,7 @@ const KEY_ACTIONS = [
   "prevQuestion",
   "nextQuestion",
   "expandDescription",
+  "toggle",
 ] as const satisfies readonly KeyAction[];
 
 /**
@@ -128,11 +148,13 @@ export const DEFAULT_CONFIG: InterrogatorConfig = {
     prevQuestion: "tab",
     nextQuestion: "shift+tab",
     expandDescription: "x",
+    toggle: "ctrl+n",
   },
   gateWarnings: true,
   roundDetection: true,
   compactionPreservation: true,
   editorMode: "composed",
+  panelShortcut: true,
   escExitWindowMs: 500,
   sideChatAutoApply: false,
 };
@@ -252,6 +274,7 @@ function coerceConfig(raw: unknown, userRaw?: unknown): InterrogatorConfig {
     roundDetection: coerceBoolean(src.roundDetection, DEFAULT_CONFIG.roundDetection),
     compactionPreservation: coerceBoolean(src.compactionPreservation, DEFAULT_CONFIG.compactionPreservation),
     editorMode: coerceEditorMode(src.editorMode),
+    panelShortcut: coerceBoolean(src.panelShortcut, DEFAULT_CONFIG.panelShortcut),
     escExitWindowMs: Math.max(0, coerceNumber(src.escExitWindowMs, DEFAULT_CONFIG.escExitWindowMs)),
     sideChatModel:
       typeof src.sideChatModel === "string" && src.sideChatModel.trim() !== ""
@@ -301,11 +324,11 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  *
  * Set overrides under a top-level `"interrogator"` object in either
  * `~/.pi/agent/settings.json` (global) or `<cwd>/.pi/settings.json` (project).
- * Nested objects merge per-key; scalars replace. 9 keys + 4 toggles
- * (gateWarnings/roundDetection/compactionPreservation/sideChatAutoApply) +
- * editorMode + escExitWindowMs + sideChatModel (optional string — absent/
- * blank/ill-typed → undefined) (defaults = PRD h2.52 as amended by the
- * breakOut removal):
+ * Nested objects merge per-key; scalars replace. 11 keys + 5 toggles
+ * (gateWarnings/roundDetection/compactionPreservation/panelShortcut/
+ * sideChatAutoApply) + editorMode + escExitWindowMs + sideChatModel (optional
+ * string — absent/blank/ill-typed → undefined) (defaults = PRD h2.52 as
+ * amended by the breakOut removal + PANELTOGGLE-001):
  *
  * ### keys — accelerator strings, pi lowercase form
  * | field           | default         | purpose                                        | label consumer |
@@ -320,6 +343,15 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * | `prevQuestion`  | `"tab"`         | Move to the previous question                  | footer          |
  * | `nextQuestion`  | `"shift+tab"`   | Move to the next question                      | footer          |
  * | `expandDescription` | `"x"`      | Deep view: full description ↔ auto-fit teaser (DEEP-FULLSCREEN-001) | footer (deep)   |
+ * | `toggle`         | `"ctrl+n"`      | Toggle the panel: suspend from inside an open panel (panel/keys.ts), open/resume from pi's main editor (global registerShortcut — src/shortcut.ts) | — (global surface; the widget line still names /interrogate) |
+ *
+ * `toggle` shares ctrl+n with pi's picker-scoped `app.session.toggleNamedFilter`
+ * (PANELTOGGLE-001): different focus contexts — the built-in fires only in
+ * the session resume picker, extension shortcuts fire only from the main
+ * editor — so nothing user-facing collides; pi logs a startup diagnostic
+ * (the extension shortcut wins). NOT in the reserved editor-global list
+ * (pi core/extensions/runner.ts RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS),
+ * so registration is never skipped.
  *
  * Two-tier intercept (h2.74/BAREKEYS-001, ui-spec:70): bare keys (single
  * printable char, no modifier) intercept only from non-editor focus and
@@ -337,6 +369,7 @@ export async function loadConfigFrom(paths: ConfigPaths): Promise<InterrogatorCo
  * | `gateWarnings`     | true    | FR-9 panel submit warning for unanswered gate questions | panel/actions.ts (P1.M3.T2.S2) |
  * | `roundDetection`   | true    | Detect interrogation rounds                          | detect.ts (P1.M7.T4.S1) |
  * | `compactionPreservation` | true | Prepend preservation instructions to mid-interrogation compaction summaries | compaction.ts (P1.M7.T2.S1) |
+ * | `panelShortcut`    | true    | Register the `keys.toggle` global main-editor shortcut (PANELTOGGLE-001) | shortcut.ts |
  *
  * ### escExitWindowMs
  * Double-esc window (milliseconds) for closing the embedded explain/note

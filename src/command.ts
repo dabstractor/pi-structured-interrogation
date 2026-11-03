@@ -45,8 +45,10 @@ import {
   type PiUISurface,
 } from "./panel/panel.js";
 
-/** EXACT h2.37/h2.3 empty-state string (em dash U+2014, severity "info"). */
-const EMPTY_STATE_MESSAGE = "No active interrogation — ask the agent to interrogate you";
+/** EXACT h2.37/h2.3 empty-state string (em dash U+2014, severity "info").
+ * Exported since PANELTOGGLE-001 — the global toggle shortcut (src/shortcut.ts)
+ * reuses the byte-identical string on its "empty" outcome. */
+export const EMPTY_STATE_MESSAGE = "No active interrogation — ask the agent to interrogate you";
 
 /** TUI-only guard message — custom() resolves undefined in RPC mode (h2.15). */
 const NON_TUI_MESSAGE = "The interrogation panel requires TUI mode";

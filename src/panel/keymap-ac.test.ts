@@ -79,7 +79,10 @@ function choiceQ(id: string, overrides: Partial<Question> = {}): Question {
   };
 }
 
-/** The bare-letter/chord default data (mirrors keys.test.ts DEFAULT_DATA). */
+/** The bare-letter/chord default data (mirrors keys.test.ts DEFAULT_DATA).
+ * `toggle` (ctrl+n) rides the byte table for completeness but has NO AC
+ * here — its in-panel close leg is config-surface.test.ts's exhaustive
+ * remap suite; the global leg is shortcut.test.ts (PANELTOGGLE-001). */
 const LETTER_BYTES: Record<KeyAction, string> = {
   deep: "d",
   overview: "i",
@@ -91,6 +94,7 @@ const LETTER_BYTES: Record<KeyAction, string> = {
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
   expandDescription: "x",
+  toggle: "\u000e",
 };
 const CTRL_S = "\u0013";
 const CTRL_G = "\u0007";

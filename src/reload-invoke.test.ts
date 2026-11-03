@@ -10,10 +10,12 @@
  * branch carries the pre-reload interrogate tool result (reconstruction
  * input), and the user types /interrogate.
  *
- * Regression pins (breakOut removal + invoke-only /interrogate):
- * 1. NO global shortcut is registered (ctrl+shift+q closes windows on many
- *    desktop environments — the WM claims the chord before the terminal
- *    sees the bytes).
+ * Regression pins (breakOut removal + invoke-only /interrogate, as amended
+ * by PANELTOGGLE-001):
+ * 1. The reloaded factory registers exactly ONE global shortcut — the
+ *    panel TOGGLE chord on the config default (ctrl+n, WM-safe). The
+ *    historical ctrl+shift+q break-out chord stays dead (window managers
+ *    close windows on it before the terminal sees the bytes).
  * 2. After the reload reconstruction installs state SILENTLY (SURFACE-002):
  *    NO panel — the stale pre-reload suspend widget line is overwritten with
  *    the fresh cue (live counts, /interrogate only).
@@ -156,8 +158,11 @@ describe("extension reload + /interrogate (breakOut gate removal)", () => {
     const pi2 = new FakePi();
     await mod2.default(pi2.api() as never);
 
-    // Pin 1: no global shortcut is registered by the reloaded factory.
-    expect(pi2.shortcutCalls).toEqual([]);
+    // Pin 1 (PANELTOGGLE-001): exactly one global shortcut is registered
+    // by the reloaded factory — the toggle chord, on the config default
+    // (WM-safe; the ctrl+shift+q break-out chord stays dead).
+    expect(pi2.shortcutCalls).toHaveLength(1);
+    expect(pi2.shortcutCalls[0]![0]).toBe("ctrl+n");
 
     // The stale pre-reload widget is still visible (pi app state survives).
     pi2.widget = pi1.widget;

@@ -158,7 +158,8 @@ All settings live under a top-level `"interrogator"` key in either
       "chat": "c",                // open the in-panel side chat on the current question
       "externalEditor": "ctrl+g", // open the draft in an external editor
       "prevQuestion": "tab",      // previous question
-      "nextQuestion": "shift+tab" // next question
+      "nextQuestion": "shift+tab", // next question
+      "toggle": "ctrl+n"         // toggle the panel (in-panel: suspend; main editor: open/resume)
     },
     // No caps: question count, option count, and text lengths are all
     // unlimited — nothing is truncated or dropped (CAPS-OUT-001).
@@ -166,6 +167,7 @@ All settings live under a top-level `"interrogator"` key in either
     "roundDetection": true,         // detect interrogation rounds from plain chat text (TUI)
     "compactionPreservation": true, // prepend preservation instructions to mid-interrogation compaction summaries
     "editorMode": "composed",       // "composed" (panel's own editor) or "stock" (pi's stock editor)
+    "panelShortcut": true,        // register the keys.toggle global main-editor shortcut (PANELTOGGLE-001)
     "sideChatModel": "",            // optional "provider/model-id" for the side chat (default: the session's current model)
     "sideChatAutoApply": false      // apply the side chat's converged answer without the confirm row
   }
@@ -202,6 +204,7 @@ Remappable actions (`interrogator.keys.*`):
 | External editor      | `keys.externalEditor` | `ctrl+g`        | Open the draft in an external editor — any editor duty (answer, elaboration, or note; in note duty the finished text lands in the batch note) |
 | Previous question    | `keys.prevQuestion`   | `tab`           | Move to the previous question                 |
 | Next question        | `keys.nextQuestion`   | `shift+tab`     | Move to the next question                     |
+| Toggle panel         | `keys.toggle`         | `ctrl+n`        | **Dual-surface toggle (PANELTOGGLE-001):** inside an open panel, suspend it (any focus — the chord is never a typed character); from pi's main editor, the globally registered shortcut opens or resumes the panel through the exact `/interrogate` invoke ladder (nothing resumable → the "No active interrogation" notice). The registration is gated by the `panelShortcut` toggle (default on); `ctrl+n` shares its key with pi's picker-scoped `app.session.toggleNamedFilter` — no focus overlap (pi logs one startup diagnostic; this extension wins at the main editor) |
 
 Fixed keys (not configurable):
 
@@ -283,6 +286,17 @@ a key combo). It also carries the dev surface:
 
 Argument completion lists them (`/interrogate ` → `ping`, `debug`; …).
 Unknown subcommands print a usage line — nothing ever throws.
+
+### Panel toggle shortcut (PANELTOGGLE-001)
+
+The `keys.toggle` chord (default `ctrl+n`) toggles the panel from either
+surface: inside an open panel it suspends (same exit as the `esc` ladder's
+end); from pi's main editor the globally registered shortcut opens or
+resumes the panel through the exact `/interrogate` invoke ladder — with
+nothing resumable you get the "No active interrogation" notice. Set
+`"panelShortcut": false` to unregister it, or rebind `keys.toggle` (e.g.
+to `alt+q`) if your terminal or another extension claims the chord. TUI
+only — the shortcut never fires in RPC/print modes.
 
 ## Side chat
 
@@ -457,14 +471,22 @@ Verified defaults (`src/config.ts` `DEFAULT_CONFIG.keys`):
 | `ctrl+g` (`externalEditor`)                    | panel-safe reuse   | pi: `app.editor.external`, `tui.altScreen.searchNext` (keybindings.md:115,129) — stays a chord: its only valid context is editor focus, where a bare key would have to type, never act |
 | `tab` (`prevQuestion`)                         | fixed/nav (panel)  | pi: `tui.input.tab` (keybindings.md:65) — consumed inside the panel only                               |
 | `shift+tab` (`nextQuestion`)                   | panel-safe reuse   | pi: `app.thinking.cycle` (keybindings.md:155) — shadowed by the panel                                  |
+| `ctrl+n` (`toggle`)                            | global (extension) | pi: `app.session.toggleNamedFilter` (keybindings.md:139) — PICKER-SCOPED (session resume picker only), no focus overlap with the main-editor dispatch; pi's runner does not reserve it, the extension wins at the main editor (one startup diagnostic) |
 
 Fixed panel keys (`enter` / `esc` / `ctrl+c` / arrows + `hjkl` aliases) are
 not config keys — they are consumed only while the panel is open (core
-navigation pi regains as soon as the panel suspends). There is NO global
-shortcut registration: the historical `breakOut` chord (`ctrl+shift+q`, via
-`pi.registerShortcut`) was removed entirely — on many desktop environments
-the window manager claims that chord to close windows before the terminal
-ever sees the bytes.
+navigation pi regains as soon as the panel suspends). The ONE global
+shortcut registration is the `toggle` chord (`ctrl+n`, `keys.toggle` + the
+`panelShortcut` gate, default on — PANELTOGGLE-001): it fires from pi's
+main editor only. `ctrl+n` shares its key with pi's picker-scoped
+`app.session.toggleNamedFilter` (session resume picker) — no focus overlap,
+and pi's runner does not reserve the key (the extension wins at the main
+editor; pi logs one startup diagnostic). The historical `breakOut` chord
+(`ctrl+shift+q`, via `pi.registerShortcut`) stays removed — on many desktop
+environments the window manager claims that chord to close windows before
+the terminal ever sees the bytes. Known limitation, accepted: terminals
+with `stty ixon` swallow `ctrl+q`/`ctrl+s` as XOFF/XON — rebind `keys.toggle`
+there (the `keys.submit` `ctrl+s` default already assumes the same).
 
 Avoided keys — a default must never be set to any of these:
 
@@ -509,7 +531,8 @@ pi's `docs/keybindings.md` before shipping.
 
 ```
 src/
-├── index.ts           # extension factory — registers command, tool, renderers, lifecycle, persistence
+├── index.ts           # extension factory — registers command, tool, renderers, lifecycle, persistence, toggle shortcut
+├── shortcut.ts        # PANELTOGGLE-001 global toggle: registerShortcut on keys.toggle (main-editor open/resume leg)
 ├── config.ts          # DEFAULT_CONFIG, settings loading / deep-merge / coercion, key labels
 ├── state.ts           # the single in-memory interrogation state (source of truth)
 ├── tool.ts            # the interrogate tool executor (parse → guards → merge → result)

@@ -1,16 +1,18 @@
 /**
  * src/config-surface.test.ts — AC-12 config-surface validation (P1.M7.T5.S2).
  *
- * End-to-end proof that every one of the 9 `keys.*` actions (R5 / commitment
- * 7 / AC-12, as amended by the breakOut removal) is remappable and that
- * every display string naming a key flows from the resolved config (h2.52):
- * full-remap configs drive the panel router (all 9 actions, both
- * directions), the footer (all screens + narrow mode), and the suspend
- * widget line — plus the all-9-actions invalid-value fallback sweep and a
- * dialog/warning audit. NO global registerShortcut surface exists anymore
- * (the ctrl+shift+q chord was removed — window managers claim it on many
- * desktops). The companion guard `no-hardcoded-keys.test.ts` makes the
- * no-hardcoded-labels rule un-regressible at the source level.
+ * End-to-end proof that every one of the 11 `keys.*` actions (R5 / commitment
+ * 7 / AC-12, as amended by the breakOut removal + PANELTOGGLE-001) is
+ * remappable and that every display string naming a key flows from the
+ * resolved config (h2.52): full-remap configs drive the panel router (all
+ * 11 actions, both directions), the footer (all screens + narrow mode),
+ * and the suspend widget line — plus the all-11-actions invalid-value
+ * fallback sweep and a dialog/warning audit. The COMMAND still registers
+ * no global shortcut (the ctrl+shift+q breakOut chord stays dead — window
+ * managers claim it on many desktops); the TOGGLE's global surface lives
+ * in src/shortcut.ts (PANELTOGGLE-001, ctrl+n — WM-safe; pinned by
+ * shortcut.test.ts). The companion guard `no-hardcoded-keys.test.ts` makes
+ * the no-hardcoded-labels rule un-regressible at the source level.
  *
  * ## Remappability audit [Mode A] — input to P1.M7.T7.S2's README keymap table
  *
@@ -25,6 +27,7 @@
  * | externalEditor  | ctrl+g        | ctrl+u         | ✓      | n/a              | none rendered                         | text-focus gated; load-bearing chord |
  * | prevQuestion    | tab           | left           | ✓      | n/a              | none rendered                         | |
  * | nextQuestion    | shift+tab     | right          | ✓      | n/a              | none rendered                         | |
+ * | toggle          | ctrl+n        | ctrl+alt+n     | ✓ (suspend leg) | ✓ (open/resume leg, shortcut.ts) | widget names /interrogate only | global default shares ctrl+n with pi's picker-scoped app.session.toggleNamedFilter (no focus overlap; startup diagnostic, extension wins) |
  *
  * Two-tier intercept (h2.74/BAREKEYS-001, ui-spec:70): bare defaults
  * (d/o/t/m/e) intercept only from non-editor focus and always forward while
@@ -102,6 +105,7 @@ const DEFAULT_DATA: Record<KeyAction, string> = {
   prevQuestion: "\t",
   nextQuestion: "\u001b[Z",
   expandDescription: "x",
+  toggle: "\u000e", // ctrl+n — global toggle chord (PANELTOGGLE-001)
 };
 
 /**
@@ -123,6 +127,7 @@ const REMAPS: Record<KeyAction, { key: string; data: string }> = {
   prevQuestion: { key: "f5", data: "\u001b[15~" },
   nextQuestion: { key: "f6", data: "\u001b[17~" },
   expandDescription: { key: "ctrl+alt+x", data: "\u001b\u0018" }, // legacy ESC + ctrl+x — ctrl+shift+x is TAKEN (pi-patty-bg-tasks)
+  toggle: { key: "ctrl+alt+n", data: "\u001b\u000e" }, // legacy ESC + ctrl byte (distinct from batchNote's kitty ctrl+shift+n)
 };
 
 /** A config with ALL 9 actions remapped — the PRD's example user settings. */
@@ -143,6 +148,7 @@ const SPY_FOR: Record<KeyAction, Exclude<keyof ReturnType<typeof makeActions>, "
   prevQuestion: "prevQuestion",
   nextQuestion: "nextQuestion",
   expandDescription: "onExpandDescription",
+  toggle: "onToggle",
 };
 
 /** Human action words the footer composes ("{label} {action}" pairs). */
@@ -157,6 +163,7 @@ const WORDS: Record<KeyAction, string> = {
   prevQuestion: "prev",
   nextQuestion: "next",
   expandDescription: "expand",
+  toggle: "toggle",
 };
 
 /** Footer key-hint set per screen (mirror of layout SCREEN_KEYS — drift fails loudly below). */
@@ -231,6 +238,7 @@ function makeActions() {
     onChat: vi.fn((_p: InterrogationPanel) => undefined),
     onExternalEditor: vi.fn((_p: InterrogationPanel) => undefined),
     onExpandDescription: vi.fn((_p: InterrogationPanel) => undefined),
+    onToggle: vi.fn((_p: InterrogationPanel) => undefined),
   };
   const all: Mock[] = Object.values(spies);
   return { ...spies, all };
@@ -348,7 +356,7 @@ describe("AC-12 fixture round-trip (grammar drift fails loudly)", () => {
 
 // ------------------------------------------ exhaustive remap: 10 × 2 directions
 
-describe("AC-12 exhaustive remap — all 9 actions, both directions", () => {
+describe("AC-12 exhaustive remap — all 11 actions, both directions", () => {
   test("test_every_action_fires_on_its_remapped_accelerator", () => {
     for (const action of ALL_ACTIONS) {
       const actions = makeActions();
@@ -403,7 +411,7 @@ describe("AC-12 exhaustive remap — all 9 actions, both directions", () => {
 
 // ------------------------------------------- no global shortcut (breakOut removal)
 
-describe("no global shortcut surface (breakOut removal)", () => {
+describe("no global shortcut on the COMMAND (breakOut removal; PANELTOGGLE-001 owns the toggle seam)", () => {
   /** Capture registration through a spy pi (command.test.ts harness, registration-only). */
   function captureRegistration(config: InterrogatorConfig): {
     commands: string[];
@@ -423,10 +431,12 @@ describe("no global shortcut surface (breakOut removal)", () => {
     return { commands, shortcutCalls };
   }
 
-  test("test_no_shortcut_registered_under_default_or_full_remap", () => {
+  test("test_command_registers_no_shortcut_under_default_or_full_remap", () => {
     // The ctrl+shift+q chord closes windows on many desktop environments
-    // (the WM claims it before the terminal sees the bytes) — the extension
-    // must never register a global shortcut, under ANY config.
+    // (the WM claims it before the terminal sees the bytes) — the COMMAND
+    // must never register a global shortcut, under ANY config. The panel
+    // TOGGLE's global surface is a separate seam (src/shortcut.ts,
+    // PANELTOGGLE-001) and is pinned by shortcut.test.ts.
     for (const config of [DEFAULT_CONFIG, FULL_REMAP]) {
       const { commands, shortcutCalls } = captureRegistration(config);
       expect(commands).toEqual(["interrogate"]);
@@ -448,7 +458,8 @@ describe("label propagation — full remap (h2.52: config-generated display stri
     expect(remapped.submit).toBe("F9");
     expect(remapped.prevQuestion).toBe("F5");
     expect(remapped.nextQuestion).toBe("F6");
-    expect(Object.keys(remapped)).toHaveLength(10);
+    expect(remapped.toggle).toBe("Ctrl+Alt+N");
+    expect(Object.keys(remapped)).toHaveLength(11);
   });
 
   test("test_footer_reflects_remapped_labels_and_no_defaults_on_every_screen", () => {
@@ -537,8 +548,8 @@ describe("label propagation — full remap (h2.52: config-generated display stri
 
 // ------------------------------------------------- invalid-config fallback sweep
 
-describe("invalid-config fallback sweep — all 9 actions (one warn each)", () => {
-  test("test_all_nine_invalid_accelerators_fall_back_to_defaults_with_one_warn_each", () => {
+describe("invalid-config fallback sweep — all 11 actions (one warn each)", () => {
+  test("test_all_invalid_accelerators_fall_back_to_defaults_with_one_warn_each", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const defaults = resolveBindings(DEFAULT_CONFIG);
     const broken = Object.fromEntries(ALL_ACTIONS.map((a) => [a, "ctrl+"])) as InterrogatorConfig["keys"];

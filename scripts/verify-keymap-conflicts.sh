@@ -17,10 +17,14 @@
 # bare letters `d/i/e/n/c` plus fixed tab/shift+tab and the two surviving
 # chords ctrl+s/ctrl+g. Bare letters collide with nothing BY CONSTRUCTION:
 # while the panel is open it owns the whole keyboard via custom() raw-input
-# dispatch, and the extension registers NO global shortcut (the historical
-# ctrl+shift+q break-out registration was removed) — there is no other claim
-# a bare letter could hit. The curated AVOIDED list therefore guards REBINDS
-# onto taken chords, not the defaults; it stays intact for that purpose.
+# dispatch. Since PANELTOGGLE-001 the extension registers exactly ONE
+# global shortcut — the `toggle` chord (default ctrl+n, src/shortcut.ts):
+# its pi built-in collision (app.session.toggleNamedFilter) is PICKER-SCOPED
+# (fires only inside the session resume picker) and pi's runner reserves
+# only editor-global shortcuts, so the registration is never skipped and
+# the extension wins at the main editor (pi logs one startup diagnostic).
+# The curated AVOIDED list guards REBINDS onto taken chords, not the
+# defaults; it stays intact for that purpose.
 #
 # Pi's own built-in bindings (docs/keybindings.md) are reported as INFO only:
 # the panel-scoped chords (ctrl+s/ctrl+g, tab/shift+tab) INTENTIONALLY reuse
@@ -158,8 +162,13 @@ for line in "${DEFAULT_LINES[@]}"; do
 	#      literal; the second grep keeps only table-row first columns (binding
 	#      ids), skipping the prose bullets in docs/keybindings.md.
 	detail="(no pi built-in; no extension claim)"
-	if [[ ${#key} -eq 1 ]]; then
-		detail="panel-owned — bare letter, collides with nothing by construction (custom() raw-input dispatch; no global shortcut registered)"
+	if [[ "$action" == "toggle" ]]; then
+		# PANELTOGGLE-001 — the one GLOBAL registration: the built-in owner
+		# (app.session.toggleNamedFilter) is picker-scoped, pi's runner does
+		# not reserve the key, and the extension wins at the main editor.
+		detail="global registration (PANELTOGGLE-001) — pi built-in app.session.toggleNamedFilter is picker-scoped; no focus overlap; extension wins at the main editor (startup diagnostic)"
+	elif [[ ${#key} -eq 1 ]]; then
+		detail="panel-owned — bare letter, collides with nothing by construction (custom() raw-input dispatch)"
 	elif [[ -n "$PI_DOCS" ]]; then
 		owners="$(grep -F "\`$key\`" "$PI_DOCS" 2>/dev/null \
 			| grep -oE '^ *\| *`[^`]+`' \
@@ -177,7 +186,7 @@ if [[ -z "$PI_DOCS" ]]; then
 	echo "WARN: pi docs/keybindings.md not found in the known install locations — built-in INFO column may be incomplete (this is not a failure)."
 fi
 echo "Checked $checked default key(s) from src/config.ts against ${#AVOIDED[@]} avoided keys + live extension registerShortcut claims."
-echo "[Mode A] Bare-letter defaults (d/i/e/n/c) are panel-owned by construction: the panel owns the whole keyboard while open (custom() raw-input dispatch) and no global shortcut is registered — the AVOIDED list guards REBINDS onto taken chords, not the defaults."
+echo "[Mode A] Bare-letter defaults (d/i/e/n/c) are panel-owned by construction: the panel owns the whole keyboard while open (custom() raw-input dispatch). The ONE global registration is the toggle chord (PANELTOGGLE-001, ctrl+n — picker-scoped built-in overlap, extension wins at the main editor). The AVOIDED list guards REBINDS onto taken chords, not the defaults."
 echo "Known limitation: the live grep sees string-literal registerShortcut arguments only; variable-indirect registrations are covered by the curated AVOIDED list (re-check manually when rebinding)."
 
 if [[ "$failures" -gt 0 ]]; then

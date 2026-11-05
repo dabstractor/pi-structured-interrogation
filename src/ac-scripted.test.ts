@@ -261,11 +261,14 @@ describe("AC-2 — submission delta, reminder, open count, epoch (FR-3)", () => 
     const epochBefore = state.epoch; // 1
     const msg = buildSubmission(state, diff); // does takeSnapshot + bumpEpoch ITSELF
 
-    // ≤3-line delta with the byte-exact reminder line (h3.6).
+    // ANSWER-FIDELITY delta: header + one full line per answer + the
+    // byte-exact reminder (owner ruling 2026-11-01 — no ≤3-line budget).
     const lines = msg.content.split("\n");
-    expect(lines.length).toBeLessThanOrEqual(3);
-    expect(lines[0]).toBe("Submitted 2: q01: Alpha; q02: Beta (state epoch 2)");
-    expect(lines[1]).toBe(SUBMISSION_REMINDER);
+    expect(lines.length).toBe(4);
+    expect(lines[0]).toBe("Submitted 2 (state epoch 2)");
+    expect(lines[1]).toBe("  q01: Alpha");
+    expect(lines[2]).toBe("  q02: Beta");
+    expect(lines[3]).toBe(SUBMISSION_REMINDER);
 
     // Epoch bumps EXACTLY once — by buildSubmission, never by the caller
     // (double-bump anti-pattern). One call = one snapshot + one bump.
@@ -630,8 +633,9 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
     markSubmitted(state, ["q1"]);
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
-    expect(lines[0]).toBe("Submitted 1: q1: Postgres (changed) (state epoch 3)");
-    expect(lines[1]).toBe(SUBMISSION_REMINDER);
+    expect(lines[0]).toBe("Submitted 1 (state epoch 3)");
+    expect(lines[1]).toBe("  q1: Postgres (changed)");
+    expect(lines[2]).toBe(SUBMISSION_REMINDER);
 
     // The user-only card renders "(changed)" (renderers.ts submission card).
     const cardLines = renderLines(buildSubmissionCard(msg, { expanded: false, outputPad: 0 }, stubTheme));

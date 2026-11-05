@@ -407,6 +407,32 @@ describe("createSidechatEngine — failure paths never block the panel (T5.S1)",
     expect(record.messages.map((m) => m.role)).toEqual(["user"]); // NO assistant message
   });
 
+  test("synchronous registry throw (find) → error notice + idle, no dispatch", () => {
+    // REGRESSION (uncaughtException class): an injected seam throwing
+    // inside sendTurn must never escape the keypress handler. The text
+    // mirrors the detached-receiver crash signature this guard now
+    // contains — kind "error" (a registry throw is not an auth failure).
+    openOrReplace("q1", rebindDeps());
+    const port = fakePort(() => doneStream("ok"));
+    const engine = engineOverRecord({
+      port,
+      registry: {
+        find: () => {
+          throw new TypeError("Cannot read properties of undefined (reading 'runtime')");
+        },
+        getAvailable: () => [],
+      },
+    });
+    expect(engine.sendTurn("hi")).toBe(true); // turn accepted; panel never blocks
+    const record = get()!;
+    expect(port).not.toHaveBeenCalled();
+    expect(record.streamState).toBe("idle");
+    expect(record.notices).toEqual([
+      { kind: "error", text: expect.stringContaining("runtime"), at: expect.any(String) },
+    ]);
+    expect(record.messages.map((m) => m.role)).toEqual(["user"]); // NO assistant message
+  });
+
   test("stream error event → idle, no assistant message (T5.S2 refines)", async () => {
     openOrReplace("q1", rebindDeps());
     const stream = createAssistantMessageEventStream();

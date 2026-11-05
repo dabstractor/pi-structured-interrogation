@@ -4,9 +4,10 @@
  *
  * Follows snapshots.test.ts conventions: fresh InterrogationState per test,
  * fixtures built via createInterrogationState + applyAnswer + computeDiff,
- * no pi runtime imports. Verifies content format (h3.6), ≤3-line budget
- * truncation, epoch semantics (pre-bump label, one snapshot + one bump),
- * note passthrough, and `(changed)` markers on editedArchived entries.
+ * no pi runtime imports. Verifies content format (ANSWER-FIDELITY: no
+ * budget — every answer ships in full), epoch semantics (pre-bump label, one
+ * snapshot + one bump), note passthrough, and `(changed)` markers on
+ * editedArchived entries.
  *
  * The S2 suite (deliverSubmission) follows fallback.test.ts mock conventions:
  * plain vi.fn() mocks stand in for runtime deps — no pi runtime anywhere.
@@ -14,7 +15,6 @@
 import * as fs from "node:fs";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
-  SUBMISSION_LIST_MAX_CHARS,
   SUBMISSION_REMINDER,
   buildCompletion,
   buildSubmission,
@@ -88,7 +88,10 @@ describe("buildSubmission — content", () => {
     const msg = buildSubmission(state, diff);
 
     expect(msg.content).toBe(
-      "Submitted 2: q1: SQLite; q2: Postgres (state epoch 2)\nConsider how these affect your other questions.",
+      "Submitted 2 (state epoch 2)\n" +
+        "  q1: SQLite\n" +
+        "  q2: Postgres\n" +
+        "Consider how these affect your other questions.",
     );
     expect(msg.customType).toBe("interrogation-submission");
     expect(msg.display).toBe(true);
@@ -109,11 +112,15 @@ describe("buildSubmission — content", () => {
 
     const msg = buildSubmission(state, diff);
 
-    const line1 = msg.content.split("\n")[0];
-    expect(line1).toBe("Submitted 2: qa: Postgres (changed); qb: new (state epoch 2)");
+    const lines = msg.content.split("\n");
+    expect(lines[0]).toBe("Submitted 2 (state epoch 2)");
+    expect(lines[1]).toBe("  qa: Postgres (changed)");
+    expect(lines[2]).toBe("  qb: new");
   });
 
-  test("truncation_30_long_answers_keeps_3_line_budget_and_true_k", () => {
+  test("thirty_long_answers_all_ship_in_full_no_budget", () => {
+    // ANSWER-FIDELITY (owner ruling 2026-11-01): no budget exists — every
+    // answer ships untruncated on its own line, however many, however long.
     for (let i = 1; i <= 30; i++) {
       state.upsertQuestion(q({ id: `q${i}` }));
     }
@@ -125,31 +132,63 @@ describe("buildSubmission — content", () => {
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
 
-    expect(lines).toHaveLength(2); // ≤3 lines (2 by construction)
-    expect(lines[0]).toMatch(/^Submitted 30: /); // k reports the true count
-    expect(lines[0]).toMatch(/\+\d+ more \(state epoch \d+\)$/); // rollup BEFORE the suffix
-    expect(lines[1]).toBe(SUBMISSION_REMINDER);
+    expect(lines).toHaveLength(1 + 30 + 1); // header + 30 full lines + reminder
+    expect(lines[0]).toBe("Submitted 30 (state epoch 2)"); // k reports the true count
+    expect(lines[0]).not.toContain("more"); // NO rollup — nothing is ever dropped
+    for (let i = 1; i <= 30; i++) {
+      expect(lines[i]).toBe(`  q${i}: ${"v".repeat(60)}`);
+    }
+    expect(lines[31]).toBe(SUBMISSION_REMINDER);
   });
 
-  test("single_huge_entry_is_ellipsis_truncated_to_budget", () => {
+  test("six_answer_submission_with_long_write_in_carries_all_six_in_full", () => {
+    // ANSWER-FIDELITY regression (the "dropped my answers" incident): a
+    // real 6-answer submission whose FIRST entry is a ~250-char write-in
+    // used to ship "1 entry + '+5 more'" as the model-visible delta — the
+    // agent then had 1 of 6 answers and the post-completion tool read
+    // returned 0/0 (cleared state), compounding into apparent answer loss.
+    // The 2026-11-01 owner ruling removed the budget entirely.
+    const writeIn =
+      "New RBAC roles — RBAC for everything. I'm not sure we're storing roles there though, we are really going to do this with *permissions*. So if you have to name permissions after roles, so be it, but don't get confused, this should be able to be done entirely with granular permissions.";
+    for (let i = 1; i <= 6; i++) state.upsertQuestion(q({ id: `q${i}` }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", { value: writeIn, custom: true, at: T0 });
+    state.applyAnswer("q2", ans("Role dashboard IS the landing"));
+    state.applyAnswer("q3", ans("My book: client account chips"));
+    state.applyAnswer("q4", ans("Adopt industry conventions now"));
+    state.applyAnswer("q5", ans("Role page + org pages for DMs, admin sees all"));
+    state.applyAnswer("q6", ans("Server-side scoping everywhere"));
+    const diff = computeDiff(prev, state.serialize());
+    expect(diff.changed).toHaveLength(6);
+
+    const lines = buildSubmission(state, diff).content.split("\n");
+
+    expect(lines[0]).toBe("Submitted 6 (state epoch 2)");
+    expect(lines[0]).not.toContain("more"); // the rollup is gone for good
+    // ALL six answers reach the model UNTRUNCATED — the write-in included.
+    expect(lines[1]).toBe(`  q1: ✎ ${writeIn}`);
+    expect(lines[2]).toBe("  q2: Role dashboard IS the landing");
+    expect(lines[3]).toBe("  q3: My book: client account chips");
+    expect(lines[4]).toBe("  q4: Adopt industry conventions now");
+    expect(lines[5]).toBe("  q5: Role page + org pages for DMs, admin sees all");
+    expect(lines[6]).toBe("  q6: Server-side scoping everywhere");
+    expect(lines[7]).toBe(SUBMISSION_REMINDER);
+    expect(lines).toHaveLength(8);
+  });
+
+  test("single_huge_entry_ships_in_full_no_cap", () => {
     state.upsertQuestion(q({ id: "q1" }));
     const prev = state.serialize();
-    state.applyAnswer("q1", ans("x".repeat(SUBMISSION_LIST_MAX_CHARS * 2)));
+    state.applyAnswer("q1", ans("x".repeat(480)));
     const diff = diffFrom(prev);
 
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
 
-    expect(lines).toHaveLength(3); // capped entry → full-text continuation line
-    // BUG-006 cap half: the single kept entry is ellipsis-truncated so line 1
-    // fits the budget (the old "keep ≥1 entry whole" rule let it through).
-    expect(lines[0]!.length).toBeLessThanOrEqual(SUBMISSION_LIST_MAX_CHARS);
-    expect(lines[0]!.startsWith("Submitted 1: q1: x")).toBe(true);
-    expect(lines[0]).toContain("…"); // ellipsis terminator on the capped entry
-    expect(lines[0]).toMatch(/\(state epoch 2\)$/); // epoch suffix never dropped
-    expect(lines[0]).not.toContain("+1 more"); // single entry is never dropped — it is capped
-    // FULL-TEXT CONTINUATION: the user's words reach the model INTACT.
-    expect(lines[1]).toBe(`  q1: ${"x".repeat(SUBMISSION_LIST_MAX_CHARS * 2)}`);
+    // ANSWER-FIDELITY: no ellipsis, no cap — the full text ships.
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe("Submitted 1 (state epoch 2)");
+    expect(lines[1]).toBe(`  q1: ${"x".repeat(480)}`);
     expect(lines[2]).toBe(SUBMISSION_REMINDER);
   });
 
@@ -175,7 +214,7 @@ describe("buildSubmission — content", () => {
     const msg = buildSubmission(state, diffFrom(prev));
 
     expect(SUBMISSION_REMINDER).toBe("Consider how these affect your other questions.");
-    expect(msg.content.split("\n")[1]).toBe(SUBMISSION_REMINDER);
+    expect(msg.content.split("\n")[2]).toBe(SUBMISSION_REMINDER);
   });
 });
 
@@ -828,15 +867,16 @@ describe("buildSubmission — NOTE: content line (h2.32/R3, P1.M4.T2.S2)", () =>
     return diffFrom(prev);
   }
 
-  test("non_empty_note_appends_third_content_line_and_keeps_details_note", () => {
+  test("non_empty_note_appends_final_content_line_and_keeps_details_note", () => {
     const diff = answeredDiff();
     const msg = buildSubmission(state, diff, "picked sqlite — deploy is friday");
 
     const lines = msg.content.split("\n");
-    expect(lines).toHaveLength(3); // h3.6 ≤3-line budget: 2 without, 3 with note
-    expect(lines[0]).toBe("Submitted 1: q1: SQLite (state epoch 2)"); // line 1 carries the epoch
-    expect(lines[1]).toBe(SUBMISSION_REMINDER); // line 2 untouched
-    expect(lines[2]).toBe("NOTE: picked sqlite — deploy is friday"); // MODEL-visible
+    expect(lines).toHaveLength(4); // header + entry + reminder + NOTE
+    expect(lines[0]).toBe("Submitted 1 (state epoch 2)"); // header carries the epoch
+    expect(lines[1]).toBe("  q1: SQLite");
+    expect(lines[2]).toBe(SUBMISSION_REMINDER);
+    expect(lines[3]).toBe("NOTE: picked sqlite — deploy is friday"); // MODEL-visible
     expect(msg.details.note).toBe("picked sqlite — deploy is friday"); // card keeps it
   });
 
@@ -847,15 +887,15 @@ describe("buildSubmission — NOTE: content line (h2.32/R3, P1.M4.T2.S2)", () =>
     const msg = buildSubmission(state, diff, longNote);
 
     const lines = msg.content.split("\n");
-    expect(lines).toHaveLength(3); // \n and \n\n each collapse — never split
-    expect(lines[2]!.startsWith("NOTE: multi / line ")).toBe(true);
-    expect(lines[2]!.endsWith("x")).toBe(true); // never truncated
+    expect(lines).toHaveLength(4); // \n and \n\n each collapse — never split
+    expect(lines[3]!.startsWith("NOTE: multi / line ")).toBe(true);
+    expect(lines[3]!.endsWith("x")).toBe(true); // never truncated
   });
 
-  test("empty_or_undefined_note_keeps_exactly_two_lines", () => {
+  test("empty_or_undefined_note_keeps_exactly_three_lines", () => {
     const diff = answeredDiff();
-    expect(buildSubmission(state, diff, "").content.split("\n")).toHaveLength(2);
-    expect(buildSubmission(state, diff).content.split("\n")).toHaveLength(2);
+    expect(buildSubmission(state, diff, "").content.split("\n")).toHaveLength(3);
+    expect(buildSubmission(state, diff).content.split("\n")).toHaveLength(3);
   });
 
   test("zero_changes_with_note_still_carries_the_NOTE_line", () => {
@@ -874,7 +914,7 @@ describe("buildSubmission — NOTE: content line (h2.32/R3, P1.M4.T2.S2)", () =>
 // ------------------------------------------------------- BUG-006 flatten half
 
 describe("BUG-006 flatten half — multi-line write-ins (P1.M2.T3.S1)", () => {
-  test("bug006_multi_line_write_in_delta_stays_two_lines", () => {
+  test("bug006_multi_line_write_in_entry_line_is_single_line", () => {
     state.upsertQuestion(choice("q1"));
     state.upsertQuestion(q({ id: "q2" }));
     const prev = state.serialize();
@@ -884,14 +924,16 @@ describe("BUG-006 flatten half — multi-line write-ins (P1.M2.T3.S1)", () => {
 
     const msg = buildSubmission(state, diff);
 
-    // Byte-exact: the multi-line write-in entry is SINGLE-LINE (runs of
-    // \n/\t collapse to " / " — the NOTE line's grammar), so the content
-    // keeps the 2-line shape (+reminder) instead of spilling.
+    // Byte-exact: the multi-line write-in's ENTRY LINE is single-line (runs
+    // of \n/\t collapse to " / " — the NOTE line's grammar); the raw value
+    // in state is untouched and the full text ships.
     expect(msg.content).toBe(
-      "Submitted 2: q1: ✎ line one / line two 🚀; q2: A (state epoch 2)\n" +
+      "Submitted 2 (state epoch 2)\n" +
+        "  q1: ✎ line one / line two 🚀\n" +
+        "  q2: A\n" +
         "Consider how these affect your other questions.",
     );
-    expect(msg.content.split("\n")).toHaveLength(2);
+    expect(msg.content.split("\n")).toHaveLength(4);
     // Card to/from fields carry no newlines or tabs for any entry.
     for (const entry of msg.details.changed) {
       expect(entry.to.includes("\n")).toBe(false);
@@ -903,27 +945,28 @@ describe("BUG-006 flatten half — multi-line write-ins (P1.M2.T3.S1)", () => {
     expect(state.getQuestion("q1")?.answer?.value).toBe("line one\nline two 🚀");
   });
 
-  test("bug006_note_adds_exactly_one_line_over_flattened_entries", () => {
+  test("note_adds_exactly_one_line_over_full_entry_lines", () => {
     state.upsertQuestion(q({ id: "q1" }));
     const prev = state.serialize();
     state.applyAnswer("q1", { value: "one\ntwo", custom: true, at: T0 });
     const diff = diffFrom(prev);
 
-    // With a (multi-line) note the budget is 3 lines: delta + NOTE + reminder.
+    // header + full entry + reminder + NOTE = 4 lines.
     const msg = buildSubmission(state, diff, "multi\nline note");
 
     const lines = msg.content.split("\n");
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toBe("Submitted 1: q1: ✎ one / two (state epoch 2)");
-    expect(lines[1]).toBe("Consider how these affect your other questions.");
-    expect(lines[2]).toBe("NOTE: multi / line note"); // NOTE's own flatten (unchanged)
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe("Submitted 1 (state epoch 2)");
+    expect(lines[1]).toBe("  q1: ✎ one / two");
+    expect(lines[2]).toBe("Consider how these affect your other questions.");
+    expect(lines[3]).toBe("NOTE: multi / line note"); // NOTE's own flatten (unchanged)
   });
 });
 
-// ---------------------------------------------------- BUG-006 cap half
+// --------------------------------------------- BUG-006 legacy (now uncapped)
 
-describe("BUG-006 cap half — per-entry truncation (P1.M2.T3.S2)", () => {
-  test("bug006_single_3000_char_write_in_entry_is_capped", () => {
+describe("BUG-006 legacy — write-ins ship in full (ANSWER-FIDELITY)", () => {
+  test("bug006_single_3000_char_write_in_ships_full", () => {
     state.upsertQuestion(q({ id: "q1" }));
     const prev = state.serialize();
     state.applyAnswer("q1", { value: "X".repeat(3000), custom: true, at: T0 });
@@ -932,21 +975,17 @@ describe("BUG-006 cap half — per-entry truncation (P1.M2.T3.S2)", () => {
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
 
-    expect(lines).toHaveLength(3); // capped write-in → full-text continuation
-    expect(lines[0]!.length).toBeLessThanOrEqual(SUBMISSION_LIST_MAX_CHARS);
-    expect(lines[0]!.startsWith("Submitted 1: q1: ✎ X")).toBe(true);
-    expect(lines[0]).toContain("…"); // ellipsis terminator
-    expect(lines[0]).toMatch(/\(state epoch 2\)$/); // suffix never dropped
-    expect(lines[0]).not.toContain("+1 more"); // single entry: capped, not dropped
-    // FULL-TEXT CONTINUATION: the write-in reaches the model INTACT — the
-    // model is never left to guess at ellipsis-mutilated user words.
+    // ANSWER-FIDELITY: the write-in reaches the model INTACT — no cap.
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe("Submitted 1 (state epoch 2)");
+    expect(lines[0]).not.toContain("…"); // the ellipsis cap is gone
     expect(lines[1]).toBe(`  q1: ✎ ${"X".repeat(3000)}`);
     expect(lines[2]).toBe(SUBMISSION_REMINDER);
-    // details/card keep the UNTRUNCATED `to` (h2.36 Q2=A) — only content is capped.
+    // details/card keep the UNTRUNCATED `to` (h2.36 Q2=A).
     expect(msg.details.changed[0]?.to).toBe(`✎ ${"X".repeat(3000)}`);
   });
 
-  test("bug006_huge_plus_normal_entries_truncate_then_rollup", () => {
+  test("bug006_huge_plus_normal_entries_all_ship_in_full", () => {
     for (let i = 1; i <= 4; i++) state.upsertQuestion(q({ id: `q${i}` }));
     const prev = state.serialize();
     state.applyAnswer("q1", { value: "X".repeat(3000), custom: true, at: T0 });
@@ -958,16 +997,18 @@ describe("BUG-006 cap half — per-entry truncation (P1.M2.T3.S2)", () => {
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
 
-    expect(lines).toHaveLength(3); // capped q1 → continuation; dropped q2-q4 keep the rollup
-    expect(lines[0]!.length).toBeLessThanOrEqual(SUBMISSION_LIST_MAX_CHARS);
-    expect(lines[0]!.startsWith("Submitted 4: q1: ✎ X")).toBe(true); // first entry KEPT (truncated); k true
-    expect(lines[0]).toContain("…");
-    expect(lines[0]).toMatch(/\+3 more \(state epoch 2\)$/); // rollup BEFORE the never-dropped suffix
-    expect(lines[1]).toBe(`  q1: ✎ ${"X".repeat(3000)}`); // full text of the capped entry
-    expect(lines[2]).toBe(SUBMISSION_REMINDER);
+    // ANSWER-FIDELITY: ALL entries ship in full — no rollup, ever.
+    expect(lines).toHaveLength(1 + 4 + 1); // header + 4 full lines + reminder
+    expect(lines[0]).toBe("Submitted 4 (state epoch 2)");
+    expect(lines[0]).not.toContain("more");
+    expect(lines[1]).toBe(`  q1: ✎ ${"X".repeat(3000)}`);
+    expect(lines[2]).toBe("  q2: A");
+    expect(lines[3]).toBe("  q3: B");
+    expect(lines[4]).toBe("  q4: C");
+    expect(lines[5]).toBe(SUBMISSION_REMINDER);
   });
 
-  test("bug006_multiline_write_in_continuation_flattens_newlines", () => {
+  test("bug006_multiline_write_in_entry_line_flattens_newlines", () => {
     state.upsertQuestion(q({ id: "q1" }));
     const prev = state.serialize();
     state.applyAnswer("q1", { value: `line1\nline2\n\nline3 ${"X".repeat(3000)}`, custom: true, at: T0 });
@@ -978,7 +1019,7 @@ describe("BUG-006 cap half — per-entry truncation (P1.M2.T3.S2)", () => {
     expect(lines[1]).toBe(`  q1: ✎ line1 / line2 / line3 ${"X".repeat(3000)}`); // newlines → " / "
   });
 
-  test("bug006_short_entries_byte_identical_to_golden", () => {
+  test("short_entries_byte_identical_to_golden", () => {
     state.upsertQuestion(q({ id: "q1" }));
     state.upsertQuestion(q({ id: "q2" }));
     const prev = state.serialize();
@@ -988,9 +1029,11 @@ describe("BUG-006 cap half — per-entry truncation (P1.M2.T3.S2)", () => {
 
     const msg = buildSubmission(state, diff);
 
-    // Guard: the cap must be a strict no-op for lines that already fit.
+    // Guard: the ANSWER-FIDELITY format is byte-stable for short answers.
     expect(msg.content).toBe(
-      "Submitted 2: q1: SQLite; q2: Postgres (state epoch 2)\n" +
+      "Submitted 2 (state epoch 2)\n" +
+        "  q1: SQLite\n" +
+        "  q2: Postgres\n" +
         "Consider how these affect your other questions.",
     );
   });

@@ -528,13 +528,17 @@ function resolveSidechatHostSeams(
   const registry = ctx.modelRegistry;
   if (registry === undefined || typeof registry.getAvailable !== "function") return undefined;
   // Capture the narrowed methods — the typeof guards above do not survive
-  // into closure bodies.
+  // into closure bodies. The captures are DETACHED methods: the port
+  // closures below MUST re-bind the receiver with .call(registry, …), or
+  // `this` is undefined inside pi's real ModelRegistry (find/getAvailable
+  // dereference this.runtime → the sendTurn uncaughtException that killed
+  // the host). Same idiom as surfaceSubmitDeps's send.call(surface, …).
   const getAvailableModels = registry.getAvailable;
   const findModel = registry.find;
   const registryPort: SidechatRegistryPort = {
     find: (provider, modelId) =>
-      typeof findModel === "function" ? findModel(provider, modelId) : undefined,
-    getAvailable: () => getAvailableModels() ?? [],
+      typeof findModel === "function" ? findModel.call(registry, provider, modelId) : undefined,
+    getAvailable: () => getAvailableModels.call(registry) ?? [],
   };
   const sessionModel = ctx.model;
   const notify = (message: string): void => {

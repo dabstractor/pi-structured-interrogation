@@ -179,8 +179,8 @@ function answerSignature(q: Question | undefined): string | undefined {
  * Flatten runs of newlines and tabs to the single-line separator — BUG-006
  * (h3.5): write-ins commit raw newlines ("multi-line values keep their
  * newlines", actions.ts), but every summary surface (delta content entries,
- * card to/from, digestSince segments) must be single-line so the model
- * delta keeps the ≤3-line shape (FR-3/AC-2). Same grammar as the NOTE line
+ * card to/from, digestSince segments) must be single-line so each answer
+ * ships as ONE line in the ANSWER-FIDELITY delta (FR-3/AC-2). Same grammar as the NOTE line
  * (delivery.ts's `note.replace(/\n+/g, " / ")`) extended to tabs: RUNS
  * collapse (mixed `\n\t` runs included) to one `" / "`. Applied to the
  * FINAL composed summary only — never to `answer.value`/`answer.text` in

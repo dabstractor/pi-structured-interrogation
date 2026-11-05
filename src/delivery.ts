@@ -6,8 +6,9 @@
  * Three builder responsibilities, UI-free (h2.13 discipline):
  *
  * 1. {@link buildSubmission} — turn a computed diff ({@link computeDiff}
- *    output from snapshots.ts) plus an optional batch note into the compact
- *    ≤3-line custom message the model receives on ctrl+s. The full card data
+ *    output from snapshots.ts) plus an optional batch note into the
+ *    ANSWER-FIDELITY custom message the model receives on ctrl+s (header +
+ *    every answer in full — no budget). The full card data
  *    rides in `details` for the user-only renderer (P1.M7.T3.S1, h2.36:
  *    the card is drawn from `details`, NOT from content — decision Q2=A).
  * 2. {@link buildCompletion} — the ONE full-context injection (h2.0 §2): the
@@ -39,36 +40,28 @@ import { evaluateDependsOn } from "./depends-on.js";
 import { takeSnapshot, transcriptPrompt, type DiffEntry, type SubmissionCardData } from "./snapshots.js";
 import { UNGROUPED_LABEL, type InterrogationState, type Question } from "./state.js";
 
-/** Fixed reminder line (h3.6) — the second content line, byte-exact. */
+/** Fixed reminder line (h3.6) — the closing content line, byte-exact. */
 export const SUBMISSION_REMINDER = "Consider how these affect your other questions.";
 
-/**
- * Character budget for the "Submitted {k}: {list} (state epoch {n})" line
- * (header + entry list + epoch suffix — Mode A: line 1 must never wrap into
- * more than 2 display lines, keeping total content within the ≤3-line
- * budget of h2.0 §2 / h3.6). Tunable const; when the joined entry list
- * exceeds it, entries are dropped from the END and a `+{m} more` suffix
- * summarizes them; if the line still overflows with only the first entry
- * kept, that LAST KEPT entry is ellipsis-truncated (`…`) to the remaining
- * budget (BUG-006 cap half) so line 1 never exceeds this cap for arbitrary
- * text; the epoch suffix and the rollup are NEVER dropped or truncated.
- */
-export const SUBMISSION_LIST_MAX_CHARS = 240;
+// ANSWER-FIDELITY (owner ruling 2026-11-01): SUBMISSION_LIST_MAX_CHARS
+// (240) and every truncation/rollup mechanic it justified are DELETED —
+// user answers are never budgeted, dropped, or capped on the model-visible
+// path under ANY circumstances.
 
 /**
- * The pi.sendMessage payload for an interrogation submission. Content is
- * 2 lines without a note, 3 with (≤3-line budget h3.6), plus one
- * full-text continuation line under line 1 when the per-entry cap fired:
- * the optional third
- * `NOTE: {note}` line is MODEL-VISIBLE per h2.32/R3 — the user-only diff
- * card is still rendered from `details` (P1.M7.T3.S1), never from content.
+ * The pi.sendMessage payload for an interrogation submission. Content is a
+ * header line, ONE full line per changed answer (ANSWER-FIDELITY: never
+ * truncated, never dropped — no budget exists anywhere on this path), the
+ * fixed reminder, and an optional `NOTE: {note}` line (MODEL-VISIBLE per
+ * h2.32/R3) — the user-only diff card is still rendered from `details`
+ * (P1.M7.T3.S1), never from content.
  */
 export interface SubmissionMessage {
   customType: "interrogation-submission";
-  /** 2 lines (+ a third `NOTE: {note}` line only when a note ships, h2.32;
-   * + one full-text continuation line under line 1 when the per-entry cap
-   * fired — capped user words are never the model's only view);
-   * line 1 ends ` (state epoch {n})` with the POST-bump epoch (BUG-003). */
+  /** Header + one UNTRUNCATED line per changed answer + the reminder (+
+   * `NOTE: {note}` when a note ships) — ANSWER-FIDELITY: no budget, no
+   * drop, no cap, no conditional rescue. The header carries
+   * ` (state epoch {n})` with the POST-bump epoch (BUG-003). */
   content: string;
   display: true;
   details: {
@@ -88,59 +81,43 @@ export interface SubmissionMessage {
  * (h3.6, Mode A). Pure formatting + the snapshot/bump side effects; no
  * transport, no UI.
  *
- * Content format (h3.6 ≤3-line budget; the note line is MODEL-VISIBLE per
- * h2.32/R3 — the shipped "note intentionally details-only" choice is
- * superseded: h3.6's "≤3-line custom message" headroom is exactly what the
- * optional third line uses, so content stays 2 lines whenever no note
- * ships — plus ONE full-text continuation line under line 1 whenever the
- * per-entry cap fired (see below),
+ * Content format (ANSWER-FIDELITY, owner ruling 2026-11-01 — supersedes
+ * h3.6's ≤3-line budget and EVERY earlier cap; losing a user's answers is
+ * unacceptable under any circumstances, so no budget exists on this path):
  *
  * ```
- * Submitted {k}: {id}: {to}; {id}: {to} (changed)… (state epoch {n})
- * [  {id}: {full to}]                 ← ONLY when line 1 capped this entry
+ * Submitted {k} (state epoch {n})
+ *   {id}: {to}                        ← ONE line per changed entry, FULL text
+ *   {id}: {to} (changed)
  * Consider how these affect your other questions.
  * [NOTE: {note}]                      ← ONLY when a note ships
  * ```
  *
- * - `{n}` in the line-1 epoch suffix is the POST-bump epoch (BUG-003 fix):
- *   the epoch the model must ECHO on its next upsert/record to pass
+ * Zero changes → `Submitted 0: (no changes) (state epoch {n})` with no
+ * entry lines.
+ *
+ * - `{n}` in the header's epoch suffix is the POST-bump epoch (BUG-003
+ *   fix): the epoch the model must ECHO on its next upsert/record to pass
  *   assertFresh in one round trip. details.epoch stays the PRE-bump value
  *   (snapshot label + reconstruct's `details.epoch >= state.epoch` filter
  *   depend on it) — content and details intentionally disagree by one.
  *
- * - Line 1 entries come from `diff.changed` (`{id}: {to}`, `to` is already
- *   label-preferred and untruncated by computeDiff — truncation to the
- *   {@link SUBMISSION_LIST_MAX_CHARS} budget is THIS module's job). Entries
- *   with `editedArchived` get a ` (changed)` suffix (AC-13) and are joined
- *   with `"; "`. When the joined list overflows the budget, entries are
- *   dropped from the end and `+{m} more` summarizes them; if the line STILL
- *   overflows with only the first entry kept, that last kept entry is
- *   ellipsis-truncated (`…`) to the remaining budget (BUG-006 cap half —
- *   the old "always ≥1 entry whole" rule let a huge write-in through
- *   unbounded), so line 1 never exceeds the cap for arbitrary text. When
- *   that per-entry cap fires, the FULL entry ships as an indented
- *   continuation line between line 1 and the reminder — never truncated,
- *   newlines collapsed to `" / "` (the note-line rule, extended to
- *   user-authored answer text: the model must never be told to
- *   "consider" words it cannot read). The id
- *   prefix, the ` (changed)` suffix, the rollup, and the epoch suffix are
- *   never truncated; `{k}` still reports the true change count; and
- *   `details.changed`/`details.card` keep the UNTRUNCATED `to` (h2.36
- *   Q2=A: the user-only card renders from details). Zero changes →
- *   `Submitted 0: (no changes)`. The budget measures the SUFFIXED line and
- *   the suffix is never dropped. The reminder line is never truncated.
- * - The optional third `NOTE:` line appears ONLY when `note` is a non-empty
+ * - Entry lines come from `diff.changed` — `to` is label-preferred and
+ *   UNTRUNCATED (computeDiff guarantees it; this module adds no cap).
+ *   Newlines collapse to `" / "` (the note-line rule, applied to
+ *   user-authored answer text); entries with `editedArchived` get a
+ *   ` (changed)` suffix (AC-13). `details.changed`/`details.card` keep the
+ *   raw `to` (h2.36 Q2=A: the user-only card renders from details).
+ * - The optional `NOTE:` line appears ONLY when `note` is a non-empty
  *   string (hard requirement R3, h2.32: the note reaches the model in the
  *   delta). Newlines inside the note collapse to `" / "` and the line is
- *   never truncated (same rule as the reminder line);
- *   {@link SUBMISSION_LIST_MAX_CHARS} budgets line 1 ONLY — the note never
- *   participates in the truncation loop. `details.note` ALSO stays for the
- *   user-only card renderer (P1.M7.T3.S1).
+ *   never truncated (same rule as the reminder line). `details.note` ALSO
+ *   stays for the user-only card renderer (P1.M7.T3.S1).
  * - details: `{changed, note?, epoch, card}` — `epoch` is the PRE-bump
  *   epoch (same as diff.epoch and the snapshot label); `note` is omitted
  *   when undefined/empty; `card` is the SubmissionCardData as passed.
  *
- * Side effects (strict order, once per call — even for zero changes, so the
+  * Side effects (strict order, once per call — even for zero changes, so the
  * ring stays consistent with stale-guard digests):
  * 1. (precondition, caller-owned) pending answers already flushed into
  *    `state` by the panel (P1.M3).
@@ -162,110 +139,40 @@ export function buildSubmission(
   note?: string,
 ): SubmissionMessage {
   const k = diff.changed.length;
-  const entries = diff.changed.map(
-    (e) => `${e.id}: ${e.to}${e.editedArchived ? " (changed)" : ""}`,
-  );
 
-  // POST-bump epoch for the content line (BUG-003 fix): the model echoes
+  // POST-bump epoch for the header line (BUG-003 fix): the model echoes
   // this value on its next tool call to pass assertFresh in one round trip.
   // diff.epoch is PRE-bump, so the post-bump value is diff.epoch + 1
   // (=== state.epoch after the bump below).
   const postEpoch = diff.epoch + 1;
-  const epochSuffix = ` (state epoch ${postEpoch})`;
 
-  // Budget loop: shrink the entry list from the end until the header+list
-  // line WITH the epoch suffix folded in fits SUBMISSION_LIST_MAX_CHARS,
-  // then append the "+m more" rollup for whatever was dropped — the rollup
-  // precedes the (never-dropped) suffix. When even the last kept entry
-  // overflows, the per-entry cap below truncates it (the old "always ≥1
-  // entry whole" rule was BUG-006's unbounded half).
-  let list = entries.join("; ");
-  let dropped = 0;
-  while (
-    `Submitted ${k}: ${list}${epochSuffix}`.length > SUBMISSION_LIST_MAX_CHARS &&
-    entries.length - dropped > 1
-  ) {
-    dropped++;
-    list = entries.slice(0, entries.length - dropped).join("; ");
-  }
-  if (dropped > 0) list += `; +${dropped} more`;
+  // ANSWER-FIDELITY (owner ruling 2026-11-01 — supersedes h3.6's ≤3-line
+  // budget and EVERY earlier cap; the SUBMISSION_LIST_MAX_CHARS=240 era
+  // dropped entries to "+m more" and ellipsis-capped write-ins, and its
+  // conditional full-text-block patch still bet the user's words on
+  // machinery firing — losing a user's answers is unacceptable under ANY
+  // circumstances): every changed answer ships on its OWN line, full text,
+  // always. The note-line rule (never truncated, newlines collapse to
+  // " / ") applies to every user answer; ` (changed)` rides inline (AC-13).
+  const entryLines = diff.changed
+    .map(
+      (e) => `  ${e.id}: ${e.to.replace(/\n+/g, " / ")}${e.editedArchived ? " (changed)" : ""}`,
+    )
+    .join("\n");
 
-  // Per-entry cap (BUG-006 cap half): when the line still overflows with
-  // only the first entry kept (plus any rollup), rebuild that entry with a
-  // `…`-terminated `to` sized so the FULL line fits the budget. The id
-  // prefix, ` (changed)` suffix, rollup, and epoch suffix are reserved
-  // never-truncated; the allowance even reserves the `…` code unit (U+2026,
-  // one UTF-16 unit — plain .length math is safe: builder output post-flatten
-  // has no ANSI/wide chars, so panel truncate helpers stay unimported,
-  // h2.13 UI-free builder). details.changed/card keep the UNTRUNCATED `to`
-  // (h2.36 Q2=A) — only this content line is capped.
-  const header = `Submitted ${k}: `;
-  const overflows = (candidate: string): boolean =>
-    `${header}${candidate}${epochSuffix}`.length > SUBMISSION_LIST_MAX_CHARS;
-  const first = diff.changed[0];
-  let capped: DiffEntry | undefined; // set when the per-entry cap mutilates first.to
-  if (first !== undefined && overflows(list)) {
-    const changedSuffix = first.editedArchived ? " (changed)" : "";
-    const rollup = dropped > 0 ? `; +${dropped} more` : "";
-    const allowance = Math.max(
-      0,
-      SUBMISSION_LIST_MAX_CHARS -
-        header.length -
-        epochSuffix.length -
-        rollup.length -
-        `${first.id}: `.length -
-        changedSuffix.length -
-        1, // room for the "…"
-    );
-    let slice = first.to.slice(0, allowance);
-    // VAL-001 (code-point-safe cap): an arbitrary UTF-16 boundary can split
-    // an astral character's surrogate pair (e.g. emoji-heavy write-ins),
-    // emitting a lone high surrogate into the model-visible line — invalid
-    // UTF-16 that renders as U+FFFD and reaches the model as an escape
-    // artifact. When the cut lands between the halves (the slice's last
-    // unit is a high surrogate, so its low half is the first dropped unit
-    // on well-formed input), back the boundary off one unit; this only ever
-    // shortens the slice, so the never-grow invariant below still holds.
-    // A lone LOW surrogate at the boundary cannot arise from well-formed
-    // input and is left untouched (garbage-in preserved as-is).
-    if (
-      slice.length > 0 &&
-      slice.charCodeAt(slice.length - 1) >= 0xd800 &&
-      slice.charCodeAt(slice.length - 1) <= 0xdbff
-    ) {
-      slice = slice.slice(0, -1);
-    }
-    // Only rewrite when truncation actually shortens the entry: on a
-    // degenerate budget (huge id/rollup alone overflow) leaving the list
-    // untouched keeps the never-grow invariant (never longer than before).
-    if (slice.length < first.to.length) {
-      list = `${first.id}: ${slice}…${changedSuffix}${rollup}`;
-      capped = first;
-    }
-  }
-
-  // FULL-TEXT CONTINUATION (trust fix): the budgeted line 1 may
-  // ellipsis-cap a long write-in mid-sentence — without this line the
-  // model is told to "consider" an answer it cannot read, inviting
-  // speculation about the user's words. A capped entry gets ONE
-  // untruncated continuation line directly under line 1: the note-line
-  // rule (never truncated, newlines collapse to " / ") extended to
-  // user-authored answer text. Dropped entries keep the "+m more" rollup
-  // — absence, not mutilation; their full text is always recoverable from
-  // the read result's `  answer:` detail lines.
-  const continuationLine =
-    capped !== undefined ? `  ${capped.id}: ${capped.to.replace(/\n+/g, " / ")}\n` : "";
-
-  // Optional third content line (h2.32/R3): the note is MODEL-VISIBLE, not
-  // just details. Newlines collapse to " / "; never truncated (same rule
-  // as the reminder line). The SUBMISSION_LIST_MAX_CHARS loop above budgets
-  // line 1 ONLY — the note never participates in truncation.
+  // Optional NOTE line (h2.32/R3): MODEL-VISIBLE. Newlines collapse to
+  // " / "; never truncated (same rule as the reminder).
   const noteLine =
     typeof note === "string" && note.length > 0
       ? `\nNOTE: ${note.replace(/\n+/g, " / ")}`
       : "";
 
-  const content = `Submitted ${k}: ${k === 0 ? "(no changes)" : list}${epochSuffix}\n${continuationLine}${SUBMISSION_REMINDER}${noteLine}`;
+  const headerLine =
+    k === 0
+      ? `Submitted 0: (no changes) (state epoch ${postEpoch})`
+      : `Submitted ${k} (state epoch ${postEpoch})`;
+  const body = k > 0 ? `${entryLines}\n` : "";
+  const content = `${headerLine}\n${body}${SUBMISSION_REMINDER}${noteLine}`;
 
   // Side-effect tail (order is the contract — h2.39 / snapshots.ts JSDoc):
   // ring snapshot at the pre-bump epoch, then exactly one epoch bump.

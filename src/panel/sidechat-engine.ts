@@ -19,8 +19,10 @@
  * - The port is streamSimple-shaped:
  *   (model, context, {signal, sessionId}) => AssistantMessageEventStream |
  *   Promise<AssistantMessage>. pi-ai throws SYNCHRONOUSLY on missing auth —
- *   the invocation is wrapped; EVERY failure path appends a SidechatNotice
- *   and settles the record back to "idle" (the panel never blocks).
+ *   the invocation is wrapped, as is the registry re-derivation ahead of
+ *   it (an injected seam must never throw past sendTurn); EVERY failure
+ *   path appends a SidechatNotice and settles the record back to "idle"
+ *   (the panel never blocks).
  * - STREAM CONSUMPTION (P1.M1.T5.S2): every event's cumulative `partial`
  *   refreshes record.streamingText — the VIEW's polling buffer (P1.M2.T1.S1
  *   renders the cursor; the engine renders nothing). Terminal routing
@@ -252,6 +254,9 @@ function joinTextParts(content: AssistantMessage["content"]): string {
  *   notice, user turn KEPT — the chat stays usable.
  * - a synchronous port throw (pi-ai's missing-auth behavior) → auth
  *   notice + idle (unchanged from S1).
+ * - a synchronous registry throw (re-deriving the frozen snapshot) →
+ *   error notice + idle — the same injected-seam contract as the port
+ *   throw; no seam failure ever escapes sendTurn.
  * A reply landing after the record was replaced/discarded touches nothing
  * (SIDECHAT-002).
  */
@@ -437,9 +442,20 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
     record.abortController = new AbortController(); // fresh EVERY turn
     record.streamingText = ""; // the view's polling buffer restarts every turn
     record.streamState = "streaming";
-    // Re-derive the Model<Api> from the FROZEN snapshot via the injected registry —
-    // never ctx, never a mid-chat re-resolution (SIDECHAT-003 freeze).
-    const model = deps.registry.find(record.modelSnapshot.provider, record.modelSnapshot.modelId);
+    // Re-derive the Model<Api> from the FROZEN snapshot via the injected
+    // registry — never ctx, never a mid-chat re-resolution (SIDECHAT-003
+    // freeze). SAME guard contract as the port invocation below: the
+    // registry is an injected seam, and a synchronous throw here must
+    // NEVER ride the keypress handler into an uncaughtException — notice
+    // + idle, user turn kept, the chat stays usable.
+    let model: Model<Api> | undefined;
+    try {
+      model = deps.registry.find(record.modelSnapshot.provider, record.modelSnapshot.modelId);
+    } catch (err) {
+      record.notices.push({ kind: "error", text: String(err), at: new Date().toISOString() });
+      record.streamState = "idle";
+      return true;
+    }
     if (model === undefined) {
       // Inert record (empty snapshot marker): turn recorded, no dispatch,
       // error notice + idle — the panel never blocks (P1.M2.T1.S2).
@@ -463,7 +479,9 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
         sessionId: sessionIdFor(record),
       });
     } catch (err) {
-      // pi-ai throws SYNCHRONOUSLY on missing auth: notice + idle, never a block.
+      // pi-ai throws SYNCHRONOUSLY on missing auth: notice + idle, never a
+      // block — the same injected-seam guard contract as the registry
+      // re-derivation above (kind "auth": the designed-for case).
       record.notices.push({ kind: "auth", text: String(err), at: new Date().toISOString() });
       record.streamState = "idle";
       return true;

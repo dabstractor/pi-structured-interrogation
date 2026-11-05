@@ -5,7 +5,8 @@
  * Draws the compact submission diff card for `interrogation-submission`
  * custom messages (built by delivery.ts `buildSubmission`, P1.M2.T1.S1).
  * The card is USER-ONLY visual (h2.36): the model reads `message.content`
- * (the ≤3-line delta), never the card — the renderer reads only
+ * (the ANSWER-FIDELITY delta — every answer in full), never the card — the
+ * renderer reads only
  * `message.details.card` and formats it. It never touches live
  * interrogation state and never mutates the message.
  *

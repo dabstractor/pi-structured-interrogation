@@ -255,6 +255,22 @@ function firstCall(mock: MockPi): CustomCall {
   return mock.calls[0];
 }
 
+/** Minimal Model<Api> for the registry-port tests (ac-sidechat.test.ts shape). */
+function fakeRegistryModel(provider: string, id: string): Model<Api> {
+  return {
+    id,
+    name: `${provider}/${id}`,
+    api: "anthropic-messages",
+    provider,
+    baseUrl: "https://example.test/v1",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 8192,
+    maxTokens: 1024,
+  };
+}
+
 // ------------------------------------------------------------------- tests
 
 describe("openPanel — fire-and-forget host", () => {
@@ -4154,6 +4170,53 @@ describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", 
     // per-openPanel construction would mint fresh instances here.
     expect(panel2.sidechatEngine).toBe(panel1.sidechatEngine);
     expect(panel2.chatRebindDeps).toBe(panel1.chatRebindDeps);
+  });
+
+  test("test_host_registry_port_rebinds_receiver_on_find_and_getAvailable", async () => {
+    // REGRESSION (uncaughtException crash): pi's real ModelRegistry methods
+    // dereference `this` (this.runtime…) — the seams port once called them
+    // DETACHED (captured refs invoked bare), so `this` was undefined and the
+    // first sendTurn/find crashed the host. This registry is deliberately
+    // receiver-SENSITIVE (shorthand methods reading `this`): a detached call
+    // throws, a bound call succeeds — driven through the REAL host wiring.
+    createPanelHost(makeMockLifecycle().lifecycle);
+    const mdl = fakeRegistryModel("prov", "mdl-1");
+    const receiverSensitiveRegistry = {
+      runtime: { models: [mdl] },
+      find(provider: string, modelId: string) {
+        return this.runtime.models.find((m) => m.provider === provider && m.id === modelId);
+      },
+      getAvailable() {
+        return [...this.runtime.models];
+      },
+    };
+
+    // find(): sideChatModel override resolves through the port (the exact
+    // path sendTurn re-derives the frozen snapshot through).
+    const mock1 = makeMockPi();
+    (mock1.pi as unknown as { modelRegistry: unknown }).modelRegistry =
+      receiverSensitiveRegistry;
+    const state1 = createInterrogationState("goal");
+    state1.upsertQuestion(choiceQ("q1"));
+    const override = { ...DEFAULT_CONFIG, sideChatModel: "prov/mdl-1" };
+    expect(openPanel(mock1.pi, optsFor(state1, { config: override }))).toBe(true);
+    firstCall(mock1).component.handleInput("c");
+    expect(getSidechat()!.modelSnapshot).toEqual({ provider: "prov", modelId: "mdl-1" });
+
+    // getAvailable(): no override + no session model → first available.
+    // Close the first panel (single-instance guard), then reopen on a FRESH
+    // surface + fresh question → fresh seams + fresh record.
+    firstCall(mock1).done(null);
+    await flush();
+    resetSidechatForTests();
+    const mock2 = makeMockPi();
+    (mock2.pi as unknown as { modelRegistry: unknown }).modelRegistry =
+      receiverSensitiveRegistry;
+    const state2 = createInterrogationState("goal");
+    state2.upsertQuestion(choiceQ("q2"));
+    expect(openPanel(mock2.pi, optsFor(state2))).toBe(true);
+    firstCall(mock2).component.handleInput("c");
+    expect(getSidechat()!.modelSnapshot).toEqual({ provider: "prov", modelId: "mdl-1" });
   });
 
   test("test_suspend_midstream_settle_reaches_fresh_panel", async () => {

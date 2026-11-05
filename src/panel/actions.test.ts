@@ -586,7 +586,8 @@ describe("accept same-value — inert no-op (ANSWER-PIN-001 / FR-D9)", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1); // delivered exactly once
     expect(state.epoch).toBe(epochBefore + 1);
     const msg = sendMessage.mock.calls[0]?.[0] as SubmissionMessage;
-    expect(msg.content).toContain("Submitted 1: q1: Alpha");
+    expect(msg.content).toContain("Submitted 1 (state epoch");
+    expect(msg.content).toContain("  q1: Alpha"); // full entry line ships
   });
 
   test("test_same_value_on_submitted_is_inert", () => {
@@ -1241,7 +1242,8 @@ describe("submit — flush pending answers", () => {
     };
     expect(msg.content).toContain("q1");
     expect(msg.content).toContain("(state epoch 3)");
-    expect(msg.content).toContain("Submitted 1: q1: Alpha (state epoch 3)");
+    expect(msg.content).toContain("Submitted 1 (state epoch 3)");
+    expect(msg.content).toContain("  q1: Alpha"); // full entry line ships
     expect(msg.details.changed.map((e) => e.id)).toEqual(["q1"]);
     expect(msg.details.changed[0]?.from).toBe("(unanswered)"); // synthetic shape
     expect(msg.details.changed[0]?.to).toBe("Alpha"); // answerSummary, label-preferred
@@ -2019,8 +2021,8 @@ describe("submit — batch note (R3, P1.M4.T2.S2)", () => {
 
     const msg = sendMessage.mock.calls[0][0] as SubmittedMsg;
     const lines = msg.content.split("\n");
-    expect(lines).toHaveLength(3); // h3.6 ≤3-line budget, note = third line
-    expect(lines[2]).toBe("NOTE: picked B because of the deploy"); // model-visible
+    expect(lines).toHaveLength(4); // header + entry + reminder + NOTE
+    expect(lines[3]).toBe("NOTE: picked B because of the deploy"); // model-visible
     expect(msg.details.note).toBe("picked B because of the deploy"); // card keeps it
     // h2.32 "cleared after shipping" — AFTER delivery, never before.
     expect(drafts.setNote).toHaveBeenCalledWith("");
@@ -2057,7 +2059,7 @@ describe("submit — batch note (R3, P1.M4.T2.S2)", () => {
     submit(panel, deps);
 
     const msg = sendMessage.mock.calls[0][0] as SubmittedMsg;
-    expect(msg.content.split("\n")).toHaveLength(3);
+    expect(msg.content.split("\n")).toHaveLength(4); // header + entry + reminder + NOTE
     expect(msg.details.note).toBe("field note");
     expect(panel.batchNote).toBe(""); // cleared even without a store
   });
@@ -2087,7 +2089,7 @@ describe("submit — batch note (R3, P1.M4.T2.S2)", () => {
     submit(panel, deps);
 
     const msg = sendMessage.mock.calls[0][0] as SubmittedMsg;
-    expect(msg.content.split("\n")).toHaveLength(2); // no NOTE line
+    expect(msg.content.split("\n")).toHaveLength(3); // header + entry + reminder (no NOTE)
     expect("note" in msg.details).toBe(false);
     expect(drafts.setNote).not.toHaveBeenCalled();
   });

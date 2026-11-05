@@ -250,7 +250,8 @@ describe("/submit", () => {
     expect(msg.customType).toBe("interrogation-submission");
     expect(msg.display).toBe(true);
     expect(msg.details.epoch).toBe(1); // PRE-bump epoch label
-    expect(msg.content).toContain("Submitted 2:");
+    expect(msg.content).toContain("Submitted 2 (state epoch 2)");
+    expect(msg.content).toContain("q1: Postgres"); // full entry line ships
     expect(options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
 
     // Submission status notify carries the POST-bump epoch.
@@ -385,7 +386,7 @@ describe("`submit` — note= token (R3, P1.M4.T2.S2)", () => {
       details: { note?: string; changed: Array<{ id: string }> };
     };
     expect(msg.content).toContain("\nNOTE: hold this for me");
-    expect(msg.content.split("\n")).toHaveLength(3);
+    expect(msg.content.split("\n")).toHaveLength(4); // header + entry + reminder + NOTE
     expect(msg.details.note).toBe("hold this for me");
     expect(msg.details.changed.map((e) => e.id)).toEqual(["q1"]); // note never an entry
 
@@ -404,7 +405,7 @@ describe("`submit` — note= token (R3, P1.M4.T2.S2)", () => {
     await invoke("submit", "q1=postgres");
 
     const msg = sendMessage.mock.calls[0][0] as { content: string };
-    expect(msg.content.split("\n")).toHaveLength(2); // no NOTE line
+    expect(msg.content.split("\n")).toHaveLength(3); // header + entry + reminder (no NOTE line)
     expect(ctx.ui.notify.mock.calls[1]).toEqual([
       "interrogate debug submit: submitted epoch 2",
       "info",
@@ -419,7 +420,7 @@ describe("`submit` — note= token (R3, P1.M4.T2.S2)", () => {
     await invoke("submit", "q1=postgres,note=");
 
     const msg = sendMessage.mock.calls[0][0] as { content: string };
-    expect(msg.content.split("\n")).toHaveLength(2);
+    expect(msg.content.split("\n")).toHaveLength(3);
     expect(ctx.ui.notify.mock.calls[1][0]).not.toContain("note cleared");
   });
 

@@ -319,6 +319,37 @@ describe("createSidechatEngine — dispatch & context assembly (T5.S1)", () => {
       { role: "assistant", text: "promised", at: expect.any(String), stopReason: "stop" },
     ]);
   });
+
+  test("turn 2+ materialized assistant rows carry usage + stopReason (REGRESSION: usage.totalTokens crash)", async () => {
+    // Live crash: the SECOND turn of a side chat failed instantly with
+    // `undefined is not an object (evaluating 'usage.totalTokens')`. pi-ai's
+    // context estimator reads assistant.usage.totalTokens UNGUARDED (only
+    // stopReason "aborted"/"error" rows are skipped); toPiMessage used to
+    // emit rows with NO usage and NO stopReason — undefined passed both
+    // guards, then dereferenced. Turn 2's context is the first to contain
+    // a materialized assistant row, hence turn-1-works/turn-2-crashes.
+    openOrReplace("q1", rebindDeps());
+    const port = fakePort(() => doneStream("first"));
+    const engine = engineOverRecord({ port });
+    engine.sendTurn("q1");
+    await flush();
+    engine.sendTurn("q2");
+
+    const messages = (port.mock.calls[1]![1]! as Context).messages;
+    const materialized = messages.filter(
+      (m) => m.role === "assistant",
+    ) as Array<{ usage?: unknown; stopReason?: unknown }>;
+    expect(materialized.length).toBeGreaterThan(0); // the prior turn IS in context
+    for (const row of materialized) {
+      expect(row.usage).toBeDefined(); // the estimator's unguarded read target
+      expect(row.stopReason).toBeDefined(); // its skip-guard input
+    }
+    // And the exact estimator computation must not throw on this context.
+    for (const row of materialized) {
+      const u = row.usage as { totalTokens?: number };
+      expect(u.totalTokens ?? 0).toBe(0); // zeros — skipped, never negative
+    }
+  });
 });
 
 describe("createSidechatEngine — controller & sessionId lifecycle (T5.S1)", () => {

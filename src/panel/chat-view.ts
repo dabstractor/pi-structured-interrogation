@@ -247,7 +247,12 @@ export function buildChatContent(
   // seeds bottom; the panel-owned offset navigates via clampChatScroll at
   // the wiring layer — this render always guarantees the bottom window).
   const start = Math.max(0, transcript.length - height);
-  const window = transcript.slice(start, start + height);
+  // CRASH GUARD (live pi-tui uncaughtException "Rendered line … exceeds
+  // terminal width"): every window row is hard-bounded to `width` —
+  // truncateVisible is a NO-OP on fitting lines, so this costs nothing in
+  // the common case and makes the component structurally incapable of
+  // overflowing the terminal, whatever a future overlay appends.
+  const window = transcript.slice(start, start + height).map((line) => truncateVisible(line, width));
 
   // Footer slot (the ONLY placement subtlety — ripple-confirm family): a
   // pending confirm REPLACES the hint string entirely (a confirm state owns
@@ -303,8 +308,7 @@ function transcriptLines(chat: ChatViewState, width: number): string[] {
     const body = wrapText(partial, Math.max(1, width - INSET.length)).map(
       (line) => `${INSET}${line}`,
     );
-    if (body.length > 0) body[body.length - 1] = `${body[body.length - 1]!}${CURSOR}`;
-    lines.push(...body);
+    lines.push(...withTrailingCursor(body, width));
     return lines;
   }
   // Pre-first-token: no buffer yet. A FROZEN assistant tail keeps the
@@ -312,11 +316,30 @@ function transcriptLines(chat: ChatViewState, width: number): string[] {
   // thinking row — animated spinner + elapsed, the "is it alive" signal.
   const last = lines[lines.length - 1];
   if (chat.messages[chat.messages.length - 1]?.role === "assistant" && last !== undefined) {
-    lines[lines.length - 1] = `${last}${CURSOR}`; // trailing cursor on the reply
+    withTrailingCursor(lines, width); // trailing cursor on the reply (width-safe)
   } else {
     lines.push(thinkingLine(chat, width)); // standalone indicator row
   }
   return lines;
+}
+
+/**
+ * Append the streaming cursor to the last of the given rendered rows,
+ * WIDTH-SAFE by construction. The live-crash lesson (pi-tui uncaughtException
+ * "Rendered line … exceeds terminal width", 242 > 241): appending the
+ * cursor AFTER wrapping overflows a full-width last row by exactly one
+ * column. Room on the last row → trailing cursor; a FULL last row (or no
+ * rows) → the cursor gets its own INSET row. Never widens any line past
+ * `width`.
+ */
+function withTrailingCursor(rows: string[], width: number): string[] {
+  const last = rows[rows.length - 1];
+  if (last !== undefined && visibleWidth(last) + visibleWidth(CURSOR) <= width) {
+    rows[rows.length - 1] = `${last}${CURSOR}`;
+    return rows;
+  }
+  rows.push(`${INSET}${CURSOR}`);
+  return rows;
 }
 
 /**

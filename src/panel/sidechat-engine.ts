@@ -199,17 +199,42 @@ export const streamSimplePort: SidechatModelPort = (model, context, options) =>
 const INERT_NOTICE =
   "no side chat model available — check sideChatModel in your config and provider auth";
 
+/**
+ * Zero-usage constant attached to re-materialized assistant rows. pi-ai's
+ * context estimator (buildBaseOptions → clampMaxTokensToContext →
+ * estimateContextTokens → calculateContextTokens) dereferences
+ * `usage.totalTokens` UNGUARDED on any assistant row whose stopReason is
+ * neither "aborted" nor "error" — a row with no usage crashed turn 2+ of
+ * every side chat with `undefined is not an object (evaluating
+ * 'usage.totalTokens')` (turn 1 had no materialized assistant rows yet).
+ * Zeros make the estimator's `> 0` check skip the row and fall through to
+ * size estimation — exactly right for a row whose real usage never
+ * round-tripped (it stays frozen on the record side, T5.S3).
+ */
+const ZERO_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+} as const;
+
 /** Materialize a ChatMessage as a pi-ai Message for context assembly. */
 function toPiMessage(m: ChatMessage): Message {
   if (m.role === "user") {
     return { role: "user", content: [{ type: "text", text: m.text }], timestamp: Date.parse(m.at) };
   }
-  // Assistant turns are re-materialized as text-only Messages (metadata is
-  // not round-tripped through ChatMessage — stopReason/usage stay frozen on
-  // the record side); the T6.S1 parser reads the frozen rows, not these.
+  // Assistant turns are re-materialized as text-only Messages: stopReason
+  // rides the frozen row through (an "error"/"aborted" history row is then
+  // correctly skipped by downstream consumers), and the ZERO usage object
+  // is MANDATORY — see ZERO_USAGE above (the unguarded estimator read);
+  // the T6.S1 parser reads the frozen rows, not these.
   return {
     role: "assistant",
     content: [{ type: "text", text: m.text }],
+    stopReason: m.stopReason,
+    usage: ZERO_USAGE,
     timestamp: Date.parse(m.at),
   } as unknown as AssistantMessage;
 }

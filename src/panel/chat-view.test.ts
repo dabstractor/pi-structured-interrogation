@@ -167,6 +167,41 @@ describe("chat-view layout", () => {
     expect(at(1200, 0)[2]).toBe("  ⠋ thinking… · 1s"); // frame 10 mod 10 = 0
   });
 
+  test("streaming_never_exceeds_terminal_width (REGRESSION: pi-tui crash)", () => {
+    // Live crash: "Rendered line … exceeds terminal width (242 > 241)" — the
+    // cursor was appended AFTER wrapping, overflowing a full-width last row
+    // by exactly one column. Drive BOTH cursor paths at a width the wrapped
+    // rows fill EXACTLY, and assert every rendered line fits.
+    const W = 20; // budget 18; an 18-char word is an exact-full last row
+    // "tail abcdefghijklmnopqr" wraps to ["tail", "abcdefghijklmnopqr"] —
+    // the LAST row is exactly 18 wide, so INSET+row = width and the cursor
+    // has NO room: it must wrap onto its own row instead of widening it.
+    const full = "tail abcdefghijklmnopqr";
+    const partial = buildChatContent(
+      W,
+      40,
+      view([msg("user", "q")], "streaming", { streamingText: full }),
+      Q,
+      keys,
+    );
+    for (const line of partial) expect(visibleWidth(line)).toBeLessThanOrEqual(W);
+    expect(partial[3]).toBe("  abcdefghijklmnopqr"); // exactly full — 20/20
+    expect(visibleWidth(partial[3]!)).toBe(W);
+    // Full last row → the cursor wraps onto its OWN row (never widens it).
+    expect(partial[partial.length - 3]).toBe("  ▌"); // standalone cursor row before blank+footer
+
+    // Legacy path: a frozen assistant row at exactly full width + cursor.
+    const legacy = buildChatContent(
+      W,
+      40,
+      view([msg("assistant", full)], "streaming"),
+      Q,
+      keys,
+    );
+    for (const line of legacy) expect(visibleWidth(line)).toBeLessThanOrEqual(W);
+    expect(legacy.some((l) => l.endsWith("▌"))).toBe(true);
+  });
+
   test("window_cap_and_tail_pin", () => {
     const many = Array.from({ length: 25 }, (_, i) => msg("user", `m${i}`));
     const lines = buildChatContent(80, 40, view(many), Q, keys);

@@ -38,10 +38,36 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { evaluateDependsOn } from "./depends-on.js";
 import { takeSnapshot, transcriptPrompt, type DiffEntry, type SubmissionCardData } from "./snapshots.js";
-import { UNGROUPED_LABEL, type InterrogationState, type Question } from "./state.js";
+import { UNGROUPED_LABEL, type InterrogationState, type Question, type QuestionStatus } from "./state.js";
 
-/** Fixed reminder line (h3.6) — the closing content line, byte-exact. */
+/** Fixed reminder line (h3.6) — the closing content line of a COMPLETE
+ * submit, byte-exact. A PARTIAL submit replaces it with the nudge below. */
 export const SUBMISSION_REMINDER = "Consider how these affect your other questions.";
+
+/**
+ * KEEP-OPEN-002 (2026-11-06 owner ruling): statuses counted as "still
+ * unanswered" for the partial-submit nudge — mirrors actions.ts
+ * UNANSWERED_STATUSES and the SURFACE-001 gate-2 predicate (`open` /
+ * `reasked`). moot/withdrawn are terminal-by-design, closed is archived;
+ * none of the three ever nudges.
+ */
+const NUDGE_UNANSWERED: ReadonlySet<QuestionStatus> = new Set(["open", "reasked"]);
+
+/**
+ * KEEP-OPEN-002: the PARTIAL-submit nudge line (model-visible, replaces
+ * SUBMISSION_REMINDER line-for-line when unanswered questions remain at
+ * build time). The user submitted BEFORE answering everything — an early
+ * ctrl+s usually means a note rode along with context the user wants
+ * weighed, so the model is pointed at the still-open ids and told to
+ * rethink them (re-ask, re-scope) against what just shipped. Byte-stable:
+ * delivery.test.ts pins both variants.
+ */
+function partialNudge(ids: string[], hasNote: boolean): string {
+  const list = ids.join(", ");
+  return hasNote
+    ? `PARTIAL — ${ids.length} question(s) still unanswered (${list}). The user submitted before answering everything, with a note: treat the note as extra context the user wants considered — rethink these questions in light of it and the answers above, and re-ask or re-scope any that no longer fit.`
+    : `PARTIAL — ${ids.length} question(s) still unanswered (${list}). The user submitted before answering everything: rethink these questions in light of the answers above and re-ask or re-scope any that no longer fit.`;
+}
 
 // ANSWER-FIDELITY (owner ruling 2026-11-01): SUBMISSION_LIST_MAX_CHARS
 // (240) and every truncation/rollup mechanic it justified are DELETED —
@@ -52,9 +78,10 @@ export const SUBMISSION_REMINDER = "Consider how these affect your other questio
  * The pi.sendMessage payload for an interrogation submission. Content is a
  * header line, ONE full line per changed answer (ANSWER-FIDELITY: never
  * truncated, never dropped — no budget exists anywhere on this path), the
- * fixed reminder, and an optional `NOTE: {note}` line (MODEL-VISIBLE per
- * h2.32/R3) — the user-only diff card is still rendered from `details`
- * (P1.M7.T3.S1), never from content.
+ * fixed reminder (a COMPLETE submit) or the KEEP-OPEN-002 partial nudge
+ * (an early submit with unanswered questions), and an optional
+ * `NOTE: {note}` line (MODEL-VISIBLE per h2.32/R3) — the user-only diff
+ * card is still rendered from `details` (P1.M7.T3.S1), never from content.
  */
 export interface SubmissionMessage {
   customType: "interrogation-submission";
@@ -89,7 +116,10 @@ export interface SubmissionMessage {
  * Submitted {k} (state epoch {n})
  *   {id}: {to}                        ← ONE line per changed entry, FULL text
  *   {id}: {to} (changed)
- * Consider how these affect your other questions.
+ * Consider how these affect your other questions.   ← COMPLETE submit
+ * PARTIAL — {m} question(s) still unanswered ({ids}). …  ← EARLY submit
+ *                                                  (KEEP-OPEN-002 nudge replaces
+ *                                                   the reminder, line-for-line)
  * [NOTE: {note}]                      ← ONLY when a note ships
  * ```
  *
@@ -172,7 +202,24 @@ export function buildSubmission(
       ? `Submitted 0: (no changes) (state epoch ${postEpoch})`
       : `Submitted ${k} (state epoch ${postEpoch})`;
   const body = k > 0 ? `${entryLines}\n` : "";
-  const content = `${headerLine}\n${body}${SUBMISSION_REMINDER}${noteLine}`;
+
+  // KEEP-OPEN-002 (2026-11-06 owner ruling): an EARLY submit — unanswered
+  // (open/reasked) questions remain at build time, post-flush — replaces
+  // the generic reminder with a nudge naming them. Submitting before
+  // answering everything usually means the user attached a note with
+  // context they want weighed, so the model is told to rethink (re-ask,
+  // re-scope) the still-open ids against what just shipped. A COMPLETE
+  // submit keeps the plain reminder. Line-for-line swap: every consumer
+  // that counts lines (NOTE adjacency, card fallback) is unaffected.
+  const unansweredIds = state
+    .orderedQuestions()
+    .filter((x) => NUDGE_UNANSWERED.has(x.status))
+    .map((x) => x.id);
+  const closingLine =
+    unansweredIds.length === 0
+      ? SUBMISSION_REMINDER
+      : partialNudge(unansweredIds, typeof note === "string" && note.length > 0);
+  const content = `${headerLine}\n${body}${closingLine}${noteLine}`;
 
   // Side-effect tail (order is the contract — h2.39 / snapshots.ts JSDoc):
   // ring snapshot at the pre-bump epoch, then exactly one epoch bump.

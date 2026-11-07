@@ -23,6 +23,14 @@
  * non-blocking, FR-5's "last open question" letter holds and the record
  * actually lists the standing moot.
  *
+ * NO-FORCE AMENDMENT (2026-11-06, reversing DUMP-ONCE-001's forced half):
+ * submitting NEVER completes by itself. The ctrl+s path ships its answers
+ * and suspends the panel; the interrogation stays live (state intact,
+ * suspend widget up) until THIS close-pass trigger fires once every
+ * question is answered → submitted → closed. There is no `force`
+ * parameter anymore — nothing can bypass the blocking predicate, so a
+ * partial submission can never mark the interrogation complete.
+ *
  * Completion invariant (one-time): this fires EXACTLY once per interrogation
  * instance. The guard is `state.completed`, which only `clearForCompletion()`
  * ever sets — the flag and the clear are one atomic step inside state.ts, so
@@ -114,17 +122,6 @@ export function attemptCompletion(
   pi: Pick<ExtensionAPI, "sendMessage">,
   opts: CompletionTriggerOptions,
   _result: ClosePassResult,
-  /**
-   * DUMP-ONCE-001 (2026-10-24 owner ruling): bypass the blocking-status
-   * predicate — the explicit ctrl+s ENDS the interrogation session, so
-   * the record dumps once with open questions included (rendered in their
-   * current status, answers as they stand), the panel dismisses, state
-   * clears, and the suspend widget dies with it. The tool does not outlive
-   * the session it was opened for. The no-state/already-completed guards
-   * still run FIRST (exactly-once holds); the empty-never-used-state guard
-   * also still applies.
-   */
-  force = false,
 ): CompletionResult {
   // 1. No state → nothing to complete, nothing to throw about.
   const state = (opts.getState ?? getState)();
@@ -135,10 +132,13 @@ export function attemptCompletion(
   if (state.completed === true) return { fired: false, reason: "already-completed" };
 
   // 3. Completion predicate — recomputed locally (see BLOCKING: a standing
-  //    moot does NOT block — validation Issue-3 amendment). DUMP-ONCE-001:
-  //    bypassed when force (explicit submit ends the session regardless).
+  //    moot does NOT block — validation Issue-3 amendment). KEEP-OPEN-001
+  //    (2026-11-06, reversing DUMP-ONCE-001): NOTHING bypasses this — a
+  //    submit over a partial set ships answers but leaves the
+  //    interrogation open; completion is the close pass's exclusive call,
+  //    once every question is answered → submitted → closed.
   const qs = state.orderedQuestions();
-  if (!force && qs.some((q) => BLOCKING.has(q.status))) {
+  if (qs.some((q) => BLOCKING.has(q.status))) {
     return { fired: false, reason: "active-questions-remain" };
   }
   // Zero questions: completable only if this state ever had content (a
@@ -149,9 +149,6 @@ export function attemptCompletion(
   // questions, which require a prior submission, which already pushed a
   // ring entry (and bumped epoch past 1). By the time any close-pass
   // snapshot can exist, this predicate was already false.
-  // DUMP-ONCE-001: the never-used guard holds even under force (an
-  // interrogation that never happened cannot complete); only the
-  // blocking-status predicate is bypassed.
   if (qs.length === 0 && state.snapshots.length === 0 && state.epoch <= 1) {
     return { fired: false, reason: "active-questions-remain" };
   }

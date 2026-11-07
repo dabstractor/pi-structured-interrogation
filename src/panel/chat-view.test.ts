@@ -108,13 +108,63 @@ describe("chat-view layout", () => {
       Q,
       keys,
     );
-    expect(assistantTail[2]).toBe("  reply▌"); // trailing cursor on the last line
+    expect(assistantTail[2]).toBe("  reply▌"); // legacy shape: trailing cursor on the last line
 
+    // STREAM-002: a user tail (or empty chat) with no buffer shows the
+    // THINKING row — spinner + ellipsis; absent clock pins frame 0 and no
+    // elapsed term (pure render, deterministic).
     const userTail = buildChatContent(80, 40, view([msg("user", "q")], "streaming"), Q, keys);
-    expect(userTail[userTail.length - 3]).toBe("  ▌"); // standalone cursor row (before blank+footer)
+    expect(userTail[userTail.length - 3]).toBe("  ⠋ thinking…");
 
     const idle = buildChatContent(80, 40, view([msg("assistant", "reply")], "idle"), Q, keys);
     expect(idle.join("\n")).not.toContain("▌"); // idle: no cursor anywhere
+    expect(idle.join("\n")).not.toContain("thinking"); // idle: no indicator anywhere
+  });
+
+  test("streaming_partial_text_token_streams (STREAM-002)", () => {
+    // A non-empty buffer renders as a growing assistant tail: wrapped,
+    // INSET, cursor on the LAST wrapped row — never a thinking row.
+    const short = buildChatContent(
+      80,
+      40,
+      view([msg("user", "q")], "streaming", { streamingText: "Par" }),
+      Q,
+      keys,
+    );
+    expect(short[2]).toBe("  Par▌");
+    expect(short.join("\n")).not.toContain("thinking…");
+
+    // Multi-line buffer: every row INSET, only the LAST carries the cursor.
+    const long = buildChatContent(
+      24,
+      40,
+      view([msg("user", "q")], "streaming", {
+        streamingText: "one two three four five six seven eight",
+      }),
+      Q,
+      keys,
+    );
+    const body = long.slice(2, long.length - 2);
+    expect(body.length).toBeGreaterThan(1); // it wrapped
+    for (const line of body.slice(0, -1)) expect(line.endsWith("▌")).toBe(false);
+    expect(body.at(-1)!.endsWith("▌")).toBe(true);
+    for (const line of body) expect(visibleWidth(line)).toBeLessThanOrEqual(24);
+  });
+
+  test("thinking_row_animates_and_shows_elapsed (STREAM-002)", () => {
+    // Frame derives from nowMs (120ms/step): 0ms → ⠋, 240ms → ⠹, cycling.
+    const at = (nowMs: number, startedAt: number) =>
+      buildChatContent(
+        80,
+        40,
+        view([msg("user", "q")], "streaming", { nowMs, streamStartedAt: startedAt }),
+        Q,
+        keys,
+      );
+    expect(at(0, 0)[2]).toBe("  ⠋ thinking… · 0s");
+    expect(at(240, 0)[2]).toBe("  ⠹ thinking… · 0s");
+    expect(at(240, 240 - 5300)[2]).toBe("  ⠹ thinking… · 5s"); // elapsed floor-seconds
+    expect(at(1200, 0)[2]).toBe("  ⠋ thinking… · 1s"); // frame 10 mod 10 = 0
   });
 
   test("window_cap_and_tail_pin", () => {

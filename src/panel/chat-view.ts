@@ -18,9 +18,14 @@
  * - Transcript window: user lines prefixed `you › ` (continuation lines
  *   hang-indent under the prefix), assistant lines plain; long bodies wrap
  *   with deep-view's wrapText so no line exceeds the width. While
- *   `streamState === "streaming"` the LAST transcript line carries a
- *   trailing `▌` cursor; when the tail is a user message (no assistant
- *   text yet) the cursor is a standalone row instead. The window shows at
+ *   `streamState === "streaming"` the in-flight reply TOKEN-STREAMS: the
+ *   engine's cumulative `streamingText` buffer renders as a growing
+ *   assistant tail, the trailing `▌` cursor riding its LAST wrapped row.
+ *   Before the first token (`streamingText` empty) a THINKING row shows an
+ *   animated spinner plus elapsed seconds (`⠙ thinking… · 4s`) — frame and
+ *   elapsed are pure functions of the caller-supplied `nowMs` render clock
+ *   and `streamStartedAt`; with a FROZEN assistant tail and an empty buffer
+ *   the legacy shape (trailing cursor on the last line) is kept. The window shows at
  *   most {@link CHAT_VIEW_HEIGHT} lines and is TAIL-PINNED — the newest
  *   exchange is visible on open (setView seeds bottom; P1.M2.T3.S1's ↑/↓
  *   move the panel-owned offset through {@link clampChatScroll}).
@@ -104,6 +109,10 @@ const INSET = "  ";
 const USER_PREFIX = "you › ";
 /** Streaming cursor glyph (h2.38: "streaming cursor while a reply is in flight"). */
 const CURSOR = "▌";
+/** Spinner frames + period for the pre-first-token thinking row (frame
+ * index = nowMs / SPINNER_MS mod length — pure per render, no timers here). */
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+const SPINNER_MS = 120;
 /** The chat action's DEFAULT binding — the only literal compared against a label. */
 const CHAT_DEFAULT_LABEL = "c";
 
@@ -155,6 +164,17 @@ export interface ChatViewState {
   /** Model identity frozen at record creation; the inert marker is
    * `{ provider: "", modelId: "" }` → the banner row renders. */
   modelSnapshot: ModelSnapshot;
+  /** In-flight reply text (the engine's cumulative partial buffer) — while
+   * `streamState === "streaming"` this renders as a growing assistant tail
+   * (token streaming); empty/absent = pre-first-token → the thinking row. */
+  streamingText?: string;
+  /** Wall-clock ms at the live turn's dispatch — feeds the thinking row's
+   * elapsed-seconds readout (absent → no elapsed shown). */
+  streamStartedAt?: number;
+  /** Render clock (ms) supplied by the panel per render tick — the spinner
+   * frame and elapsed readout are PURE functions of it (this module stays
+   * timer-free; the panel's stream ticker drives repaints). */
+  nowMs?: number;
 }
 
 /** The question the chat is attached to (header identity + option preview). */
@@ -270,19 +290,53 @@ function messageLines(message: ChatMessage, width: number): string[] {
   return wrapText(message.text, budget).map((line) => `${INSET}${line}`);
 }
 
-/** Full transcript with the streaming cursor applied (h2.38's two shapes). */
+/** Full transcript with the streaming overlay applied (h2.38 + token streaming). */
 function transcriptLines(chat: ChatViewState, width: number): string[] {
   const lines: string[] = [];
   for (const message of chat.messages) lines.push(...messageLines(message, width));
-  if (chat.streamState === "streaming") {
-    const last = lines[lines.length - 1];
-    if (chat.messages[chat.messages.length - 1]?.role === "assistant" && last !== undefined) {
-      lines[lines.length - 1] = `${last}${CURSOR}`; // trailing cursor on the reply
-    } else {
-      lines.push(`${INSET}${CURSOR}`); // user tail / empty chat: standalone cursor row
-    }
+  if (chat.streamState !== "streaming") return lines;
+  const partial = chat.streamingText ?? "";
+  if (partial.length > 0) {
+    // Token streaming: the cumulative buffer renders as a growing assistant
+    // tail (same wrap rules as a frozen assistant row); the cursor rides its
+    // LAST wrapped row so the newest token is always visibly "live".
+    const body = wrapText(partial, Math.max(1, width - INSET.length)).map(
+      (line) => `${INSET}${line}`,
+    );
+    if (body.length > 0) body[body.length - 1] = `${body[body.length - 1]!}${CURSOR}`;
+    lines.push(...body);
+    return lines;
+  }
+  // Pre-first-token: no buffer yet. A FROZEN assistant tail keeps the
+  // legacy trailing-cursor shape; a user tail (or empty chat) shows the
+  // thinking row — animated spinner + elapsed, the "is it alive" signal.
+  const last = lines[lines.length - 1];
+  if (chat.messages[chat.messages.length - 1]?.role === "assistant" && last !== undefined) {
+    lines[lines.length - 1] = `${last}${CURSOR}`; // trailing cursor on the reply
+  } else {
+    lines.push(thinkingLine(chat, width)); // standalone indicator row
   }
   return lines;
+}
+
+/**
+ * The pre-first-token indicator row: `{frame} thinking… · {N}s`. The
+ * spinner frame derives from the caller-supplied `nowMs` render clock
+ * (`nowMs / SPINNER_MS mod frames`) and the elapsed seconds from
+ * `streamStartedAt` — PURE per render (no timers in this module); an
+ * absent clock pins frame 0 and an absent start hides the elapsed term.
+ */
+function thinkingLine(chat: ChatViewState, width: number): string {
+  const frame = SPINNER_FRAMES[Math.floor((chat.nowMs ?? 0) / SPINNER_MS) % SPINNER_FRAMES.length]!;
+  let text = `${frame} thinking…`;
+  if (
+    chat.streamStartedAt !== undefined &&
+    chat.nowMs !== undefined &&
+    chat.nowMs >= chat.streamStartedAt
+  ) {
+    text += ` · ${Math.floor((chat.nowMs - chat.streamStartedAt) / 1000)}s`;
+  }
+  return `${INSET}${truncateVisible(text, Math.max(1, width - INSET.length))}`;
 }
 
 /**

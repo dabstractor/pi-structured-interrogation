@@ -200,8 +200,10 @@ describe("buildSubmission — content", () => {
 
     const msg = buildSubmission(state, diff);
 
+    // q1 is still open — KEEP-OPEN-002: the nudge replaces the reminder.
     expect(msg.content).toBe(
-      "Submitted 0: (no changes) (state epoch 2)\nConsider how these affect your other questions.",
+      "Submitted 0: (no changes) (state epoch 2)\n" +
+        "PARTIAL — 1 question(s) still unanswered (q1). The user submitted before answering everything: rethink these questions in light of the answers above and re-ask or re-scope any that no longer fit.",
     );
     expect(state.snapshots).toHaveLength(1); // ring consistency on empty diffs
     expect(state.epoch).toBe(2);
@@ -215,6 +217,64 @@ describe("buildSubmission — content", () => {
 
     expect(SUBMISSION_REMINDER).toBe("Consider how these affect your other questions.");
     expect(msg.content.split("\n")[2]).toBe(SUBMISSION_REMINDER);
+  });
+});
+
+// --------------------------- KEEP-OPEN-002 partial-submit nudge (2026-11-06)
+
+describe("buildSubmission — KEEP-OPEN-002 partial nudge (early submit)", () => {
+  test("open_and_reasked_remaining_replace_reminder_note_rides_last", () => {
+    // Early ctrl+s: q1/q2 answered, q3 still open, q4 reasked — BOTH
+    // statuses count as unanswered, the nudge names their ids in order, and
+    // the NOTE line still rides last (the note is exactly the context the
+    // nudge points the model at — the user's likely reason for submitting
+    // before answering everything).
+    for (const id of ["q1", "q2", "q3", "q4"]) state.upsertQuestion(q({ id }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("Alpha"));
+    state.applyAnswer("q2", ans("Beta"));
+    const diff = diffFrom(prev);
+    state.setStatus("q4", "reasked"); // q3 is open by upsert default
+
+    const msg = buildSubmission(state, diff, "weigh this");
+
+    const lines = msg.content.split("\n");
+    expect(lines).toHaveLength(5); // header + 2 entries + nudge + NOTE
+    expect(lines[3]).toBe(
+      "PARTIAL — 2 question(s) still unanswered (q3, q4). The user submitted before answering everything, with a note: treat the note as extra context the user wants considered — rethink these questions in light of it and the answers above, and re-ask or re-scope any that no longer fit.",
+    );
+    expect(lines[4]).toBe("NOTE: weigh this");
+    expect(msg.content).not.toContain(SUBMISSION_REMINDER); // replaced, not stacked
+  });
+
+  test("no_note_variant_of_the_nudge", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    state.upsertQuestion(q({ id: "q2" }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("a"));
+    const diff = diffFrom(prev);
+
+    const lines = buildSubmission(state, diff).content.split("\n");
+    expect(lines).toHaveLength(3); // header + entry + nudge (line-for-line swap)
+    expect(lines[2]).toBe(
+      "PARTIAL — 1 question(s) still unanswered (q2). The user submitted before answering everything: rethink these questions in light of the answers above and re-ask or re-scope any that no longer fit.",
+    );
+  });
+
+  test("terminal_statuses_never_nudge_complete_submit_keeps_reminder", () => {
+    // moot/withdrawn/closed/submitted around one shipped answer: nothing is
+    // "still unanswered" (the nudge predicate mirrors actions.ts
+    // UNANSWERED_STATUSES), so the plain reminder survives.
+    for (const id of ["q1", "q2", "q3", "q4", "q5"]) state.upsertQuestion(q({ id }));
+    const prev = state.serialize();
+    state.applyAnswer("q1", ans("a"));
+    const diff = diffFrom(prev);
+    state.setStatus("q2", "submitted");
+    state.setStatus("q3", "moot");
+    state.setStatus("q4", "withdrawn");
+    state.setStatus("q5", "closed");
+
+    expect(buildSubmission(state, diff).content.split("\n")[2]).toBe(SUBMISSION_REMINDER);
   });
 });
 

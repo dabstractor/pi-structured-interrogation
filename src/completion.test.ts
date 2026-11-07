@@ -415,49 +415,42 @@ describe("createCompletionTrigger", () => {
   });
 });
 
-// ------------------------------------------- DUMP-ONCE-001 forced completion
+// --------------------- KEEP-OPEN-001 (2026-11-06): submit never completes
 
-describe("attemptCompletion — DUMP-ONCE-001 force (explicit submit ends the session)", () => {
-  test("force fires with open questions remaining — dump once, dismiss, clear", () => {
-    // The owner's ctrl+s ended the session: the record ships with the open
-    // question included (answers as they stand), the panel dismisses, state
-    // clears — nothing lingers as a resumable widget for hours after.
+describe("attemptCompletion — KEEP-OPEN-001 (submitting does not complete)", () => {
+  test("partial set stays live — no force path, nothing delivers, state survives", () => {
+    // The 2026-11-06 owner ruling reverses DUMP-ONCE-001's forced half: a
+    // ctrl+s over a partial set ships its answers but NEVER marks the
+    // interrogation complete. The force parameter is GONE (the compiler is
+    // the guard — no call site can bypass the predicate anymore); the
+    // submitted+open shape below is exactly what a partial submit leaves,
+    // and it must block: no record, no dismiss, no clear, live questions.
     const st = makeTrackedState();
     seedSubmitted(st, ["q1"]);
-    st.upsertQuestion(choiceQ("q2")); // still open — would block unforced
+    st.upsertQuestion(choiceQ("q2")); // still open — the partial-submit shape
     const pi = makeMockPi();
-    const res = attemptCompletion(pi.pi, makeOpts(st), closePass(), true);
+    const res = attemptCompletion(pi.pi, makeOpts(st), closePass());
+    expect(res).toEqual({ fired: false, reason: "active-questions-remain" });
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+    expect(log).toEqual([]); // nothing built, delivered, dismissed, or cleared
+    expect(st.completed).toBe(false);
+    expect(st.orderedQuestions().map((q) => q.id)).toEqual(["q1", "q2"]); // live state
+  });
+
+  test("a fully answered set completes through the close pass — the only path", () => {
+    // Completion is now the close pass's EXCLUSIVE call: every question
+    // answered → submitted → closed by the settle's close pass → the one
+    // record, dismiss, clear. A submit that answers the last question
+    // reaches this shape only after the agent's settling reply archives it.
+    const st = makeTrackedState();
+    seedSubmitted(st, ["q1", "q2"]);
+    st.bumpEpoch(); // epoch → 2 (a submission happened)
+    closeSubmitted(st, ["q1", "q2"]); // the settle's close pass archived them
+    const pi = makeMockPi();
+    const res = attemptCompletion(pi.pi, makeOpts(st), closePass({ closed: ["q1", "q2"] }));
     expect(res).toEqual({ fired: true });
     expect(pi.sendMessage).toHaveBeenCalledTimes(1);
     expect(log).toEqual(["build", "deliver", "dismiss", "clear"]);
     expect(st.completed).toBe(true);
-    expect(st.orderedQuestions()).toEqual([]); // live state gone
-  });
-
-  test("force still honors the exactly-once and no-state guards", () => {
-    const pi = makeMockPi();
-    expect(attemptCompletion(pi.pi, makeOpts(undefined), closePass(), true)).toEqual({
-      fired: false,
-      reason: "no-state",
-    });
-    const st = makeTrackedState();
-    st.upsertQuestion(choiceQ("q1"));
-    st.setStatus("q1", "open");
-    expect(attemptCompletion(pi.pi, makeOpts(st), closePass(), true)).toEqual({ fired: true });
-    expect(attemptCompletion(pi.pi, makeOpts(st), closePass(), true)).toEqual({
-      fired: false,
-      reason: "already-completed",
-    });
-    expect(pi.sendMessage).toHaveBeenCalledTimes(1); // dumped ONCE
-  });
-
-  test("force never completes a never-used state", () => {
-    const pi = makeMockPi();
-    const st = makeState(); // no questions, no snapshots, epoch 1
-    expect(attemptCompletion(pi.pi, makeOpts(st), closePass(), true)).toEqual({
-      fired: false,
-      reason: "active-questions-remain",
-    });
-    expect(pi.sendMessage).not.toHaveBeenCalled();
   });
 });

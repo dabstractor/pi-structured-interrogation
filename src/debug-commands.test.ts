@@ -432,9 +432,11 @@ describe("`submit` — note= token (R3, P1.M4.T2.S2)", () => {
     await invoke("submit", "note=zero pending context");
 
     const msg = sendMessage.mock.calls[0][0] as { content: string };
+    // q1+q2 both remain open → KEEP-OPEN-002: the note-variant nudge
+    // replaces the reminder; the NOTE line still rides last.
     expect(msg.content).toBe(
       "Submitted 0: (no changes) (state epoch 2)\n" +
-        "Consider how these affect your other questions.\n" +
+        "PARTIAL — 2 question(s) still unanswered (q1, q2). The user submitted before answering everything, with a note: treat the note as extra context the user wants considered — rethink these questions in light of it and the answers above, and re-ask or re-scope any that no longer fit.\n" +
         "NOTE: zero pending context",
     );
     expect(ctx.ui.notify.mock.calls[0]).toEqual([

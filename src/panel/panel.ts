@@ -396,7 +396,6 @@ export interface DeliveryTransportSurface {
 export function surfaceSubmitDeps(
   surface: PiUISurface | DeliveryTransportSurface,
   noteSubmissionDelivered?: () => void,
-  onSubmitted?: () => boolean,
 ): SubmitDeps | undefined {
   if (typeof surface.sendMessage !== "function") return undefined;
   const send = surface.sendMessage;
@@ -405,7 +404,6 @@ export function surfaceSubmitDeps(
     isIdle: () => (typeof surface.isIdle === "function" ? surface.isIdle() : true),
   };
   if (noteSubmissionDelivered !== undefined) deps.noteSubmissionDelivered = noteSubmissionDelivered;
-  if (onSubmitted !== undefined) deps.onSubmitted = onSubmitted; // DUMP-ONCE-001
   return deps;
 }
 
@@ -520,6 +518,12 @@ function resolveSidechatHostSeams(
     modelRegistry?: {
       find?(provider: string, modelId: string): Model<Api> | undefined;
       getAvailable?(): Model<Api>[];
+      /** AUTH-AWARE nested-call surface — extensions.md: "Use
+       * ctx.modelRegistry.streamSimple() for provider-neutral nested model
+       * calls." Present on pi's real ModelRegistry (it resolves credentials
+       * from the same auth store the MAIN session uses); test fakes may
+       * omit it, in which case the raw env-only compat port is the fallback. */
+      streamSimple?: SidechatModelPort;
     };
     sessionManager?: Pick<SessionManager, "getBranch">;
     ui?: { notify?(message: string): void };
@@ -540,6 +544,22 @@ function resolveSidechatHostSeams(
       typeof findModel === "function" ? findModel.call(registry, provider, modelId) : undefined,
     getAvailable: () => getAvailableModels.call(registry) ?? [],
   };
+  // BUGFIX (side chat "No API key for provider: …"): the raw standalone
+  // streamSimple (compat export) resolves auth ONLY from env vars — it never
+  // reads pi's auth store, so a user who logged in via /login (credentials
+  // in auth.json, no ZAI_API_KEY in the environment) got a synchronous
+  // missing-auth throw on every side-chat turn while the MAIN session worked
+  // fine on the same provider. When the surface exposes the live registry's
+  // streamSimple (the documented nested-call path — auth resolved by the
+  // runtime, same as the main conversation), bind THAT. Receiver re-bind via
+  // .call(registry, …): pi's real ModelRegistry method dereferences `this`
+  // (same detached-method hazard as find/getAvailable above).
+  const registryStreamSimple = registry.streamSimple;
+  const authAwarePort: SidechatModelPort | undefined =
+    typeof registryStreamSimple === "function"
+      ? (model, context, options) =>
+          registryStreamSimple.call(registry, model, context, options)
+      : undefined;
   const sessionModel = ctx.model;
   const notify = (message: string): void => {
     try {
@@ -569,7 +589,10 @@ function resolveSidechatHostSeams(
       branchReader !== undefined ? takeBranchSnapshot(branchReader) : [],
   };
   const sidechatEngine = createSidechatEngine({
-    port: streamSimplePort,
+    // Prefer the registry's auth-aware streamSimple (see authAwarePort
+    // above); the env-only compat port remains only as a fallback for
+    // surfaces/fakes that expose no streamSimple on their registry.
+    port: authAwarePort ?? streamSimplePort,
     // NEW-001: the settle observation rides the ENGINE's terminal routing
     // (route()'s onSettle dep) — NOT a thenable-keyed port wrapper.
     // streamSimple returns a non-thenable AssistantMessageEventStream, so a
@@ -825,6 +848,24 @@ export class InterrogationPanel implements Component {
    * so a suspended panel never repaints.
    */
   footerFlash: { text: string; timer?: ReturnType<typeof setTimeout> } | undefined;
+
+  /**
+   * STREAM-002: wall clock (ms) at the live side-chat turn's dispatch —
+   * feeds the thinking row's elapsed readout. Cleared with the ticker.
+   */
+  chatStreamStartedAt: number | undefined;
+  /**
+   * STREAM-002: repaint ticker while the side chat streams. The engine
+   * writes `record.streamingText` per stream EVENT, but nothing repaints
+   * between settles — so partial text and the thinking spinner would never
+   * reach the screen. Every tick re-invalidates (throttled ~100ms); the
+   * callback SELF-CLEARS once no record is streaming, which covers every
+   * terminal path (settle, abort, /clear reset, discard/replace) without
+   * per-site teardown. Also cleared in dispose()/suspend(); re-armed by
+   * sendChatInput and setView("chat") (a post-resume fresh panel re-arms
+   * itself when the user re-enters the chat view mid-stream).
+   */
+  chatStreamTicker: ReturnType<typeof setInterval> | undefined;
 
   /**
    * Active soft-gate notice (P1.M5.T3.S1 warning + P2.M1.T2.S1 hold) — ONE
@@ -1682,8 +1723,38 @@ export class InterrogationPanel implements Component {
   suspend(): void {
     if (this.resolved) return;
     this.writeThroughCurrentDraft(); // R4/ESC-002: never lose typed-but-unsubmitted text
+    this.stopChatStreamTicker(); // STREAM-002: a suspended panel repaints nothing
     this.resolved = true;
     this.done(null);
+  }
+
+  /**
+   * STREAM-002 arm: start the stream repaint ticker if (and only if) a
+   * record is actually streaming, stamping the turn's start clock. One
+   * ticker maximum (guard); idempotent re-arm after resume-into-chat.
+   */
+  private startChatStreamTicker(): void {
+    if (getSidechatRecord()?.streamState !== "streaming") return; // refused/inert/settled
+    if (this.chatStreamStartedAt === undefined) this.chatStreamStartedAt = Date.now();
+    if (this.chatStreamTicker !== undefined) return;
+    this.chatStreamTicker = setInterval(() => {
+      if (getSidechatRecord()?.streamState !== "streaming") {
+        // Self-clearing: every terminal path (settle, abort, /clear,
+        // discard/replace) lands here — then one final invalidate for the
+        // settled frame (redundant with onSettle's, deliberately).
+        this.stopChatStreamTicker();
+        this.invalidate();
+        return;
+      }
+      if (this.view === "chat") this.invalidate(); // animate the live view only
+    }, 100);
+  }
+
+  /** STREAM-002 disarm — idempotent; also resets the turn's start clock. */
+  private stopChatStreamTicker(): void {
+    if (this.chatStreamTicker !== undefined) clearInterval(this.chatStreamTicker);
+    this.chatStreamTicker = undefined;
+    this.chatStreamStartedAt = undefined;
   }
 
   /**
@@ -1715,6 +1786,7 @@ export class InterrogationPanel implements Component {
     this.state.off("changed", this.onChanged);
     if (this.footerFlash?.timer !== undefined) clearTimeout(this.footerFlash.timer);
     this.footerFlash = undefined;
+    this.stopChatStreamTicker();
     // Tolerant teardown: a composed editor may own timers/subscriptions.
     const editor = this.textField.editor as { dispose?: () => void };
     if (typeof editor.dispose === "function") editor.dispose();
@@ -1781,6 +1853,7 @@ export class InterrogationPanel implements Component {
       // the chat editor claims focus with the view visible (BUG-011 safe).
       this.chatScrollOffset = Number.MAX_SAFE_INTEGER;
       this.focusChatInput();
+      this.startChatStreamTicker(); // STREAM-002: re-entering chat mid-stream re-arms
     }
     this.invalidate();
   }
@@ -2023,6 +2096,7 @@ export class InterrogationPanel implements Component {
       const sent = this.sidechatEngine?.sendTurn(text) ?? false;
       if (sent) {
         this.chatField.setText("");
+        this.startChatStreamTicker(); // STREAM-002: animate the in-flight turn
       } else {
         this.flash("reply in flight — esc aborts");
       }
@@ -2348,6 +2422,11 @@ export class InterrogationPanel implements Component {
           pendingConfirm: record.pendingConfirm,
           lastRejection: record.lastRejection,
           modelSnapshot: record.modelSnapshot,
+          // STREAM-002: the in-flight buffer + render clock (the thinking
+          // row's spinner/elapsed and the growing tail derive from these).
+          streamingText: record.streamingText,
+          streamStartedAt: this.chatStreamStartedAt,
+          nowMs: Date.now(),
         },
         { id: q.id, prompt: q.prompt, options: q.options },
         this.labels,
@@ -2564,8 +2643,6 @@ let lastOpts: OpenPanelOptions | undefined;
  * Undefined until a host exists / when the lifecycle lacks the hook.
  */
 let hostNoteSubmissionDelivered: (() => void) | undefined;
-/** DUMP-ONCE-001: host-captured forced-completion hook (see createPanelHost). */
-let hostOnSubmitted: (() => boolean) | undefined;
 /** State instance currently wired for questions-upserted (for re-subscribe). */
 let upsertState: InterrogationState | undefined;
 /**
@@ -2779,14 +2856,6 @@ export function createPanelHost(
     dismissPanel(): void;
     /** Optional so test lifecycles stay valid; wired into the submit deps. */
     noteSubmissionDelivered?(): void;
-    /**
-     * DUMP-ONCE-001 (2026-10-24 owner ruling): optional forced-completion
-     * hook fired right after a REAL submit delivery — the host wires it to
-     * attemptCompletion(force): record dumped once, panel dismissed, state
-     * + suspend widget cleared. Returns TRUE when it dismissed the panel
-     * (submit then skips its own suspend).
-     */
-    onSubmittedEnd?(): boolean;
   },
   /**
    * BUGFIX (dead ctrl+s): the ExtensionAPI ROOT surface, captured at factory
@@ -2807,10 +2876,6 @@ export function createPanelHost(
   hostNoteSubmissionDelivered =
     typeof lifecycle.noteSubmissionDelivered === "function"
       ? () => lifecycle.noteSubmissionDelivered?.()
-      : undefined;
-  hostOnSubmitted =
-    typeof lifecycle.onSubmittedEnd === "function"
-      ? () => lifecycle.onSubmittedEnd?.() === true
       : undefined;
   return {
     isOpen: () => phase === "open" && !stuckOpen(),
@@ -2861,9 +2926,9 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
   // spreads keep the transport across suspend/resume (R4).
   const delivery =
     opts.delivery ??
-    surfaceSubmitDeps(pi, hostNoteSubmissionDelivered, hostOnSubmitted) ??
+    surfaceSubmitDeps(pi, hostNoteSubmissionDelivered) ??
     (rootDeliveryFallbackSurface !== undefined
-      ? surfaceSubmitDeps(rootDeliveryFallbackSurface, hostNoteSubmissionDelivered, hostOnSubmitted)
+      ? surfaceSubmitDeps(rootDeliveryFallbackSurface, hostNoteSubmissionDelivered)
       : undefined);
   // SIDECHAT-001 (P1.M2.T4.S1): explicit opts win; otherwise derive the real
   // seams from THIS surface (needs a ctx-flavored surface — modelRegistry /

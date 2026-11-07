@@ -72,7 +72,11 @@ materialize; runtime loads via jiti against pi's tree.
    immediately too (one submission
    per commit — the deliberate one-model-turn-per-edit trade-off while
    complete). `ctrl+s` still submits partial sets — unanswered questions
-   stay open. While a foundational gate question is unanswered, auto-submit
+   stay open, and the delta closes with a `PARTIAL — {n} question(s) still
+   unanswered (…)` nudge telling the model to rethink those questions in
+   light of what just shipped (submitting early usually means you attached
+   a note with extra context you want considered — the nudge says so
+   explicitly when a note rides along). While a foundational gate question is unanswered, auto-submit
    holds: commits show `⚠ {n} foundational unanswered — answer them or
    {submit} to submit now` (any key dismisses it), and `ctrl+s` is the
    deliberate override. Each submit streams a compact delta message to the

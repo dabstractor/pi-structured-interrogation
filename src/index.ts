@@ -30,7 +30,7 @@
  * `interrogation-state` custom-entry appends + session_shutdown flush.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { attemptCompletion, createCompletionTrigger } from "./completion.js";
+import { createCompletionTrigger } from "./completion.js";
 import { registerInterrogateCommand } from "./command.js";
 import { createCompactionGuard } from "./compaction.js";
 import { loadConfig } from "./config.js";
@@ -80,18 +80,6 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   const lifecycle = createLifecycle(pi, {
     onAfterClosePass: createCompletionTrigger(pi, completionOpts),
   });
-  // DUMP-ONCE-001 (2026-10-24 owner ruling): the explicit ctrl+s ENDS the
-  // interrogation session — force the completion through the SAME opts
-  // (record dumped once with open questions included, panel dismissed,
-  // state cleared, suspend widget cleared). The tool does not outlive the
-  // session it was opened for; no lingering widget line for hours after.
-  const forceCompletion = (): boolean =>
-    attemptCompletion(
-      pi,
-      completionOpts,
-      { closed: [], reasked: [], remainingActive: [] },
-      true,
-    ).fired;
 
   // P1.M7.T4.S1 — plain-text round detection (FR-26, h2.27): TUI-only,
   // config-gated (roundDetection), throttled once per 3 turns; never
@@ -141,7 +129,6 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
       onPanelDismiss: (cb) => lifecycle.onPanelDismiss(cb),
       dismissPanel: () => lifecycle.dismissPanel(),
       noteSubmissionDelivered: () => lifecycle.noteSubmissionDelivered(),
-      onSubmittedEnd: forceCompletion, // DUMP-ONCE-001
     },
     pi,
   );

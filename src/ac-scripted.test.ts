@@ -45,7 +45,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "./config.js";
 import { createCompletionTrigger, attemptCompletion } from "./completion.js";
-import { buildSubmission, SUBMISSION_REMINDER, type CompletionMessage } from "./delivery.js";
+import { buildSubmission, type CompletionMessage } from "./delivery.js";
 import { createDebugSubcommands, type DebugSubcommandHandler } from "./debug-commands.js";
 import { DraftStore } from "./draft-store.js";
 import { RELAY_INSTRUCTION } from "./fallback.js";
@@ -242,7 +242,7 @@ function registerDebugBridge(
 }
 
 describe("AC-2 — submission delta, reminder, open count, epoch (FR-3)", () => {
-  test("AC-2_submission_delta_three_lines_reminder_epoch_27_open", () => {
+  test("AC-2_submission_delta_full_lines_nudge_epoch_27_open", () => {
     // Model upserts the 30-question set through THE production executor.
     executeInterrogate(fixtureUpsert(), tuiCtx(), DEFAULT_CONFIG);
     const state = getState()!;
@@ -261,14 +261,23 @@ describe("AC-2 — submission delta, reminder, open count, epoch (FR-3)", () => 
     const epochBefore = state.epoch; // 1
     const msg = buildSubmission(state, diff); // does takeSnapshot + bumpEpoch ITSELF
 
-    // ANSWER-FIDELITY delta: header + one full line per answer + the
-    // byte-exact reminder (owner ruling 2026-11-01 — no ≤3-line budget).
+    // ANSWER-FIDELITY delta: header + one full line per answer (owner
+    // ruling 2026-11-01 — no ≤3-line budget) + the KEEP-OPEN-002 nudge:
+    // this IS the canonical early submit ("answer 2 of 30, ctrl+s"), so
+    // the nudge replaces the reminder and names the 27 still-open ids —
+    // q10 is MOOT (not unanswered), hence 27 of the 28 unshipped.
     const lines = msg.content.split("\n");
     expect(lines.length).toBe(4);
     expect(lines[0]).toBe("Submitted 2 (state epoch 2)");
     expect(lines[1]).toBe("  q01: Alpha");
     expect(lines[2]).toBe("  q02: Beta");
-    expect(lines[3]).toBe(SUBMISSION_REMINDER);
+    const openIds = Array.from({ length: 30 }, (_, i) => `q${String(i + 1).padStart(2, "0")}`).filter(
+      (id) => !"q01 q02 q10".split(" ").includes(id),
+    );
+    expect(openIds).toHaveLength(27);
+    expect(lines[3]).toBe(
+      `PARTIAL — ${openIds.length} question(s) still unanswered (${openIds.join(", ")}). The user submitted before answering everything: rethink these questions in light of the answers above and re-ask or re-scope any that no longer fit.`,
+    );
 
     // Epoch bumps EXACTLY once — by buildSubmission, never by the caller
     // (double-bump anti-pattern). One call = one snapshot + one bump.
@@ -629,13 +638,16 @@ describe("AC-13 — editing an archived answer re-pends and flags (changed)", ()
     });
 
     // ctrl+s flush (the FIXED production transition) → buildSubmission:
-    // the model-visible delta carries the "(changed)" suffix.
+    // the model-visible delta carries the "(changed)" suffix, and q2
+    // still open ⇒ the KEEP-OPEN-002 nudge replaces the reminder.
     markSubmitted(state, ["q1"]);
     const msg = buildSubmission(state, diff);
     const lines = msg.content.split("\n");
     expect(lines[0]).toBe("Submitted 1 (state epoch 3)");
     expect(lines[1]).toBe("  q1: Postgres (changed)");
-    expect(lines[2]).toBe(SUBMISSION_REMINDER);
+    expect(lines[2]).toBe(
+      "PARTIAL — 1 question(s) still unanswered (q2). The user submitted before answering everything: rethink these questions in light of the answers above and re-ask or re-scope any that no longer fit.",
+    );
 
     // The user-only card renders "(changed)" (renderers.ts submission card).
     const cardLines = renderLines(buildSubmissionCard(msg, { expanded: false, outputPad: 0 }, stubTheme));

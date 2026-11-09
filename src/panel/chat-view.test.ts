@@ -215,6 +215,31 @@ describe("chat-view layout", () => {
     expect(clampChatScroll(5, 999)).toBe(0); // short transcript: no scroll range
   });
 
+  test("viewport_height_override_shrinks_only (CHAT-CONTEXT-001)", () => {
+    const many = Array.from({ length: 25 }, (_, i) => msg("user", `m${i}`));
+
+    // Absent ⇒ byte-identical historical cap (the pinned contract).
+    const absent = buildChatContent(80, 40, view(many), Q, keys);
+    expect(absent).toHaveLength(1 + CHAT_VIEW_HEIGHT + 1 + 1);
+
+    // A seam cap below CHAT_VIEW_HEIGHT shrinks the window, tail-pinned —
+    // the panel seam passes rows minus the question block it renders ABOVE
+    // this output; the newest exchange stays visible.
+    const shrunk = buildChatContent(80, 40, view(many), Q, keys, 5);
+    expect(shrunk).toHaveLength(1 + 5 + 1 + 1);
+    expect(shrunk[1]).toBe("  you › m20"); // 25 - 5 window lines
+    expect(shrunk[5]).toBe("  you › m24"); // newest visible
+
+    // A cap ABOVE the historical height never grows the window.
+    const notGrown = buildChatContent(80, 40, view(many), Q, keys, CHAT_VIEW_HEIGHT + 7);
+    expect(notGrown).toHaveLength(1 + CHAT_VIEW_HEIGHT + 1 + 1);
+
+    // Degenerate caps clamp to the floor-1 window, never zero/crash.
+    const floored = buildChatContent(80, 40, view(many), Q, keys, 0);
+    expect(floored).toHaveLength(1 + 1 + 1 + 1);
+    expect(floored[1]).toBe("  you › m24"); // the single window line is the newest
+  });
+
   test("footer_is_state_invariant_clear_only (FOOTER-001)", () => {
     const idle = buildChatContent(80, 40, view([]), Q, keys);
     expect(idle.at(-1)).toBe("/clear");

@@ -305,9 +305,14 @@ only — the shortcut never fires in RPC/print modes.
 ## Side chat
 
 Press `c` on any question to open the side chat — a short private
-conversation about that one question, rendered inside the panel: a one-line
-header (`chat · q3 — {prompt, truncated}`), a transcript with your lines
-prefixed `you ›`, and its own input where `enter` sends and `shift+enter` /
+conversation about that one question, rendered inside the panel. The
+question and its answer options stay on screen exactly as initially
+presented — question line, hint, option rows with the ★ recommendation —
+and the chat appends below them (never replaces them); on short terminals
+the transcript window shrinks first so the question block stays visible.
+Below the block: a one-line header (`chat · q3 — {prompt, truncated}`), a
+transcript with your lines prefixed `you ›`, and its own input where
+`enter` sends and `shift+enter` /
 `ctrl+j` inserts a newline. It never suspends the panel and never writes to
 the main conversation — the model is reached through nested calls only,
 using the session's current model at chat open (`sideChatModel` pins an
@@ -574,7 +579,8 @@ src/
                                # goal, answers digest, answer protocol)
     ├── branch-snapshot.ts     # one-shot frozen branch replay feeding the
                                # chat's context
-    ├── chat-view.ts           # chat view renderer: transcript window, stream
+    ├── chat-view.ts           # chat view renderer: transcript window (under
+                               # the panel-drawn question block), stream
                                # cursor, footer + confirm row
     ├── panel.ts               # panel host: non-blocking custom() lifecycle
                                # (open / suspend / resume)

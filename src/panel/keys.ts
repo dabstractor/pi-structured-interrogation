@@ -517,11 +517,14 @@ export function buildKeyRouter(
     //    user types.
     if (!editorFocused && (matchesKey(data, Key.up) || data === "k")) {
       // SIDECHAT-001 chat view (P1.M2.T3.S1): ↑ scrolls the TRANSCRIPT
-      // (clamped via the render-fed line count) — never the option cursor
-      // (there are no option rows in the chat view). While the CHAT EDITOR
-      // holds focus this branch is skipped (editorFocused) and the arrow
-      // forwards to the editor as a caret key. `k` follows the same branch
-      // structure (same alias family as overview/deep).
+      // (clamped via the render-fed line count) — never the option cursor.
+      // CHAT-CONTEXT-001 note: the chat view DOES render the question's
+      // option rows (display-only, above the transcript) — arrows still
+      // scroll the transcript; the rows are not an interaction surface in
+      // this view (esc descends to the owning view to answer). While the
+      // CHAT EDITOR holds focus this branch is skipped (editorFocused) and
+      // the arrow forwards to the editor as a caret key. `k` follows the
+      // same branch structure (same alias family as overview/deep).
       if (panel.view === "chat") return chatScrollUp(panel);
       if (panel.view === "overview") return overviewUp(panel);
       if (panel.view === "deep") return deepSelectionUp(panel);

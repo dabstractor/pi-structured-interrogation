@@ -83,10 +83,23 @@
  * window to `max(1, rows - 4)` lines so header + window + blank + footer
  * fit, footer degrading to `esc {word}` alone.
  *
+ * CHAT-CONTEXT-001 (owner ruling 2026-11-08): the panel seam renders the
+ * question + answer options AS INITIALLY PRESENTED (the short-view
+ * renderers, display-only) directly ABOVE this module's output — the chat
+ * is APPENDED to that presentation, never a replacement for it. The seam
+ * owns the fit: it measures the question block and passes the sixth
+ * `viewportHeight` argument (live rows minus the block and the frame
+ * chrome) so the transcript window yields lines FIRST (floor 1) and the
+ * question stays visible on short terminals. Absent argument ⇒ the
+ * historical heights above, byte-identical.
+ *
  * SEAMS for the siblings (do not implement here):
  * - P1.M2.T1.S2 LANDED its pieces in this module (see "S2 EXTRAS" above —
  *   the [header, …banner, …window, …extras, "", footer] return order is the
  *   placement contract).
+ * - CHAT-CONTEXT-001: the question + options block lives at the PANEL seam
+ *   (short-view.ts renderers, display-only) — this module never renders
+ *   it; it only accepts the window cap the seam derives from it.
  * - P1.M2.T3.S1 (input routing) targets the panel-owned scroll offset —
  *   clamp it through {@link clampChatScroll} before storing.
  * - P1.M2.T4.S1 (panel wiring) seeds the view bottom, invalidates on
@@ -216,6 +229,13 @@ export function clampChatScroll(totalLines: number, scrollOffset: number): numbe
  *   `options` in DISPLAY order feeds the confirm row's preview)
  * @param resolvedKeys resolved key LABELS — the only source for the
  *   remappable chat binding's name in the footer
+ * @param viewportHeight CHAT-CONTEXT-001 transcript-window cap from the
+ *   panel seam (it renders the question + options block above this output
+ *   and subtracts that height from the live rows). Optional and
+ *   SHRINK-ONLY: `min` against the historical height (the tiny-rows
+ *   formula or {@link CHAT_VIEW_HEIGHT}), floor 1 — the cap never GROWS
+ *   the window. Absent ⇒ the historical height, byte-identical (unknown
+ *   rows pass nothing and keep the fixed cap).
  */
 export function buildChatContent(
   width: number,
@@ -223,6 +243,7 @@ export function buildChatContent(
   chat: ChatViewState,
   question: ChatViewQuestion,
   resolvedKeys: Record<KeyAction, string>,
+  viewportHeight?: number,
 ): string[] {
   const budget = terminalBudget(width, rows);
   // S2 state rows. Inert banner: the record's frozen model identity is the
@@ -238,9 +259,13 @@ export function buildChatContent(
   // rows are chrome too, so the WINDOW yields lines first (floor 1) when
   // they are present. The banner and the confirm row never yield.
   const tiny = budget.overviewViewportHeight !== Infinity;
-  const height = tiny
+  const base = tiny
     ? Math.max(1, (rows ?? OVERVIEW_PAGINATE_ROWS) - 4 - banner.length - extras.length)
     : CHAT_VIEW_HEIGHT;
+  // CHAT-CONTEXT-001: the seam's cap only ever SHRINKS (min against the
+  // historical height; floor 1) — CHAT_VIEW_HEIGHT stays the ceiling.
+  const height =
+    viewportHeight !== undefined ? Math.max(1, Math.min(base, viewportHeight)) : base;
 
   const transcript = transcriptLines(chat, width);
   // Tail-pinned window: the NEWEST lines are the default view (setView

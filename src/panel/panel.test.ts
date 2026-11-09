@@ -3697,6 +3697,149 @@ describe("chat open path — open-or-replace, seeding, inertness (P1.M2.T4.S1)",
   });
 });
 
+// ---------- chat view question context (CHAT-CONTEXT-001, owner ruling 2026-11-08)
+
+describe("chat view question context (CHAT-CONTEXT-001)", () => {
+  /** Mock TUI carrying a live terminal shape (terminal-fallbacks pattern). */
+  function tuiWithRows(rows: number): TUI {
+    return { requestRender: vi.fn(), terminal: { rows, columns: 100 } } as unknown as TUI;
+  }
+
+  function rebindDeps() {
+    return {
+      resolveModelSnapshot: () => ({ provider: "test", modelId: "test-model" }),
+      buildSystemPrompt: () => "system prompt",
+      buildBranchSnapshot: () => [] as never,
+    };
+  }
+
+  /** Two-choice-question panel; `rows` undefined ⇒ the no-terminal mock. */
+  function makeContextPanel(extra: Partial<InterrogationPanelArgs> = {}): InterrogationPanel {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(
+      choiceQ("q1", { description: "Hint sentence one. Second sentence." }),
+    );
+    state.upsertQuestion(choiceQ("q2"));
+    const engine = { sendTurn: vi.fn(() => true), abort: vi.fn() };
+    return new InterrogationPanel(
+      panelArgsFor(state, {
+        chatRebindDeps: rebindDeps(),
+        sidechatEngine: engine,
+        ...extra,
+      }),
+    );
+  }
+
+  beforeEach(() => resetSidechatForTests());
+  afterEach(() => resetSidechatForTests());
+
+  test("question_hint_and_options_render_above_the_chat_body", () => {
+    const panel = makeContextPanel();
+    panel.handleInput("c"); // chat on q1 (currentId) — record + view open
+
+    const lines = panel.render(100);
+    const chatIdx = lines.findIndex((l) => l.includes("chat · q1 — "));
+    expect(chatIdx).toBeGreaterThan(0); // identity line still renders
+    const questionIdx = lines.findIndex((l) => l.includes("1/2") && l.includes("prompt:q1"));
+    expect(questionIdx).toBeGreaterThan(0);
+    expect(questionIdx).toBeLessThan(chatIdx); // the question rides ABOVE the chat
+    // Every option row (labels + the ✎ write-in affordance) and the hint
+    // line sit between the question line and the chat identity line — the
+    // short-view presentation, appended-to rather than replaced.
+    const hintIdx = lines.findIndex((l) => l.includes("Hint sentence one."));
+    expect(hintIdx).toBeGreaterThan(questionIdx);
+    expect(hintIdx).toBeLessThan(chatIdx);
+    for (const label of ["Alpha", "Beta", "✎ Other"]) {
+      const idx = lines.findIndex((l) => l.includes(label));
+      expect(idx).toBeGreaterThan(questionIdx);
+      expect(idx).toBeLessThan(chatIdx);
+    }
+    // The chat body + input + framed footer follow BELOW the block.
+    const inputIdx = lines.findIndex((l) => l.includes("e1")); // TextField prefixes editor rows
+    expect(inputIdx).toBeGreaterThan(chatIdx);
+    expect(lines[lines.length - 1]!.startsWith("└ ")).toBe(true);
+  });
+
+  test("live_cursor_when_the_chat_rides_the_current_question", () => {
+    const panel = makeContextPanel();
+    panel.cursorIndex = 0; // Alpha — NOT the ★ seed (q1 has no recommendation)
+    panel.handleInput("c");
+
+    const lines = panel.render(100);
+    const alpha = lines.find((l) => l.includes("Alpha"))!;
+    expect(alpha.includes("▸")).toBe(true); // the panel's live cursor renders
+    const beta = lines.find((l) => l.includes("Beta"))!;
+    expect(beta.includes("▸")).toBe(false);
+  });
+
+  test("chat_question_is_the_records_not_currentId_overview_opened", () => {
+    const panel = makeContextPanel();
+    panel.setView("overview");
+    panel.overviewCursor = 1; // q2's row — the chat targets the ROW (BUG-004)
+    panel.handleInput("c");
+    expect(panel.currentId).toBe("q1"); // never re-seated (pinned contract)
+
+    const lines = panel.render(100);
+    expect(lines.some((l) => l.includes("chat · q2 — "))).toBe(true); // record's question
+    expect(lines.some((l) => l.includes("chat · q1 — "))).toBe(false);
+    expect(lines.some((l) => l.includes("2/2") && l.includes("prompt:q2"))).toBe(true); // its block
+  });
+
+  test("seeded_cursor_when_the_chat_question_differs_from_currentId", () => {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.upsertQuestion(choiceQ("q2", { recommendation: "b" })); // ★ on Beta
+    const panel = new InterrogationPanel(
+      panelArgsFor(state, { chatRebindDeps: rebindDeps() }),
+    );
+    panel.setView("overview");
+    panel.overviewCursor = 1;
+    panel.handleInput("c"); // chat on q2 while currentId stays q1
+
+    const lines = panel.render(100);
+    const beta = lines.find((l) => l.includes("Beta"))!;
+    expect(beta.includes("▸ ★")).toBe(true); // ANSWER-PIN-001 seed, not q1's cursor
+  });
+
+  test("transcript_window_yields_so_the_question_block_fits_known_rows", () => {
+    // 14 known rows vs a 25-message transcript: the WINDOW yields (floor 1)
+    // so header + question block + chat frame + input + footer fit — the
+    // question stays visible, the newest exchange stays tail-pinned.
+    const tight = makeContextPanel({ tui: tuiWithRows(14) });
+    tight.handleInput("c");
+    for (let i = 0; i < 25; i++) {
+      getSidechat()!.messages.push({ role: "user", text: `m${i}`, at: "t" });
+    }
+
+    const lines = tight.render(100);
+    expect(lines.length).toBeLessThanOrEqual(14);
+    expect(lines.some((l) => l.includes("1/2") && l.includes("prompt:q1"))).toBe(true);
+    expect(lines.some((l) => l.includes("chat · q1 — "))).toBe(true);
+    expect(lines.some((l) => l.includes("you › m24"))).toBe(true); // newest visible
+    expect(lines.filter((l) => l.includes("you › m")).length).toBeLessThanOrEqual(2); // window shrank
+    expect(lines[lines.length - 1]!.startsWith("└ ")).toBe(true);
+
+    // Unknown rows (no terminal shape) ⇒ no cap ⇒ the historical 20-line
+    // window, byte-identical to the pre-ruling render.
+    const roomy = makeContextPanel();
+    roomy.handleInput("c");
+    for (let i = 0; i < 25; i++) {
+      getSidechat()!.messages.push({ role: "user", text: `m${i}`, at: "t" });
+    }
+    expect(roomy.render(100).filter((l) => l.includes("you › m")).length).toBe(20);
+  });
+
+  test("hint_line_suppressed_below_24_rows_in_chat_view_too", () => {
+    const at24 = makeContextPanel({ tui: tuiWithRows(24) });
+    at24.handleInput("c");
+    expect(at24.render(100).some((l) => l.includes("Hint sentence one."))).toBe(true);
+
+    const at23 = makeContextPanel({ tui: tuiWithRows(23) });
+    at23.handleInput("c");
+    expect(at23.render(100).some((l) => l.includes("Hint sentence one."))).toBe(false);
+  });
+});
+
 // --------- sidechat discard hooks — terminal-for-chat teardown (P1.M2.T5.S1)
 
 describe("sidechat discard hooks — terminal-for-chat teardown (P1.M2.T5.S1)", () => {

@@ -83,7 +83,7 @@ import {
   type RippleConfirmState,
 } from "./ripple-confirm.js";
 import { takeBranchSnapshot } from "./branch-snapshot.js";
-import { buildChatContent } from "./chat-view.js";
+import { buildChatContent, CHAT_VIEW_HEIGHT } from "./chat-view.js";
 import {
   classifyChatCommand,
   clearPendingConfirm,
@@ -146,6 +146,14 @@ import {
  *   {@link InterrogationPanel.setView} (seeding scroll-bottom + chat input
  *   focus once per entry), and buildLines renders the chat frame via
  *   chat-view.ts's buildChatContent.
+ * - CHAT-CONTEXT-001 (owner ruling 2026-11-08): the chat view keeps the
+ *   question + answer options visible AS INITIALLY PRESENTED — the short-
+ *   view question block (display-only) renders above the chat body; the
+ *   chat is appended, never a replacement. The block's question is the
+ *   RECORD's (not currentId — overview-opened chats ride the cursor row),
+ *   and the transcript window yields lines first (floor 1) so the block
+ *   stays visible on short terminals (buildLines' chat branch owns the
+ *   fit math; chat-view.ts accepts the cap as its sixth argument).
  * - OPEN-OR-REPLACE per question (SIDECHAT-001/002): `e` opens the chat on
  *   the CURRENT question; when the module-scoped singleton already lives on
  *   it, the record — its frozen SIDECHAT-003 snapshot included — is reused
@@ -2385,13 +2393,19 @@ export class InterrogationPanel implements Component {
       return lines;
     }
     if (this.view === "chat") {
-      // SIDECHAT-001 chat view (P1.M2.T4.S1): the shared interrogation
-      // header, then the chat body rendered WHOLESALE by chat-view.ts's
+      // SIDECHAT-001 chat view (P1.M2.T4.S1) + CHAT-CONTEXT-001 (owner
+      // ruling 2026-11-08): the question and its answer options stay
+      // visible EXACTLY as initially presented — the chat body is APPENDED
+      // below them, never a replacement. Layout: shared interrogation
+      // header, the short-view question presentation (question line, hint
+      // line, options region — display-only; the chat input owns focus),
+      // then the chat body rendered WHOLESALE by chat-view.ts's
       // buildChatContent — identity header line (`chat · {id} — {prompt}`),
       // inert-model banner, tail-pinned transcript window (≤
-      // CHAT_VIEW_HEIGHT), the S2 notice/confirm rows, and a trailing blank
-      // padding line. Its LAST element is the FRAME-LESS hint string (the
-      // chat-view module contract: the panel seam composes
+      // CHAT_VIEW_HEIGHT, shrunk by the question block's height when the
+      // terminal rows are known), the S2 notice/confirm rows, and a
+      // trailing blank padding line. Its LAST element is the FRAME-LESS
+      // hint string (the chat-view module contract: the panel seam composes
       // `└ {progress} · {hints} ⏎ ┘`) — popped here and threaded through
       // footerLine → renderFooter's chat mode. The panel-owned
       // chatScrollOffset is consumed by the T3.S1 scroll branch's
@@ -2400,21 +2414,87 @@ export class InterrogationPanel implements Component {
       const header = renderHeader(snapshot, this.theme, width);
       const lines: string[] = [header.line];
       const record = getSidechatRecord();
-      const q =
-        this.currentId !== undefined ? this.state.getQuestion(this.currentId) : undefined;
+      // The question resolves from the RECORD (the chat's own question),
+      // never currentId: an overview-opened chat sits on the CURSOR-ROW
+      // question while currentId stays the background one (BUG-004's open
+      // path never re-seats it) — the identity line, the confirm-row
+      // option preview, and the CHAT-CONTEXT-001 block below must all
+      // speak the chat's question.
+      const q = record !== undefined ? this.state.getQuestion(record.questionId) : undefined;
       if (record === undefined || q === undefined) {
         // Defensive: onChat opens the record BEFORE setView, so a record-less
         // chat view is unreachable through the open path (inert deps no-op
-        // the view flip too). Header + footer only, like an unknown currentId.
+        // the view flip too; a record whose question left state is the
+        // discard hooks' domain). Header + footer only, like an unknown
+        // currentId.
         lines.push("");
         const notice = this.footerNoticeLine(width);
         if (notice !== undefined) lines.push(notice);
         lines.push(this.footerLine(snapshot, width, budget.narrow));
         return lines;
       }
+      // CHAT-CONTEXT-001: the question presentation — the SAME renderers,
+      // order, and budget rules as the short view ("as initially
+      // presented"): question line ({group} · {n}/{total} + markers), hint
+      // line (suppressed under the h2.30 rows<24 rule), options region
+      // (D-R13 recommended-first rows, ★, ✎ Other, answer previews,
+      // soft-gate dimming). DISPLAY-ONLY: the region never holds focus in
+      // the chat view (the chat input owns input; ↑/↓ scroll the
+      // transcript — keys.ts), so the cursor renders from the LIVE panel
+      // cursor when the chat rides the current question and from the
+      // ANSWER-PIN-001 seeding rule otherwise. The answer EDITOR block is
+      // deliberately NOT drawn here — its buffer is currentId-scoped, and a
+      // second focused-looking editor under the chat input would lie.
+      const ordered = this.state.orderedQuestions();
+      const idx = ordered.findIndex((entry) => entry.id === q.id);
+      const contextLines: string[] = [];
+      if (idx >= 0) {
+        const gateGroups = gateGroupNames(ordered);
+        const dimmed = gateGroups.size > 0 && !gateGroups.has(effectiveGroup(q));
+        contextLines.push(renderQuestionLine(q, idx + 1, ordered.length, this.theme, width, dimmed));
+        if (!budget.suppressHint) {
+          contextLines.push(...renderHintLine(q, this.theme, width, dimmed));
+        }
+        contextLines.push(
+          ...renderShortViewOptions({
+            question: q,
+            cursorIndex: q.id === this.currentId ? this.cursorIndex : initialCursorIndex(q),
+            theme: this.theme,
+            width,
+            dimmed,
+          }),
+        );
+      }
+      // SIDECHAT-001 chat INPUT row (2026-10-20 fix, live report): the
+      // second TextField's lines embed BELOW the transcript — input
+      // directly above the footer. Rendered ONCE here; its height feeds the
+      // window budget below (the 2026-10-20 bug was a never-rendered field;
+      // double-rendering for the budget would be its own waste).
+      const inputLines = this.chatField.render(width);
+      // Transcript window budget (CHAT-CONTEXT-001): with known rows the
+      // WINDOW yields first (floor 1) so header + question block + chat
+      // frame + input + footer fit — the question block is the point of
+      // the ruling and must stay visible; the transcript is scrollable
+      // history. The reserve worst-cases the banner (0/1) and the S2
+      // notice/rejection rows (0–2) at a flat 3 rather than duplicating
+      // their drop rules here, and carries the TUI status bar
+      // (DEEP_CHROME_ROWS precedent). Unknown rows ⇒ no cap ⇒ chat-view's
+      // historical height, byte-identical to the pre-ruling render.
+      const rows = this.currentRows();
+      const viewportHeight =
+        typeof rows === "number" && Number.isFinite(rows) && rows > 0
+          ? Math.max(
+              1,
+              Math.min(
+                CHAT_VIEW_HEIGHT,
+                rows -
+                  (1 + contextLines.length + 1 + 3 + 1 + inputLines.length + 1 + 1 + 1),
+              ),
+            )
+          : undefined;
       const content = buildChatContent(
         width,
-        this.currentRows(),
+        rows,
         {
           messages: record.messages,
           streamState: record.streamState,
@@ -2430,17 +2510,12 @@ export class InterrogationPanel implements Component {
         },
         { id: q.id, prompt: q.prompt, options: q.options },
         this.labels,
+        viewportHeight,
       );
       const chatHints = content.pop(); // frame-less hint string (chat-view contract)
+      lines.push(...contextLines); // CHAT-CONTEXT-001: the question block rides ABOVE the chat body
       lines.push(...content); // ends with the blank padding line (variation A)
-      // SIDECHAT-001 chat INPUT row (2026-10-20 fix, live report): the
-      // second TextField's lines embed HERE — transcript above, input
-      // directly above the footer. The field was fully wired (focus,
-      // routing, enter-send) but never rendered, so the chat view opened
-      // with an invisible focused editor and no prompt row to type into.
-      // Always rendered in the chat view — the view's primary affordance
-      // (same shape as the short view's editor block).
-      lines.push(...this.chatField.render(width));
+      lines.push(...inputLines);
       const notice = this.footerNoticeLine(width);
       if (notice !== undefined) lines.push(notice);
       lines.push(this.footerLine(snapshot, width, budget.narrow, chatHints));

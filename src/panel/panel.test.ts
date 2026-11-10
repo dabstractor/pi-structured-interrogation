@@ -3820,13 +3820,14 @@ describe("chat view question context (CHAT-CONTEXT-001)", () => {
     expect(lines[lines.length - 1]!.startsWith("└ ")).toBe(true);
 
     // Unknown rows (no terminal shape) ⇒ no cap ⇒ the historical 20-line
-    // window, byte-identical to the pre-ruling render.
+    // window — CHAT-STYLE-001 separators ride the transcript, so 25
+    // messages render 10 message rows + 10 separators in those 20 lines.
     const roomy = makeContextPanel();
     roomy.handleInput("c");
     for (let i = 0; i < 25; i++) {
       getSidechat()!.messages.push({ role: "user", text: `m${i}`, at: "t" });
     }
-    expect(roomy.render(100).filter((l) => l.includes("you › m")).length).toBe(20);
+    expect(roomy.render(100).filter((l) => l.includes("you › m")).length).toBe(10);
   });
 
   test("hint_line_suppressed_below_24_rows_in_chat_view_too", () => {

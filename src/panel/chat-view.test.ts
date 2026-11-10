@@ -65,6 +65,7 @@ describe("chat-view layout", () => {
     expect(lines).toEqual([
       "  chat · q3 — Which database should we use?",
       "  you › Should we use transactions?",
+      "", // CHAT-STYLE-001: one blank row between messages
       "  Yes.",
       "",
       "/clear",
@@ -108,13 +109,15 @@ describe("chat-view layout", () => {
       Q,
       keys,
     );
-    expect(assistantTail[2]).toBe("  reply▌"); // legacy shape: trailing cursor on the last line
+    expect(assistantTail[3]).toBe("  reply▌"); // legacy shape: trailing cursor on the last line
 
     // STREAM-002: a user tail (or empty chat) with no buffer shows the
     // THINKING row — spinner + ellipsis; absent clock pins frame 0 and no
-    // elapsed term (pure render, deterministic).
+    // elapsed term (pure render, deterministic). The thinking row gets the
+    // same CHAT-STYLE-001 separator as any new message.
     const userTail = buildChatContent(80, 40, view([msg("user", "q")], "streaming"), Q, keys);
     expect(userTail[userTail.length - 3]).toBe("  ⠋ thinking…");
+    expect(userTail[2]).toBe(""); // separated from the user's turn
 
     const idle = buildChatContent(80, 40, view([msg("assistant", "reply")], "idle"), Q, keys);
     expect(idle.join("\n")).not.toContain("▌"); // idle: no cursor anywhere
@@ -123,7 +126,8 @@ describe("chat-view layout", () => {
 
   test("streaming_partial_text_token_streams (STREAM-002)", () => {
     // A non-empty buffer renders as a growing assistant tail: wrapped,
-    // INSET, cursor on the LAST wrapped row — never a thinking row.
+    // INSET, cursor on the LAST wrapped row — never a thinking row. The
+    // tail is its OWN message (CHAT-STYLE-001 separator above it).
     const short = buildChatContent(
       80,
       40,
@@ -131,7 +135,7 @@ describe("chat-view layout", () => {
       Q,
       keys,
     );
-    expect(short[2]).toBe("  Par▌");
+    expect(short[3]).toBe("  Par▌");
     expect(short.join("\n")).not.toContain("thinking…");
 
     // Multi-line buffer: every row INSET, only the LAST carries the cursor.
@@ -144,7 +148,7 @@ describe("chat-view layout", () => {
       Q,
       keys,
     );
-    const body = long.slice(2, long.length - 2);
+    const body = long.slice(3, long.length - 2);
     expect(body.length).toBeGreaterThan(1); // it wrapped
     for (const line of body.slice(0, -1)) expect(line.endsWith("▌")).toBe(false);
     expect(body.at(-1)!.endsWith("▌")).toBe(true);
@@ -161,10 +165,10 @@ describe("chat-view layout", () => {
         Q,
         keys,
       );
-    expect(at(0, 0)[2]).toBe("  ⠋ thinking… · 0s");
-    expect(at(240, 0)[2]).toBe("  ⠹ thinking… · 0s");
-    expect(at(240, 240 - 5300)[2]).toBe("  ⠹ thinking… · 5s"); // elapsed floor-seconds
-    expect(at(1200, 0)[2]).toBe("  ⠋ thinking… · 1s"); // frame 10 mod 10 = 0
+    expect(at(0, 0)[3]).toBe("  ⠋ thinking… · 0s");
+    expect(at(240, 0)[3]).toBe("  ⠹ thinking… · 0s");
+    expect(at(240, 240 - 5300)[3]).toBe("  ⠹ thinking… · 5s"); // elapsed floor-seconds
+    expect(at(1200, 0)[3]).toBe("  ⠋ thinking… · 1s"); // frame 10 mod 10 = 0
   });
 
   test("streaming_never_exceeds_terminal_width (REGRESSION: pi-tui crash)", () => {
@@ -185,8 +189,8 @@ describe("chat-view layout", () => {
       keys,
     );
     for (const line of partial) expect(visibleWidth(line)).toBeLessThanOrEqual(W);
-    expect(partial[3]).toBe("  abcdefghijklmnopqr"); // exactly full — 20/20
-    expect(visibleWidth(partial[3]!)).toBe(W);
+    expect(partial[4]).toBe("  abcdefghijklmnopqr"); // exactly full — 20/20
+    expect(visibleWidth(partial[4]!)).toBe(W);
     // Full last row → the cursor wraps onto its OWN row (never widens it).
     expect(partial[partial.length - 3]).toBe("  ▌"); // standalone cursor row before blank+footer
 
@@ -205,9 +209,12 @@ describe("chat-view layout", () => {
   test("window_cap_and_tail_pin", () => {
     const many = Array.from({ length: 25 }, (_, i) => msg("user", `m${i}`));
     const lines = buildChatContent(80, 40, view(many), Q, keys);
-    // header + 20 window lines + blank + footer; the window is the LAST 20.
+    // header + 20 window lines + blank + footer; the window is the LAST 20
+    // transcript lines (message rows + CHAT-STYLE-001 separators alike — a
+    // separator is content that scrolls; 25 messages render 49 rows).
     expect(lines).toHaveLength(1 + CHAT_VIEW_HEIGHT + 1 + 1);
-    expect(lines[1]).toBe("  you › m5"); // head lines 0-4 dropped — tail-pinned
+    expect(lines[1]).toBe(""); // the window opens on a scrolled-past separator
+    expect(lines[2]).toBe("  you › m15"); // head rows 0-14 dropped — tail-pinned
     expect(lines[CHAT_VIEW_HEIGHT]).toBe("  you › m24"); // newest visible
 
     expect(clampChatScroll(25, -5)).toBe(0); // negative → head
@@ -227,7 +234,7 @@ describe("chat-view layout", () => {
     // this output; the newest exchange stays visible.
     const shrunk = buildChatContent(80, 40, view(many), Q, keys, 5);
     expect(shrunk).toHaveLength(1 + 5 + 1 + 1);
-    expect(shrunk[1]).toBe("  you › m20"); // 25 - 5 window lines
+    expect(shrunk[1]).toBe("  you › m22"); // 25 - 5 window lines
     expect(shrunk[5]).toBe("  you › m24"); // newest visible
 
     // A cap ABOVE the historical height never grows the window.
@@ -272,7 +279,92 @@ describe("chat-view layout", () => {
     expect(tiny.at(-1)).toBe("/clear");
     const windowLines = tiny.length - 3; // minus header, blank, footer
     expect(windowLines).toBeLessThanOrEqual(6); // max(1, rows - 4)
-    expect(tiny[1]).toBe("  you › m24"); // still tail-pinned in the tiny window
+    expect(tiny[2]).toBe("  you › m27"); // still tail-pinned in the tiny window
+  });
+});
+
+describe("chat-view CHAT-STYLE-001 — message separation + role coloring", () => {
+  test("one blank row between messages, none after the last", () => {
+    const lines = buildChatContent(
+      80,
+      40,
+      view([msg("user", "one"), msg("assistant", "two"), msg("user", "three")]),
+      Q,
+      keys,
+    );
+    // header | you-one | "" | assistant-two | "" | you-three | "" | footer
+    expect(lines).toEqual([
+      "  chat · q3 — Which database should we use?",
+      "  you › one",
+      "",
+      "  two",
+      "",
+      "  you › three",
+      "",
+      "/clear",
+    ]);
+  });
+
+  test("injected styler wraps each row for its role — user hue ≠ assistant hue", () => {
+    const seen: Array<["user" | "assistant", string]> = [];
+    // ANSI stand-ins (SGR sequences): width-TRANSPARENT to visibleWidth, so
+    // the crash-guard truncation is a no-op — exactly like theme.fg.
+    const mark = (role: "user" | "assistant", row: string): string =>
+      `\u001b[${role === "user" ? 31 : 32}m${row}\u001b[0m`;
+    const style = (role: "user" | "assistant", row: string): string => {
+      seen.push([role, row]);
+      return mark(role, row);
+    };
+    const lines = buildChatContent(
+      40,
+      40,
+      view([msg("user", "a long user message that wraps here for sure"), msg("assistant", "ok")]),
+      Q,
+      keys,
+      undefined,
+      style,
+    );
+    // Every user row (prefix + continuations) asked for the USER role with
+    // the COMPLETE composed row; assistant rows for ASSISTANT.
+    const userRows = seen.filter(([role]) => role === "user");
+    const assistantRows = seen.filter(([role]) => role === "assistant");
+    expect(userRows.length).toBeGreaterThan(1); // the wrap produced continuations
+    expect(userRows[0]![1]).toContain("you › ");
+    expect(assistantRows).toEqual([["assistant", "  ok"]]);
+    // The styled rows land in the output verbatim (guard no-op on ANSI);
+    // the separator stays bare; every row still fits the width.
+    expect(lines[1]).toBe(mark("user", userRows[0]![1]));
+    expect(lines[lines.indexOf("")]).toBe(""); // first bare row = the separator
+    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+    // Absent styler ⇒ byte-identical plain rows (no escapes anywhere).
+    const plain = buildChatContent(
+      40,
+      40,
+      view([msg("user", "a long user message that wraps here for sure"), msg("assistant", "ok")]),
+      Q,
+      keys,
+    );
+    expect(plain.some((l) => l.includes("\u001b"))).toBe(false);
+  });
+
+  test("streaming buffer rows carry the assistant role; the separator precedes the tail", () => {
+    const seen: Array<["user" | "assistant", string]> = [];
+    const style = (role: "user" | "assistant", row: string): string => {
+      seen.push([role, row]);
+      return row;
+    };
+    const lines = buildChatContent(
+      80,
+      40,
+      view([msg("user", "q")], "streaming", { streamingText: "Par" }),
+      Q,
+      keys,
+      undefined,
+      style,
+    );
+    expect(lines[2]).toBe(""); // separator above the in-flight reply
+    expect(seen).toContainEqual(["assistant", "  Par"]);
+    expect(seen.every(([role]) => role === "user" || role === "assistant")).toBe(true);
   });
 });
 

@@ -311,8 +311,10 @@ presented — question line, hint, option rows with the ★ recommendation —
 and the chat appends below them (never replaces them); on short terminals
 the transcript window shrinks first so the question block stays visible.
 Below the block: a one-line header (`chat · q3 — {prompt, truncated}`), a
-transcript with your lines prefixed `you ›`, and its own input where
-`enter` sends and `shift+enter` /
+transcript with your lines prefixed `you ›` and colored like your main-chat
+messages (the model's replies render in the theme's text color), one blank
+line between messages, and its own input where `enter` sends and
+`shift+enter` /
 `ctrl+j` inserts a newline. It never suspends the panel and never writes to
 the main conversation — the model is reached through nested calls only,
 using the session's current model at chat open (`sideChatModel` pins an
@@ -337,9 +339,16 @@ precedent as the editor key's rename.
   unconditionally, even for a chat that never sent a token
   (`chat closed · 0 in · 0 out · $0.00`). While a reply is streaming,
   `esc` aborts it; when idle, `esc` leaves the view with the chat retained.
-- **Converged answers.** The side model ends a converged reply with a
-  fenced `answer` block (`{"value": …}` byte-matching an option, or
-  `{"text": …}` for a write-in). The panel shows an inline confirm row —
+- **Converged answers.** The side model is taught to end a converged reply
+  with a fenced `answer` block — `{"value": …}` copying an option's value
+  string exactly (if it can't, the `{"text": …}` write-in form always
+  works) — but capture never depends on the model getting the form right:
+  the panel accepts any fenced block (any tag, or none), a block cut off
+  mid-fence, a bare JSON object at the end of the reply, prose wrapped
+  around the JSON, and near-miss spellings of an option value (a hit
+  applies the option's canonical value). A reply that lands no answer at
+  all shows an inline notice explaining the model's most recent attempt.
+  When an answer is captured the panel shows an inline confirm row —
   `apply ★ sqlite? · enter = yes · esc = no` — and the input blurs itself
   the moment the row appears, so `enter` and `esc` work right away in the
   default focused state — no pre-blur needed (unless you were mid-sentence
@@ -353,6 +362,12 @@ precedent as the editor key's rename.
   (overview, deep, esc) keeps the pending answer safely out of the way —
   `enter`/`esc` keep their documented meanings there — and returning to
   the chat re-renders it. `"sideChatAutoApply": true` skips the confirm.
+- **Empty replies are visible.** A completed turn that comes back with no
+  text (a reasoning model that spent its whole budget thinking, for
+  example) never renders as silence: you get an inline notice
+  (`empty reply from the model — no text came back (usage still counted);
+  send again or /clear`) and your turn stays, so the chat never looks
+  wedged.
 - **Usage on close.** Any close or discard notifies compactly
   (`chat closed · 12.4K in · 3.1K out · $0.07`); chat usage never enters
   session stats.

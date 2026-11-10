@@ -7,7 +7,9 @@
  * option's full ramification — the deep-view quality contract, no
  * truncation anywhere, CAPS-OUT-001 spirit); the session goal; a
  * one-line-per-question answers digest; and the SIDECHAT-004 answer
- * protocol (fenced ```answer block, strict JSON).
+ * protocol (a fenced ```answer block, one JSON object — LENIENT-ANSWER-001
+ * keeps the taught form easy while the parser accepts every plausible
+ * variant).
  *
  * Purity is load-bearing: the only import is a type-only Question from
  * ../state.js — no runtime imports, no pi-package knowledge (the
@@ -88,17 +90,21 @@ export function buildSideChatSystemPrompt(
       .join("\n")}`,
   );
 
-  // 5. Answer protocol (SIDECHAT-004) — the instruction differs by question
-  // type: a choice question accepts BOTH forms (option byte-match value form,
-  // or the write-in text form — apply routes write-ins through the write-in
-  // commit path); a text question takes ONLY the text form.
+  // 5. Answer protocol (SIDECHAT-004, eased by LENIENT-ANSWER-001): the
+  // parser is deliberately forgiving — any fenced block or trailing JSON
+  // object in the documented shape lands — so this section teaches ONE
+  // easy canonical form and an always-works fallback instead of a rule
+  // gauntlet. The instruction differs by question type: a choice question
+  // accepts BOTH forms (option value form, or the write-in text form —
+  // apply routes write-ins through the write-in commit path); a text
+  // question takes ONLY the text form.
   const choiceWithOptions = question.type === "choice" && options.length > 0;
   const pLines: string[] = [
     "## Answer protocol",
     "",
-    "Once you and the user have converged on an answer, your reply MUST END with a fenced code " +
-      "block tagged `answer` — it opens with ```answer, closes with ```, contains strict JSON, and " +
-      "NOTHING may follow it:",
+    "When you and the user have converged on an answer, make it machine-readable: " +
+      "end your reply with a fenced code block tagged `answer` containing ONE JSON " +
+      "object — nothing else inside the block:",
     "",
     "```answer",
     choiceWithOptions ? '{"value": "<exact option value>"}' : '{"text": "..."}',
@@ -107,17 +113,22 @@ export function buildSideChatSystemPrompt(
   ];
   if (choiceWithOptions) {
     pLines.push(
-      "This is a choice question, so the block is one of:",
-      `- {"value": "<exact option value>"} — the value must byte-match one of the options above EXACTLY (for example: {"value": ${JSON.stringify(options[0]?.value)}} selects that option)`,
-      `- {"text": "..."} — when the converged answer is the user's own words (a write-in), the text IS the answer`,
+      "For a choice question the object is one of:",
+      `- {"value": "<exact option value>"} — copy an option's value string EXACTLY as ` +
+        `printed after \`value:\` in the options list (for example: {"value": ${JSON.stringify(options[0]?.value)}})`,
+      `- {"text": "..."} — when the converged answer is the user's own words (a write-in), ` +
+        "the text IS the answer; if you cannot reproduce an option value exactly, use THIS form",
     );
   } else {
     pLines.push(
-      "This is a free-text question, so the block is always:",
+      "This is a free-text question, so the object is always:",
       `- {"text": "..."} — the user's own words verbatim; there is no option value to pick`,
     );
   }
-  pLines.push("", "Until you have converged, keep discussing without emitting the block.");
+  pLines.push(
+    "",
+    "Until you have converged, keep discussing without the block.",
+  );
   sections.push(pLines.join("\n"));
 
   return sections.join("\n\n");

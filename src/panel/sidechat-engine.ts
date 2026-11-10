@@ -199,6 +199,17 @@ export const streamSimplePort: SidechatModelPort = (model, context, options) =>
 const INERT_NOTICE =
   "no side chat model available — check sideChatModel in your config and provider auth";
 
+/** EMPTY-REPLY-001: a COMPLETED turn whose text content is empty (a
+ * reasoning model that spent its whole budget thinking, a provider hiccup
+ * that returned only non-text parts) used to freeze an INVISIBLE blank
+ * assistant row — the transcript showed nothing between the user's turns
+ * and the only signal was a misleading "no answer block" rejection. Such
+ * a turn now surfaces as this notice instead: no invisible row, no answer
+ * settle (there is no text to parse), confirm state superseded away. The
+ * usage tally STILL counts the turn — the tokens were spent. */
+const EMPTY_REPLY_NOTICE =
+  "empty reply from the model — no text came back (usage still counted); send again or /clear";
+
 /**
  * Zero-usage constant attached to re-materialized assistant rows. pi-ai's
  * context estimator (buildBaseOptions → clampMaxTokensToContext →
@@ -325,7 +336,10 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
   }
 
   /** The terminal routing table proper (see {@link route} — the onSettle
-   * try/finally wrapper owns the observation, this owns the record). */
+   * try/finally wrapper owns the observation, this owns the record).
+   * EMPTY-REPLY-001: a completed turn with empty text content takes the
+   * notice path (no invisible blank row, no answer settle) AFTER the
+   * usage tally — see EMPTY_REPLY_NOTICE. */
   function routeTerminal(
     record: SidechatRecord,
     turnUser: ChatMessage,
@@ -361,36 +375,55 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
       // completed turn's canonical AssistantMessage lands in the live
       // record — so it is also the tally site (P1.M1.T5.S3): completed
       // turns ONLY, reached after settle()'s liveness guard, so aborted
-      // (rolled back above), error (returned above) and replaced/dead
+      // (rolled back below), error (returned above) and replaced/dead
       // records (guard returned) contribute zero BY CONSTRUCTION — no
       // compensation logic exists or belongs anywhere (SIDECHAT-005).
       // frozenText is captured ONCE: the frozen row AND the answer settle
       // (below) read the SAME string, byte-identical (SIDECHAT-004).
       const frozenText = joinTextParts(message.content);
+      // Usage tally (P1.M1.T5.S3, SIDECHAT-005): the record's ChatUsage is
+      // the ONLY usage home — never session stats, entries, or tool results
+      // (the module set has no such write surface). NAME MAP: pi-ai nests
+      // cost — read message.usage.cost.total, write ChatUsage.totalCost.
+      // Tallied BEFORE the empty-reply guard: an empty reply spent real
+      // tokens (EMPTY-REPLY-001).
+      record.usage.input += message.usage.input;
+      record.usage.output += message.usage.output;
+      record.usage.totalCost += message.usage.cost.total;
+      // EMPTY-REPLY-001: a completed turn with NO text content must not
+      // freeze an invisible blank row — surface the notice instead. The
+      // turn is still "settled": the confirm pair is superseded away (the
+      // model's latest reply governs, and it said nothing), and the answer
+      // settle is skipped (no text to parse). The user turn stays (the
+      // chat stays usable — same contract as the error paths).
+      if (frozenText.trim() === "") {
+        record.notices.push({
+          kind: "error",
+          text: EMPTY_REPLY_NOTICE,
+          at: new Date().toISOString(),
+        });
+        record.pendingConfirm = undefined;
+        record.lastRejection = undefined;
+        return;
+      }
       record.messages.push({
         role: "assistant",
         text: frozenText,
         at: new Date().toISOString(),
         stopReason: stopReason as ChatStopReason,
       });
-      // Usage tally (P1.M1.T5.S3, SIDECHAT-005): the record's ChatUsage is
-      // the ONLY usage home — never session stats, entries, or tool results
-      // (the module set has no such write surface). NAME MAP: pi-ai nests
-      // cost — read message.usage.cost.total, write ChatUsage.totalCost.
-      record.usage.input += message.usage.input;
-      record.usage.output += message.usage.output;
-      record.usage.totalCost += message.usage.cost.total;
       // Answer settle (SIDECHAT-004, P1.M1.T6.S2): the completed reply may
-      // carry an applicable ```answer block — settle it into an
-      // ApplyDecision + pendingConfirm bookkeeping. BOTH deps are OPTIONAL:
-      // no answerContext (or an unknown/stale questionId) = a no-op — the
-      // record is untouched; onAutoApply fires ONLY under
-      // (decision && autoApply) — the engine itself never routes the
-      // decision into an apply seam ("the engine produces a decision, the
-      // panel routes it", panel-view-integration.md §Open/replace/discard;
-      // the single routing consumer is P1.M2.T6.S1). Consumed from the
-      // frozen row's text ONLY — never the transcript, never the display
-      // buffer.
+      // carry an applicable answer — settle it into an ApplyDecision +
+      // pendingConfirm bookkeeping (LENIENT-ANSWER-001: parseAnswerBlock
+      // accepts every plausible form, so protocol compliance is never
+      // load-bearing). BOTH deps are OPTIONAL: no answerContext (or an
+      // unknown/stale questionId) = a no-op — the record is untouched;
+      // onAutoApply fires ONLY under (decision && autoApply) — the engine
+      // itself never routes the decision into an apply seam ("the engine
+      // produces a decision, the panel routes it", panel-view-integration.md
+      // §Open/replace/discard; the single routing consumer is P1.M2.T6.S1).
+      // Consumed from the frozen row's text ONLY — never the transcript,
+      // never the display buffer.
       if (deps.answerContext !== undefined) {
         const ctx = deps.answerContext(record.questionId);
         if (ctx !== undefined) {

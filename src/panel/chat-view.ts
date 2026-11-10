@@ -17,7 +17,12 @@
  *   ellipsis logic of our own).
  * - Transcript window: user lines prefixed `you › ` (continuation lines
  *   hang-indent under the prefix), assistant lines plain; long bodies wrap
- *   with deep-view's wrapText so no line exceeds the width. While
+ *   with deep-view's wrapText so no line exceeds the width. CHAT-STYLE-001:
+ *   ONE blank separator row between messages (user prompts and model
+ *   replies never run together), and the optional {@link ChatRowStyler}
+ *   argument colors user rows and assistant rows distinctly (user rows
+ *   theme `userMessageText` — pi's own user-message hue — assistant rows
+ *   theme `text`; absent styler ⇒ plain rows, byte-identical). While
  *   `streamState === "streaming"` the in-flight reply TOKEN-STREAMS: the
  *   engine's cumulative `streamingText` buffer renders as a growing
  *   assistant tail, the trailing `▌` cursor riding its LAST wrapped row.
@@ -161,6 +166,17 @@ export const ANSWER_REJECTION_NOTICES: Record<AnswerBlockRejection, string> = {
 const CONFIRM_PREFIX = "apply ★ ";
 const CONFIRM_SUFFIX = "? · enter = yes · esc = no";
 
+/** CHAT-STYLE-001 color injection: the panel seam passes a styler that
+ * wraps a rendered transcript row for its ROLE — user rows and assistant
+ * rows color distinctly (user rows theme `userMessageText`, the same hue
+ * pi's own chat gives the user's messages; assistant rows theme `text`).
+ * Injected as a FUNCTION (not a Theme import) so this module's purity
+ * contract holds — no pi-coding-agent import, ANSI stays transparent to
+ * visibleWidth, and absent ⇒ plain rows, byte-identical to the unstyled
+ * render. The styler receives the COMPLETE composed row (INSET + prefix +
+ * wrapped text) so the whole line — prefix included — carries the hue. */
+export type ChatRowStyler = (role: "user" | "assistant", row: string) => string;
+
 /** Structural slice of SidechatRecord — the view never sees the singleton. */
 export interface ChatViewState {
   messages: ChatMessage[];
@@ -236,6 +252,9 @@ export function clampChatScroll(totalLines: number, scrollOffset: number): numbe
  *   formula or {@link CHAT_VIEW_HEIGHT}), floor 1 — the cap never GROWS
  *   the window. Absent ⇒ the historical height, byte-identical (unknown
  *   rows pass nothing and keep the fixed cap).
+ * @param style CHAT-STYLE-001 optional row colorer — user rows and
+ *   assistant rows color distinctly when present (see {@link ChatRowStyler});
+ *   absent ⇒ plain rows, byte-identical to the unstyled render.
  */
 export function buildChatContent(
   width: number,
@@ -244,6 +263,7 @@ export function buildChatContent(
   question: ChatViewQuestion,
   resolvedKeys: Record<KeyAction, string>,
   viewportHeight?: number,
+  style?: ChatRowStyler,
 ): string[] {
   const budget = terminalBudget(width, rows);
   // S2 state rows. Inert banner: the record's frozen model identity is the
@@ -267,7 +287,7 @@ export function buildChatContent(
   const height =
     viewportHeight !== undefined ? Math.max(1, Math.min(base, viewportHeight)) : base;
 
-  const transcript = transcriptLines(chat, width);
+  const transcript = transcriptLines(chat, width, style);
   // Tail-pinned window: the NEWEST lines are the default view (setView
   // seeds bottom; the panel-owned offset navigates via clampChatScroll at
   // the wiring layer — this render always guarantees the bottom window).
@@ -302,37 +322,60 @@ function headerLine(question: ChatViewQuestion, width: number): string {
 }
 
 /**
- * One transcript message → rendered lines. User lines carry the `you › `
- * prefix on the first row with a hanging indent on wrap continuations;
- * assistant lines render plain. wrapText keeps every line within the
+ * One transcript message → rendered rows, CHAT-STYLE-001 colored when the
+ * styler is present. User rows carry the `you › ` prefix on the first row
+ * with a hanging indent on wrap continuations; assistant rows render
+ * plain. The styler (when present) receives each COMPLETE composed row —
+ * INSET + prefix + wrapped text — so the whole line carries the role hue;
+ * it wraps AFTER wrapText so the width math stays plain-text (styling is
+ * ANSI-transparent to visibleWidth). wrapText keeps every line within the
  * width-2 content budget (ANSI/wide-char-safe — never String.slice).
  */
-function messageLines(message: ChatMessage, width: number): string[] {
+function messageLines(message: ChatMessage, width: number, style?: ChatRowStyler): string[] {
   const budget = Math.max(1, width - INSET.length);
   if (message.role === "user") {
     const bodyBudget = Math.max(1, budget - visibleWidth(USER_PREFIX));
-    return wrapText(message.text, bodyBudget).map((line, i) =>
-      i === 0
-        ? `${INSET}${USER_PREFIX}${line}`
-        : `${INSET}${" ".repeat(visibleWidth(USER_PREFIX))}${line}`,
-    );
+    return wrapText(message.text, bodyBudget).map((line, i) => {
+      const row =
+        i === 0
+          ? `${INSET}${USER_PREFIX}${line}`
+          : `${INSET}${" ".repeat(visibleWidth(USER_PREFIX))}${line}`;
+      return style !== undefined ? style("user", row) : row;
+    });
   }
-  return wrapText(message.text, budget).map((line) => `${INSET}${line}`);
+  return wrapText(message.text, budget).map((line) => {
+    const row = `${INSET}${line}`;
+    return style !== undefined ? style("assistant", row) : row;
+  });
 }
 
-/** Full transcript with the streaming overlay applied (h2.38 + token streaming). */
-function transcriptLines(chat: ChatViewState, width: number): string[] {
+/**
+ * Full transcript with the streaming overlay applied (h2.38 + token
+ * streaming). CHAT-STYLE-001: ONE blank separator row between messages —
+ * user prompts and model replies never run together — and the streaming
+ * overlay (growing tail or thinking row) is a NEW message in progress, so
+ * it gets the same separator above it. A frozen assistant tail keeps the
+ * legacy shape: the cursor rides its LAST wrapped row (no separator — the
+ * row already belongs to that message).
+ */
+function transcriptLines(chat: ChatViewState, width: number, style?: ChatRowStyler): string[] {
   const lines: string[] = [];
-  for (const message of chat.messages) lines.push(...messageLines(message, width));
+  chat.messages.forEach((message, i) => {
+    if (i > 0) lines.push(""); // CHAT-STYLE-001: whitespace between messages
+    lines.push(...messageLines(message, width, style));
+  });
   if (chat.streamState !== "streaming") return lines;
   const partial = chat.streamingText ?? "";
   if (partial.length > 0) {
     // Token streaming: the cumulative buffer renders as a growing assistant
-    // tail (same wrap rules as a frozen assistant row); the cursor rides its
-    // LAST wrapped row so the newest token is always visibly "live".
-    const body = wrapText(partial, Math.max(1, width - INSET.length)).map(
-      (line) => `${INSET}${line}`,
-    );
+    // tail (same wrap + role styling rules as a frozen assistant row); the
+    // cursor rides its LAST wrapped row so the newest token is always
+    // visibly "live".
+    if (lines.length > 0) lines.push(""); // the reply is its own message
+    const body = wrapText(partial, Math.max(1, width - INSET.length)).map((line) => {
+      const row = `${INSET}${line}`;
+      return style !== undefined ? style("assistant", row) : row;
+    });
     lines.push(...withTrailingCursor(body, width));
     return lines;
   }
@@ -343,6 +386,7 @@ function transcriptLines(chat: ChatViewState, width: number): string[] {
   if (chat.messages[chat.messages.length - 1]?.role === "assistant" && last !== undefined) {
     withTrailingCursor(lines, width); // trailing cursor on the reply (width-safe)
   } else {
+    if (lines.length > 0) lines.push(""); // the thinking row is the reply's birth
     lines.push(thinkingLine(chat, width)); // standalone indicator row
   }
   return lines;

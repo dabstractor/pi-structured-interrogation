@@ -2511,6 +2511,11 @@ export class InterrogationPanel implements Component {
         { id: q.id, prompt: q.prompt, options: q.options },
         this.labels,
         viewportHeight,
+        // CHAT-STYLE-001: user rows carry pi's own user-message hue,
+        // assistant rows the theme's primary text color — the transcript's
+        // two speakers are visually distinct (plus the blank separator
+        // rows chat-view.ts now renders between messages).
+        (role, row) => this.theme.fg(role === "user" ? "userMessageText" : "text", row),
       );
       const chatHints = content.pop(); // frame-less hint string (chat-view contract)
       lines.push(...contextLines); // CHAT-CONTEXT-001: the question block rides ABOVE the chat body

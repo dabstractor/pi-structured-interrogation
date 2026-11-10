@@ -144,13 +144,15 @@ describe("buildSideChatSystemPrompt — SIDECHAT-003 five sections (P1.M1.T4.S2)
     expect(lines[2]).toBe("- q4 · Migrate legacy exports? → moot"); // bare status word
   });
 
-  test("test_answer_protocol_choice_names_both_forms_with_byte_match", () => {
+  test("test_answer_protocol_choice_names_both_forms_plus_exact_value_rule", () => {
     const out = buildSideChatSystemPrompt(CHOICE_QUESTION, GOAL, DIGEST_QUESTIONS);
-    expect(out).toContain("```answer"); // the fenced tag the parser keys on
+    expect(out).toContain("```answer"); // the canonical tag the prompt teaches
     expect(out).toContain('{"value": "<exact option value>"}'); // value-form example
-    expect(out).toContain("byte-match"); // the exactness instruction
+    expect(out).toContain("EXACTLY"); // the exactness instruction (LENIENT-ANSWER-001)
     expect(out).toContain('{"value": "sqlite"}'); // a LITERAL option value as example
     expect(out).toContain('{"text"'); // write-in form also legitimate on choice
+    // The always-works escape hatch: unsure of the exact value ⇒ use text.
+    expect(out).toContain("cannot reproduce an option value exactly");
   });
 
   test("test_answer_protocol_text_form_only", () => {

@@ -642,6 +642,54 @@ describe("createSidechatEngine — stream consumption routing table (T5.S2)", ()
     expect(record.notices).toEqual([{ kind: "error", text: "boom", at: expect.any(String) }]);
   });
 
+  test("EMPTY-REPLY-001: completed turn with NO text → notice, no invisible row, no settle; usage tallied", async () => {
+    // The live wedge this pins: a reasoning model that spends its whole
+    // budget thinking returns done with only non-text content — the turn
+    // USED to freeze an invisible blank assistant row, so the transcript
+    // showed nothing between the user's turns ("no more replies at all?")
+    // and the only signal was a misleading "no answer block" rejection.
+    openOrReplace("q1", rebindDeps());
+    const thinkingOnly = {
+      ...fakeAssistantMessage({ text: "" }),
+      content: [{ type: "thinking", thinking: "(the whole budget, spent)" }],
+    } as unknown as AssistantMessage;
+    const events: AssistantMessageEvent[] = [
+      { type: "done", reason: "stop", message: thinkingOnly },
+    ];
+    const engine = engineOverRecord({ port: fakePort(() => fakeStream(events)) });
+    engine.sendTurn("please answer");
+    await flush();
+    const record = get()!;
+    expect(record.streamState).toBe("idle");
+    expect(record.messages.map((m) => m.role)).toEqual(["user"]); // NO blank assistant row
+    expect(record.notices).toEqual([
+      {
+        kind: "error",
+        text: "empty reply from the model — no text came back (usage still counted); send again or /clear",
+        at: expect.any(String),
+      },
+    ]);
+    // The tokens were still spent — the tally counts the turn.
+    expect(record.usage.input).toBe(fakeAssistantMessage({}).usage.input);
+    expect(record.usage.output).toBe(fakeAssistantMessage({}).usage.output);
+  });
+
+  test("EMPTY-REPLY-001: an empty reply supersedes a prior pendingConfirm and rejection", async () => {
+    openOrReplace("q1", rebindDeps());
+    const record = get()!;
+    record.pendingConfirm = { seam: "writeIn", text: "stale offer" };
+    record.lastRejection = "malformed-json";
+    const events: AssistantMessageEvent[] = [
+      { type: "done", reason: "stop", message: fakeAssistantMessage({ text: "   " }) },
+    ];
+    const engine = engineOverRecord({ port: fakePort(() => fakeStream(events)) });
+    engine.sendTurn("hello?");
+    await flush();
+    expect(record.pendingConfirm).toBeUndefined(); // the latest reply governs
+    expect(record.lastRejection).toBeUndefined(); // no misleading "no answer block"
+    expect(record.messages.map((m) => m.role)).toEqual(["user"]);
+  });
+
   test("parser isolation: mid-stream record.messages has no assistant row; after abort none; after done exactly one", async () => {
     openOrReplace("q1", rebindDeps());
     const roleSets: string[][] = [];

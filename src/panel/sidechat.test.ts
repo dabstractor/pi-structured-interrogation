@@ -300,21 +300,46 @@ describe("parseAnswerBlock — SIDECHAT-004 answer-block parsing (P1.M1.T6.S1)",
     expect(parseAnswerBlock(reply, ["a", "b"])).toEqual({ kind: "value", value: "b" });
   });
 
-  test("malformed LAST block: NO fallback to an earlier valid one — the latest intent governs", () => {
+  test("garbled LAST block falls back to the earlier valid one (LENIENT-ANSWER-001)", () => {
+    // A malformed latest block no longer dead-ends: the model's earlier
+    // attempt is captured instead (the manual confirm row gates the apply).
     const reply = block('{"value":"a"}') + "\n" + block("{'value':'b'}");
-    expect(parseAnswerBlock(reply, ["a", "b"])).toEqual({
+    expect(parseAnswerBlock(reply, ["a", "b"])).toEqual({ kind: "value", value: "a" });
+    // When NOTHING parses the LATEST candidate's reason is reported —
+    // the notice teaches the most recent attempt's problem.
+    expect(parseAnswerBlock(block("{'value':'b'}"), ["a", "b"])).toEqual({
       kind: "none",
       reason: "malformed-json",
     });
   });
 
-  test("byte-match strictness: case or whitespace variants mismatch — no normalization anywhere", () => {
-    for (const v of ["Sqlite", " sqlite", "SQLITE"]) {
-      expect(parseAnswerBlock(block('{"value":"' + v + '"}'), ["sqlite"])).toEqual({
-        kind: "none",
-        reason: "value-mismatch",
-      });
-    }
+  test("lenient value cascade: trim and case/whitespace variants resolve to the CANONICAL option", () => {
+    // Exact byte-match is still the fast path; near-misses now land — and
+    // return the OPTION's canonical value, never the model's variant
+    // spelling (apply-side provenance stays byte-identical).
+    expect(parseAnswerBlock(block('{"value":"Sqlite"}'), ["sqlite"])).toEqual({
+      kind: "value",
+      value: "sqlite",
+    });
+    expect(parseAnswerBlock(block('{"value":" sqlite "}'), ["sqlite"])).toEqual({
+      kind: "value",
+      value: "sqlite",
+    });
+    expect(parseAnswerBlock(block('{"value":"SQLITE"}'), ["sqlite"])).toEqual({
+      kind: "value",
+      value: "sqlite",
+    });
+    expect(
+      parseAnswerBlock(block('{"value":"Keep   SQLITE"}'), ["keep sqlite"]),
+    ).toEqual({
+      kind: "value",
+      value: "keep sqlite", // internal whitespace runs collapse, case folds
+    });
+    // A genuinely foreign value still mismatches.
+    expect(parseAnswerBlock(block('{"value":"oracle"}'), ["postgres", "sqlite"])).toEqual({
+      kind: "none",
+      reason: "value-mismatch",
+    });
   });
 
   test("malformed JSON: trailing comma and single quotes throw strict → malformed-json", () => {
@@ -357,21 +382,50 @@ describe("parseAnswerBlock — SIDECHAT-004 answer-block parsing (P1.M1.T6.S1)",
     });
   });
 
-  test("no-block: no fence, or a fence that is not EXACTLY `answer` (wrong tag/case/suffix)", () => {
-    for (const reply of [
-      "just a plain reply, no block at all",
-      '```json\n{"value":"x"}\n```',
-      '```ANSWER\n{"value":"x"}\n```',
-      '```answer json\n{"value":"x"}\n```',
-    ]) {
-      expect(parseAnswerBlock(reply, OPTIONS)).toEqual({ kind: "none", reason: "no-block" });
+  test("any-tag fences are candidates: json, ANSWER, answer-json, and bare ``` all count (LENIENT-ANSWER-001)", () => {
+    for (const fence of ["json", "ANSWER", "answer json", ""]) {
+      const reply = "```" + fence + "\n{\"value\":\"sqlite\"}\n```";
+      expect(parseAnswerBlock(reply, OPTIONS)).toEqual({ kind: "value", value: "sqlite" });
     }
-  });
-
-  test("unterminated block at EOF (reply cut mid-fence) is not a block → no-block", () => {
-    expect(parseAnswerBlock('done\n```answer\n{"value":"sqlite"}', OPTIONS)).toEqual({
+    // no-block survives for: no fence AND no trailing JSON object.
+    expect(parseAnswerBlock("just a plain reply, no block at all", OPTIONS)).toEqual({
       kind: "none",
       reason: "no-block",
+    });
+    // Prose that merely ENDS with a brace is not a candidate.
+    expect(parseAnswerBlock("what a weird reply }", OPTIONS)).toEqual({
+      kind: "none",
+      reason: "no-block",
+    });
+  });
+
+  test("unterminated block at EOF (reply cut mid-fence) is STILL a candidate", () => {
+    expect(parseAnswerBlock('done\n```answer\n{"value":"sqlite"}', OPTIONS)).toEqual({
+      kind: "value",
+      value: "sqlite",
+    });
+  });
+
+  test("bare trailing JSON object lands without any fence (LENIENT-ANSWER-001)", () => {
+    expect(parseAnswerBlock("let's go with\n{\"value\":\"sqlite\"}", OPTIONS)).toEqual({
+      kind: "value",
+      value: "sqlite",
+    });
+    // Rightmost object wins (the model's latest intent).
+    expect(
+      parseAnswerBlock('{"value":"postgres"}\nreconsidered: {"value":"sqlite"}', OPTIONS),
+    ).toEqual({ kind: "value", value: "sqlite" });
+    // The object must be TRAILING — prose after it disqualifies the bare form.
+    expect(parseAnswerBlock('{"value":"sqlite"}\nactually, still thinking…', OPTIONS)).toEqual({
+      kind: "none",
+      reason: "no-block",
+    });
+  });
+
+  test("prose-wrapped block body: the embedded object is extracted", () => {
+    expect(parseAnswerBlock('```answer\nHere it is: {"value":"sqlite"}\n```', OPTIONS)).toEqual({
+      kind: "value",
+      value: "sqlite",
     });
   });
 

@@ -123,7 +123,7 @@ session_start → persistence: walk buildContextEntries()
     fallback: scan interrogation-state custom entries
   mode==="tui" → NEVER auto-open the panel (SURFACE-002)
     set the suspend widget line when resumable questions exist (the only cue);
-    /interrogate opens on demand (drafts not restored)
+    /interrogate opens on demand
 ```
 
 ### Tree navigation (`session_tree`) — SILENT
@@ -151,7 +151,7 @@ session_tree → same reconstruction walk against the new branch
 
 ## Side chat cache-isolation contract (SIDECHAT-005 — binding)
 
-The side chat talks to the model exclusively through nested `ctx.modelRegistry` calls. It MUST NOT call `pi.sendMessage` / `pi.sendUserMessage`, register or activate tools (`registerTool` / `setActiveTools`), change the system prompt, or switch the session model; discarding a chat is a plain in-memory delete. Rationale: pi re-sends the full conversation per turn and providers cache by exact prefix (anthropic-style `cache_control` at system / last tool / tail); the main conversation's cached prefix breaks only via message-prefix mutation, system/tool-set change, model switch, or idle TTL — a nested call stream does none of those, so the main session's next request is byte-identical and cache preservation is structural, not probabilistic. The chat runs under its own system prompt (deliberately no prefix share with the main conversation): the first turn of each new chat pays full input for the replayed branch and writes its own small prefix cache; later turns hit it. The main conversation is idle whenever the panel is open regardless (the tool returns immediately; submissions are the only turn trigger), so the side chat adds no idle-TTL risk. A static guard test (the `no-hardcoded-keys.test.ts` pattern) enforces the ban list: side-chat modules contain no `sendMessage` / `sendUserMessage` / `setActiveTools` / `registerTool` / `setModel` reference.
+The side chat talks to the model exclusively through nested `ctx.modelRegistry` calls. It MUST NOT call `pi.sendMessage` / `pi.sendUserMessage`, register or activate tools (`registerTool` / `setActiveTools`), change the system prompt, or switch the session model; discarding the live conversation is an in-memory operation. Rationale: pi re-sends the full conversation per turn and providers cache by exact prefix (anthropic-style `cache_control` at system / last tool / tail); the main conversation's cached prefix breaks only via message-prefix mutation, system/tool-set change, model switch, or idle TTL — a nested call stream does none of those, so the main session's next request is byte-identical and cache preservation is structural, not probabilistic. The chat runs under its own system prompt (deliberately no prefix share with the main conversation): the first turn of each new chat pays full input for the replayed branch and writes its own small prefix cache; later turns hit it. The main conversation is idle whenever the panel is open regardless (the tool returns immediately; submissions are the only turn trigger), so the side chat adds no idle-TTL risk. A static guard test (the `no-hardcoded-keys.test.ts` pattern) enforces the ban list: side-chat modules contain no `sendMessage` / `sendUserMessage` / `setActiveTools` / `registerTool` / `setModel` reference.
 
 ## Event subscriptions table
 

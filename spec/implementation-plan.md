@@ -53,7 +53,7 @@ Target: a single competent dev agent one-shots this. Build in order; each milest
 - [ ] `renderers.ts` — submission/completion cards, state entry, tool rows
 - [ ] `persistence.ts` — mirror, reconstruction, compaction instructions
 - [ ] `detect.ts` — round heuristic + throttled notify
-- [ ] `README.md` — install, config reference, keymap table, limitations (drafts not persisted; TUI-first)
+- [ ] `README.md` — install, config reference, keymap table, shipped limitations (TUI-first; memory-only drafts until local input recovery ships)
 
 ## Testing
 

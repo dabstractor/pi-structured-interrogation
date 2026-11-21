@@ -122,13 +122,31 @@ Submissions now also arrive via auto-submit (AUTOSUBMIT-001) — the per-submiss
 
 ## Drafts lifecycle (R4)
 
-Panel-local `{questionId → {value, text}}` + `batchNote`. Preserved across navigation, view toggles, upserts, suspend/resume. Flushed into state on submit; cleared on submit or explicit clear. **Not** written to any persistent layer — restart loses drafts by design (documented limitation, Q6=B).
+The shipped draft store holds `{questionId → {value, text}}` + `batchNote` in extension memory across navigation, view toggles, upserts and suspend/resume. Its restart limitation (Q6=B) is superseded by [Local input recovery](#local-input-recovery).
 
 Role binding (WRITEIN-002): a slot's text is elaboration (`answer.text`) when its question's answer is a real option, and the answer itself (`answer.value`, `custom: true`) when the answer came via Other or the question is `type:"text"`; the binding is evaluated at commit/submit time from the current selection. Superseding a write-in with an option accept keeps the slot (R4) and re-binds it as elaboration.
 
 ## Side chat (ephemeral by design — SIDECHAT-002)
 
-The side chat lives in NONE of the three storage layers: no `InterrogationState` fields, no tool-result `details`, no custom entries — reconstruction never sees it and restart loses it silently. It is a module-memory singleton `{questionId, messages, usage, …}` (architecture.md §Side chat) with exactly two exits: replacement (opening a chat on another question) and discard (its question answered/closed by any path, `/clear` / `/new`, or pi shutdown). Compaction instructions (FR-29) need no amendment: side-chat content is never conversation content. No transcript renderer exists or may exist for it.
+The live chat (`{questionId, messages, usage, …}`) is an in-memory singleton. Opening another chat replaces it; answering/closing its question, `/clear`, `/new` or shutdown discards the conversation. Its transcript is not question state or main-session content: no tool-result details, session entries, compaction changes or main-transcript renderer. Recovery concerns the user's input, not the conversation.
+
+## Local input recovery
+
+**New requirements, not shipped.** The shipped panel keeps drafts in memory. The following extends R4 to abrupt process termination and failed hibernation without changing when the panel opens or how answers are submitted.
+
+- **Capture on edit, before Enter.** Whenever the editor receives an edit (including paste), save its full expanded string locally: Other/write-in, text answer, elaboration, batch note or active side-chat composer. Restore the exact string, including newlines, Unicode and leading/trailing whitespace, only to its originating session, branch, question (if any) and field. Do not save a paste placeholder or display preview. Saving must progress during continuous typing; do not wait indefinitely for idle, send, blur, suspend or shutdown.
+- **Recovery point.** A completed local save must survive restart within the OS and storage system's durability guarantees. Replace it atomically: an interrupted write leaves the previous or new complete value, never a torn one. Older writes and incidental empty buffers (initialization, view change, send cleanup) must not overwrite newer user edits. On write failure keep the last durable value and the live edit; never claim the edit was saved. Recovery guarantees the latest completed save, not keystrokes the editor never received or a write still in flight.
+- **Drafts are not answers or messages.** Saving and restoring must not advance, commit, queue, submit, send, resend or call a model. “Saved locally” does not mean queued, submitted or remotely delivered. Retire only the matching recovery value on deliberate discard, replacement by the user, or successful handoff of that text; do not clear the only durable copy ahead of the handoff. For quick clarification in side chat, the active draft/last user prompt suffices; no transcript archive is required. A refused or failed send or aborted turn leaves the prompt recoverable for manual retry without overwriting newer typing.
+- **Re-edit and commit.** When opening Other or a text-answer editor, use the newer matching draft if present; otherwise use the exact recorded write-in or text `answer.value`, or blank if none exists. Never seed Other with an option value. An intentional deletion to empty is an edit, not an absent draft: preserve the empty editor, not the previous answer text. Discarding the edit leaves the recorded answer intact; no delayed save or replay may resurrect a discarded draft.
+- **Reject blank answer values at the shared final mutation** (`applyAnswer`), regardless of ingress (panel, side-chat apply, non-TUI `answers[]`, or submit reconciliation). Use `value.trim()` only to test emptiness; store nonblank values untrimmed. Reject before any answer/status change, advance or submission; preserve any prior answer. In the editor, keep focus and content and show an inline reason, e.g. `Answer cannot be blank`. On reconstruction/replay, a historical blank must neither replace a valid answer nor count or appear as validly answered/submitted; do not fabricate missing text. No semantic validation or additional model calls.
+
+**Acceptance cases (new):**
+
+1. In the real Other, text and side-chat editors, type half a response. Hard-kill pi after a completed save, **without Enter**, blur, suspend or graceful shutdown. Resume the same branch and reopen the field: exact draft, no answer or send. Repeat for elaboration and batch note.
+2. Type continuously and paste multiline Unicode with surrounding whitespace; kill during typing. Verify recovery points progressed without an idle interval and the last completed one restores expanded text exactly.
+3. Fail a write, delay an older write past a newer edit or discard, and switch branches with the same question ID. Verify no false saved indication, clobber, resurrection or cross-branch restore.
+4. Press Enter on a nonblank write-in; kill on either side of the save/commit handoff. The saved text remains recoverable as draft or committed answer; restart neither repeats the commit nor triggers submission. Refuse a chat send, fail it, and abort a turn: reopen with the prompt recoverable and no duplicate send.
+5. Reopen a committed Other/text answer; verify its exact value. Clear or enter only whitespace, attempt commit, then restart and reopen: the newer edit wins, the prior answer is unchanged, and rejection kept focus and explained why. Repeat blank rejection through non-editor ingress; replay a legacy blank with and without a prior valid answer and verify the resulting answer and counts.
 
 ## Completion record format (the one full injection)
 

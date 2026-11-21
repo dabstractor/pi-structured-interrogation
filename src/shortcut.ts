@@ -45,6 +45,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { KeyId } from "@earendil-works/pi-tui";
 import { EMPTY_STATE_MESSAGE, interrogateInvokeAction } from "./command.js";
 import type { DraftStore } from "./draft-store.js";
+import type { InputCaptureStore } from "./input-capture.js";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import { parseAccelerator } from "./panel/keys.js";
 import type { PanelHost } from "./panel/panel.js";
@@ -54,6 +55,8 @@ import { getState } from "./state.js";
 export interface ShortcutOptions {
   /** The shared DraftStore (index.ts factory closure) — load-bearing for the closed-host fresh-open row. */
   drafts?: DraftStore;
+  /** The shared input-recovery store (P3.M2.T1.S1) — same lifetime pattern. */
+  inputCapture?: InputCaptureStore;
 }
 
 /**
@@ -112,6 +115,7 @@ export function registerPanelShortcut(
       const outcome = interrogateInvokeAction(host, ctx, getState(), {
         config,
         drafts: opts?.drafts,
+        inputCapture: opts?.inputCapture,
       });
       if (outcome === "empty") ctx.ui.notify(EMPTY_STATE_MESSAGE, "info");
     },

@@ -59,6 +59,7 @@ import {
   resolveExternalEditorCommand,
 } from "../external-editor.js";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
+import type { CaptureKey, InputCaptureStore } from "../input-capture.js";
 // SURFACE-001 gate (1): the single upsert-args predicate (lifecycle.ts is its
 // only other consumer — no duplicate definition; no import cycle: lifecycle
 // imports merge.js + state.js only, never panel.js).
@@ -271,6 +272,14 @@ export interface OpenPanelOptions {
   state: InterrogationState;
   /** Draft store seam — optional until P1.M4.T2.S1 lands it. */
   drafts?: DraftStore;
+  /**
+   * Local input recovery capture store (P3.M2.T1.S1) — the extension-wide
+   * coordinator built next to the DraftStore; ONE instance per activation.
+   * Optional so existing tests/call sites compile untouched: absent ⇒
+   * capture is fully inert (spec §Local input recovery is additive to the
+   * DraftStore, which stays untouched until P3.M3 unifies seeding).
+   */
+  inputCapture?: InputCaptureStore;
   /** Key dispatch seam — optional until P1.M3.T3.S1 (keys.ts) lands it. */
   keys?: KeyHandler;
   /**
@@ -649,6 +658,11 @@ export interface InterrogationPanelArgs {
   state: InterrogationState;
   config: InterrogatorConfig;
   drafts?: DraftStore;
+  /**
+   * Input-recovery capture store (P3.M2.T1.S1) — handed to BOTH TextFields
+   * with live key providers; absent ⇒ capture inert (tests/non-panel).
+   */
+  inputCapture?: InputCaptureStore;
   keys?: KeyHandler;
   delivery?: SubmitDeps;
   confirmRipple?: RippleConfirmFn;
@@ -1223,6 +1237,20 @@ export class InterrogationPanel implements Component {
       theme: args.theme,
       onInvalidate: () => this.invalidate(),
     });
+
+    // P3.M2.T1.S1 — local input recovery capture: BOTH TextFields push
+    // their FULL expanded text to the extension-wide store on every buffer
+    // mutation. The key providers resolve LIVE at edit time (bufferOwner /
+    // textDuty / chat record / branch tip) — never a snapshot — so ownership
+    // switches and /tree retargets are inherently correct (a capture carries
+    // the key current at edit time). Absent store/surface ⇒ inert.
+    this.inputCapture = args.inputCapture;
+    this.branchReader = (
+      args.pi as { sessionManager?: Pick<SessionManager, "getBranch" | "getSessionId"> } | undefined
+    )?.sessionManager;
+    this.textField.setCapture(this.inputCapture, () => this.captureKeyForTextField());
+    this.chatField.setCapture(this.inputCapture, () => this.captureKeyForChatField());
+    this.inputCapture?.setSessionResolver(() => this.captureSessionId());
     // SIDECHAT-001 seams (P1.M2.T3.S1) — routing-only injection points; the
     // open path (P1.M2.T4.S1) wires the real engine + rebind deps.
     this.sidechatEngine = args.sidechatEngine;
@@ -1672,6 +1700,68 @@ export class InterrogationPanel implements Component {
    * a second call moot. Reuse contract: suspend() and enterNoteMode's
    * question→note swap call this before their own buffer transitions.
    */
+  // ------------------------------------------- input recovery key providers
+
+  /**
+   * The sessionManager surface captured from THIS open (ctx-flavored;
+   * undefined on test fakes / RPC ⇒ capture keys resolve undefined ⇒
+   * capture inert). Same object pi's session_tree retarget mutates, so
+   * live reads always reflect the branch the user is on NOW.
+   */
+  private readonly inputCapture: InputCaptureStore | undefined;
+  private readonly branchReader:
+    | Pick<SessionManager, "getBranch" | "getSessionId">
+    | undefined;
+
+  /** Branch tip id at capture time (note §keying: newest walk entry). */
+  private captureBranchId(): string | undefined {
+    try {
+      const walk = this.branchReader?.getBranch();
+      const tip = walk !== undefined && walk.length > 0 ? walk[walk.length - 1] : undefined;
+      return typeof tip?.id === "string" && tip.id !== "" ? tip.id : undefined;
+    } catch {
+      return undefined; // hostile surface — capture nothing, never throw into typing
+    }
+  }
+
+  /** Live session identity (ReadonlySessionManager.getSessionId). */
+  private captureSessionId(): string {
+    try {
+      return this.branchReader?.getSessionId() ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  /**
+   * Key for the main editor's buffer, resolved LIVE at edit time: note duty
+   * (bufferOwner === "note") is question-agnostic ("-"); otherwise the
+   * owned question id with the ACTIVE answer-side duty (writein covers ✎
+   * Other AND type:"text" answers — desiredTextDuty; elaboration the
+   * attach-to-option rationale). Un-owned buffer ⇒ no capture.
+   */
+  private captureKeyForTextField(): CaptureKey | undefined {
+    const owner = this.bufferOwner;
+    if (owner === undefined) return undefined;
+    const branchId = this.captureBranchId();
+    if (branchId === undefined) return undefined;
+    if (owner === "note") return { branchId, questionId: "-", field: "note" };
+    return { branchId, questionId: owner, field: this.textDuty };
+  }
+
+  /**
+   * Key for the chat composer: the ACTIVE side-chat record's question id
+   * (SIDECHAT-002: input only — the ephemeral conversation is never
+   * captured). No open record ⇒ no capture.
+   */
+  private captureKeyForChatField(): CaptureKey | undefined {
+    const questionId = getSidechatRecord()?.questionId;
+    if (questionId === undefined) return undefined;
+    const branchId = this.captureBranchId();
+    if (branchId === undefined) return undefined;
+    return { branchId, questionId, field: "sidechat-composer" };
+  }
+
   private writeThroughCurrentDraft(): void {
     if (this.focus !== "text" && this.focus !== "note") return;
     const text = this.textField.getText();
@@ -3049,6 +3139,7 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       state: resolvedOpts.state,
       config: resolvedOpts.config,
       drafts: resolvedOpts.drafts,
+      inputCapture: resolvedOpts.inputCapture,
       keys: resolvedOpts.keys,
       delivery: resolvedOpts.delivery,
       confirmRipple: resolvedOpts.confirmRipple,
@@ -3205,9 +3296,14 @@ export function resumeOpenPanel(pi: PiUISurface): boolean {
  * path inside openPanel handles upserts that bypass tool events, e.g. the
  * debug command).
  *
+ * @param drafts the shared DraftStore (index.ts factory closure) — every
+ *                open carries it so drafts survive suspend/resume (R4).
  * @param peekArgs start-phase args stash lookup (consuming: get + delete),
  *                 wired by index.ts; defaults to
  *                 "unknown call" so an unwired surface never auto-opens.
+ * @param inputCapture the shared input-recovery store (P3.M2.T1.S1) — same
+ *                extension-lifetime pattern as drafts; absent ⇒ capture inert.
+ *                (Positioned LAST so existing 5-arg call sites compile.)
  *
  * pi.on returns void in the installed runtime — no unsubscriber is assumed
  * (tolerant track() pattern from lifecycle.ts).
@@ -3218,6 +3314,7 @@ export function maybeAutoOpen(
   host: PanelHost,
   drafts?: DraftStore,
   peekArgs: (toolCallId: string) => unknown = () => undefined,
+  inputCapture?: InputCaptureStore,
 ): void {
   void pi.on("tool_execution_end", (event, ctx) => {
     if (event.toolName !== "interrogate" || event.isError) return;
@@ -3260,10 +3357,10 @@ export function maybeAutoOpen(
     // swallowing the upsert here would leave the interrogation without its
     // panel forever; dispose the stale panel's residue, re-arm the record,
     // and retry once.
-    if (!openPanel(ctx, { config, state, drafts, focusQuestionId: focusId }) && phase === "open") {
+    if (!openPanel(ctx, { config, state, drafts, inputCapture, focusQuestionId: focusId }) && phase === "open") {
       currentPanel?.dispose();
       resetHostRecord();
-      openPanel(ctx, { config, state, drafts, focusQuestionId: focusId });
+      openPanel(ctx, { config, state, drafts, inputCapture, focusQuestionId: focusId });
     }
   });
 }

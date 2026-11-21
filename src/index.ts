@@ -38,6 +38,7 @@ import { createDebugSubcommands } from "./debug-commands.js";
 import { drainBatchNotes } from "./delivery.js";
 import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
+import { InputCaptureStore } from "./input-capture.js";
 import { createLifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen, openPanel } from "./panel/panel.js";
 import { hasResumableQuestions, resumePanel } from "./panel/suspend.js";
@@ -139,6 +140,13 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // Restart loses drafts BY DESIGN (Q6=B): nothing here touches disk, and
   // persistence.ts (P1.M7.T1) must not serialize it.
   const drafts = new DraftStore();
+  // P3.M2.T1.S1 — local input recovery (spec §Local input recovery):
+  // ONE capture store per extension activation, the same lifetime pattern
+  // as the DraftStore above (panel components are disposable, this is not).
+  // In-memory capture + emit in THIS item — the sink seam receives records;
+  // P3.M2.T1.S2 attaches the atomic fs writer, P3.M2.T1.S3 retirement.
+  // No fs, no session-file writes, no answer/submit/send side effects.
+  const inputCapture = new InputCaptureStore();
   // SURFACE-001 gate (1): start-phase args stash for interrogate calls.
   // Declared BEFORE maybeAutoOpen so its auto-open handler can CONSUME
   // entries by toolCallId (get + delete) — the stash's only consumer.
@@ -147,7 +155,7 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
     const args = pendingUpsertArgs.get(id);
     pendingUpsertArgs.delete(id);
     return args;
-  });
+  }, inputCapture);
 
   // P1.M7.T1.S2 — reconstruction (h2.41/h2.43/h3.11, FR-28): on session_start
   // (all reasons) AND session_tree (mid-session /tree branch navigation — ctx
@@ -236,7 +244,7 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
         // doing nothing behind a "Panel reopened." confirmation. openPanel
         // returns false only when its mode/single-instance guard blocks;
         // report that honestly rather than claim success (FR-6).
-        return openPanel(resumeSurface, { config, state, drafts }) ? "reopened" : "no-state";
+        return openPanel(resumeSurface, { config, state, drafts, inputCapture }) ? "reopened" : "no-state";
       },
       // AC-11: a non-TUI record re-arms the close pass (re-asked-then-
       // re-answered ids must close at this run's settle — see tool.ts record).
@@ -273,7 +281,7 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // Shares this closure's config, panelHost (phase
   // state source), drafts (load-bearing for the fresh-open row), and the
   // /interrogate debug subcommand handler (h2.50 verification surface).
-  registerInterrogateCommand(pi, config, panelHost, { drafts, debug: debugSubcommands });
+  registerInterrogateCommand(pi, config, panelHost, { drafts, inputCapture, debug: debugSubcommands });
 
   // PANELTOGGLE-001 — the global toggle shortcut: `keys.toggle` (default
   // ctrl+n) fires from pi's MAIN EDITOR (registerShortcut) to open/resume
@@ -282,5 +290,5 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // Gated by the `panelShortcut` toggle (default true); non-TUI modes never
   // dispatch extension shortcuts. Shares this closure's config, panelHost,
   // and drafts — exactly the invoke command's deps.
-  registerPanelShortcut(pi, config, panelHost, { drafts });
+  registerPanelShortcut(pi, config, panelHost, { drafts, inputCapture });
 }

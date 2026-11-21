@@ -16,8 +16,9 @@
  */
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { Editor, type EditorComponent, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi, type Mock } from "vitest";
 import { DEFAULT_CONFIG, type EditorMode, type InterrogatorConfig } from "../config.js";
+import type { CaptureKey, InputCaptureStore } from "../input-capture.js";
 import {
   buildEditorTheme,
   createEditorComponent,
@@ -291,5 +292,146 @@ describe("TextField — history isolation (h2.31)", () => {
     field.render(80);
     field.getText();
     expect(editor.addToHistory).not.toHaveBeenCalled();
+  });
+});
+
+// --------------------------------------- input-recovery capture (P3.M2.T1.S1)
+
+/** Capture-store stub: records setKeyDirty calls + the passed text getters. */
+function captureStub(): {
+  store: InputCaptureStore;
+  setKeyDirty: Mock;
+  texts: string[];
+} {
+  const texts: string[] = [];
+  const setKeyDirty: Mock = vi.fn((_key: CaptureKey, getText: () => string) => {
+    texts.push(getText()); // the store reads EAGERLY — mirror that here
+  });
+  const store = { setKeyDirty } as unknown as InputCaptureStore;
+  return { store, setKeyDirty, texts };
+}
+
+const PROVIDER_KEY: CaptureKey = { branchId: "br", questionId: "q1", field: "writein" };
+
+/** fakeEditor variant whose setText fires onChange — the stock Editor does (setTextInternal). */
+function autoFireEditor(): ReturnType<typeof fakeEditor> {
+  const editor = fakeEditor();
+  const origSetText = editor.setText;
+  editor.setText = vi.fn((t: string) => {
+    (origSetText as (t: string) => void)(t);
+    editor.onChange?.(t);
+  });
+  return editor;
+}
+
+describe("TextField — input-recovery capture seam (P3.M2.T1.S1)", () => {
+  test("WRAP-AND-CHAIN: composed factory's onChange still fires alongside capture", () => {
+    const editor = fakeEditor();
+    const factoryOnChange = vi.fn();
+    editor.onChange = factoryOnChange; // composed factory installed its own
+    const { field, onInvalidate } = makeTextField(editor);
+    const capture = captureStub();
+    field.setCapture(capture.store, () => PROVIDER_KEY);
+
+    field.editor.onChange?.("typed");
+
+    // BOTH callbacks ran: the factory's first (never dropped), then
+    // invalidate (render liveness), then capture (recovery).
+    expect(factoryOnChange).toHaveBeenCalledWith("typed");
+    expect(onInvalidate).toHaveBeenCalled();
+    expect(capture.setKeyDirty).toHaveBeenCalledTimes(1);
+    expect(capture.setKeyDirty).toHaveBeenCalledWith(PROVIDER_KEY, expect.any(Function));
+  });
+
+  test("no-onChange editor still gets capture installed (stock path)", () => {
+    const { field, onInvalidate } = makeTextField(); // fakeEditor has no onChange
+    const capture = captureStub();
+    field.setCapture(capture.store, () => PROVIDER_KEY);
+    expect(field.editor.onChange).toBeDefined(); // install happened
+    field.editor.onChange?.("x");
+    expect(onInvalidate).toHaveBeenCalled();
+    expect(capture.setKeyDirty).toHaveBeenCalledTimes(1);
+  });
+
+  test("provider returning undefined (un-owned buffer / no branch reader) → no capture, no throw", () => {
+    const { field } = makeTextField();
+    const capture = captureStub();
+    field.setCapture(capture.store, () => undefined);
+    expect(() => field.editor.onChange?.("x")).not.toThrow();
+    expect(capture.setKeyDirty).not.toHaveBeenCalled();
+  });
+
+  test("no store wired → capture fully inert (existing call sites)", () => {
+    const { field } = makeTextField();
+    field.setCapture(undefined, () => PROVIDER_KEY);
+    expect(() => field.editor.onChange?.("x")).not.toThrow();
+  });
+
+  test("key provider resolves LIVE at edit time (ownership switch between edits)", () => {
+    const { field } = makeTextField();
+    const capture = captureStub();
+    let current: CaptureKey = PROVIDER_KEY;
+    field.setCapture(capture.store, () => current);
+    field.editor.onChange?.("a");
+    current = { branchId: "br", questionId: "q2", field: "elaboration" }; // user navigated
+    field.editor.onChange?.("b");
+    const calls = capture.setKeyDirty.mock.calls as unknown as Array<[CaptureKey, () => string]>;
+    expect(calls[0][0].questionId).toBe("q1");
+    expect(calls[1][0].questionId).toBe("q2");
+    expect(calls[1][0].field).toBe("elaboration");
+  });
+
+  test("expanded text only: the capture getter reads getExpandedText, never the preview", () => {
+    const editor = fakeEditor();
+    // Preview (getText) differs from expanded (getExpandedText) — paste marker.
+    let expanded = "line1\nline2";
+    editor.getText = vi.fn(() => "[paste 2 lines]");
+    editor.getExpandedText = vi.fn(() => expanded);
+    const { field } = makeTextField(editor);
+    const capture = captureStub();
+    field.setCapture(capture.store, () => PROVIDER_KEY);
+    field.editor.onChange?.("pasted");
+    expect(capture.texts).toEqual(["line1\nline2"]); // FULL expanded string
+    expanded = "\nindent kept\n";
+    field.editor.onChange?.("pasted again");
+    expect(capture.texts[1]).toBe("\nindent kept\n");
+  });
+
+  test("getExpandedText absent → falls back to getText (stock Editor)", () => {
+    const editor = fakeEditor();
+    delete (editor as { getExpandedText?: unknown }).getExpandedText;
+    const { field } = makeTextField(editor);
+    const capture = captureStub();
+    field.setCapture(capture.store, () => PROVIDER_KEY);
+    editor.setText("plain"); // raw editor write — the buffer now HOLDS "plain"
+    field.editor.onChange?.("plain");
+    expect(capture.texts).toEqual(["plain"]); // editor.getText() ran
+  });
+
+  test("programmatic setText NEVER captures — seeding/incidental buffers mint nothing", () => {
+    const editor = autoFireEditor(); // setText fires onChange (stock Editor does)
+    const { field } = makeTextField(editor);
+    const capture = captureStub();
+    field.setCapture(capture.store, () => PROVIDER_KEY);
+
+    field.setText("seeded draft"); // incidental write — onChange FIRED but…
+    field.seed("re-seeded"); // …capture must still see NOTHING.
+
+    // The chained callbacks DID run (factory parity preserved) — but the
+    // suppression flag kept the store out of it entirely.
+    expect(capture.setKeyDirty).not.toHaveBeenCalled();
+  });
+
+  test("capture fires for paste-as-mutation then for typed edits — same path", () => {
+    const editor = fakeEditor();
+    const { field } = makeTextField(editor);
+    const capture = captureStub();
+    field.setCapture(capture.store, () => PROVIDER_KEY);
+    editor.setText("pasted block\nline 2");
+    field.editor.onChange?.("pasted block\nline 2");
+    editor.setText("pasted block\nline 2!");
+    field.editor.onChange?.("pasted block\nline 2!");
+    expect(capture.setKeyDirty).toHaveBeenCalledTimes(2);
+    expect(capture.texts).toEqual(["pasted block\nline 2", "pasted block\nline 2!"]);
   });
 });

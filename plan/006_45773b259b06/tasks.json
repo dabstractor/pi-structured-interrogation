@@ -303,7 +303,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T1.S1",
                   "title": "Capture-on-edit wiring: full expanded string for all five editor duties",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 3,
                   "dependencies": [
                     "P3.M1.T1.S1"

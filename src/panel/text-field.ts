@@ -28,6 +28,21 @@
  * is P1.M4.T1.S2. Setting `onChange` to the panel's invalidate callback is
  * allowed and keeps rendering live (only when the factory has not already
  * installed its own onChange).
+ *
+ * Input-recovery capture seam (P3.M2.T1.S1 — spec
+ * state-and-persistence.md §Local input recovery): the constructor WRAPS
+ * AND CHAINS whatever onChange ends up installed so EVERY buffer mutation
+ * (keystrokes AND paste — a paste is a plain buffer mutation) reaches the
+ * extension's InputCaptureStore as the FULL expanded string
+ * (getExpandedText?.() ?? getText() — never a display preview or paste
+ * placeholder), keyed by a panel-provided provider resolved LIVE at edit
+ * time (buffer ownership changes as the user navigates — a snapshot at
+ * install time would key captures to a stale question/branch). The
+ * composed factory's own callback is NEVER dropped — it keeps firing
+ * first. Programmatic writes (draft seeding, navigation buffer swaps,
+ * send cleanup) are suppressed — they are incidental, not user edits, and
+ * must never mint a recovery record (stock Editor's setText fires onChange
+ * via setTextInternal, so the suppression flag is load-bearing).
  */
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import {
@@ -37,6 +52,7 @@ import {
   type TUI,
 } from "@earendil-works/pi-tui";
 import type { InterrogatorConfig } from "../config.js";
+import type { CaptureKey, InputCaptureStore } from "../input-capture.js";
 
 /**
  * Structural mirror of pi's `EditorFactory`
@@ -123,16 +139,61 @@ export class TextField {
   private readonly onInvalidate: () => void;
   /** Lines produced by the last render pass (for {@link lineCount}). */
   private lastRendered = 0;
+  /** Input-recovery capture wiring — inert until {@link setCapture}. */
+  private captureStore: InputCaptureStore | undefined;
+  private captureKeyProvider: (() => CaptureKey | undefined) | undefined;
+  /** True while a programmatic setText is in flight (seeding ≠ user edit). */
+  private captureSuppressed = false;
 
   constructor(args: TextFieldArgs) {
     this.editor = args.editor;
     this.theme = args.theme;
     this.onInvalidate = args.onInvalidate;
-    // Keep rendering live on text changes — but never clobber a callback
-    // the composed editor's factory already installed.
-    if (this.editor.onChange === undefined) {
-      this.editor.onChange = () => this.onInvalidate();
+    // Keep rendering live on text changes — and route every buffer
+    // mutation to input-recovery capture (P3.M2.T1.S1) — but never clobber
+    // a callback the composed editor's factory already installed:
+    // WRAP-AND-CHAIN (the precedent rule, kept; capture is additive).
+    const prevOnChange = this.editor.onChange;
+    if (prevOnChange === undefined) {
+      this.editor.onChange = () => {
+        this.onInvalidate();
+        this.fireCapture();
+      };
+    } else {
+      this.editor.onChange = (text) => {
+        prevOnChange(text);
+        this.onInvalidate();
+        this.fireCapture();
+      };
     }
+  }
+
+  /**
+   * Wire input-recovery capture (P3.M2.T1.S1): the extension-wide store
+   * plus the panel's LIVE key provider (reads bufferOwner/textDuty/chat
+   * record + branch tip at EDIT time — never a snapshot). Either argument
+   * undefined ⇒ capture inert for this field (test fakes, non-panel uses).
+   */
+  setCapture(
+    store: InputCaptureStore | undefined,
+    keyProvider: (() => CaptureKey | undefined) | undefined,
+  ): void {
+    this.captureStore = store;
+    this.captureKeyProvider = keyProvider;
+  }
+
+  /**
+   * Push one buffer mutation to the store. No-op unless capture is wired
+   * AND the provider resolves a key (un-owned buffer / no chat record /
+   * no branch reader ⇒ nothing to key the text to ⇒ capture nothing), and
+   * suppressed while a programmatic setText is in flight.
+   */
+  private fireCapture(): void {
+    if (this.captureSuppressed) return;
+    const store = this.captureStore;
+    const key = this.captureKeyProvider?.();
+    if (store === undefined || key === undefined) return;
+    store.setKeyDirty(key, () => this.getText());
   }
 
   /**
@@ -172,7 +233,16 @@ export class TextField {
   }
 
   setText(text: string): void {
-    this.editor.setText(text);
+    // Seeding/navigation/cleanup writes are NOT user edits — suppress
+    // capture even when the editor fires onChange from setText (the stock
+    // Editor's setTextInternal does exactly that). Incidental buffers must
+    // never mint a recovery record (spec :138; note §ordering).
+    this.captureSuppressed = true;
+    try {
+      this.editor.setText(text);
+    } finally {
+      this.captureSuppressed = false;
+    }
   }
 
   /**

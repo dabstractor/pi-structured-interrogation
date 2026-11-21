@@ -34,6 +34,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { InterrogatorConfig } from "./config.js";
 import type { DebugSubcommandHandler } from "./debug-commands.js";
 import type { DraftStore } from "./draft-store.js";
+import type { InputCaptureStore } from "./input-capture.js";
 import {
   hasResumableQuestions,
   resumePanel,
@@ -104,6 +105,8 @@ export type InterrogateInvokeOutcome = "opened" | "resumed" | "open" | "empty";
 export interface InvokeOptions {
   config: InterrogatorConfig;
   drafts?: DraftStore;
+  /** Input-recovery capture store (P3.M2.T1.S1) — rides the fresh-open row. */
+  inputCapture?: InputCaptureStore;
 }
 
 /**
@@ -151,7 +154,12 @@ export function interrogateInvokeAction(
   // single-instance guard blocks it, which surfaces as "empty" so the
   // thin layer can still give the user feedback.
   if (live && opts !== undefined) {
-    return openPanel(pi, { config: opts.config, state: state as InterrogationState, drafts: opts.drafts })
+    return openPanel(pi, {
+      config: opts.config,
+      state: state as InterrogationState,
+      drafts: opts.drafts,
+      inputCapture: opts.inputCapture,
+    })
       ? "opened"
       : "empty";
   }
@@ -200,7 +208,7 @@ export function registerInterrogateCommand(
   pi: ExtensionAPI,
   config: InterrogatorConfig,
   host: PanelHost,
-  opts?: { drafts?: DraftStore; debug?: DebugSubcommandHandler },
+  opts?: { drafts?: DraftStore; inputCapture?: InputCaptureStore; debug?: DebugSubcommandHandler },
 ): void {
   // User-facing command (h2.15): bare invocation is the panel invoke
   // (open/resume — never suspend); args dispatch the subcommands.
@@ -264,6 +272,7 @@ export function registerInterrogateCommand(
         const outcome = interrogateInvokeAction(host, ctx, getState(), {
           config,
           drafts: opts?.drafts,
+          inputCapture: opts?.inputCapture,
         });
         if (outcome === "empty") ctx.ui.notify(EMPTY_STATE_MESSAGE, "info");
         return;

@@ -398,21 +398,21 @@
           "type": "Milestone",
           "id": "P3.M4",
           "title": "Blank-answer rejection at the shared final mutation (all ingress)",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Reject blank answer values at applyAnswer regardless of ingress; keep the editor focused with an inline reason; guard reconstruction/replay against historical blanks. Independent of the capture engine (pure state seam) — may run in parallel with P3.M2/P3.M3.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M4.T1",
               "title": "Reject blank values at applyAnswer regardless of ingress",
-              "status": "Planned",
+              "status": "Ready",
               "description": "One shared guard at the final mutation: value.trim() tests emptiness only; nonblank stores untrimmed; rejection precedes any answer/status change, advance, or submission; prior answer preserved; editor keeps focus + content + inline 'Answer cannot be blank'.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M4.T1.S1",
                   "title": "Shared rejection guard at applyAnswer + editor inline reason",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD 'Reject blank answer values at the shared final mutation (applyAnswer), regardless of ingress (panel, side-chat apply, non-TUI answers[], or submit reconciliation)'. Use value.trim() ONLY to test emptiness; store nonblank values untrimmed. This supersedes the ui-spec's old write-in rule ('Empty buffer + enter = save draft + blur back to options, NO commit') with 'Blank answer attempts stay in the editor' — keep focus and content, show an inline reason e.g. 'Answer cannot be blank'. No semantic validation, no additional model calls.\n2. INPUT: the shared applyAnswer seam in src/panel/actions.ts (and wherever the final mutation lands — side-chat apply path, src/fallback.ts answers[] recording, submit reconciliation in reconcileDraftsForSubmit).\n3. LOGIC: Add the guard BEFORE any answer/status change, advance, or submission; on reject from the editor keep focus + buffer + inline reason; on reject from non-editor ingress return a benign status-line error and preserve any prior answer. Unit tests per ingress: panel write-in, side-chat apply, answers[] record, submit reconciliation.\n4. OUTPUT: guard + per-ingress tests, consumed by P3.M4.T1.S2 and P3.M5.T1.S1.\n5. DOCS: none at this layer.",
@@ -425,7 +425,7 @@
                   "type": "Subtask",
                   "id": "P3.M4.T1.S2",
                   "title": "Reconstruction/replay blank guards + acceptance case 5",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M4.T1.S1"
@@ -457,7 +457,7 @@
                   "type": "Subtask",
                   "id": "P3.M5.T1.S1",
                   "title": "Full gate: scripted acceptance cases 1-5 + suite/typecheck/lint + static-guard audit",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M2.T1.S3",

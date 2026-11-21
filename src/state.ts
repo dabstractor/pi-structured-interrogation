@@ -38,6 +38,15 @@ export interface QuestionOption {
   ramification?: string;
 }
 
+/**
+ * P3.M4.T1.S1 (spec state-and-persistence.md :141): the shared blank-answer
+ * predicate. Trim is the ONLY emptiness test — nonblank values are stored
+ * UNTRIMMED (raw user text, whitespace and all). No semantic validation.
+ */
+export function isBlankAnswerValue(value: string): boolean {
+  return value.trim() === "";
+}
+
 /** A recorded answer (h2.17). */
 export interface QuestionAnswer {
   /** Chosen option value (choice questions) or raw text (text questions). */
@@ -375,10 +384,22 @@ export class InterrogationState extends EventEmitter {
    * module (P1.M1.T2.S2). Records the answer and moves status to
    * `answered` (pending state per h2.38). MUST NOT touch rev — answers are
    * epoch territory (h2.39). Emits `changed`.
+   *
+   * P3.M4.T1.S1 (spec state-and-persistence.md :141): refuses blank answer
+   * values (`isBlankAnswerValue`) with a throw — same loud refusal idiom as
+   * the unknown-id case — BEFORE any answer/status mutation and BEFORE
+   * `emitChanged` (a rejected apply leaves zero observable trace). Callers
+   * that can carry blanks (fallback recordAnswers, P3.M4.T1.S2's replay
+   * filter, submit reconciliation) pre-check via the exported predicate.
    */
   applyAnswer(id: string, answer: QuestionAnswer): void {
     const q = this.questions.get(id);
     if (q === undefined) throw new Error(`unknown question id: ${id}`);
+    if (isBlankAnswerValue(answer.value)) {
+      throw new Error(
+        `blank answer value rejected (question ${id}) — state-and-persistence.md :141`,
+      );
+    }
     q.answer = { ...answer };
     q.status = "answered";
     this.emitChanged();

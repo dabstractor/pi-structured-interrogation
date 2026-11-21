@@ -1,0 +1,1 @@
+Create a PRP for Subtask P3.M5.T1.S1 of the PRD (background research). PRP file: plan/006_45773b259b06/P3M5T1S1/PRP.md. Research files: plan/006_45773b259b06/P3M5T1S1/research/. Item title, description and PRD selectors: see P3.M5.T1.S1 in plan/006_45773b259b06/tasks.json.

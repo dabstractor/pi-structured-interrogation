@@ -33,6 +33,7 @@
  */
 import { markSubmitted } from "./merge.js";
 import { takeSnapshot } from "./snapshots.js";
+import { isBlankAnswerValue } from "./state.js";
 import type {
   InterrogationState,
   Question,
@@ -194,6 +195,15 @@ const TERMINAL_ANSWER_STATUSES: ReadonlySet<QuestionStatus> = new Set(["moot", "
  *   - `unknown` — id not in state. NEVER thrown (tolerant pattern
  *     throughout this codebase); the executor surfaces them in the result
  *     text.
+ *   - `rejected` (P3.M4.T1.S1, spec state-and-persistence.md :141) — a
+ *     BLANK answer value ("" or whitespace-only, `isBlankAnswerValue`) is
+ *     never recorded: skipped BEFORE the terminal-status check (value
+ *     hygiene precedes status questions — a blank is rejected whatever the
+ *     status, so a moot question with a blank value reports here, NOT in
+ *     `ignored`), NO apply, prior answer preserved. Checked BEFORE
+ *     `state.applyAnswer` so the shared blank throw can never fire on this
+ *     path; `rejected` ids NEVER enter `recorded` (a rejected-only call
+ *     stays zero-side-effect per the BUG-012 rule below).
  *   - `ignored` — id exists but status ∈ {moot, withdrawn, closed}:
  *     terminal-until-re-upsert (h2.38). The answer is NOT applied and the
  *     question is left untouched (status/answer/rev unchanged) — matching
@@ -201,7 +211,9 @@ const TERMINAL_ANSWER_STATUSES: ReadonlySet<QuestionStatus> = new Set(["moot", "
  *     no-ops.
  * - Answer values are recorded AS GIVEN — no validation against option
  *   lists (chat answers are free-form; value-vs-options matching is the
- *   merge-rules layer's domain for upserts only).
+ *   merge-rules layer's domain for upserts only). The ONE exception is the
+ *   blank rejection above (spec :141): empty/whitespace-only values are
+ *   refused, everything else is stored UNTRIMMED.
  * - Epoch rule: ONE `markSubmitted` + snapshot push + `state.bumpEpoch()`
  *   per CALL — but ONLY when `recorded.length > 0`. Ordering is
  *   load-bearing: `markSubmitted` BEFORE `takeSnapshot` so the ring
@@ -211,7 +223,7 @@ const TERMINAL_ANSWER_STATUSES: ReadonlySet<QuestionStatus> = new Set(["moot", "
  *   is LOCAL to submit-time take-sites — the ring also legitimately holds
  *   close-pass snapshots with "closed" statuses (lifecycle.ts runClosePass,
  *   BUG-003; see the RING SHAPE INVARIANTS note on snapshots.ts
- *   takeSnapshot). A fully ignored/unknown (or empty) call has
+ *   takeSnapshot). A fully ignored/unknown/rejected (or empty) call has
  *   ZERO side effects: it burns no epoch, pushes no snapshot, and marks
  *   nothing (BUG-012: a no-op record must not masquerade as a submission).
  *   `markSubmitted` validates all ids before applying — `recorded` ids are
@@ -227,16 +239,25 @@ const TERMINAL_ANSWER_STATUSES: ReadonlySet<QuestionStatus> = new Set(["moot", "
 export function recordAnswers(
   state: InterrogationState,
   answers: AnswerInput[],
-): { recorded: string[]; unknown: string[]; ignored: string[] } {
+): { recorded: string[]; unknown: string[]; ignored: string[]; rejected: string[] } {
   const recorded: string[] = [];
   const unknown: string[] = [];
   const ignored: string[] = [];
+  const rejected: string[] = [];
   const at = new Date().toISOString();
 
   for (const answer of answers) {
     const q = state.getQuestion(answer.id);
     if (q === undefined) {
       unknown.push(answer.id);
+      continue;
+    }
+    // P3.M4.T1.S1 (spec :141): blank values are never recorded — checked
+    // BEFORE the terminal-status check (a blank is rejected whatever the
+    // status) and BEFORE applyAnswer, so the shared blank throw cannot fire
+    // here. Prior answer untouched; benign status-line error, not a throw.
+    if (isBlankAnswerValue(answer.value)) {
+      rejected.push(answer.id);
       continue;
     }
     // BUG-012: terminal-until-re-upsert (h2.38) — moot/withdrawn/closed ids
@@ -266,5 +287,5 @@ export function recordAnswers(
     state.bumpEpoch();
   }
 
-  return { recorded, unknown, ignored };
+  return { recorded, unknown, ignored, rejected };
 }

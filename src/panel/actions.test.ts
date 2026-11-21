@@ -30,6 +30,7 @@ import {
 } from "../state.js";
 import {
   accept,
+  applyChatAnswer,
   cursorDomainSize,
   maybeAutoSubmit,
   nextUnanswered,
@@ -45,6 +46,7 @@ import {
 } from "./actions.js";
 import { InterrogationPanel, type InterrogationPanelArgs } from "./panel.js";
 import { DraftStore } from "../draft-store.js";
+import { openOrReplace, resetSidechatForTests } from "./sidechat.js";
 
 // ------------------------------------------------------------------ fixtures
 
@@ -283,10 +285,14 @@ describe("accept — commit + advance (Q14=A)", () => {
     expect(renderDutyLabel("writein", stubTheme, 80)).toBe("OTHER — this text is the answer");
     expect(state.getQuestion("t1")?.status).toBe("open"); // opening ≠ answering
     expect(state.getQuestion("t1")?.answer).toBeUndefined();
-    // Empty-buffer escape hatch (writeInEnter's empty branch, must not
-    // regress): draft write-through + blur, NO commit.
+    // Blank-buffer rejection (P3.M4.T1.S1 — spec :141 supersedes h2.32's old
+    // save-draft-and-blur rule): the attempt STAYS IN THE EDITOR — consumed,
+    // flash, NO write-through, NO commit.
     expect(panel.handleInput("\r")).toBe(true);
-    expect(panel.focus).toBe("options");
+    expect(panel.footerFlash?.text).toBe("Answer cannot be blank");
+    expect(panel.focus).toBe("text"); // stayed in the editor
+    expect(panel.textDuty).toBe("writein");
+    expect(panel.draftTextFor("t1")).toBeUndefined(); // NO write-through at the rejected enter
     expect(state.getQuestion("t1")?.status).toBe("open");
     expect(state.getQuestion("t1")?.answer).toBeUndefined();
   });
@@ -1561,9 +1567,10 @@ describe("write-in duty (WRITEIN-001, FR-D1)", () => {
     expect(renderDutyLabel("writein", stubTheme, 80)).toBe("OTHER — this text is the answer");
   });
 
-  test("test_wi_enter_empty_buffer_on_answered_with_victims_never_gates", () => {
-    // h2.35 gates COMMITS only — an empty buffer is not a commit (S1's
-    // empty branch returns before the gate): draft save + blur, no modal.
+  test("test_wi_enter_blank_on_answered_with_victims_never_gates", () => {
+    // FR-18 gates COMMITS only — a BLANK attempt is not a commit
+    // (P3.M4.T1.S1: the reject branch returns before the gate): stay in the
+    // editor, flash the inline reason, no modal, no write-through.
     const state = seed([
       { id: "q1", overrides: { status: "answered" } },
       { id: "q2", overrides: { status: "answered", dependsOn: [{ id: "q1", equals: "a" }] } },
@@ -1574,12 +1581,14 @@ describe("write-in duty (WRITEIN-001, FR-D1)", () => {
     accept(panel); // Other row → writein duty (duty entry is ungated)
     expect(panel.textDuty).toBe("writein");
 
-    expect(panel.handleInput("\r")).toBe(true); // empty buffer + enter
+    expect(panel.handleInput("\r")).toBe(true); // blank buffer + enter
 
-    expect(panel.confirmMode).toBeNull(); // no modal — no commit, no confirm
+    expect(panel.confirmMode).toBeNull(); // no modal — blank never reaches the victims gate
     expect(state.getQuestion("q1")?.answer?.value).toBe("a"); // untouched
-    expect(panel.draftTextFor("q1")).toBe(""); // draft slot written (S1 tail)
-    expect(panel.focus).toBe("options");
+    expect(panel.footerFlash?.text).toBe("Answer cannot be blank"); // inline reason
+    expect(panel.focus).toBe("text"); // stayed in the editor
+    expect(panel.textDuty).toBe("writein");
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // NO write-through at the rejected enter
   });
 
   test("test_wi_enter_on_answered_with_victims_defers_into_modal_fr18", () => {
@@ -1645,31 +1654,63 @@ describe("write-in duty (WRITEIN-001, FR-D1)", () => {
     expect(panel.textDuty).toBe("elaboration"); // blurTextField reset the duty
   });
 
-  test("test_wi_enter_empty_buffer_saves_draft_no_commit", () => {
+  test("test_wi_enter_blank_rejected_stays_in_editor", () => {
+    // P3.M4.T1.S1 (spec :141 — supersedes h2.32's old save-draft-and-blur
+    // rule): a blank answer attempt STAYS IN THE EDITOR — focus, buffer,
+    // duty and cursor all preserved; flash the inline reason; NO draft
+    // write-through at the rejected enter (the eventual blur/navigation
+    // write-through still stages the slot); and a follow-up commit with
+    // real text still works (the editor survived).
     const state = seed([{ id: "q1", overrides: { recommendation: "a" } }]);
     const { panel } = makePanel(state, { drafts: new DraftStore() });
     panel.currentId = "q1";
     panel.cursorIndex = 2;
     accept(panel);
     expect(panel.textField.getText()).toBe(""); // no draft seeded
+    const cursorBefore = panel.cursorIndex;
 
-    expect(panel.handleInput("\r")).toBe(true); // empty buffer + enter
+    expect(panel.handleInput("\r")).toBe(true); // blank buffer + enter → rejected, consumed
 
     const q1 = state.getQuestion("q1")!;
-    expect(q1.answer).toBeUndefined(); // NO commit — nothing answered (h2.32)
-    expect(q1.status).toBe("open");
-    expect(panel.draftTextFor("q1")).toBe(""); // draft slot + DraftStore seam written
-    expect(panel.focus).toBe("options"); // blurred back to options
-    expect(panel.cursorIndex).toBe(0); // EXPLAIN-003 re-seed: q1 UNANSWERED → ★ row 0 (ANSWER-PIN-001)
-    expect(panel.textDuty).toBe("elaboration");
+    expect(q1.answer).toBeUndefined(); // NO commit — nothing answered
+    expect(q1.status).toBe("open"); // status untouched
+    expect(panel.footerFlash?.text).toBe("Answer cannot be blank"); // the ONLY effect
+    expect(panel.focus).toBe("text"); // stayed in the editor
+    expect(panel.textDuty).toBe("writein"); // duty preserved
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // NO write-through at the rejected enter
+    expect(panel.currentId).toBe("q1"); // currentId unchanged
+    expect(panel.cursorIndex).toBe(cursorBefore); // cursor unchanged
+
+    // The editor survived: typing a real answer + enter still commits raw.
+    panel.textField.setText("  alpha  ");
+    expect(panel.handleInput("\r")).toBe(true);
+    expect(q1.answer?.value).toBe("  alpha  "); // byte-exact, UNTRIMMED
+    expect(q1.answer?.custom).toBe(true);
   });
 
-  test("test_wi_enter_empty_buffer_reseeds_to_recorded_answer_row", () => {
-    // EXPLAIN-003 × ANSWER-PIN-001 (FR-35): with a recorded answer, the
-    // editor-close re-seed lands on the ANSWER's display row — never the ★
-    // row, never 0-by-default. D-R13 display order is recommended-first:
-    // options [a,b] + recommendation "b" + answer "a" → display [b(★), a],
-    // so the recorded "a" owns display row 1 (row 0 is the ★ Beta row).
+  test("test_wi_enter_whitespace_only_buffer_rejected_stays_in_editor", () => {
+    // Whitespace-only (" \n ") is blank per the trim-only test — same
+    // rejection, and the byte-exact buffer is preserved (never trimmed).
+    const state = seed([{ id: "q1", overrides: { recommendation: "a" } }]);
+    const { panel } = makePanel(state, { drafts: new DraftStore() });
+    panel.currentId = "q1";
+    panel.cursorIndex = 2;
+    accept(panel);
+    panel.textField.setText(" \n ");
+
+    expect(panel.handleInput("\r")).toBe(true);
+
+    expect(panel.footerFlash?.text).toBe("Answer cannot be blank");
+    expect(panel.focus).toBe("text");
+    expect(panel.textField.getText()).toBe(" \n "); // buffer byte-unchanged
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // NO write-through
+  });
+
+  test("test_wi_enter_blank_on_answered_question_stays_and_preserves_answer", () => {
+    // P3.M4.T1.S1: blank enter on an ANSWERED question — no commit, no
+    // re-seed-to-answer-row (there is NO blur, so the cursor never moves),
+    // answer + status untouched; the editor holds focus.
     const state = seed([
       { id: "q1", overrides: { recommendation: "b", status: "answered", answer: { value: "a", at: T0 } } },
     ]);
@@ -1679,19 +1720,16 @@ describe("write-in duty (WRITEIN-001, FR-D1)", () => {
     accept(panel); // → write-in duty, editor focused
     expect(panel.textField.getText()).toBe(""); // no draft seeded
 
-    expect(panel.handleInput("\r")).toBe(true); // empty buffer + enter → draft save, NO commit
+    expect(panel.handleInput("\r")).toBe(true); // blank buffer + enter → rejected
 
     const q1 = state.getQuestion("q1")!;
-    expect(q1.answer?.value).toBe("a"); // answer untouched — a draft save is not an answer gesture
+    expect(q1.answer?.value).toBe("a"); // answer untouched — a rejection is not an answer gesture
     expect(q1.status).toBe("answered");
-    expect(panel.draftTextFor("q1")).toBe(""); // draft slot + DraftStore seam written
-    expect(panel.focus).toBe("options"); // blurred back to options
-    expect(panel.cursorIndex).toBe(1); // the RECORDED answer's display row (D-R13) — not 0, not ★
-    expect(panel.textDuty).toBe("elaboration");
-    // The rendered cursor ▸ sits on the recorded answer's row, not the ★ row.
-    const lines = panel.render(80);
-    expect(lines.some((l) => l.includes("▸") && l.includes("Alpha"))).toBe(true);
-    expect(lines.some((l) => l.includes("▸") && l.includes("Beta"))).toBe(false);
+    expect(panel.footerFlash?.text).toBe("Answer cannot be blank"); // inline reason
+    expect(panel.focus).toBe("text"); // STAYED in the editor (no blur → no re-seed)
+    expect(panel.textDuty).toBe("writein");
+    expect(panel.cursorIndex).toBe(2); // cursor unchanged — no options re-seed
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // NO write-through at the rejected enter
   });
 
   test("test_wi_commit_reruns_dependsOn", () => {
@@ -2097,6 +2135,93 @@ describe("submit — batch note (R3, P1.M4.T2.S2)", () => {
 
 // ----------------- submit draft reconciliation (NEW-002/NEW-003, h2.45)
 
+describe("blank-answer guard — per-ingress coverage (P3.M4.T1.S1, spec :141)", () => {
+  afterEach(() => {
+    resetSidechatForTests(); // the sidechat singleton is module memory — never leak
+  });
+
+  test("test_sidechat_blank_writein_decision_rejected_through_shared_chain", () => {
+    // Side-chat ingress: the parser never mints blank decisions (sidechat.ts
+    // "empty-text" rule), so we hand-build one to prove the chain anyway
+    // (defense against future parser regressions): applyChatAnswer → seam
+    // writeIn → writeInEnter's blank branch → consumed, no answer, flash.
+    const state = seed([{ id: "q1", overrides: { recommendation: "a" } }]);
+    const { panel } = makePanel(state, { drafts: new DraftStore() });
+    panel.currentId = "q1";
+    openOrReplace("q1", {
+      resolveModelSnapshot: () => ({ provider: "prov", modelId: "mdl-1" }),
+      buildSystemPrompt: () => "SYS",
+      buildBranchSnapshot: () => [] as never,
+    });
+
+    expect(applyChatAnswer(panel, { seam: "writeIn", text: "  " })).toBe(true); // consumed
+
+    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // no answer
+    expect(state.getQuestion("q1")?.status).toBe("open"); // no advance
+    expect(panel.currentId).toBe("q1"); // unchanged
+    expect(panel.footerFlash?.text).toBe("Answer cannot be blank"); // writeInEnter ran
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // NO write-through
+  });
+
+  test("test_submit_blank_draft_on_open_text_question_applies_nothing", () => {
+    // Reconciliation ingress A: a whitespace-only draft slot on an OPEN text
+    // question is an absent draft (existing skip) → zero-pending "nothing
+    // to submit" path, no throw, no crash.
+    const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+    panel.commitTextDraft("t1", "  "); // blank draft slot
+
+    expect(submit(panel, deps)).toBe(true);
+
+    expect(state.getQuestion("t1")?.answer).toBeUndefined(); // NO answer applied
+    expect(state.getQuestion("t1")?.status).toBe("open");
+    expect(panel.footerFlash?.text).toBe("nothing to submit"); // zero-pending path
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  test("test_submit_blank_draft_on_answered_choice_ships_choice_alone_no_elaboration", () => {
+    // Reconciliation ingress B: an answered CHOICE question with a blank
+    // draft slot — the blank draft never becomes answer.text; the choice
+    // answer ships alone.
+    const state = seed([{ id: "q1", overrides: { recommendation: "a", status: "answered" } }]);
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+    panel.commitTextDraft("q1", "  "); // blank draft slot on the answered choice
+
+    expect(submit(panel, deps)).toBe(true);
+
+    const q1 = state.getQuestion("q1")!;
+    expect(q1.answer?.value).toBe("a"); // the choice answer
+    expect(q1.answer?.text).toBeUndefined(); // blank draft NEVER attached as elaboration
+    expect(sendMessage).toHaveBeenCalledTimes(1); // shipped
+  });
+
+  test("test_submit_legacy_blank_prior_answer_skipped_no_throw", () => {
+    // Reconciliation ingress C (belt-and-braces clause): a LEGACY blank
+    // prior answer value (pre-guard singleton state surviving an in-place
+    // extension reload — hand-seeded via raw state mutation, bypassing
+    // applyAnswer) + a nonblank draft → the elaboration-attach branch
+    // skips it: no throw inside submit, nothing attached.
+    const state = seed([{ id: "q1", overrides: { recommendation: "a", status: "answered" } }]);
+    const legacy = state.getQuestion("q1")!;
+    legacy.answer = { value: "  ", at: T0 }; // raw mutation — pre-guard legacy shape
+    const store = new DraftStore();
+    const { panel } = makePanel(state, { drafts: store });
+    const { deps, sendMessage } = makeDeps(true);
+    panel.commitTextDraft("q1", "because of the legacy constraint"); // nonblank draft
+
+    expect(() => submit(panel, deps)).not.toThrow();
+
+    const q1 = state.getQuestion("q1")!;
+    expect(q1.answer?.value).toBe("  "); // prior value untouched — nothing attached
+    expect(q1.answer?.text).toBeUndefined(); // the draft never became elaboration
+    expect(sendMessage).toHaveBeenCalledTimes(1); // the (legacy) answer still shipped
+  });
+});
+
 describe("submit — draft reconciliation at submit (NEW-002/NEW-003, h2.45)", () => {
   test("NEW-002: an open text question's typed draft ships as the answer", () => {
     const state = seed([{ id: "t1", overrides: { type: "text", options: undefined } }]);
@@ -2448,17 +2573,17 @@ describe("submit — WRITEIN-002 draft role binding (h2.32/h2.48)", () => {
     commitWriteIn(panel, "my custom take");
     expect(panel.draftTextFor("q1")).toBeUndefined(); // VAL-002: the real commit consumed the slot
 
-    // Deliberate delete-to-empty: ✎-row re-entry (cursor seeds there per
-    // ANSWER-PIN-001), clear the buffer, enter — writeInEnter's empty-first
-    // branch saves the draft ("" stays DEFINED), never commits.
-    panel.currentId = "q1";
-    expect(accept(panel)).toBe(true); // ✎ row → write-in editor
-    panel.textField.setText("");
-    expect(panel.handleInput("\r")).toBe(true); // empty enter → commitTextDraft("q1", "")
+    // Deliberate delete-to-empty (P3.M4.T1.S1 supersedes the old rule: the
+    // write-in enter no longer saves drafts — a blank enter is REJECTED and
+    // stays in the editor — so the deletion reaches the slot via the public
+    // stage-1 seam, the same gesture the elaboration duty still uses):
+    // "" stays DEFINED, never resurrected.
+    panel.commitTextDraft("q1", "");
     expect(panel.draftTextFor("q1")).toBe(""); // defined empty — the user's state
 
     // Supersede with option "a": guard 4 reads "" (defined) and skips
     // staging — the deletion is honored, nothing resurrects.
+    panel.currentId = "q1"; // navigate back (write-through: empty buffer, no existing slot → nothing staged)
     panel.cursorIndex = 0;
     expect(accept(panel)).toBe(true);
     expect(panel.draftTextFor("q1")).toBe("");
@@ -3193,8 +3318,11 @@ describe("maybeAutoSubmit — completeness hook", () => {
   });
 
   test("test_auto_empty_buffer_writein_exit_never_fires", () => {
-    // The empty-buffer exit is a DRAFT save (h2.32: nothing answered) — the
-    // hook must not live on that branch: no submit, no flash.
+    // P3.M4.T1.S1 (spec :141 — supersedes h2.32's old save-draft-and-blur
+    // rule): a blank enter is REJECTED and stays in the editor — nothing is
+    // committed, so the auto-submit hook must not live on that branch
+    // either: no submit, no "submitted" flash (the ONLY flash is the blank
+    // rejection), status stays open.
     const state = seed([{ id: "q1" }]);
     const { deps, sendMessage } = makeDeps(true);
     const { panel } = makePanel(state, { delivery: deps, drafts: new DraftStore() });
@@ -3206,7 +3334,8 @@ describe("maybeAutoSubmit — completeness hook", () => {
     expect(panel.handleInput("\r")).toBe(true);
 
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(panel.footerFlash).toBeUndefined();
+    expect(panel.footerFlash?.text).toBe("Answer cannot be blank"); // rejection flash, NOT a submit
+    expect(panel.focus).toBe("text"); // stayed in the editor
     expect(state.getQuestion("q1")?.status).toBe("open"); // nothing committed
   });
 

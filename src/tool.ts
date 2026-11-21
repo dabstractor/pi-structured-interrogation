@@ -395,7 +395,7 @@ export function executeInterrogate(
         };
       }
 
-      const { recorded, unknown, ignored } = recordAnswers(state, parsed.action.answers);
+      const { recorded, unknown, ignored, rejected } = recordAnswers(state, parsed.action.answers);
       // AC-11 parity: a record IS a delivery of user answers (the
       // chat answer already happened). Clear the h2.44 per-run suppression
       // flags so the settle's close pass can archive ids that were re-asked
@@ -409,6 +409,10 @@ export function executeInterrogate(
       const statusLine = buildStatusLine(serialized);
       const lines = [statusLine];
       if (ignored.length > 0) lines.push(`not recordable (moot/withdrawn/closed): ${ignored.join(", ")}`);
+      // P3.M4.T1.S1 (spec :141): blank values land in the rejected bucket —
+      // benign status-line error, same shape as `unknown ids:`; the result
+      // stays a SUCCESS (no isError). Rendered BEFORE `no answers recorded`.
+      if (rejected.length > 0) lines.push(`blank value not recorded: ${rejected.join(", ")}`);
       if (unknown.length > 0) lines.push(`unknown ids: ${unknown.join(", ")}`);
       if (recorded.length === 0) lines.push("no answers recorded");
       return { content: lines.join("\n"), details: inlineEnvelope(serialized, "record", statusLine) };

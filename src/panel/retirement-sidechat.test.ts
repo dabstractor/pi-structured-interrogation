@@ -483,7 +483,7 @@ describe("retirement fires at exactly the write-in handoff seams — nowhere els
     expect(state.getQuestion("q1")?.answer?.value).toBe("recorded"); // unchanged value
   });
 
-  test("empty-buffer exit retires nothing; esc exit stages, never retires", () => {
+  test("empty-buffer enter rejects in-editor retires nothing; esc exit stages, never retires", () => {
     const h = makeHarness();
     const WRITEIN: CaptureKey = { branchId: BRANCH_ID, questionId: "q1", field: "writein" };
     captureAndFlush(h.capture, WRITEIN, "typed but not committed");
@@ -492,9 +492,12 @@ describe("retirement fires at exactly the write-in handoff seams — nowhere els
     h.panel.currentId = "q1";
     h.panel.focusTextField("writein");
     h.panel.textField.setText("");
-    h.panel.handleInput(ENTER); // empty buffer → commitTextDraft (a DRAFT, not a handoff)
+    // P3.M4.T1.S1: a blank enter is REJECTED and stays in the editor — no
+    // write-through (a DRAFT, not a handoff), so certainly no retirement.
+    h.panel.handleInput(ENTER);
     expect(h.retired).toEqual([]);
     expect(chatFiles(h.dir)).toHaveLength(1); // recovery value stands
+    expect(h.panel.focus).toBe("text"); // still editing — the rejection never exits
 
     h.panel.textField.setText("esc staged draft");
     h.panel.handleInput(ESCAPE); // exitTextField — STAGES the draft

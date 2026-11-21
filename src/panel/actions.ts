@@ -30,7 +30,12 @@ import {
   transcriptPrompt,
   UNANSWERED_SUMMARY,
 } from "../snapshots.js";
-import type { Question, QuestionAnswer, SerializedState } from "../state.js";
+import {
+  isBlankAnswerValue,
+  type Question,
+  type QuestionAnswer,
+  type SerializedState,
+} from "../state.js";
 import { countUnansweredGate, gateGroupNames } from "./gate.js";
 import type { InterrogationPanel } from "./panel.js";
 import { beginWriteInConfirm, rippleVictims } from "./ripple-confirm.js";
@@ -43,6 +48,13 @@ import {
   get as getSidechatRecord,
   type ApplyDecision,
 } from "./sidechat.js";
+
+/**
+ * P3.M4.T1.S1 (spec state-and-persistence.md :141): the inline reason
+ * flashed when a blank answer attempt is rejected at the editor ingress.
+ * Pinned text — tests assert it exactly.
+ */
+const BLANK_ANSWER_FLASH = "Answer cannot be blank";
 
 // ------------------------------------------------------------------- types
 
@@ -393,12 +405,17 @@ export function stageSupersededWriteIn(
  * custom: true }) → evaluateDependsOn → advanceAfterAccept — mirroring
  * {@link acceptOptionIndex}'s post-commit sequence exactly (h2.42 answer
  * shape: value holds the user's own text, custom: true marks the write-in;
- * no option is selected). EMPTY buffer: save the draft + blur back to
- * options, NO commit (nothing answered — h2.32) via the shared
- * commitTextDraft tail (draft slot + DraftStore seam + cursor re-seed —
- * ANSWER-PIN-001: the recorded answer's row when one exists, else the ★
- * preselect; supersedes EXPLAIN-003's re-seed-to-★ clause, h2.65 ruling
- * 5) with arming explicitly off. BYTE-IDENTICAL buffer FIRST (a
+ * no option is selected). BLANK buffer (P3.M4.T1.S1 — spec
+ * state-and-persistence.md :141, SUPERSEDING h2.32's old
+ * save-draft-and-blur rule): the attempt STAYS IN THE EDITOR — focus,
+ * buffer (byte-exact, whitespace included), textDuty and cursorIndex are
+ * all preserved; the ONLY effect is the inline flash "Answer cannot be
+ * blank". NO commitTextDraft write-through at the rejected enter (the
+ * buffer is still live in the editor; capture-on-edit holds the durable
+ * copy and the eventual blur/navigation write-through stages the slot —
+ * R4 holds), NO commit, NO advance, NO blur, NO FR-18 modal (blank never
+ * reaches the victims gate below), NO auto-submit. BYTE-IDENTICAL buffer
+ * AFTER the blank gate FIRST (a
  * byte-identical write-in re-commit — a recorded custom write-in, or any
  * recorded value on text questions — is an inert no-op: consume + advance
  * + blur only; no modal, applyAnswer, moot recompute, or auto-submit —
@@ -426,12 +443,19 @@ export function writeInEnter(panel: InterrogationPanel): boolean {
     return true;
   }
   const text = panel.textField.getText();
-  if (text.trim().length === 0) {
-    // Empty: draft write-through + blur, no commit (R4) — reuse the
-    // existing save tail (draftSlots + DraftStore seam + cursor re-seed —
-    // ANSWER-PIN-001: recorded answer first, ★ only while unanswered),
-    // explicitly NOT a commit.
-    panel.commitTextDraft(q.id, text);
+  if (isBlankAnswerValue(text)) {
+    // P3.M4.T1.S1 (spec state-and-persistence.md :141 — supersedes h2.32's
+    // old empty-buffer save-draft-and-blur rule): a blank answer attempt
+    // STAYS IN THE EDITOR. Keep focus ("text"), textDuty ("writein"), the
+    // buffer (byte-exact, whitespace included) and cursorIndex; flash the
+    // inline reason. NO draft write-through at the rejected enter
+    // (commitTextDraft is NOT called — the buffer is still live in the
+    // editor; capture-on-edit holds the durable copy and the eventual blur
+    // or question-navigation write-through stages the slot, so R4 holds),
+    // NO commit, NO advance, NO blur, NO FR-18 modal (blank never reaches
+    // the victims gate below), NO auto-submit. `return true` = consumed —
+    // the enter key did its (rejecting) job.
+    panel.flash(BLANK_ANSWER_FLASH);
     return true;
   }
   // ANSWER-PIN-001 / FR-D9: a byte-identical write-in re-commit is an inert
@@ -758,6 +782,11 @@ function reconcileDraftsForSubmit(panel: InterrogationPanel): string[] {
     if (
       q.status === "answered" &&
       q.answer !== undefined &&
+      // P3.M4.T1.S1: a LEGACY blank prior answer value (pre-guard singleton
+      // state surviving an in-place extension reload) never enters a
+      // submission — attaching it as {...q.answer, text} would trip the
+      // shared blank throw inside submit. Load-bearing, not cosmetic.
+      !isBlankAnswerValue(q.answer.value) &&
       q.answer.custom !== true // a write-in's draft already IS answer.value — never also attach as text
     ) {
       panel.state.applyAnswer(q.id, { ...q.answer, text });

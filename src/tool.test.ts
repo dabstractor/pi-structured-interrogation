@@ -579,6 +579,43 @@ describe("executeInterrogate: record", () => {
     expect(st.getQuestion("q2")!.answer).toBeUndefined();
     expect(st.getQuestion("q1")!.answer?.value).toBe("yes");
   });
+
+  test("non-TUI: blank value lands in the rejected bucket — 'blank value not recorded' line, still a success (P3.M4.T1.S1)", () => {
+    const st = seedState();
+    seedQ(st, "q1");
+    seedQ(st, "q2");
+    st.applyAnswer("q1", { value: "postgres", at: "t1" }); // prior answer on q1
+    const r = executeInterrogate(
+      { epoch: 1, answers: [{ id: "q2", value: "   " }] },
+      printCtx(),
+    );
+    const lines = r.content.split("\n");
+    expect(lines[0]).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 1"); // epoch NOT burned
+    expect(lines[1]).toBe("blank value not recorded: q2"); // exact line
+    expect(lines[2]).toBe("no answers recorded"); // nothing was recorded
+    expect(lines).toHaveLength(3);
+    expect(r.details.action).toBe("record");
+    expect(r.details.epoch).toBe(1);
+    expect(st.getQuestion("q2")!.answer).toBeUndefined(); // NO apply
+    expect(st.getQuestion("q1")!.answer?.value).toBe("postgres"); // prior answer preserved
+  });
+
+  test("non-TUI: mixed batch (valid + blank) records the valid one and renders the rejected line", () => {
+    const st = seedState();
+    seedQ(st, "q1");
+    seedQ(st, "q2");
+    const r = executeInterrogate(
+      { epoch: 1, answers: [{ id: "q1", value: "yes" }, { id: "q2", value: "" }] },
+      printCtx(),
+    );
+    const lines = r.content.split("\n");
+    expect(lines[0]).toBe("1/2 answered · 0 re-asked · 0 moot · epoch 2");
+    expect(lines[1]).toBe("blank value not recorded: q2");
+    expect(lines).toHaveLength(2); // nothing recorded-nothing and unknown-nothing lines
+    expect(r.details.epoch).toBe(2); // ONE bump — the valid entry only
+    expect(st.getQuestion("q1")!.answer?.value).toBe("yes");
+    expect(st.getQuestion("q2")!.answer).toBeUndefined();
+  });
 });
 
 describe("executeInterrogate: reopen", () => {

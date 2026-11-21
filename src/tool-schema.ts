@@ -501,7 +501,14 @@ function narrowAnswer(raw: unknown, path: string, errors: ErrorSink): AnswerInpu
   if (typeof raw.id !== "string" || raw.id.trim() === "") {
     errors.push({ path: `${path}.id`, message: `answer id must be a non-empty string (got ${JSON.stringify(raw.id ?? null)})` });
   }
-  if (typeof raw.value !== "string" || raw.value.trim() === "") {
+  // P3.M4.T1.S1 (spec state-and-persistence.md :141): value hygiene moved to
+  // the shared final mutation — a BLANK value (""/whitespace-only) passes the
+  // STRUCTURAL narrowing (typeof string) and is benignly rejected downstream
+  // (recordAnswers' `rejected` bucket → tool.ts "blank value not recorded:
+  // {ids}" status line, result stays a success). The old trim-reject here
+  // failed the WHOLE batch with isError — contradicting the benign per-entry
+  // rejection contract — and duplicated the guard this item owns.
+  if (typeof raw.value !== "string") {
     errors.push({ path: `${path}.value`, message: `answer value must be a non-empty string (got ${JSON.stringify(raw.value ?? null)})` });
   }
   const a: AnswerInput = {

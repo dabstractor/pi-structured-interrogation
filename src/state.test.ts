@@ -14,6 +14,7 @@ import {
   UNGROUPED_LABEL,
   createInterrogationState,
   getState,
+  isBlankAnswerValue,
   resetState,
   setState,
   type Question,
@@ -179,6 +180,50 @@ describe("applyAnswer", () => {
     expect(() => state.applyAnswer("nope", { value: "x", at: "t" })).toThrow(
       "unknown question id: nope",
     );
+  });
+
+  // P3.M4.T1.S1 (spec state-and-persistence.md :141): the shared blank guard.
+  test("test_apply_answer_blank_empty_string_throws", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    expect(() => state.applyAnswer("q1", { value: "", at: "t" })).toThrow(/blank/);
+  });
+
+  test("test_apply_answer_blank_whitespace_only_throws", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    expect(() => state.applyAnswer("q1", { value: "   ", at: "t" })).toThrow(/blank/);
+  });
+
+  test("test_apply_answer_blank_multiline_whitespace_throws", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    expect(() => state.applyAnswer("q1", { value: "\n\t ", at: "t" })).toThrow(/blank/);
+  });
+
+  test("test_apply_answer_blank_reject_preserves_prior_answer_and_status_and_emits_no_changed", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    state.applyAnswer("q1", { value: "real answer", at: "t1" });
+    const changed: SerializedState[] = [];
+    state.on("changed", (st) => changed.push(st));
+    expect(() => state.applyAnswer("q1", { value: "  ", at: "t2" })).toThrow(/blank/);
+    const after = state.getQuestion("q1");
+    expect(after?.status).toBe("answered"); // prior status untouched
+    expect(after?.answer).toEqual({ value: "real answer", at: "t1" }); // prior answer byte-untouched
+    expect(changed).toHaveLength(0); // rejection is state-invisible: no emitChanged
+  });
+
+  test("test_apply_answer_nonblank_records_raw_untrimmed", () => {
+    state.upsertQuestion(q({ id: "q1" }));
+    state.applyAnswer("q1", { value: "  alpha  ", at: "t" });
+    expect(state.getQuestion("q1")?.answer?.value).toBe("  alpha  "); // byte-exact, UNTRIMMED
+  });
+
+  test("test_is_blank_answer_value_predicate_exact_trim_test", () => {
+    expect(isBlankAnswerValue("")).toBe(true);
+    expect(isBlankAnswerValue(" ")).toBe(true);
+    expect(isBlankAnswerValue("\t\n")).toBe(true);
+    expect(isBlankAnswerValue("a")).toBe(false);
+    expect(isBlankAnswerValue(" a ")).toBe(false);
+    expect(isBlankAnswerValue("\n")).toBe(true); // "\n" alone IS blank
+    expect(isBlankAnswerValue("a\n")).toBe(false); // "a\n" is NOT
   });
 });
 

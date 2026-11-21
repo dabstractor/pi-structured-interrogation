@@ -236,21 +236,27 @@ describe("commit-at-enter — one enter does the whole job (WRITEIN-001, h2.32)"
     expect(panel.currentId).toBe("q2");
   });
 
-  test("test_empty_writein_enter_saves_draft_blurs_no_commit", () => {
-    // Escape hatch: an empty buffer in write-in duty is NOT a commit —
-    // draft write-through + blur only (R4; landed writeInEnter behavior).
+  test("test_empty_writein_enter_rejected_stays_in_editor_no_commit", () => {
+    // P3.M4.T1.S1 (spec state-and-persistence.md :141 — supersedes the old
+    // empty-buffer escape hatch): a blank buffer in write-in duty is NOT a
+    // commit and NO LONGER a draft save + blur — the attempt is REJECTED:
+    // the enter is consumed, the inline reason flashes, and the editor keeps
+    // focus/buffer/duty/cursor. NO write-through at the rejected enter (the
+    // eventual blur/navigation write-through still stages the slot).
     const state = seedOpenText(["q1", "q2"]);
     const { panel, drafts } = makePanel(state);
     elaborate(panel);
     expect(panel.textField.getText()).toBe(""); // empty buffer
 
-    expect(panel.handleInput("\r")).toBe(true);
+    expect(panel.handleInput("\r")).toBe(true); // consumed — the rejecting enter
 
     expect(state.getQuestion("q1")?.answer).toBeUndefined(); // no commit
     expect(state.getQuestion("q1")?.status).toBe("open");
-    expect(drafts.setDraft).toHaveBeenCalledWith("q1", ""); // draft write-through
-    expect(panel.draftTextFor("q1")).toBe("");
-    expect(panel.focus).toBe("options");
+    expect(drafts.setDraft).not.toHaveBeenCalled(); // NO draft write-through at the rejected enter
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+    expect(panel.footerFlash?.text).toBe("Answer cannot be blank"); // inline reason
+    expect(panel.focus).toBe("text"); // stayed in the editor
+    expect(panel.textDuty).toBe("writein");
     expect(panel.currentId).toBe("q1"); // no advance
   });
 

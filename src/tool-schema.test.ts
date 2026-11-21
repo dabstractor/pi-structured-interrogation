@@ -337,12 +337,21 @@ describe("question validation", () => {
 });
 
 describe("answer validation (record action)", () => {
-  it("answers require non-empty id and value", () => {
+  it("answers require a non-empty id; a non-string value fails narrowing (blank values pass — rejected downstream, P3.M4.T1.S1)", () => {
+    // P3.M4.T1.S1 (spec :141): value hygiene lives at the shared final
+    // mutation — narrowing stays STRUCTURAL (typeof string), so "" no longer
+    // errors here; it flows to recordAnswers' rejected bucket and the benign
+    // "blank value not recorded" status line. A NON-STRING value is still a
+    // narrowing error.
     const r = parseInterrogateParams({ answers: [{ id: "", value: "" }] });
     expect(r.ok).toBe(false);
     const paths = r.errors.map((e) => e.path);
     expect(paths).toContain("answers[0].id");
-    expect(paths).toContain("answers[0].value");
+    expect(paths).not.toContain("answers[0].value"); // blank STRING passes narrowing
+
+    const nonString = parseInterrogateParams({ answers: [{ id: "q1", value: 42 as unknown as string }] });
+    expect(nonString.ok).toBe(false);
+    expect(nonString.errors.map((e) => e.path)).toContain("answers[0].value");
   });
 
   it("text elaboration passes through on answers", () => {

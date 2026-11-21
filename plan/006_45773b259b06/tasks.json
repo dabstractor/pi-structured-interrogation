@@ -5,7 +5,7 @@
       "id": "P1",
       "title": "Delta residue: keymap-conflict re-verification record refresh and README changeset sync (docs-only)",
       "status": "Planned",
-      "description": "The six rulings bundled in spec d18bc39..7377318 (SANITIZE-001, DEEP-EDITOR-001, FULL-TRANSCRIPT-001, FOOTER-001, KEYMNEMONICS-001 + amendment, description-REQUIRED) are ALREADY IMPLEMENTED and verified green at HEAD 7377318 (54 files / 1624 tests, typecheck, lint). The only unshipped remainder is Mode B documentation: re-run scripts/verify-keymap-conflicts.sh, confirm the KEYMNEMONICS-001 defaults d/i/e/n/c (plus chords) claim nothing in pi built-ins or installed extensions' registerShortcut, refresh the README 'Keymap conflict re-verification' record block (README.md:428-504 — research confirmed it still cites the 2026-10-16 side-chat run and stale o/t/m/e letter rows), and sweep README for residual key fossils. HARD CONSTRAINT (PRD AC-3): README.md is the ONLY file this changeset may modify; any gap found in the six rulings is a BUG at the existing seam, never a rebuild. spec/ and plan/004_* are read-only (declared stale prose / historical records).",
+      "description": "The six rulings bundled in spec d18bc39..7377318 (SANITIZE-001, DEEP-EDITOR-001, FULL-TRANSCRIPT-001, FOOTER-001, KEYMNEMONICS-001 + amendment, description-REQUIRED) are ALREADY IMPLEMENTED and verified green at HEAD 7377318 (54 files / 1624 tests, typecheck, lint). The only unshipped remainder is Mode B documentation: re-run scripts/verify-keymap-conflicts.sh, confirm the KEYMNEMONICS-001 defaults d/i/e/n/c (plus chords) claim nothing in pi built-ins or installed extensions' registerShortcut, refresh the README 'Keymap conflict re-verification' record block (README.md:428-504 — research confirmed it still cites the 2026-10-16 side-chat run and stale o/t/m/e letter rows), and sweep README for residual key fossils. HARD CONSTRAINT (PRD AC-3): README.md is the ONLY file this changeset may modify; any gap found in the six rulings is a BUG at the existing seam, never a rebuild. spec/ and plan/004_* are read-only (declared stale prose / historical records). PRD-DELTA UPDATE (spec ec61eb1): eight further rulings are now implemented and spec'd (DEEP-FULLSCREEN-001, DUMP-ONCE-001's forced half superseded by KEEP-OPEN-001/002, PANELTOGGLE-001, ANSWER-FIDELITY, CHAT-CONTEXT-001, LENIENT-ANSWER-001, CHAT-STYLE-001, EMPTY-REPLY-001) — P1's baseline, verification record, and 9-action cross-check predate them (the keymap surface is now 10 defaults incl. keys.toggle ctrl+n); the new refresh subtasks T1.S3 and T2.S3 (Planned) bring those records current. Gaps in the newer rulings route to P2 (conformance) / P3 (local input recovery), never a P1 rebuild; the README-only constraint stands.",
       "milestones": [
         {
           "type": "Milestone",
@@ -19,7 +19,7 @@
               "id": "P1.M1.T1",
               "title": "Re-establish green baseline and produce the authoritative keymap-conflict verification record",
               "status": "Complete",
-              "description": "Confirm the delta's precondition (suite/typecheck/lint green at HEAD) and re-run scripts/verify-keymap-conflicts.sh to capture the fresh claim matrix (date, commit, pi version, per-key status, drift since 2026-10-16) that the README record block will cite.",
+              "description": "Confirm the delta's precondition (suite/typecheck/lint green at HEAD) and re-run scripts/verify-keymap-conflicts.sh to capture the fresh claim matrix (date, commit, pi version, per-key status, drift since 2026-10-16) that the README record block will cite. UPDATE REQUIRED (PRD delta ec61eb1): the S1/S2 records predate the eight newer rulings and the 10th keymap default (keys.toggle ctrl+n, PANELTOGGLE-001) — the new subtask S3 (Planned) re-runs both at current HEAD and its figures supersede S1/S2's for T3.S2's gate.",
               "subtasks": [
                 {
                   "type": "Subtask",
@@ -55,6 +55,21 @@
                     "list.0",
                     "table.0"
                   ]
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T1.S3",
+                  "title": "UPDATE REQUIRED: Re-baseline at current HEAD and re-run keymap verification covering the 10th default (keys.toggle, PANELTOGGLE-001)",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD delta at spec commit ec61eb1 ('input recovery specced; chat ephemerality narrowed') — eight rulings landed AFTER the 7377318 baseline (git: 74ebe39 DEEP-FULLSCREEN-001/DUMP-ONCE-001, 70b08ff PANELTOGGLE-001, 7fd63c2 ANSWER-FIDELITY, a4c6c9e KEEP-OPEN-001/002, 4baa95a CHAT-CONTEXT-001, 8f7255d+d4449f2 LENIENT-ANSWER-001/CHAT-STYLE-001/EMPTY-REPLY-001). src/config.ts DEFAULT_CONFIG.keys now carries a 10th default — keys.toggle 'ctrl+n' plus the panelShortcut toggle (PANELTOGGLE-001) — and scripts/verify-keymap-conflicts.sh already classifies it (ctrl+n's pi built-in collision, app.session.toggleNamedFilter, is PICKER-SCOPED; extension wins at the main editor, one startup diagnostic). HEAD is ec61eb1+ with 56 src test files (was 54).\n2. INPUT: current HEAD (`git rev-parse --short HEAD`); src/config.ts DEFAULT_CONFIG.keys (10 entries incl. toggle ctrl+n) and the panelShortcut flag.\n3. LOGIC: Re-run `npm test`, `npm run typecheck`, `npm run lint` and record the FRESH counts (do not assume 54/1624 — 56+ files expected). Re-run `bash scripts/verify-keymap-conflicts.sh`; require exit 0 with all 10 defaults clear (ctrl+n reported under its picker-scoped-overlap classification). A reproducible failure or a genuine collision is a BUG at the existing seam — report and stop; do NOT rebind keys and do NOT rebuild anything.\n4. OUTPUT: refreshed Baseline + VerificationRecord {head, testFiles, tests, typecheck, lint, date, piVersion, perKeyStatus[10], drift[]} that supersedes the S1/S2 records for P1.M1.T2.S3 and P1.M1.T3.S2.\n5. DOCS: none — data only; the README record block citation is reconciled by P1.M1.T2.S1.",
+                  "prd_selectors": [
+                    "h2.83",
+                    "h2.10",
+                    "h2.56",
+                    "table.0"
+                  ]
                 }
               ]
             },
@@ -63,7 +78,7 @@
               "id": "P1.M1.T2",
               "title": "Refresh the README keymap-conflict re-verification record and cross-check keymap doc rows",
               "status": "Researching",
-              "description": "Rewrite README.md's 'Keymap conflict re-verification' block (lines 428-504) from the fresh verification run — header date/commit/pi-version, stale per-key rows (o/t/m/e -> i/e/n/c), stale drift claims — and verify the keymap table and sample settings still match src/config.ts defaults (PRD AC-2).",
+              "description": "Rewrite README.md's 'Keymap conflict re-verification' block (lines 428-504) from the fresh verification run — header date/commit/pi-version, stale per-key rows (o/t/m/e -> i/e/n/c), stale drift claims — and verify the keymap table and sample settings still match src/config.ts defaults (PRD AC-2). PRD-DELTA UPDATE: the block has since been partially refreshed by the newer changesets (the record cites 2026-10-20 @ eb09516 and now sits around :468 after later insertions) and PANELTOGGLE-001 added the toggle surfaces (sample settings ~:166, panelShortcut ~:174, keymap table row ~:211, dedicated section ~:294) — S1 reconciles against this fresh state instead of rewriting from the stale o/t/m/e premise; the new subtask S3 (Planned) extends the completed S2 cross-check to the 10th default.",
               "subtasks": [
                 {
                   "type": "Subtask",
@@ -74,7 +89,7 @@
                   "dependencies": [
                     "P1.M1.T1.S2"
                   ],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/keymap-verification-and-readme-drift.md — the block spans README.md:428-504 (heading '### Keymap conflict re-verification' at :428; next heading at :505). Confirmed stale: :430 cites 2026-10-16 / commit 378b9ee / pi 1.0.2; :437 claims '`e` unchanged — passes untouched' (predates KEYMNEMONICS-001); :449-452 per-key rows show `o`/`t`/`m`/`e` — must be `i` (overview) / `e` (elaborate) / `n` (batchNote) / `c` (chat); :480 letter set '(`d` `o` `t` `m` `e`)' must be '(`d` `i` `e` `n` `c`)'. Rows :448, :453-456 and the avoided-keys table :466-475 are already correct.\n2. INPUT: VerificationRecord from P1.M1.T1.S2 (date, headCommit, piVersion, perKeyStatus, driftSince20261016).\n3. LOGIC: Edit ONLY README.md within 428-504. Refresh the header (date = fresh run date, post-2026-10-16; commit = the verified HEAD sha — expect 7377318, the KEYMNEMONICS-001 changeset; pi version from the run; method line unchanged: `bash scripts/verify-keymap-conflicts.sh`, exit 0, all 9 defaults clear). Replace the stale :437 claim with the panel-owned-by-construction statement for d/i/e/n/c. Rewrite the verified-defaults table rows to the resolved defaults with the fresh statuses. Fix the :480 letter set. Re-derive the drift prose from the fresh grep output — do not copy the old drift sentence blindly. Do not touch spec/ (its AC-2b/M8 `t` prose is declared stale; never assert it) or plan/004_* historical notes. No mocking — docs-only edit.\n4. OUTPUT: An updated README.md record block consistent with the fresh run, consumed by P1.M1.T2.S2 (cross-check) and P1.M1.T3.S1 (sweep).\n5. DOCS: [Mode A/B] this edit IS the changeset-level doc deliverable — every fact in the block must come from P1.M1.T1.S2's run; keep the existing block format (intro paragraph, verified-defaults table, fixed-keys prose, avoided-keys table, regression-guard section).",
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/keymap-verification-and-readme-drift.md — the block spans README.md:428-504 (heading '### Keymap conflict re-verification' at :428; next heading at :505). Confirmed stale: :430 cites 2026-10-16 / commit 378b9ee / pi 1.0.2; :437 claims '`e` unchanged — passes untouched' (predates KEYMNEMONICS-001); :449-452 per-key rows show `o`/`t`/`m`/`e` — must be `i` (overview) / `e` (elaborate) / `n` (batchNote) / `c` (chat); :480 letter set '(`d` `o` `t` `m` `e`)' must be '(`d` `i` `e` `n` `c`)'. Rows :448, :453-456 and the avoided-keys table :466-475 are already correct. PRD-DELTA NOTE: later changesets already refreshed parts of the block (record cites 2026-10-20 @ eb09516) and inserted the PANELTOGGLE-001 toggle prose — reconcile against the file's CURRENT state (re-locate by quoted text, not line number) and pull fresh figures from P1.M1.T1.S3; the record must end up citing the 10-default run incl. ctrl+n.\n2. INPUT: VerificationRecord from P1.M1.T1.S2, superseded by the refreshed P1.M1.T1.S3 record (date, headCommit, piVersion, perKeyStatus[10], drift).\n3. LOGIC: Edit ONLY README.md within the record block. Refresh the header (date = the T1.S3 run date; commit = the verified current HEAD; pi version from the run; method line unchanged: `bash scripts/verify-keymap-conflicts.sh`, exit 0, all 10 defaults clear). Replace the stale :437 claim with the panel-owned-by-construction statement for d/i/e/n/c. Rewrite the verified-defaults table rows to the resolved defaults with the fresh statuses, including the toggle row's picker-scoped-overlap classification. Fix the bare-letter set to '(`d` `i` `e` `n` `c`)'. Re-derive the drift prose from the fresh grep output — do not copy the old drift sentence blindly. Do not touch spec/ (its AC-2b/M8 `t` prose is declared stale; never assert it) or plan/004_* historical notes. No mocking — docs-only edit.\n4. OUTPUT: An updated README.md record block consistent with the fresh 10-default run, consumed by P1.M1.T2.S2/P1.M1.T2.S3 (cross-check) and P1.M1.T3.S1 (sweep).\n5. DOCS: [Mode A/B] this edit IS the changeset-level doc deliverable — every fact in the block must come from P1.M1.T1.S3's run; keep the existing block format (intro paragraph, verified-defaults table, fixed-keys prose, avoided-keys table, regression-guard section).",
                   "prd_selectors": [
                     "h2.83",
                     "h2.82",
@@ -94,6 +109,23 @@
                     "P1.M1.T1.S2"
                   ],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/keymap-verification-and-readme-drift.md — research verdict: sample settings block README.md:147-179 (key lines 152-160) and keymap table rows :194-203 ALREADY MATCH DEFAULT_CONFIG.keys (src/config.ts:118-128) exactly. Expected outcome: verification no-op; PRD AC-2 requires the check regardless.\n2. INPUT: DEFAULT_CONFIG.keys from src/config.ts:118-128; the refreshed record block from P1.M1.T2.S1.\n3. LOGIC: For each of the 9 actions compare three surfaces — keymap table Default column (:195-203), sample settings values (:152-160), record block per-key table — against src/config.ts. Fix any drift in place, README.md only. Keys must read: deep d, overview i, elaborate e, batchNote n, submit ctrl+s, chat c, externalEditor ctrl+g, prevQuestion tab, nextQuestion shift+tab.\n4. OUTPUT: Per-action match verdict (9/9 match expected) consumed by P1.M1.T3.S1; any drift found is corrected in README.md in this subtask.\n5. DOCS: [Mode A] any drifted row is corrected here, with the work; if all rows already match: 'none — verification confirmed no user-facing change'.",
+                  "prd_selectors": [
+                    "h2.36",
+                    "h2.19",
+                    "h2.58",
+                    "h2.83"
+                  ]
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P1.M1.T2.S3",
+                  "title": "UPDATE REQUIRED: Extend the keymap cross-check to the PANELTOGGLE-001 surfaces (10th default + panelShortcut)",
+                  "status": "Planned",
+                  "story_points": 0.5,
+                  "dependencies": [
+                    "P1.M1.T1.S3"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD delta ec61eb1 — PANELTOGGLE-001 (implemented, commit 70b08ff) added `keys.toggle` (default ctrl+n) and the `panelShortcut` config flag (default on); early greps show README already carries them (sample settings ~:166 '\"toggle\": \"ctrl+n\"', ~:174 '\"panelShortcut\": true', keymap table row ~:211 'Toggle panel', dedicated section ~:294). The completed S2 cross-check covered only the original 9 actions.\n2. INPUT: refreshed VerificationRecord from P1.M1.T1.S3 (10 defaults); src/config.ts DEFAULT_CONFIG.keys + panelShortcut.\n3. LOGIC: Extend the three-surface comparison (keymap table, sample settings, record block per-key table) to the 10th action and the panelShortcut flag: toggle ctrl+n everywhere config.ts declares it. Fix any drift in place, README.md only; verify the sample settings and table rows stay consistent with the ui-spec hotkey row for keys.toggle (dual-surface: in-panel suspend leg + global main-editor open/resume leg, gated by panelShortcut).\n4. OUTPUT: Extended per-action match verdict (10/10 + panelShortcut match expected) consumed by P1.M1.T3.S1 and P1.M1.T3.S2.\n5. DOCS: [Mode A] any drifted row is corrected here, with the work; if all surfaces already match: 'none — verification confirmed no user-facing change'.",
                   "prd_selectors": [
                     "h2.36",
                     "h2.19",
@@ -120,7 +152,7 @@
                     "P1.M1.T2.S1",
                     "P1.M1.T2.S2"
                   ],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/keymap-verification-and-readme-drift.md §fossils — README fossils OUTSIDE the record block: elaborate `t`->`e` at :45 ('a re-pressed `t` just types the letter'), :50, :83, :265-266, :358 (AC 2b row); stale bare-key set at :263 ('(`d`, `o`, `t`, `m`, `e`)' -> '(`d`, `i`, `e`, `n`, `c`)'); chat `e`->`c` at :296, :301, :340, :375 (AC 17), :393. Already-correct surfaces — do not churn: :37-38 usage, :288, :297, table :194-203, sample :147-160. DO-NOT-TOUCH: spec/ (declared stale prose, human-owned) and plan/004_*/architecture/* (past-changeset history).\n2. INPUT: canonical letter set d/i/e/n/c established by P1.M1.T2.S1 (record block) and P1.M1.T2.S2 (table/sample cross-check).\n3. LOGIC: Grep README.md for '`t`' and bare-key enumerations; fix each listed fossil to the resolved default while preserving sentence meaning (e.g. :45 -> 'a re-pressed `e` just types the letter'; :296 -> 'Like every bare key, `c` works from non-editor focus'). Re-grep until zero stale hits remain outside the DO-NOT-TOUCH list. Edit README.md ONLY — no code, no spec/ changes. No mocking — docs-only.\n4. OUTPUT: README.md fully consistent with the six-ruling changeset, consumed by P1.M1.T3.S2 (final gate).\n5. DOCS: [Mode B] this IS the changeset-level sweep — README is the repo's only overview doc (no docs/ directory exists); after the sweep confirm the usage paragraph (:37-38) and side-chat section (:287-301) read correctly with the new letters.",
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/keymap-verification-and-readme-drift.md §fossils — README fossils OUTSIDE the record block: elaborate `t`->`e` at :45 ('a re-pressed `t` just types the letter'), :50, :83, :265-266, :358 (AC 2b row); stale bare-key set at :263 ('(`d`, `o`, `t`, `m`, `e`)' -> '(`d`, `i`, `e`, `n`, `c`)'); chat `e`->`c` at :296, :301, :340, :375 (AC 17), :393. Already-correct surfaces — do not churn: :37-38 usage, :288, :297, table :194-203, sample :147-160. DO-NOT-TOUCH: spec/ (declared stale prose, human-owned) and plan/004_*/architecture/* (past-changeset history). PRD-DELTA NOTE: README line numbers have shifted under the newer changesets' insertions (the record block now sits ~:468) — re-locate each fossil by its quoted text, not its line number, and add P1.M1.T2.S3 to the cross-check inputs. The AC-9 'drafts gone (documented)' wording (~:406) is P3-owned (the local input recovery changeset flips it) — leave it for P3.M5.T1.S2.\n2. INPUT: canonical letter set d/i/e/n/c established by P1.M1.T2.S1 (record block), P1.M1.T2.S2 and P1.M1.T2.S3 (table/sample cross-check incl. toggle).\n3. LOGIC: Grep README.md for '`t`' and bare-key enumerations; fix each listed fossil to the resolved default while preserving sentence meaning (e.g. :45 -> 'a re-pressed `e` just types the letter'; :296 -> 'Like every bare key, `c` works from non-editor focus'). Re-grep until zero stale hits remain outside the DO-NOT-TOUCH list. Edit README.md ONLY — no code, no spec/ changes. No mocking — docs-only.\n4. OUTPUT: README.md fully consistent with the six-ruling changeset, consumed by P1.M1.T3.S2 (final gate).\n5. DOCS: [Mode B] this IS the changeset-level sweep — README is the repo's only overview doc (no docs/ directory exists); after the sweep confirm the usage paragraph and side-chat section read correctly with the new letters.",
                   "prd_selectors": [
                     "h2.81",
                     "h2.82",
@@ -143,11 +175,315 @@
                   "dependencies": [
                     "P1.M1.T3.S1"
                   ],
-                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/system_context.md — gates green at HEAD (54 files / 1624 tests, typecheck, lint); one-off flake precedent: re-run once before declaring failure.\n2. INPUT: all edits from P1.M1.T2.S1, P1.M1.T2.S2, P1.M1.T3.S1; baseline record from P1.M1.T1.S1.\n3. LOGIC: Run `npm test` (expect 54 files / 1624 tests green), `npm run typecheck`, `npm run lint`. Run `git diff --stat` and assert the ONLY modified file is README.md (untracked plan/006_* planning artifacts are expected and allowed — this changeset writes nothing else). PRD AC-3: no new code beyond the README record; if any gate fails or the diff exceeds README.md, report as a BUG at the existing seam — never rebuild.\n4. OUTPUT: Terminal delta verdict {ac1: tests/typecheck/lint green, ac2: record refreshed with post-2026-10-16 run, i/c/n verified unclaimed, table/sample match config.ts, ac3: diff == README.md only}.\n5. DOCS: none — verification only.",
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: plan/006_45773b259b06/architecture/system_context.md — gates green at HEAD (54 files / 1624 tests, typecheck, lint); one-off flake precedent: re-run once before declaring failure. PRD-DELTA NOTE: those figures are stale — gate against the FRESH counts captured by P1.M1.T1.S3 (56+ test files at HEAD ec61eb1+).\n2. INPUT: all edits from P1.M1.T2.S1, P1.M1.T2.S2, P1.M1.T2.S3, P1.M1.T3.S1; the refreshed baseline record from P1.M1.T1.S3.\n3. LOGIC: Run `npm test` (expect the P1.M1.T1.S3 counts — never assume the stale 54/1624), `npm run typecheck`, `npm run lint`. Run `git diff --stat` and assert the ONLY modified file is README.md (untracked plan/006_* planning artifacts are expected and allowed — this changeset writes nothing else; the P2/P3 changes own their own diffs). PRD AC-3: no new code beyond the README record; if any gate fails or the diff exceeds README.md, report as a BUG at the existing seam — never rebuild.\n4. OUTPUT: Terminal delta verdict {ac1: tests/typecheck/lint green, ac2: record refreshed citing the 10-default run, i/c/n verified unclaimed, table/sample match config.ts incl. toggle, ac3: diff == README.md only}.\n5. DOCS: none — verification only.",
                   "prd_selectors": [
                     "h2.10",
                     "h2.56",
                     "table.0",
+                    "list.0"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Phase",
+      "id": "P2",
+      "title": "PRD-delta conformance: eight post-2026-10-19 rulings (already implemented) — green verification + README residue audit",
+      "status": "Planned",
+      "description": "The updated PRD (spec ec61eb1) brings eight rulings the task breakdown never covered, all ALREADY IMPLEMENTED at HEAD per git history and the decisions.md cross-refs: DEEP-FULLSCREEN-001 + DUMP-ONCE-001 (74ebe39; DUMP-ONCE's forced-completion half since superseded by KEEP-OPEN-001), PANELTOGGLE-001 (70b08ff), ANSWER-FIDELITY (7fd63c2), KEEP-OPEN-001/002 (a4c6c9e), CHAT-CONTEXT-001 (4baa95a), LENIENT-ANSWER-001 / CHAT-STYLE-001 / EMPTY-REPLY-001 (8f7255d, d4449f2). Remaining work is verification + docs residue, not implementation: (1) confirm each ruling's pinned tests/cross-refs exist and the full gates are green; (2) audit README (the only overview doc) against the updated PRD strings — FR-3a's header + one-full-line-per-answer delta shape (ANSWER-FIDELITY: no budget/rollup/ellipsis anywhere model-visible), KEEP-OPEN's 'ctrl+s submits partial sets — the interrogation stays live' + PARTIAL nudge prose, the PANELTOGGLE keymap surfaces, the side-chat sections (question block pinned above the transcript, speaker styling + blank separators, lenient capture, empty-reply notice), and the limitations row 'memory-only drafts until local input recovery ships' (updated implementation-plan checklist wording). KNOWN INTENTIONAL RESIDUE: README's AC-9 'drafts gone (documented)' row and the drafts-limitation phrasing flip with P3 (local input recovery), NOT here — README describes shipped behavior until that ships. spec/ is read-only; docs fixes are README-only.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P2.M1",
+          "title": "Ruling-by-ruling conformance verification and README residue audit",
+          "status": "Planned",
+          "description": "Map each of the eight newer rulings to its decisions.md cross-refs in the tree, run the full gates, then sweep README for prose that contradicts the updated PRD, fixing drift in README.md only.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P2.M1.T1",
+              "title": "Verify the eight newer rulings are fully landed and green at current HEAD",
+              "status": "Planned",
+              "description": "For ANSWER-FIDELITY, KEEP-OPEN-001/002, DEEP-FULLSCREEN-001, PANELTOGGLE-001, CHAT-CONTEXT-001, LENIENT-ANSWER-001, CHAT-STYLE-001, EMPTY-REPLY-001: confirm the decisions.md cross-referenced modules and pinned tests exist and pass, plus the full suite/typecheck/lint gates. A missing cross-ref or failing gate is a BUG at the existing seam — report, never rebuild (PRD AC-3 spirit).",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P2.M1.T1.S1",
+                  "title": "Conformance inventory: map each ruling to its cross-refs; run the full gates",
+                  "status": "Ready",
+                  "story_points": 1,
+                  "dependencies": [],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: updated spec/decisions.md pins these cross-refs (all observed present at HEAD ec61eb1): ANSWER-FIDELITY -> src/delivery.ts (no SUBMISSION_LIST_MAX_CHARS / rollup / BUG-006 caps), src/results.ts, src/delivery.test.ts; KEEP-OPEN-001 -> src/completion.ts (NO-FORCE amendment; attemptCompletion has no force param; SubmitDeps.onSubmitted deleted), src/completion.test.ts; KEEP-OPEN-002 -> src/delivery.ts (partialNudge / NUDGE_UNANSWERED), src/delivery.test.ts, src/ac-scripted.test.ts; DEEP-FULLSCREEN-001 -> src/panel/deep-view.ts (allocation, clampGlobal, deepScrollBy/deepScrollPage), src/panel/terminal-budget.ts (deepViewportBudget = max(20, rows-5)), src/panel/keys.ts (page keys + expandDescription); PANELTOGGLE-001 -> src/shortcut.ts, src/panel/keys.ts (onToggle), src/config.ts (keys.toggle, panelShortcut), scripts/verify-keymap-conflicts.sh (toggle classification), src/shortcut.test.ts + src/config-surface.test.ts; CHAT-CONTEXT-001 -> src/panel/panel.ts (chat branch), src/panel/chat-view.ts (sixth SHRINK-ONLY viewportHeight arg), src/panel/chat-view.test.ts + src/panel/panel.test.ts; LENIENT-ANSWER-001 -> src/panel/sidechat.ts (parseAnswerBlock + evaluateCandidate/gateShape/matchOptionValue), src/panel/sidechat-prompt.ts, src/panel/sidechat.test.ts; EMPTY-REPLY-001 -> src/panel/sidechat-engine.ts (empty guard + EMPTY_REPLY_NOTICE), src/panel/sidechat-engine.test.ts; CHAT-STYLE-001 -> src/panel/chat-view.ts (ChatRowStyler), src/panel/panel.ts (styler binding), src/panel/chat-view.test.ts.\n2. INPUT: current HEAD; the decisions.md cross-ref lists above.\n3. LOGIC: For each ruling, confirm every cross-referenced file/test exists and the pinned describe/it blocks are present (grep by the ruling tag, e.g. KEEP-OPEN-001, LENIENT, EMPTY-REPLY, CHAT-CONTEXT, CHAT-STYLE). Then run `npm test`, `npm run typecheck`, `npm run lint` (counts per P1.M1.T1.S3's refresh; re-run once on a one-off flake). Missing cross-ref or reproducible failure = BUG at the existing seam — report and stop.\n4. OUTPUT: Conformance matrix {ruling -> crossRefsPresent, pinnedTestsPresent, green} consumed by P2.M1.T1.S2 (docs audit scope) and P3 (context).\n5. DOCS: none — verification only.",
+                  "prd_selectors": [
+                    "h2.10",
+                    "h2.56",
+                    "list.0"
+                  ]
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P2.M1.T1.S2",
+                  "title": "README residue audit against the updated PRD; fix drift in README only",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P2.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: updated PRD strings README must not contradict — FR-3a: delta = header line `Submitted {k} (state epoch {n})` + ONE full line per changed answer + reminder (ANSWER-FIDELITY: no budget/rollup/ellipsis; PARTIAL nudge replaces the reminder on early submits, KEEP-OPEN-002); FR-5/KEEP-OPEN-001: ctrl+s submits partial sets and the interrogation STAYS LIVE (no 'submit ends the session' claims — DUMP-ONCE-001's forced half is superseded); FR-36/PANELTOGGLE-001: keys.toggle ctrl+n dual-surface row, panelShortcut flag, widget line still names /interrogate only (the chord is deliberately un-named there); FR-15/ui-spec: chat view = question + options block pinned above the transcript (CHAT-CONTEXT-001), user rows theme userMessageText + blank separators (CHAT-STYLE-001), lenient capture wording (LENIENT-ANSWER-001), empty-reply error notice (EMPTY-REPLY-001); deep view = full-terminal budget, `… +N more lines` honest markers, expandDescription override, free page-scroll (DEEP-FULLSCREEN-001); limitations row reads 'memory-only drafts until local input recovery ships' (implementation-plan file-checklist wording).\n2. INPUT: Conformance matrix from P2.M1.T1.S1; the updated spec/*.md (read-only reference).\n3. LOGIC: Grep/audit README.md section by section for prose contradicting the strings above (old ≤3-line delta claims, 'submit completes/dumps the session' residue, chat-replaces-question layout claims, strict ```answer parsing claims, bare `…` truncation claims, 'drafts not persisted' as a permanent limitation). Fix drift in README.md ONLY. The AC-9 'drafts gone (documented)' row and the drafts-limitation phrasing are KNOWN INTENTIONAL RESIDUE owned by P3.M5.T1.S2 — do not touch them here. No code, no spec/ changes; no mocking — docs-only.\n4. OUTPUT: README.md consistent with the updated PRD's shipped behavior, consumed by P3.M5.T1.S2 (final docs flip after recovery ships).\n5. DOCS: [Mode B] this IS the delta's docs catch-up; every fix cites the ruling it reflects.",
+                  "prd_selectors": [
+                    "h2.82",
+                    "h2.83",
+                    "h2.38",
+                    "list.0"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Phase",
+      "id": "P3",
+      "title": "Local input recovery — NEW unshipped PRD requirement: durable editor-input capture, restore, retirement, blank-answer rejection",
+      "status": "Planned",
+      "description": "spec/state-and-persistence.md §Local input recovery (added at spec ec61eb1) is explicitly 'New requirements, not shipped': the shipped panel keeps drafts in extension memory only (src/draft-store.ts has no durable layer; nothing writes drafts to disk). Scope per the updated PRD: capture-on-edit durable saves for EVERY editor duty (Other/write-in, text answer, elaboration, batch note, side-chat composer), atomic recovery points that survive hard kills mid-typing, retirement on deliberate discard/user replacement/successful handoff, restore + seeding rules (newer matching draft > exact recorded answer.value > blank; never seed Other with an option value; intentional deletion-to-empty is an edit), and blank-answer rejection at the shared final mutation applyAnswer across ALL ingress (panel, side-chat apply, non-TUI answers[], submit reconciliation) — trim tests emptiness only, nonblank stores untrimmed, rejection precedes any answer/status change/advance/submission and keeps editor focus with an inline reason ('Answer cannot be blank'). FR-28 gains matching-draft restore on session start; commitment 6 now defers to this section and 'cross-restart draft persistence' is REMOVED from non-goals; the side-chat TRANSCRIPT stays ephemeral (SIDECHAT-002 unchanged — recovery covers the user's composer text, not the conversation; decisions.md 'Later decision — panel input recovery'). Five new acceptance cases (state-and-persistence.md) define done. CONSTRAINTS: recovery storage is extension-local — it must not trip the SIDECHAT cache-isolation / no-session-writes guards (no session-file writes, no sendMessage, no appendEntry of draft content); SURFACE-001/002 unchanged (restore never opens the panel); saving/restoring never advances, commits, queues, submits, sends, or calls a model. Related spec surfaces already updated by humans: ui-spec write-in duty seeding + blank handling, EXPLAIN-002 buffer-scoping fallback, draft-preservation paragraph, FR-28, AC-9 ('editor recovery is tested separately'), FR-3a fidelity pins.",
+      "milestones": [
+        {
+          "type": "Milestone",
+          "id": "P3.M1",
+          "title": "Research and architecture: durable capture design (storage, atomicity, pacing, keying)",
+          "status": "Planned",
+          "description": "Decide the storage mechanism, edit-event seams, write pacing, monotonic ordering, and scoping keys before writing engine code; record the design as a plan artifact.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P3.M1.T1",
+              "title": "Produce the input-recovery architecture note",
+              "status": "Planned",
+              "description": "Research and write plan/006_45773b259b06/architecture/input-recovery.md covering storage location, atomic write strategy, capture seams, pacing, ordering, keying, and failure semantics per the PRD's recovery-point bullets.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M1.T1.S1",
+                  "title": "Research storage mechanism, edit-event seams, and write pacing; write the architecture note",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: spec/state-and-persistence.md §Local input recovery is the binding text. Open design questions to resolve: (a) storage location available to a pi extension — extension-local directory (what pi exposes: settings dir, env, ctx paths); NEVER the session file (SIDECHAT-002 / cache-isolation guard tests); (b) atomic replace strategy (temp file + rename) so an interrupted write leaves the previous or new complete value, never a torn one; (c) the edit-event seam on composed editors (ctx.ui.getEditorComponent() composition / pi-tui Editor change hooks) for capture-on-edit INCLUDING paste; (d) pacing that makes progress during continuous typing — bounded interval (e.g. save at least every N ms while dirty), never waiting indefinitely for idle/send/blur/suspend/shutdown; (e) monotonic ordering (per-field sequence/timestamp) so older writes and incidental empty buffers (initialization, view change, send cleanup) never overwrite newer user edits; (f) keying by originating session, branch, question (if any), and field; (g) failure semantics — keep the last durable value and the live edit, never claim the edit was saved; recovery guarantees the latest COMPLETED save only.\n2. INPUT: spec/state-and-persistence.md §Local input recovery; src/draft-store.ts, src/panel/text-field.ts, src/panel/sidechat.ts (composer), src/persistence.ts (session/branch identity sources); pi docs (extensions.md, tui.md).\n3. LOGIC: Evaluate seams against the real composed-editor API (read the pi-tui Editor the factory returns — does it expose an on-change stream?); pick the storage path and write strategy; specify the retirement triggers (deliberate discard, user replacement, successful handoff — never clearing the only durable copy ahead of the handoff) and the no-side-effects rule (save/restore must not advance, commit, queue, submit, send, resend, or call a model). No code yet; note consumed by P3.M2/P3.M3.\n4. OUTPUT: plan/006_45773b259b06/architecture/input-recovery.md {storagePath, atomicity, captureSeams, pacing, ordering, keying, retirement, failureSemantics} for P3.M2.T1.* and P3.M3.T1.*.\n5. DOCS: plan artifact only (the pipeline's own tree); README/spec untouched.",
+                  "prd_selectors": [
+                    "list.0",
+                    "h2.30"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P3.M2",
+          "title": "Core capture + recovery-point engine",
+          "status": "Planned",
+          "description": "Implement the durable input-recovery store and wire capture-on-edit into every editor duty; prove atomicity, monotonicity, and failure honesty with scripted acceptance cases 2, 3, and the send-half of 4.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P3.M2.T1",
+              "title": "Implement the durable input-recovery store and wire capture into every editor duty",
+              "status": "Planned",
+              "description": "New src module (name per the P3.M1 design, e.g. input-recovery.ts) plus wiring in the editor duties: write-in/Other, text answer, elaboration, batch note, and the side-chat composer. Save the FULL expanded string on every edit; atomic replace; monotonic ordering; honest failure; retirement only on the three deliberate exits.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M2.T1.S1",
+                  "title": "Capture-on-edit wiring: full expanded string for all five editor duties",
+                  "status": "Planned",
+                  "story_points": 3,
+                  "dependencies": [
+                    "P3.M1.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD 'Capture on edit, before Enter' — whenever the editor receives an edit (including paste), save its full expanded string locally: Other/write-in, text answer, elaboration, batch note, or active side-chat composer. Restore the exact string — newlines, Unicode, leading/trailing whitespace — only to its originating session, branch, question (if any), and field. Do NOT save a paste placeholder or display preview.\n2. INPUT: architecture note from P3.M1.T1.S1 (capture seams); the five duty sites (panel editor duties in src/panel/text-field.ts/actions.ts; batch note; side-chat composer input in src/panel/sidechat.ts / chat wiring).\n3. LOGIC: Wire the change seam per the design; each write carries {session, branch, questionId?, field, text, seq}. Saving must progress during continuous typing (bounded pacing per design) and must not wait indefinitely for idle, send, blur, suspend, or shutdown. Saving/restoring NEVER advances, commits, queues, submits, sends, resends, or calls a model ('drafts are not answers or messages'). Unit tests per duty: capture fires on edit and paste; string is byte-exact (multiline, Unicode, edge whitespace).\n4. OUTPUT: capture wiring + unit tests, consumed by P3.M2.T1.S2 (durability) and P3.M3.T1.* (restore).\n5. DOCS: none at this layer (README sync is P3.M5.T1.S2).",
+                  "prd_selectors": [
+                    "list.0",
+                    "h2.30"
+                  ]
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P3.M2.T1.S2",
+                  "title": "Atomic persistence, durability, monotonicity, and honest failure",
+                  "status": "Planned",
+                  "story_points": 3,
+                  "dependencies": [
+                    "P3.M2.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD 'Recovery point' — a completed local save must survive restart within the OS and storage system's durability guarantees; replace atomically so an interrupted write leaves the previous or new complete value, never a torn one. Older writes and incidental empty buffers (initialization, view change, send cleanup) must not overwrite newer user edits. On write failure keep the last durable value AND the live edit; never claim the edit was saved. Recovery guarantees the latest completed save — not keystrokes the editor never received or a write still in flight.\n2. INPUT: capture wiring from P3.M2.T1.S1; the design's atomicity/ordering strategy.\n3. LOGIC: Implement temp-file+rename (or equivalent) atomic replace; enforce monotonic per-field ordering (reject/ignore out-of-order writes); classify incidental empties so they never clobber; on write failure surface nothing false (no 'saved' indication) and keep both values. Scripted tests: interrupted write -> previous-or-new complete value; older-write-after-newer-edit ignored; in-flight write not promised.\n4. OUTPUT: durable store with atomicity/monotonicity/failure tests, consumed by P3.M2.T1.S3 and P3.M3.T1.*.\n5. DOCS: none at this layer.",
+                  "prd_selectors": [
+                    "list.0"
+                  ]
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P3.M2.T1.S3",
+                  "title": "Retirement semantics, no-side-effects audit, and acceptance cases 2/3/4-send-half",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P3.M2.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD 'Drafts are not answers or messages' — retire only the matching recovery value on deliberate discard, replacement by the user, or successful handoff of that text; do not clear the only durable copy ahead of the handoff. For quick clarification in side chat, the active draft/last user prompt suffices; no transcript archive is required. A refused or failed send or aborted turn leaves the prompt recoverable for manual retry without overwriting newer typing.\n2. INPUT: durable store from P3.M2.T1.S2; the deliberate-exit seams (editor discard/clear, user replacement, commit/send handoff sites in actions.ts / sidechat send path).\n3. LOGIC: Implement retirement at exactly the three exits; audit (test) that save/restore triggers no applyAnswer/submit/send/model call and no session writes (guard tests stay green: no-hardcoded-keys, sidechat-cache-isolation, MIRROR entries untouched by drafts). Script acceptance cases: (2) type continuously + paste multiline Unicode with surrounding whitespace, kill during typing (simulated) -> recovery points progressed without an idle interval and the last completed one restores expanded text exactly; (3) fail a write, delay an older write past a newer edit/discard, switch branches with the same question ID -> no false saved indication, no clobber, no resurrection, no cross-branch restore; (4-send-half) refuse/fail a chat send and abort a turn -> reopen with the prompt recoverable and no duplicate send.\n4. OUTPUT: retirement + guard tests green, consumed by P3.M5.T1.S1 (final gate).\n5. DOCS: none at this layer.",
+                  "prd_selectors": [
+                    "list.0"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P3.M3",
+          "title": "Restore + seeding integration",
+          "status": "Planned",
+          "description": "Restore recovery values into the editors they came from: field-open seeding rules, session-start restore (FR-28), side-chat composer recovery, and the hard-kill acceptance cases 1 and 4-commit-half.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P3.M3.T1",
+              "title": "Restore drafts on field open and session start; never resurrect discarded edits",
+              "status": "Planned",
+              "description": "Wire the seeding rules from ui-spec (write-in duty + EXPLAIN-02 buffer-scoping amendments) and the session_start restore from FR-28; prove acceptance cases 1 and 4-commit-half.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M3.T1.S1",
+                  "title": "Editor seeding rules: newer draft > recorded answer > blank; intentional empty preserved",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P3.M2.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD 'Re-edit and commit' + ui-spec amendments — when opening Other or a text-answer editor, use the newer matching draft if present; otherwise the exact recorded write-in or text answer.value; or blank if none exists. Never seed Other with an option value. An intentional deletion to empty is an edit, not an absent draft: preserve the empty editor, not the previous answer text. Discarding the edit leaves the recorded answer intact; no delayed save or replay may resurrect a discarded draft. EXPLAIN-002 buffer re-scoping now falls back to the corresponding recorded answer for Other/text re-edits (replacing the old 'blank when none exists' rule).\n2. INPUT: durable store from P3.M2.T1.S2; the seeding sites (Other-row accept, text-question editor entry, question-change buffer re-scope in src/panel/panel.ts / text-field.ts / actions.ts).\n3. LOGIC: Implement precedence {newer recovery draft > exact recorded answer.value > blank} with timestamps from the store; forbid option-value seeding into Other; treat stored-empty-after-user-edit as a real edit; ensure discard (blur-back without commit) never resurrects via a late write. Unit tests per rule incl. the never-seed-Other-with-option-value invariant.\n4. OUTPUT: seeding integration + tests, consumed by P3.M3.T1.S2 and P3.M5.T1.S1.\n5. DOCS: none at this layer.",
+                  "prd_selectors": [
+                    "list.0",
+                    "h2.30"
+                  ]
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P3.M3.T1.S2",
+                  "title": "Session-start restore (FR-28) incl. side-chat composer; acceptance cases 1 and 4-commit-half",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [
+                    "P3.M3.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: updated FR-28 — on session start with live questions, state restores SILENTLY and now also restores matching editor drafts per §Local input recovery; the panel still NEVER auto-opens (SURFACE-002 — restore is not a surface; the widget line remains the only cue). The side-chat CONVERSATION is lost on restart (SIDECHAT-002 unchanged); the composer's saved edit restores. Commitment 6 and decisions.md 'Later decision — panel input recovery' pin the distinction.\n2. INPUT: seeding from P3.M3.T1.S1; src/reconstruct.ts / persistence.ts session_start flow; branch identity from the store's keying.\n3. LOGIC: In the session_start reconstruction path, load matching recovery values for the restored session/branch (no UI act beyond later field-open seeding; nothing opens the panel). Script acceptance cases: (1) in the Other, text, and side-chat editors type half a response, hard-kill after a completed save WITHOUT Enter/blur/suspend/graceful shutdown, resume the same branch, reopen the field -> exact draft, no answer, no send; repeat for elaboration and batch note; (4-commit-half) press Enter on a nonblank write-in and kill on either side of the save/commit handoff -> the saved text remains recoverable as draft or committed answer, and restart neither repeats the commit nor triggers submission.\n4. OUTPUT: restore integration + scripted cases 1 and 4, consumed by P3.M5.T1.S1.\n5. DOCS: none at this layer.",
+                  "prd_selectors": [
+                    "list.0",
+                    "h2.30"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P3.M4",
+          "title": "Blank-answer rejection at the shared final mutation (all ingress)",
+          "status": "Planned",
+          "description": "Reject blank answer values at applyAnswer regardless of ingress; keep the editor focused with an inline reason; guard reconstruction/replay against historical blanks. Independent of the capture engine (pure state seam) — may run in parallel with P3.M2/P3.M3.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P3.M4.T1",
+              "title": "Reject blank values at applyAnswer regardless of ingress",
+              "status": "Planned",
+              "description": "One shared guard at the final mutation: value.trim() tests emptiness only; nonblank stores untrimmed; rejection precedes any answer/status change, advance, or submission; prior answer preserved; editor keeps focus + content + inline 'Answer cannot be blank'.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M4.T1.S1",
+                  "title": "Shared rejection guard at applyAnswer + editor inline reason",
+                  "status": "Planned",
+                  "story_points": 2,
+                  "dependencies": [],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD 'Reject blank answer values at the shared final mutation (applyAnswer), regardless of ingress (panel, side-chat apply, non-TUI answers[], or submit reconciliation)'. Use value.trim() ONLY to test emptiness; store nonblank values untrimmed. This supersedes the ui-spec's old write-in rule ('Empty buffer + enter = save draft + blur back to options, NO commit') with 'Blank answer attempts stay in the editor' — keep focus and content, show an inline reason e.g. 'Answer cannot be blank'. No semantic validation, no additional model calls.\n2. INPUT: the shared applyAnswer seam in src/panel/actions.ts (and wherever the final mutation lands — side-chat apply path, src/fallback.ts answers[] recording, submit reconciliation in reconcileDraftsForSubmit).\n3. LOGIC: Add the guard BEFORE any answer/status change, advance, or submission; on reject from the editor keep focus + buffer + inline reason; on reject from non-editor ingress return a benign status-line error and preserve any prior answer. Unit tests per ingress: panel write-in, side-chat apply, answers[] record, submit reconciliation.\n4. OUTPUT: guard + per-ingress tests, consumed by P3.M4.T1.S2 and P3.M5.T1.S1.\n5. DOCS: none at this layer.",
+                  "prd_selectors": [
+                    "list.0",
+                    "h2.30"
+                  ]
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P3.M4.T1.S2",
+                  "title": "Reconstruction/replay blank guards + acceptance case 5",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P3.M4.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD — on reconstruction/replay, a historical blank must neither replace a valid answer nor count or appear as validly answered/submitted; do not fabricate missing text.\n2. INPUT: guard from P3.M4.T1.S1; src/reconstruct.ts replay path and the answered/submitted counters (status-line single source of truth).\n3. LOGIC: Make replay skip/ignore blank answer values (prior valid answer wins; a blank-only question stays unanswered; counts never read it as answered). Script acceptance case 5: reopen a committed Other/text answer -> exact value; clear or enter only whitespace, attempt commit, then restart and reopen -> the newer edit wins, the prior answer is unchanged, rejection kept focus and explained why; repeat blank rejection through non-editor ingress; replay a legacy blank with and without a prior valid answer -> resulting answer and counts correct.\n4. OUTPUT: replay guards + case-5 tests, consumed by P3.M5.T1.S1.\n5. DOCS: none at this layer.",
+                  "prd_selectors": [
+                    "list.0"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Milestone",
+          "id": "P3.M5",
+          "title": "Acceptance gate + changeset documentation",
+          "status": "Planned",
+          "description": "Run the full verification (all five new acceptance cases scripted, suite/typecheck/lint, static guards) and flip the README surfaces that describe drafts as memory-only.",
+          "tasks": [
+            {
+              "type": "Task",
+              "id": "P3.M5.T1",
+              "title": "Final verification and docs sync",
+              "status": "Planned",
+              "description": "Gate the whole local-input-recovery changeset, then update README: limitations row, AC-9 wording, config reference, and usage prose.",
+              "subtasks": [
+                {
+                  "type": "Subtask",
+                  "id": "P3.M5.T1.S1",
+                  "title": "Full gate: scripted acceptance cases 1-5 + suite/typecheck/lint + static-guard audit",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P3.M2.T1.S3",
+                    "P3.M3.T1.S2",
+                    "P3.M4.T1.S2"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: AUTOMATION-POLICY (plan/001_0d6760db6bc5/AUTOMATION-POLICY.md) — automated runs prove ACs via scripted vitest over the real seams, never a live TUI session; interactive-only checks defer to the human runbook. Static guards that must stay green: no-hardcoded-keys, sidechat-cache-isolation (recovery writes are extension-local FILES — no sendMessage, no appendEntry of draft/composer content, no session-file writes), keymap-guard, config-surface.\n2. INPUT: all P3.M2/P3.M3/P3.M4 subtask outputs.\n3. LOGIC: Run the five new acceptance-case suites (state-and-persistence.md §Local input recovery) + `npm test`, `npm run typecheck`, `npm run lint`; confirm every static guard test passes and `git diff --stat` touches only the changeset's src/test files (+ README via S2). Failure = fix at the new seams this changeset owns (this is greenfield work, unlike P1/P2).\n4. OUTPUT: Gate verdict {cases 1-5 green, suite/typecheck/lint green, guards green} consumed by P3.M5.T1.S2.\n5. DOCS: none — verification only.",
+                  "prd_selectors": [
+                    "h2.10",
+                    "h2.56",
+                    "list.0"
+                  ]
+                },
+                {
+                  "type": "Subtask",
+                  "id": "P3.M5.T1.S2",
+                  "title": "README + docs sync: limitations row flips, AC-9 wording, config reference",
+                  "status": "Planned",
+                  "story_points": 1,
+                  "dependencies": [
+                    "P3.M5.T1.S1"
+                  ],
+                  "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: updated implementation-plan file checklist — README row now reads 'shipped limitations (TUI-first; memory-only drafts until local input recovery ships)'; once this changeset ships, the memory-only qualifier goes. Updated PRD AC-9 replaces 'drafts gone (documented)' with 'editor recovery is tested separately (FR-28)' — README's AC-9 row (~:406 in the P2-audited file) flips here. The side-chat limitation prose must keep the distinction: the CONVERSATION remains restart-lost (SIDECHAT-002); the COMPOSER's saved edit recovers.\n2. INPUT: gate verdict from P3.M5.T1.S1; the P2.M1.T1.S2-audited README; any new config surface from the P3.M1 design (e.g. pacing knobs) as actually implemented.\n3. LOGIC: Update README.md — limitations row (drafts now recover per §Local input recovery; TUI-first stays), AC-9 row rewording, config reference additions for any new settings, short usage prose (what recovers, what does not: conversation vs composer; no auto-submit/commit side effects from recovery). README.md + plan artifacts only; spec/ read-only. Re-run `npm run lint` if it lints README-adjacent surfaces; re-run `git diff --stat` to confirm scope.\n4. OUTPUT: README consistent with shipped recovery behavior; changeset closed.\n5. DOCS: [Mode B] this IS the changeset's docs deliverable.",
+                  "prd_selectors": [
+                    "h2.82",
+                    "h2.83",
                     "list.0"
                   ]
                 }

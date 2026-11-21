@@ -350,14 +350,14 @@
           "type": "Milestone",
           "id": "P3.M3",
           "title": "Restore + seeding integration",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Restore recovery values into the editors they came from: field-open seeding rules, session-start restore (FR-28), side-chat composer recovery, and the hard-kill acceptance cases 1 and 4-commit-half.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M3.T1",
               "title": "Restore drafts on field open and session start; never resurrect discarded edits",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Wire the seeding rules from ui-spec (write-in duty + EXPLAIN-02 buffer-scoping amendments) and the session_start restore from FR-28; prove acceptance cases 1 and 4-commit-half.",
               "subtasks": [
                 {
@@ -379,7 +379,7 @@
                   "type": "Subtask",
                   "id": "P3.M3.T1.S2",
                   "title": "Session-start restore (FR-28) incl. side-chat composer; acceptance cases 1 and 4-commit-half",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M3.T1.S1"
@@ -412,7 +412,7 @@
                   "type": "Subtask",
                   "id": "P3.M4.T1.S1",
                   "title": "Shared rejection guard at applyAnswer + editor inline reason",
-                  "status": "Researching",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD 'Reject blank answer values at the shared final mutation (applyAnswer), regardless of ingress (panel, side-chat apply, non-TUI answers[], or submit reconciliation)'. Use value.trim() ONLY to test emptiness; store nonblank values untrimmed. This supersedes the ui-spec's old write-in rule ('Empty buffer + enter = save draft + blur back to options, NO commit') with 'Blank answer attempts stay in the editor' — keep focus and content, show an inline reason e.g. 'Answer cannot be blank'. No semantic validation, no additional model calls.\n2. INPUT: the shared applyAnswer seam in src/panel/actions.ts (and wherever the final mutation lands — side-chat apply path, src/fallback.ts answers[] recording, submit reconciliation in reconcileDraftsForSubmit).\n3. LOGIC: Add the guard BEFORE any answer/status change, advance, or submission; on reject from the editor keep focus + buffer + inline reason; on reject from non-editor ingress return a benign status-line error and preserve any prior answer. Unit tests per ingress: panel write-in, side-chat apply, answers[] record, submit reconciliation.\n4. OUTPUT: guard + per-ingress tests, consumed by P3.M4.T1.S2 and P3.M5.T1.S1.\n5. DOCS: none at this layer.",

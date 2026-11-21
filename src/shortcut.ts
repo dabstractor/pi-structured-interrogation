@@ -46,6 +46,7 @@ import type { KeyId } from "@earendil-works/pi-tui";
 import { EMPTY_STATE_MESSAGE, interrogateInvokeAction } from "./command.js";
 import type { DraftStore } from "./draft-store.js";
 import type { InputCaptureStore } from "./input-capture.js";
+import type { DurableRead } from "./input-restore.js";
 import { DEFAULT_CONFIG, type InterrogatorConfig } from "./config.js";
 import { parseAccelerator } from "./panel/keys.js";
 import type { PanelHost } from "./panel/panel.js";
@@ -57,6 +58,12 @@ export interface ShortcutOptions {
   drafts?: DraftStore;
   /** The shared input-recovery store (P3.M2.T1.S1) — same lifetime pattern. */
   inputCapture?: InputCaptureStore;
+  /**
+   * P3.M3.T1.S2 — the durable read seam for the seeding ladder + composer
+   * restore (DurableRead); rides the closed-host fresh-open row so the
+   * shortcut-opened panel has the post-restart durable tier.
+   */
+  durableInputs?: DurableRead;
 }
 
 /**
@@ -116,6 +123,7 @@ export function registerPanelShortcut(
         config,
         drafts: opts?.drafts,
         inputCapture: opts?.inputCapture,
+        durableInputs: opts?.durableInputs,
       });
       if (outcome === "empty") ctx.ui.notify(EMPTY_STATE_MESSAGE, "info");
     },

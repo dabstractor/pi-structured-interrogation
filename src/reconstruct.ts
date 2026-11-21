@@ -107,9 +107,14 @@
  *        clear otherwise) and is a no-op on surfaces without a widget
  *        slot. The panel returns only via the allow-list: `/interrogate`
  *        (closed-host-with-live-state path), an agent upsert leaving
- *        unanswered questions, or {reopen:true}. NO drafts are restored
- *        (FR-28, Q6=B): restart loses drafts, never reconstructs them —
- *        reconstruction never touches the DraftStore. Non-TUI: the module
+ *        unanswered questions, or {reopen:true}. Editor-INPUT recovery
+ *        rides the optional {@link ReconstructionOptions.restoreDrafts}
+ *        hook (P3.M3.T1.S2 — decisions.md "Later decision — panel input
+ *        recovery" supersedes Q6=B for editor input): the batch note
+ *        stages into the DraftStore seam via the WIRED hook, question
+ *        drafts restore lazily at field open, and reconstruction itself
+ *        never touches the DraftStore. The transcript and answers are
+ *        still never restored. Non-TUI: the module
  *        fallback flag is set —
  *        {@link isFallbackActive} is the contract the interrogate tool
  *        executor (h2.26 digest decision, later milestone) consumes to pick
@@ -237,10 +242,29 @@ export interface ReconstructionOptions {
   host: PanelHost;
   /**
    * The factory's ONE DraftStore — held for the deliberate resume paths
-   * (`/interrogate` etc.). NEVER read or written by reconstruction itself
-   * (FR-28, Q6=B).
+   * (`/interrogate` etc.). Reconstruction itself never touches it; the
+   * optional {@link ReconstructionOptions.restoreDrafts} hook (wired in
+   * index.ts) stages the durable batch note through it at session_start
+   * (P3.M3.T1.S2 — editor-input recovery per decisions.md "Later decision
+   * — panel input recovery", superseding the Q6=B never-restored ruling
+   * for editor input). Question drafts restore LAZILY at field open
+   * (src/input-restore.ts's ladder); the transcript and recorded answers
+   * are still never restored, and the panel still never opens
+   * (SURFACE-002).
    */
   drafts?: DraftStore;
+  /**
+   * P3.M3.T1.S2 (FR-28): session-start draft-restore hook — invoked once
+   * state is installed and non-empty, origin "session-start" ONLY (never
+   * session-tree, never no-state/empty-state branches — nothing will ever
+   * open there). Receives the raw walk entry ids (oldest → newest — the
+   * capture-key branchId vocabulary). Editor-input recovery per
+   * decisions.md "Later decision — panel input recovery"; the ONLY UI act
+   * remains later field-open seeding (SURFACE-002 holds). The hook is
+   * read-only toward state and persistence: it stages the batch note into
+   * the DraftStore seam and nothing else.
+   */
+  restoreDrafts?: (walkIds: readonly string[]) => void;
 }
 
 /**
@@ -610,6 +634,31 @@ export function reconstructFromBranch(
     return { source, replayed, opened: false, fallbackActive: false };
   }
 
+  // P3.M3.T1.S2 (FR-28): session-start draft restore — the SILENT "load
+  // matching recovery values" step. Fires on the non-empty-state paths
+  // for origin "session-start" ONLY (never session-tree, never no-state/
+  // empty-state branches), BEFORE the TUI/non-TUI split so non-TUI
+  // sessions stage the batch note too (staging is UI-less). The raw walk
+  // entry ids (oldest → newest) are the capture-key branchId vocabulary;
+  // per-entry typeof guards — session files are untrusted persisted data
+  // (this module's own posture), so a malformed entry degrades to
+  // skipping that id, never crashing session_start. The hook is
+  // read-only toward state/persistence (index.ts stages the note into
+  // the DraftStore seam; question drafts restore lazily at field open —
+  // decisions.md "Later decision — panel input recovery").
+  if (origin === "session-start") {
+    const rawWalk: unknown = ctx.sessionManager.getBranch();
+    const ids: string[] = [];
+    if (Array.isArray(rawWalk)) {
+      for (const entry of rawWalk) {
+        if (typeof (entry as { id?: unknown } | null)?.id === "string") {
+          ids.push((entry as { id: string }).id);
+        }
+      }
+    }
+    opts.restoreDrafts?.(ids);
+  }
+
   // Non-TUI: the digest fallback flag only — no surface exists to move.
   // Recomputed on BOTH origins: it is a tool-result shape decision input,
   // not a popup, and the branch the user is on NOW decides it.
@@ -645,8 +694,12 @@ export function reconstructFromBranch(
   // via suspend.ts's helper (hasResumableQuestions gate + exact h2.3 string).
   // The panel returns only via the allow-list: /interrogate (closed-host-
   // with-live-state path), an agent upsert leaving unanswered questions, or
-  // {reopen:true}. Drafts are not restored either way (FR-28, Q6=B) — no
-  // DraftStore is touched here.
+  // {reopen:true}. Editor-INPUT recovery ran above (restoreDrafts — the
+  // batch note stages into the DraftStore seam; question drafts restore
+  // lazily at field open; decisions.md "Later decision — panel input
+  // recovery" supersedes Q6=B for editor input): silent and UI-less. The
+  // TRANSCRIPT and recorded answers are still never restored, and no
+  // surface ever appears here (SURFACE-002).
   updateSuspendWidget(ctx, state);
   return { source, replayed, opened: false, fallbackActive: false };
 }

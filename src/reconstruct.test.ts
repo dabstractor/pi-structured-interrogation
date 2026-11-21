@@ -1234,3 +1234,100 @@ describe("wiring-comment guard (BUG-004)", () => {
     expect(src).toMatch(/NEVER opens the panel/);
   });
 });
+
+// ------------------- P3.M3.T1.S2 — restoreDrafts hook firing matrix
+
+describe("reconstructFromBranch — restoreDrafts hook (P3.M3.T1.S2)", () => {
+  const liveBase = (): ReturnType<typeof seededState> =>
+    seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+    });
+
+  test("fires on session-start + non-empty state; walk ids match ctx entries in order", () => {
+    const entries = [userEntry(), toolResultEntry(liveBase()), userEntry()];
+    const ctx = makeCtx(entries);
+    const seen: string[][] = [];
+    const result = reconstructFromBranch(ctx, {
+      ...makeOpts(makeHost()),
+      restoreDrafts: (ids) => {
+        seen.push([...ids]);
+      },
+    }, "session-start");
+
+    expect(result.source).toBe("tool-result");
+    expect(seen).toEqual([entries.map((e) => e.id)]); // oldest → newest, exact ids
+  });
+
+  test("fires BEFORE the non-TUI fallback return (non-TUI sessions stage too)", () => {
+    const ctx = makeCtx([toolResultEntry(liveBase())], "rpc");
+    const seen: string[][] = [];
+    const result = reconstructFromBranch(ctx, {
+      ...makeOpts(makeHost()),
+      restoreDrafts: (ids) => {
+        seen.push([...ids]);
+      },
+    }, "session-start");
+
+    expect(seen).toHaveLength(1); // fired despite the early non-TUI return
+    expect(result.fallbackActive).toBe(true);
+    expect(result.opened).toBe(false);
+  });
+
+  test("never fires on session-tree origin (any state)", () => {
+    const ctx = makeCtx([toolResultEntry(liveBase())]);
+    const hook = vi.fn();
+    reconstructFromBranch(ctx, { ...makeOpts(makeHost()), restoreDrafts: hook }, "session-tree");
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  test("never fires on a no-traces branch", () => {
+    const ctx = makeCtx([userEntry()]);
+    const hook = vi.fn();
+    reconstructFromBranch(ctx, { ...makeOpts(makeHost()), restoreDrafts: hook }, "session-start");
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  test("never fires on an empty-questions branch (completed interrogation)", () => {
+    const cleared = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1")]);
+      s.clearForCompletion();
+    });
+    const ctx = makeCtx([toolResultEntry(cleared)]);
+    const hook = vi.fn();
+    reconstructFromBranch(ctx, { ...makeOpts(makeHost()), restoreDrafts: hook }, "session-start");
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  test("hook absent → no crash (optional chaining)", () => {
+    const ctx = makeCtx([toolResultEntry(liveBase())]);
+    expect(() => reconstructFromBranch(ctx, makeOpts(makeHost()), "session-start")).not.toThrow();
+  });
+
+  test("malformed walk entries are filtered, not fatal", () => {
+    // Session files are untrusted persisted data: a non-string (or missing)
+    // id degrades to skipping that entry — the hook still fires with the
+    // well-formed ids.
+    const entries = [
+      userEntry(),
+      { type: "message", id: 42, message: { role: "user", content: [] } },
+      { type: "message", message: { role: "user", content: [] } },
+      toolResultEntry(liveBase()),
+    ] as unknown as SessionEntry[];
+    const ctx = makeCtx(entries);
+    const seen: string[][] = [];
+    reconstructFromBranch(
+      ctx,
+      {
+        ...makeOpts(makeHost()),
+        restoreDrafts: (ids) => {
+          seen.push([...ids]);
+        },
+      },
+      "session-start",
+    );
+    const expected = entries
+      .filter((e): e is SessionEntry => e !== null && typeof (e as { id?: unknown }).id === "string")
+      .map((e) => e.id);
+    expect(seen).toEqual([expected]);
+  });
+});

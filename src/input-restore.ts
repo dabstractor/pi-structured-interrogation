@@ -173,6 +173,20 @@ export function latestDraftOnLineage(
   walkIds: readonly string[],
   key: { questionId: string; field: Extract<CaptureField, "writein" | "elaboration"> },
 ): DurableValue | undefined {
+  return newestOnLineage(durable, walkIds, key);
+}
+
+/**
+ * Shared ancestry-scan core (S1 + S2): the ordering rule from
+ * {@link latestDraftOnLineage}'s docblock, generalized to ANY CaptureField.
+ * Exported signatures stay byte-identical to their shipped contracts —
+ * both public functions delegate here.
+ */
+function newestOnLineage(
+  durable: DurableRead,
+  walkIds: readonly string[],
+  key: { questionId: string | "-"; field: CaptureField },
+): DurableValue | undefined {
   let best: DurableValue | undefined;
   let bestAt = "";
   for (const id of walkIds) {
@@ -185,4 +199,70 @@ export function latestDraftOnLineage(
     }
   }
   return best;
+}
+
+/**
+ * P3.M3.T1.S2 — the GENERAL ancestry scan (adds "note" keyed
+ * {questionId: "-"} and "sidechat-composer" to S1's writein/elaboration
+ * form): the newest durable value for {questionId, field} whose capture
+ * tip is on the CURRENT walk (architecture note §restore — "Restore
+ * matching": ancestor-or-equal of the tip; sibling-branch records are
+ * invisible by construction). Ordering identical to
+ * {@link latestDraftOnLineage}: savedAt ISO compare (missing = oldest;
+ * ISO-8601 extended strings compare chronologically as plain strings),
+ * tie → LATER walk position (`>=`); `seq` never compared across
+ * branchIds (per-key counters are independent). Tombstoned/never-captured
+ * keys yield no candidate. Pure read — only latest(), never the capture
+ * store's pending state, never a write.
+ */
+export function latestFieldOnLineage(
+  durable: DurableRead,
+  walkIds: readonly string[],
+  key: { questionId: string | "-"; field: CaptureField },
+): DurableValue | undefined {
+  return newestOnLineage(durable, walkIds, key);
+}
+
+/**
+ * The note-staging seam {@link restoreSessionNote} needs — DraftStore
+ * satisfies it structurally (getNote/setNote); tests inject doubles.
+ */
+export interface NoteStageTarget {
+  getNote(): string;
+  setNote(text: string): void;
+}
+
+/**
+ * P3.M3.T1.S2 — the session_start "load matching recovery values" step
+ * for the BATCH NOTE (the one duty with no field-open ladder tier: the
+ * note never commits an answer, so S1's lazy ladder has nothing to hang
+ * it on — spec :137-140, FR-28). Stages the ancestry-matched durable
+ * note (via {@link latestFieldOnLineage}, questionId "-") into the
+ * extension-lifetime DraftStore seam under the ABSENT-ONLY guard:
+ *
+ * - stage ONLY when `drafts.getNote() === ""` AND the durable text is
+ *   nonempty — an in-process session_start (reload/resume/fork) must
+ *   never clobber live newer typing with an older durable copy; after a
+ *   restart the seam is empty so the note restores;
+ * - a deliberate durable {text: ""} stages nothing (the blank editor IS
+ *   the user's last edit — there is no answer tier for the note);
+ * - `enterNoteMode`'s existing seed (`drafts?.getNote() || batchNote`)
+ *   then finds the staged note — no panel change.
+ *
+ * decisions.md "Later decision — panel input recovery" (supersedes the
+ * Q6=B never-restored ruling for editor input; the transcript and answers
+ * are still never restored). READ-ONLY toward durability, write ONLY to
+ * the seam; no answer/submit/send surface, no events (SURFACE-002 — the
+ * widget line stays the only cue). Returns whether it staged (tests).
+ */
+export function restoreSessionNote(
+  durable: DurableRead,
+  drafts: NoteStageTarget,
+  walkIds: readonly string[],
+): boolean {
+  const v = latestFieldOnLineage(durable, walkIds, { questionId: "-", field: "note" });
+  if (v === undefined || v.text === "") return false;
+  if (drafts.getNote() !== "") return false; // absent-only: never clobber live typing
+  drafts.setNote(v.text);
+  return true;
 }

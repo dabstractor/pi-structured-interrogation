@@ -10,8 +10,10 @@ import { describe, expect, test } from "vitest";
 import {
   answerSeedEligible,
   latestDraftOnLineage,
+  latestFieldOnLineage,
   recoverySeed,
   recoverySeedText,
+  restoreSessionNote,
   type DurableRead,
   type DurableValue,
   type SeedAnswer,
@@ -314,5 +316,110 @@ describe("recoverySeed composed with latestDraftOnLineage (panel-shaped flow)", 
     const resolved = latestDraftOnLineage(store, ["tip1", "tip2", "tip3"], { questionId: "q1", field: "writein" });
     const seed = recoverySeed(baseInputs({ durable: resolved }));
     expect(seed).toEqual({ text: "pre-growth draft", tier: "durable" });
+  });
+});
+
+// ------------------------------- P3.M3.T1.S2 — latestFieldOnLineage
+
+describe("latestFieldOnLineage — general field form (note + composer)", () => {
+  const noteKey = { questionId: "-" as const, field: "note" as const };
+  const composerKey = { questionId: "q1", field: "sidechat-composer" as const };
+
+  test("note key accepted (questionId '-')", () => {
+    const store = fakeDurable({ tip1: durable({ text: "half-typed note" }) });
+    expect(latestFieldOnLineage(store, ["tip1"], noteKey)?.text).toBe("half-typed note");
+  });
+
+  test("composer key accepted", () => {
+    const store = fakeDurable({ tip1: durable({ text: "side-chat prompt" }) });
+    expect(latestFieldOnLineage(store, ["tip1"], composerKey)?.text).toBe("side-chat prompt");
+  });
+
+  test("field-aware: a note record never satisfies a composer query", () => {
+    const store: DurableRead = {
+      latest: (query) =>
+        query.field === "note" && query.branchId === "tip1" ? durable({ text: "note" }) : undefined,
+    };
+    expect(latestFieldOnLineage(store, ["tip1"], composerKey)).toBeUndefined();
+  });
+
+  test("empty walk → undefined; tombstoned key (undefined latest) drops out", () => {
+    expect(latestFieldOnLineage(fakeDurable({}), [], noteKey)).toBeUndefined();
+    expect(latestFieldOnLineage(fakeDurable({ tip1: undefined }), ["tip1"], noteKey)).toBeUndefined();
+  });
+
+  test("sibling-branch record (branchId not in walk) is invisible", () => {
+    const store = fakeDurable({ sibling: durable({ text: "other branch", savedAt: "2099-01-01T00:00:00.000Z" }) });
+    expect(latestFieldOnLineage(store, ["tip1"], noteKey)).toBeUndefined();
+  });
+
+  test("savedAt ordering across branchIds", () => {
+    const store = fakeDurable({
+      older: durable({ text: "older", savedAt: "2025-01-01T00:00:00.000Z" }),
+      newer: durable({ text: "newer", savedAt: "2025-06-01T00:00:00.000Z" }),
+    });
+    expect(latestFieldOnLineage(store, ["older", "newer"], noteKey)?.text).toBe("newer");
+    expect(latestFieldOnLineage(store, ["newer", "older"], noteKey)?.text).toBe("newer");
+  });
+
+  test("savedAt tie → later walk position", () => {
+    const at = "2025-06-01T00:00:00.000Z";
+    const store = fakeDurable({
+      tip1: durable({ text: "first", savedAt: at }),
+      tip2: durable({ text: "second", savedAt: at }),
+    });
+    expect(latestFieldOnLineage(store, ["tip1", "tip2"], noteKey)?.text).toBe("second");
+    expect(latestFieldOnLineage(store, ["tip2", "tip1"], noteKey)?.text).toBe("first");
+  });
+});
+
+// ----------------------------------- P3.M3.T1.S2 — restoreSessionNote
+
+describe("restoreSessionNote — absent-only staging", () => {
+  function fakeDrafts(note: string): { getNote: () => string; setNote: (t: string) => void; staged: string } {
+    const target = {
+      staged: note,
+      getNote: () => target.staged,
+      setNote: (t: string) => {
+        target.staged = t;
+      },
+    };
+    return target;
+  }
+
+  test("absent seam + nonempty durable note → stages the exact text", () => {
+    const store = fakeDurable({ tip1: durable({ text: "half-typed note ✍\nline two  " }) });
+    const drafts = fakeDrafts("");
+    expect(restoreSessionNote(store, drafts, ["tip1", "tip2"])).toBe(true);
+    expect(drafts.getNote()).toBe("half-typed note ✍\nline two  ");
+  });
+
+  test("nonempty seam → NEVER stages (in-process reload must not clobber live typing)", () => {
+    const store = fakeDurable({ tip1: durable({ text: "older durable note" }) });
+    const drafts = fakeDrafts("live newer typing");
+    expect(restoreSessionNote(store, drafts, ["tip1"])).toBe(false);
+    expect(drafts.getNote()).toBe("live newer typing");
+  });
+
+  test("deliberate durable empty note → stages nothing", () => {
+    const store = fakeDurable({ tip1: durable({ text: "" }) });
+    const drafts = fakeDrafts("");
+    expect(restoreSessionNote(store, drafts, ["tip1"])).toBe(false);
+    expect(drafts.getNote()).toBe("");
+  });
+
+  test("tombstoned note → no stage; sibling-branch record invisible", () => {
+    const store = fakeDurable({ tip1: undefined, sibling: durable({ text: "elsewhere" }) });
+    const drafts = fakeDrafts("");
+    expect(restoreSessionNote(store, drafts, ["tip1"])).toBe(false); // tombstoned tip
+    // "sibling" is NOT in the walk — the record is invisible by construction.
+    expect(restoreSessionNote(store, drafts, ["tip1", "tip2"])).toBe(false);
+    expect(drafts.getNote()).toBe("");
+  });
+
+  test("empty walk → no stage", () => {
+    const drafts = fakeDrafts("");
+    expect(restoreSessionNote(fakeDurable({ tip1: durable() }), drafts, [])).toBe(false);
+    expect(drafts.getNote()).toBe("");
   });
 });

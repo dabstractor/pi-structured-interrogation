@@ -52,6 +52,7 @@ import {
 import { getState } from "./state.js";
 import { registerPanelShortcut } from "./shortcut.js";
 import { createInterrogateTool } from "./tool.js";
+import { restoreSessionNote } from "./input-restore.js";
 
 export default async function interrogatorExtension(pi: ExtensionAPI): Promise<void> {
   const config = await loadConfig(process.cwd());
@@ -145,8 +146,11 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // activation, held in this closure and passed to every openPanel. Panel
   // components are destroyed on suspend/re-instantiation; this store is
   // not — that lifetime asymmetry IS the suspend/resume survival mechanism.
-  // Restart loses drafts BY DESIGN (Q6=B): nothing here touches disk, and
-  // persistence.ts (P1.M7.T1) must not serialize it.
+  // The store itself touches no disk and persistence.ts (P1.M7.T1) must
+  // not serialize it; post-restart recovery rides the DURABLE input store
+  // instead (restoreDrafts below stages the batch note back into this
+  // seam — P3.M3.T1.S2, decisions.md "Later decision — panel input
+  // recovery", superseding Q6=B for editor input).
   const drafts = new DraftStore();
   // P3.M2.T1.S1 — local input recovery (spec §Local input recovery):
   // ONE capture store per extension activation, the same lifetime pattern
@@ -198,13 +202,21 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // the host retargets onto the fresh state so the next deliberate resume
   // (/interrogate, model upsert, {reopen:true}) is branch-correct. Navigating
   // the tree must never pop the panel in the user's face. resetState() at the
-  // top of every run guarantees no caching across session_shutdown. Drafts
-  // are NEVER restored (Q6=B) — the store above passes through untouched
-  // (empty at start, by design).
+  // top of every run guarantees no caching across session_shutdown. Editor
+  // INPUT recovery rides the session-start tail (restoreDrafts below —
+  // P3.M3.T1.S2): the durable batch note stages into the DraftStore seam
+  // (absent-only), question drafts restore LAZILY at field open
+  // (decisions.md "Later decision — panel input recovery", superseding Q6=B
+  // for editor input); the transcript and recorded answers are still never
+  // restored, no surface ever appears, and the store above still passes
+  // through untouched by reconstruction itself.
   createReconstruction(pi, {
     config,
     host: panelHost,
     drafts,
+    restoreDrafts: (walkIds) => {
+      restoreSessionNote(durableInputs, drafts, walkIds);
+    },
   });
 
   // P1.M6.T2.S1 — agent-judgment reopen (FR-6/Q12, h2.35): the tool's
@@ -271,7 +283,15 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
         // doing nothing behind a "Panel reopened." confirmation. openPanel
         // returns false only when its mode/single-instance guard blocks;
         // report that honestly rather than claim success (FR-6).
-        return openPanel(resumeSurface, { config, state, drafts, inputCapture }) ? "reopened" : "no-state";
+        return openPanel(resumeSurface, {
+          config,
+          state,
+          drafts,
+          inputCapture,
+          durableInputs,
+        })
+          ? "reopened"
+          : "no-state";
       },
       // AC-11: a non-TUI record re-arms the close pass (re-asked-then-
       // re-answered ids must close at this run's settle — see tool.ts record).
@@ -308,7 +328,12 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // Shares this closure's config, panelHost (phase
   // state source), drafts (load-bearing for the fresh-open row), and the
   // /interrogate debug subcommand handler (h2.50 verification surface).
-  registerInterrogateCommand(pi, config, panelHost, { drafts, inputCapture, debug: debugSubcommands });
+  registerInterrogateCommand(pi, config, panelHost, {
+    drafts,
+    inputCapture,
+    durableInputs,
+    debug: debugSubcommands,
+  });
 
   // PANELTOGGLE-001 — the global toggle shortcut: `keys.toggle` (default
   // ctrl+n) fires from pi's MAIN EDITOR (registerShortcut) to open/resume
@@ -317,5 +342,5 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // Gated by the `panelShortcut` toggle (default true); non-TUI modes never
   // dispatch extension shortcuts. Shares this closure's config, panelHost,
   // and drafts — exactly the invoke command's deps.
-  registerPanelShortcut(pi, config, panelHost, { drafts, inputCapture });
+  registerPanelShortcut(pi, config, panelHost, { drafts, inputCapture, durableInputs });
 }

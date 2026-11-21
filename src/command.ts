@@ -35,6 +35,7 @@ import type { InterrogatorConfig } from "./config.js";
 import type { DebugSubcommandHandler } from "./debug-commands.js";
 import type { DraftStore } from "./draft-store.js";
 import type { InputCaptureStore } from "./input-capture.js";
+import type { DurableRead } from "./input-restore.js";
 import {
   hasResumableQuestions,
   resumePanel,
@@ -107,6 +108,16 @@ export interface InvokeOptions {
   drafts?: DraftStore;
   /** Input-recovery capture store (P3.M2.T1.S1) — rides the fresh-open row. */
   inputCapture?: InputCaptureStore;
+  /**
+   * P3.M3.T1.S2 — narrow READ view of the durable input store for the
+   * editor seeding ladder + composer restore (src/input-restore.ts's
+   * DurableRead; the real DurableInputStore satisfies it structurally).
+   * THE post-restart durable tier: without it, a fresh-opened panel after a
+   * restart has no recovery drafts and acceptance case 1 fails for
+   * Other/text/elaboration. Extension-lifetime store, panel-disposable
+   * consumer — same discipline as inputCapture.
+   */
+  durableInputs?: DurableRead;
 }
 
 /**
@@ -159,6 +170,7 @@ export function interrogateInvokeAction(
       state: state as InterrogationState,
       drafts: opts.drafts,
       inputCapture: opts.inputCapture,
+      durableInputs: opts.durableInputs,
     })
       ? "opened"
       : "empty";
@@ -208,7 +220,12 @@ export function registerInterrogateCommand(
   pi: ExtensionAPI,
   config: InterrogatorConfig,
   host: PanelHost,
-  opts?: { drafts?: DraftStore; inputCapture?: InputCaptureStore; debug?: DebugSubcommandHandler },
+  opts?: {
+    drafts?: DraftStore;
+    inputCapture?: InputCaptureStore;
+    durableInputs?: DurableRead;
+    debug?: DebugSubcommandHandler;
+  },
 ): void {
   // User-facing command (h2.15): bare invocation is the panel invoke
   // (open/resume — never suspend); args dispatch the subcommands.
@@ -273,6 +290,7 @@ export function registerInterrogateCommand(
           config,
           drafts: opts?.drafts,
           inputCapture: opts?.inputCapture,
+          durableInputs: opts?.durableInputs,
         });
         if (outcome === "empty") ctx.ui.notify(EMPTY_STATE_MESSAGE, "info");
         return;

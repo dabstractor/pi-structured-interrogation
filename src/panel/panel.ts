@@ -63,6 +63,7 @@ import type { CaptureField, CaptureKey, InputCaptureStore } from "../input-captu
 import {
   answerSeedEligible,
   latestDraftOnLineage,
+  latestFieldOnLineage,
   recoverySeed,
   type DurableRead,
   type SeedResult,
@@ -1394,6 +1395,12 @@ export class InterrogationPanel implements Component {
         }
         const closedUsage = record?.usage;
         openSidechatRecord(qid, args.chatRebindDeps); // snapshot NOW, once
+        // P3.M3.T1.S2 (FR-28): seed the cold record's composer from the
+        // durable recovery draft — the conversation stays dead
+        // (SIDECHAT-002), only the saved INPUT returns (also the
+        // failed/aborted-send recovery limb: S3 retires nothing there).
+        // Empty-composer + nonempty-durable guards live inside (NEW-003).
+        p.restoreComposerDraft(qid);
         if (closedUsage !== undefined) {
           // Zero-usage replacements notify too (policy: unconditional,
           // hook-consistent — the toast is the only feedback that a
@@ -1925,6 +1932,35 @@ export class InterrogationPanel implements Component {
       answer,
       answerEligible: answerSeedEligible(duty, answer),
     });
+  }
+
+  /**
+   * P3.M3.T1.S2 — seed the side-chat composer's recovery draft at a COLD
+   * chat create on `questionId` (SIDECHAT-002: the CONVERSATION never
+   * restores — openOrReplace already built a fresh record; FR-28: the
+   * user's saved composer INPUT does). Ancestry-scans the durable store
+   * for {questionId, "sidechat-composer"} over the CURRENT walk
+   * ({@link latestFieldOnLineage} — matching-question only, spec :137) and
+   * seeds via capture-suppressed setText — a seed never mints a capture,
+   * so it cannot overwrite a deliberate durable "" (no resurrection).
+   * Guards: no-op without the durable seam; no-op unless the composer is
+   * EMPTY (never hijack mid-sentence typing — NEW-003's rule); no-op for
+   * tombstoned/empty durable text. Runs at EVERY cold create, not just
+   * post-restart — that IS the failed/aborted-send recovery limb (S3
+   * retires nothing on a refused/failed/aborted send, so the prompt stays
+   * recoverable; a clean settled send retired the capture, so nothing
+   * restores). /clear · /new (resetChat) deliberately do NOT call this —
+   * a fresh-start gesture seeds nothing. READ-ONLY toward state: no send,
+   * no engine touch, no events (SURFACE-002 — restore is not a surface).
+   */
+  restoreComposerDraft(questionId: string): void {
+    if (this.durableInputs === undefined) return;
+    if (this.chatField.getText() !== "") return; // never hijack live typing (NEW-003)
+    const v = latestFieldOnLineage(this.durableInputs, this.walkIds(), {
+      questionId,
+      field: "sidechat-composer",
+    });
+    if (v !== undefined && v.text !== "") this.chatField.setText(v.text);
   }
 
   /**

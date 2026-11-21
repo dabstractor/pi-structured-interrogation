@@ -84,7 +84,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S1",
                   "title": "Rewrite the keymap-conflict re-verification record block (README.md:428-504)",
-                  "status": "Researching",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [
                     "P1.M1.T1.S2"

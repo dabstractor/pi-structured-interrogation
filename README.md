@@ -112,7 +112,8 @@ materialize; runtime loads via jiti against pi's tree.
    — a description-only edit over an answered set surfaces nothing. A
    session restart/resume never opens it either: after a restart the
    suspend widget line (live counts, `/interrogate`) is the only cue — run
-   `/interrogate` and the restored questions and answers come right back.
+   `/interrogate` and the restored questions, answers, and in-progress editor
+   drafts come right back.
 5. When every question is closed, the panel dismisses and the model receives
    **one full completion record** (a recap card lands in the transcript —
    every question with its final answer, free text, full prompts, and all
@@ -384,8 +385,9 @@ without leaving the view or touching the transcript, so "keep chatting"
 needs no exit-and-reopen.
 
 The chat lives in extension memory only — nothing about it is written to
-the session file — and it is TUI-only (inert in `pi -p` and other non-TUI
-modes). See [Limitations](#limitations).
+the session file, though its composer's saved draft still recovers (see
+[Limitations](#limitations)) — and it is TUI-only (inert in `pi -p` and other
+non-TUI modes).
 
 ## Acceptance criteria (spec)
 
@@ -406,7 +408,7 @@ the spec for the full text and the scripted tests proving each):
 6. Contradicting a `dependsOn` → dependent greys as moot instantly, with the real reason (`moot: {dep}={value}`); overview shows ⊘.
 7. Edit invalidating dependents → confirm dialog; esc cancels cleanly.
 8. Stale upsert (wrong `rev`/`epoch`) → rejected with current text/rev; re-apply heals.
-9. Restart pi mid-interrogation → NO panel appears (SURFACE-002); the widget line shows live counts; `/interrogate` reopens restored state (answers with their elaborations and ✎ write-ins); drafts gone (documented); pending answers ship on the next commit or submit (AUTOSUBMIT-001).
+9. Restart pi mid-interrogation → NO panel appears (SURFACE-002); the widget line shows live counts; `/interrogate` reopens with questions/answers restored (any status mix); editor recovery is tested separately (FR-28); pending answers ship on the next commit or submit (AUTOSUBMIT-001).
 10. `/compact` mid-interrogation → preservation flow; state reconstructs from the append-only mirror.
 11. `pi -p` print mode → numbered markdown digest; `answers[]` records chat answers; completion record on settle.
 12. Every default hotkey remappable; footer/widget strings reflect the remap.
@@ -420,17 +422,25 @@ the spec for the full text and the scripted tests proving each):
 
 From the spec's confirmed non-goals — pi-interrogator does **not** do any of these:
 
-> Answering by parsing chat text while the panel is open · multiple concurrent interrogations · images in answers · mouse input · cross-restart draft persistence (documented limitation) · modifying pi core (public extension APIs only) · per-request state injection (vetoed).
+> Answering by parsing chat text while the panel is open · multiple concurrent interrogations · images in answers · mouse input · modifying pi core (public extension APIs only) · per-request state injection (vetoed).
 
-- Drafts are in-session only: they survive suspend/resume and panel
-  close/reopen, but restarting pi mid-interrogation restores questions and
-  submitted answers with their exact values — elaborations and ✎ write-in
-  answers included — never in-progress drafts.
-  Drafts of questions the agent re-asked survive a panel submit (only
-  shipped answers flush).
-- The side chat is ephemeral: it lives only for the session — restarting pi
-  mid-interrogation restores questions and answers but never an open chat,
-  and nothing about a chat is written to the session file.
+- Drafts survive restarts (local input recovery, FR-28): every editor duty —
+  `✎ Other`/write-in, text answer, elaboration, batch note, and the side-chat
+  composer — saves its full text as you type (debounced, hard-flushed within
+  ~1s of continuous typing) to extension-local files under
+  `<agentDir>/data/interrogator/` — never the session file, written atomically
+  (temp file + fsync + rename). After a crash or restart, reopening the field
+  restores the exact saved string — newlines, Unicode, surrounding whitespace —
+  to its originating session, branch, question, and field. Recovery is inert:
+  it never commits, submits, sends, or calls a model; a recovered draft ships
+  only when you act on it. Blank edits are still rejected at commit
+  (`Answer cannot be blank`). Drafts of questions the agent re-asked survive a
+  panel submit (only shipped answers flush).
+- The side chat's CONVERSATION is ephemeral: it lives only for the session —
+  restarting pi mid-interrogation restores questions and answers but never an
+  open chat, and nothing about a chat is written to the session file. Its
+  COMPOSER's saved edit recovers like any other draft (SIDECHAT-002: recovery
+  concerns your input, not the conversation).
 - The side chat's view of the main conversation is snapshotted once at chat
   creation; submissions made while chatting do not refresh it (accepted v1).
 - The side chat is TUI-only: in non-TUI modes `c` is inert (and without a
@@ -583,6 +593,9 @@ src/
 ├── command.ts         # /interrogate invoke command (open/resume — never toggles)
 ├── debug-commands.ts  # keyboard-driven debug commands (`/interrogate debug …`)
 ├── draft-store.ts     # in-session draft survival across panel open/close
+├── input-capture.ts   # local input recovery: edit-event capture + debounce pacing
+├── input-durability.ts # local input recovery: atomic recovery-point store + retirement
+├── input-restore.ts   # local input recovery: seeding ladder on field open / session start
 ├── external-editor.ts # external editor handoff
 ├── depends-on.ts      # question dependency / moot-ness data layer
 └── panel/             # the TUI panel: layout, key routing, actions, views

@@ -251,7 +251,7 @@
       "type": "Phase",
       "id": "P3",
       "title": "Local input recovery — NEW unshipped PRD requirement: durable editor-input capture, restore, retirement, blank-answer rejection",
-      "status": "Ready",
+      "status": "Complete",
       "description": "spec/state-and-persistence.md §Local input recovery (added at spec ec61eb1) is explicitly 'New requirements, not shipped': the shipped panel keeps drafts in extension memory only (src/draft-store.ts has no durable layer; nothing writes drafts to disk). Scope per the updated PRD: capture-on-edit durable saves for EVERY editor duty (Other/write-in, text answer, elaboration, batch note, side-chat composer), atomic recovery points that survive hard kills mid-typing, retirement on deliberate discard/user replacement/successful handoff, restore + seeding rules (newer matching draft > exact recorded answer.value > blank; never seed Other with an option value; intentional deletion-to-empty is an edit), and blank-answer rejection at the shared final mutation applyAnswer across ALL ingress (panel, side-chat apply, non-TUI answers[], submit reconciliation) — trim tests emptiness only, nonblank stores untrimmed, rejection precedes any answer/status change/advance/submission and keeps editor focus with an inline reason ('Answer cannot be blank'). FR-28 gains matching-draft restore on session start; commitment 6 now defers to this section and 'cross-restart draft persistence' is REMOVED from non-goals; the side-chat TRANSCRIPT stays ephemeral (SIDECHAT-002 unchanged — recovery covers the user's composer text, not the conversation; decisions.md 'Later decision — panel input recovery'). Five new acceptance cases (state-and-persistence.md) define done. CONSTRAINTS: recovery storage is extension-local — it must not trip the SIDECHAT cache-isolation / no-session-writes guards (no session-file writes, no sendMessage, no appendEntry of draft content); SURFACE-001/002 unchanged (restore never opens the panel); saving/restoring never advances, commits, queues, submits, sends, or calls a model. Related spec surfaces already updated by humans: ui-spec write-in duty seeding + blank handling, EXPLAIN-002 buffer-scoping fallback, draft-preservation paragraph, FR-28, AC-9 ('editor recovery is tested separately'), FR-3a fidelity pins.",
       "milestones": [
         {
@@ -443,14 +443,14 @@
           "type": "Milestone",
           "id": "P3.M5",
           "title": "Acceptance gate + changeset documentation",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Run the full verification (all five new acceptance cases scripted, suite/typecheck/lint, static guards) and flip the README surfaces that describe drafts as memory-only.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M5.T1",
               "title": "Final verification and docs sync",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Gate the whole local-input-recovery changeset, then update README: limitations row, AC-9 wording, config reference, and usage prose.",
               "subtasks": [
                 {
@@ -475,7 +475,7 @@
                   "type": "Subtask",
                   "id": "P3.M5.T1.S2",
                   "title": "README + docs sync: limitations row flips, AC-9 wording, config reference",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M5.T1.S1"

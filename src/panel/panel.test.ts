@@ -58,6 +58,7 @@ import {
   resetSidechatForTests,
 } from "./sidechat.js";
 import { createSidechatEngine } from "./sidechat-engine.js";
+import { InputCaptureStore, type CaptureKey } from "../input-capture.js";
 import {
   editInExternalEditor,
   type ExternalEditorResult,
@@ -4518,5 +4519,244 @@ describe("sidechat suspend/resume survival + inertness (AC-17.6, P1.M2.T5.S2)", 
     expect(record!.notices[0]!.text).toBe(pinned);
     expect(panel.view).toBe("chat"); // panel never blocked
     expect(panel.render(100).length).toBeGreaterThan(0);
+  });
+});
+
+// ------------------------------------------------- editor seeding ladder (P3.M3.T1.S1)
+
+describe("editor seeding ladder — P3.M3.T1.S1", () => {
+  const T_ANSWER = "2025-01-01T00:00:00.000Z";
+  const T_NEWER = "2025-01-01T01:00:00.000Z";
+  const T_OLDER = "2024-12-31T00:00:00.000Z";
+  const ANSWER_TEXT = "committed write-in";
+
+  /** Canned DurableRead double keyed by branchId (the ancestry scan calls latest() per walk id). */
+  function durableRead(entries: Record<string, { text: string; seq: number; savedAt?: string } | undefined>) {
+    return { latest: (q: { branchId: string }) => entries[q.branchId] };
+  }
+
+  /** Fake session surface: the walk the ancestry scan reads (oldest → newest). */
+  function branchPi(ids: string[]): InterrogationPanelArgs["pi"] {
+    return {
+      sessionManager: {
+        getBranch: () => ids.map((id) => ({ id })),
+        getSessionId: () => "sess-1",
+      },
+    } as unknown as InterrogationPanelArgs["pi"];
+  }
+
+  /** Answered custom write-in on a choice question; cursor parked on the ✎ Other row. */
+  function writeInHarness(extra: Partial<InterrogationPanelArgs> = {}) {
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.applyAnswer("q1", { value: ANSWER_TEXT, at: T_ANSWER, custom: true });
+    const panel = new InterrogationPanel(panelArgsFor(state, extra));
+    panel.currentId = "q1";
+    panel.cursorIndex = OPTS_AB.length; // the ✎ Other row
+    return { state, panel };
+  }
+
+  // ---- GROUP A: re-open committed answers (acceptance case 5 reopen limbs)
+
+  test("re_open_custom_writein_answer_seeds_exact_value", () => {
+    // No drafts anywhere → the ANSWER tier seeds the ✎ editor with the
+    // exact committed value (state-and-persistence "Re-edit and commit";
+    // today's draft-only seed left it blank).
+    const { panel } = writeInHarness();
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+    panel.handleInput("\r"); // accept on the ✎ row → actions pre-sets textDuty="writein", focusTextField
+    expect(panel.focus).toBe("text");
+    expect(panel.textField.getText()).toBe(ANSWER_TEXT);
+  });
+
+  test("re_open_text_type_answer_seeds_exact_value", () => {
+    // type:"text" answers ALSO carry custom:true — the same gate covers them.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(textQ("t1"));
+    state.applyAnswer("t1", { value: "typed prose", at: T_ANSWER, custom: true });
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.currentId = "t1";
+    panel.handleInput("e"); // elaborate key → desiredTextDuty = writein for text questions
+    expect(panel.textField.getText()).toBe("typed prose");
+  });
+
+  test("option_answered_question_other_editor_never_seeds_option_value", () => {
+    // An option answer (custom unset) NEVER seeds the ✎ editor — the
+    // ladder falls through to blank when no draft tiers exist.
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(choiceQ("q1"));
+    state.applyAnswer("q1", { value: "a", at: T_ANSWER }); // NO custom
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.currentId = "q1";
+    panel.cursorIndex = OPTS_AB.length;
+    panel.handleInput("\r");
+    expect(panel.focus).toBe("text");
+    expect(panel.textField.getText()).toBe("");
+  });
+
+  // ---- GROUP B: EXPLAIN-002 re-scope amendment (navigate while text-focused)
+
+  test("rescope_while_text_focused_onto_answered_question_seeds_answer", () => {
+    // ui-spec :46: the question-change re-seed falls back to the recorded
+    // answer for Other/text re-edits (replaces blank-when-none).
+    const state = createInterrogationState("goal");
+    state.upsertQuestion(textQ("t1"));
+    state.upsertQuestion(textQ("t2"));
+    state.applyAnswer("t2", { value: "t2 committed", at: T_ANSWER, custom: true });
+    const panel = new InterrogationPanel(panelArgsFor(state));
+    panel.currentId = "t1";
+    panel.handleInput("e"); // text focus on t1
+    panel.handleInput("\u001b[Z"); // shift+tab → nextQuestion WHILE focused
+    expect(panel.currentId).toBe("t2");
+    expect(panel.focus).toBe("text");
+    expect(panel.textField.getText()).toBe("t2 committed");
+    // And back: t1 has neither draft nor answer → blank.
+    panel.handleInput("\t");
+    expect(panel.currentId).toBe("t1");
+    expect(panel.textField.getText()).toBe("");
+  });
+
+  // ---- GROUP C: durable recovery tier (canned DurableRead + branch stub)
+
+  test("durable_draft_newer_than_answer_wins_byte_exact", () => {
+    const { panel } = writeInHarness({
+      durableInputs: durableRead({
+        tip1: { text: "half-typed recovery", seq: 1, savedAt: T_NEWER },
+      }),
+      pi: branchPi(["tip1", "tip2"]), // record on the OLDER tip — ancestry must find it
+    });
+    panel.handleInput("\r");
+    expect(panel.textField.getText()).toBe("half-typed recovery");
+  });
+
+  test("deliberate_durable_empty_preserves_blank_editor_over_answer", () => {
+    // {text:"", seq} is a DELIBERATE empty — the newest edit; the re-opened
+    // editor stays blank even though a write-in answer is recorded.
+    const { panel } = writeInHarness({
+      durableInputs: durableRead({
+        tip1: { text: "", seq: 2, savedAt: T_NEWER },
+      }),
+      pi: branchPi(["tip1"]),
+    });
+    panel.handleInput("\r");
+    expect(panel.textField.getText()).toBe("");
+  });
+
+  test("sibling_branch_record_is_ignored_answer_seeds_instead", () => {
+    // branchId NOT on the current walk (sibling branch) → invisible by
+    // construction; the ladder falls to the recorded answer.
+    const { panel } = writeInHarness({
+      durableInputs: durableRead({
+        sibling: { text: "other branch draft", seq: 9, savedAt: "2099-01-01T00:00:00.000Z" },
+      }),
+      pi: branchPi(["tip1"]),
+    });
+    panel.handleInput("\r");
+    expect(panel.textField.getText()).toBe(ANSWER_TEXT);
+  });
+
+  test("answer_newer_than_durable_draft_wins_applyChatAnswer_shape", () => {
+    // Model-authored applyChatAnswer after an old draft: answer.at > savedAt
+    // → the recorded answer seeds (ANSWER-PIN conservatism).
+    const { panel } = writeInHarness({
+      durableInputs: durableRead({
+        tip1: { text: "stale draft", seq: 1, savedAt: T_OLDER },
+      }),
+      pi: branchPi(["tip1"]),
+    });
+    panel.handleInput("\r");
+    expect(panel.textField.getText()).toBe(ANSWER_TEXT);
+  });
+
+  // ---- GROUP D: anti-resurrection (capture-suppressed seeds + phantom guard)
+
+  test("ladder_seed_from_answer_mints_no_capture_record", () => {
+    // Real InputCaptureStore wired with a LIVE key (branch stub) — the seed
+    // flows through TextField.seed → setText (captureSuppressed): advancing
+    // past the 250ms debounce + 1000ms deadline, the store recorded NOTHING.
+    // Positive control proves the harness would detect a real edit.
+    vi.useFakeTimers();
+    try {
+      const sink: CaptureKey[] = [];
+      const capture = new InputCaptureStore({ sink: (r) => sink.push(r) });
+      const { panel } = writeInHarness({ inputCapture: capture, pi: branchPi(["tip1"]) });
+      panel.handleInput("\r"); // ladder seed (answer tier)
+      vi.advanceTimersByTime(3000);
+      expect(sink).toEqual([]); // the seed minted nothing
+
+      // Positive control — a REAL edit (user keystroke shape) does mint:
+      capture.setKeyDirty({ branchId: "tip1", questionId: "q1", field: "writein" }, () => "typed");
+      vi.advanceTimersByTime(3000);
+      expect(sink.length).toBe(1);
+      expect(sink[0]).toMatchObject({ branchId: "tip1", questionId: "q1", field: "writein" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("un_edited_answer_seed_never_becomes_slot_or_draft_on_navigation", () => {
+    // Phantom guard at the sync write-through: navigate away while focused
+    // WITHOUT editing → the outgoing buffer (still the answer text) writes
+    // NO slot and NO seam draft.
+    const { state, panel } = writeInHarness();
+    state.upsertQuestion(choiceQ("q2"));
+    panel.handleInput("\r"); // seed = answer tier
+    expect(panel.textField.getText()).toBe(ANSWER_TEXT);
+    panel.handleInput("\u001b[Z"); // shift+tab → q2, focused write-through
+    expect(panel.currentId).toBe("q2");
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // no phantom draft
+    // Round-trip back: the answer tier seeds again — still byte-exact.
+    panel.handleInput("\t");
+    expect(panel.currentId).toBe("q1");
+    expect(panel.textField.getText()).toBe(ANSWER_TEXT);
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+  });
+
+  test("blur_back_without_commit_leaves_recorded_answer_intact", () => {
+    // Discard limb: re-open seeded from the answer, exit WITHOUT editing →
+    // stageText's commit tail skips the slot write (guard) and the state
+    // answer is untouched.
+    const { state, panel } = writeInHarness();
+    panel.handleInput("\r"); // seed
+    panel.exitTextField(); // blur-back without commit
+    expect(panel.focus).toBe("options");
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+    expect(state.getQuestion("q1")?.answer).toMatchObject({ value: ANSWER_TEXT, custom: true });
+  });
+
+  test("edited_buffer_still_writes_through_guard_releases_on_edit", () => {
+    // The guard is not overzealous: any real edit breaks byte-equality →
+    // the write-through proceeds normally.
+    const { state, panel } = writeInHarness();
+    state.upsertQuestion(choiceQ("q2"));
+    panel.handleInput("\r"); // seed = answer tier
+    panel.textField.setText("my EDITED text"); // user edit (capture-suppressed but buffer-visible)
+    panel.handleInput("\u001b[Z"); // navigate away — write-through
+    expect(panel.draftTextFor("q1")).toBe("my EDITED text");
+  });
+
+  test("delete_to_empty_blur_reopen_keeps_blank_over_recorded_answer", () => {
+    // Acceptance case 5 limb: the deliberate deletion-to-empty IS the
+    // newest edit — re-open shows a BLANK editor; the recorded answer is
+    // unchanged in state.
+    const { state, panel } = writeInHarness();
+    panel.handleInput("\r"); // seed from answer
+    panel.textField.setText(""); // delete to empty
+    panel.exitTextField(); // blur WITHOUT commit — stages the empty slot
+    expect(state.getQuestion("q1")?.answer).toMatchObject({ value: ANSWER_TEXT });
+    panel.cursorIndex = OPTS_AB.length;
+    panel.handleInput("\r"); // re-open ✎ Other
+    expect(panel.textField.getText()).toBe(""); // blank wins over the answer
+    expect(state.getQuestion("q1")?.answer).toMatchObject({ value: ANSWER_TEXT });
+  });
+
+  // ---- GROUP E: unchanged seams
+
+  test("draftTextFor_stays_draft_only_for_answered_question", () => {
+    // draftTextFor (submit reconciliation) NEVER gains the answer tier.
+    const { panel } = writeInHarness();
+    expect(panel.draftTextFor("q1")).toBeUndefined();
+    panel.handleInput("\r"); // seed from answer
+    expect(panel.draftTextFor("q1")).toBeUndefined(); // seeding changed nothing
   });
 });

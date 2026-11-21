@@ -182,7 +182,7 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
     const args = pendingUpsertArgs.get(id);
     pendingUpsertArgs.delete(id);
     return args;
-  }, inputCapture);
+  }, inputCapture, durableInputs);
 
   // P1.M7.T1.S2 — reconstruction (h2.41/h2.43/h3.11, FR-28): on session_start
   // (all reasons) AND session_tree (mid-session /tree branch navigation — ctx

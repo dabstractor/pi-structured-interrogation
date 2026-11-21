@@ -60,6 +60,13 @@ import {
 } from "../external-editor.js";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
 import type { CaptureField, CaptureKey, InputCaptureStore } from "../input-capture.js";
+import {
+  answerSeedEligible,
+  latestDraftOnLineage,
+  recoverySeed,
+  type DurableRead,
+  type SeedResult,
+} from "../input-restore.js";
 // SURFACE-001 gate (1): the single upsert-args predicate (lifecycle.ts is its
 // only other consumer — no duplicate definition; no import cycle: lifecycle
 // imports merge.js + state.js only, never panel.js).
@@ -280,6 +287,16 @@ export interface OpenPanelOptions {
    * DraftStore, which stays untouched until P3.M3 unifies seeding).
    */
   inputCapture?: InputCaptureStore;
+  /**
+   * P3.M3.T1.S1 — narrow READ view of the durable input store for the
+   * editor seeding ladder (src/input-restore.ts's DurableRead; the real
+   * DurableInputStore satisfies it structurally, tests inject canned
+   * latest() doubles). Optional: absent ⇒ the durable recovery tier is
+   * inert and the ladder falls back to slots/seam/answer only.
+   * Extension-lifetime store, panel-disposable consumer — same discipline
+   * as inputCapture.
+   */
+  durableInputs?: DurableRead;
   /** Key dispatch seam — optional until P1.M3.T3.S1 (keys.ts) lands it. */
   keys?: KeyHandler;
   /**
@@ -703,6 +720,11 @@ export interface InterrogationPanelArgs {
    * with live key providers; absent ⇒ capture inert (tests/non-panel).
    */
   inputCapture?: InputCaptureStore;
+  /**
+   * P3.M3.T1.S1 — durable read seam for the seeding ladder (seedTextFor);
+   * absent ⇒ the durable recovery tier is inert (tests/headless panels).
+   */
+  durableInputs?: DurableRead;
   keys?: KeyHandler;
   delivery?: SubmitDeps;
   confirmRipple?: RippleConfirmFn;
@@ -872,6 +894,18 @@ export class InterrogationPanel implements Component {
    * previous question's leftovers).
    */
   private bufferOwner: string | "note" | undefined;
+
+  /**
+   * P3.M3.T1.S1 phantom-draft guard — when the ANSWER tier produced the
+   * buffer's seed, remember {owner, text}. The slot/seam write path
+   * ({@link stageOwnerText}) skips while the buffer still byte-equals that
+   * un-edited seed AND no real draft exists, so a seeded answer never
+   * mints a phantom draft (a later option accept would re-bind it as a
+   * bogus elaboration). Cleared on owner change (syncBufferToQuestion),
+   * on any non-answer re-seed (focusTextField), and in
+   * consumeCommittedBuffer (S3's consume seam).
+   */
+  private answerSeed: { owner: string; text: string } | undefined;
 
   /**
    * [Mode A] The embedded editor's answer-side duty (WRITEIN-001, h2.32).
@@ -1285,6 +1319,7 @@ export class InterrogationPanel implements Component {
     // switches and /tree retargets are inherently correct (a capture carries
     // the key current at edit time). Absent store/surface ⇒ inert.
     this.inputCapture = args.inputCapture;
+    this.durableInputs = args.durableInputs;
     this.branchReader = (
       args.pi as { sessionManager?: Pick<SessionManager, "getBranch" | "getSessionId"> } | undefined
     )?.sessionManager;
@@ -1701,8 +1736,9 @@ export class InterrogationPanel implements Component {
    */
   commitTextDraft(questionId: string | undefined, text: string): void {
     if (questionId !== undefined) {
-      this.draftSlots.set(questionId, { value: questionId, text });
-      this.drafts?.setDraft(questionId, text);
+      // P3.M3.T1.S1 — phantom guard: an un-edited answer seed must not
+      // become a slot/draft on its way out (see stageOwnerText).
+      this.stageOwnerText(questionId, text);
       // EXPLAIN-003 cursor landing (ANSWER-PIN-001): when the explain
       // editor closes on a CHOICE question with the cursor resting on the
       // ✎ affordance, re-seed via initialCursorIndex — to the RECORDED
@@ -1749,6 +1785,7 @@ export class InterrogationPanel implements Component {
    * live reads always reflect the branch the user is on NOW.
    */
   private readonly inputCapture: InputCaptureStore | undefined;
+  private readonly durableInputs: DurableRead | undefined;
   private readonly branchReader:
     | Pick<SessionManager, "getBranch" | "getSessionId">
     | undefined;
@@ -1835,6 +1872,87 @@ export class InterrogationPanel implements Component {
     if (key !== undefined) this.inputCapture?.retire(key, { explicit: true });
   }
 
+  // ------------------------------------------- P3.M3.T1.S1 seeding ladder
+
+  /**
+   * The CURRENT walk's entry ids, oldest → newest — the branchId
+   * vocabulary the capture keys used at their edit-time walk tips. Hostile
+   * -surface safe (the {@link captureBranchId} pattern): getBranch()
+   * throwing ⇒ [] ⇒ the durable tier silently resolves nothing. Same walk
+   * the capture side reads LIVE — never a snapshot.
+   */
+  private walkIds(): string[] {
+    try {
+      const walk = this.branchReader?.getBranch();
+      return (walk ?? [])
+        .map((e) => e.id)
+        .filter((id) => typeof id === "string" && id !== "");
+    } catch {
+      return []; // hostile surface — seed from slots/seam/answer only, never throw into typing
+    }
+  }
+
+  /**
+   * P3.M3.T1.S1 — the seeding ladder evaluated against THIS panel's live
+   * state, with tier attribution ({@link recoverySeed}; pure rules in
+   * src/input-restore.ts): panel-local slot → DraftStore seam →
+   * ancestry-gated durable recovery draft ({@link latestDraftOnLineage}
+   * over {@link walkIds} — the walk tip GROWS as turns append, so
+   * exact-branchId lookups miss live-session drafts; sibling-branch
+   * records are invisible by construction) → recorded write-in/text
+   * answer (ONLY when duty is writein AND the answer is custom — an
+   * option value never seeds an editor; spec :140, ui-spec :46) → blank.
+   * READ-ONLY: no answer mutation, no retirement, never the capture
+   * store's in-memory pending state.
+   */
+  private seedTextFor(id: string | undefined, duty: "writein" | "elaboration"): SeedResult {
+    if (id === undefined) return { text: "", tier: "blank" };
+    const slotText = this.draftSlots.get(id)?.text;
+    const seamText = this.drafts?.getDraft(id);
+    const durableField = duty === "writein" ? ("writein" as const) : ("elaboration" as const);
+    const durable =
+      this.durableInputs !== undefined
+        ? latestDraftOnLineage(this.durableInputs, this.walkIds(), {
+            questionId: id,
+            field: durableField,
+          })
+        : undefined;
+    const answer = this.state.getQuestion(id)?.answer;
+    return recoverySeed({
+      slotText,
+      seamText,
+      durable,
+      answer,
+      answerEligible: answerSeedEligible(duty, answer),
+    });
+  }
+
+  /**
+   * P3.M3.T1.S1 phantom-draft guard — the SINGLE slot/seam write path for
+   * question-owned buffers (commitTextDraft, writeThroughCurrentDraft,
+   * syncBufferToQuestion's navigation write-through). While the buffer
+   * still byte-equals the ANSWER-TIER seed for this owner AND no real
+   * draft exists ({@link freshestDraftFor} stays draft-only), the write is
+   * SKIPPED: an un-edited answer seed must never become a slot/draft —
+   * that would corrupt the absent-draft discipline ("empty slot = absent
+   * draft": a later option accept would re-bind the committed answer as a
+   * bogus elaboration) and re-ship it at submit. Any user edit breaks
+   * byte-equality → the write proceeds normally; editing away and back
+   * re-arms a real draft via the intermediate writes (the
+   * freshestDraftFor === "" conjunct).
+   */
+  private stageOwnerText(id: string, text: string): void {
+    if (
+      this.answerSeed?.owner === id &&
+      this.answerSeed.text === text &&
+      this.freshestDraftFor(id) === ""
+    ) {
+      return; // un-edited answer seed — the committed answer IS the text; keep the draft absent
+    }
+    this.draftSlots.set(id, { value: id, text });
+    this.drafts?.setDraft(id, text);
+  }
+
   private writeThroughCurrentDraft(): void {
     if (this.focus !== "text" && this.focus !== "note") return;
     const text = this.textField.getText();
@@ -1847,8 +1965,9 @@ export class InterrogationPanel implements Component {
     }
     const id = this.bufferOwner; // question id (EXPLAIN-002)
     if (typeof id === "string") {
-      this.draftSlots.set(id, { value: id, text });
-      this.drafts?.setDraft(id, text);
+      // P3.M3.T1.S1 — phantom guard: suspend must not mint a draft from an
+      // un-edited answer seed either (same discipline as commitTextDraft).
+      this.stageOwnerText(id, text);
     }
     // Deliberately NOTHING else: no blur, no invalidate, no cursor re-seed,
     // no FR-18 modal — see the JSDoc above.
@@ -1879,6 +1998,7 @@ export class InterrogationPanel implements Component {
     this.draftSlots.delete(questionId);
     this.drafts?.clearDraft?.(questionId, { explicit: true });
     this.bufferOwner = undefined;
+    this.answerSeed = undefined; // P3.M3.T1.S1 — a consumed buffer owns no seed mark
     // P3.M2.T1.S3 — retirement at THE write-in handoff seam. Every
     // buffer→answer consume site routes here (writeInEnter's direct commit
     // after applyAnswer returned, its byte-identical inert exit, and
@@ -2085,13 +2205,27 @@ export class InterrogationPanel implements Component {
       // buffer).
       const existing = this.freshestDraftFor(this.bufferOwner);
       if (text.trim() !== "" || existing.trim() !== "") {
-        this.draftSlots.set(this.bufferOwner, { value: this.bufferOwner, text });
-        this.drafts?.setDraft(this.bufferOwner, text);
+        // P3.M3.T1.S1 — phantom guard: an un-edited answer seed in the
+        // outgoing buffer must not become the outgoing question's draft.
+        this.stageOwnerText(this.bufferOwner, text);
       }
     }
     this.bufferOwner = id;
-    const draft = this.freshestDraftFor(id);
-    this.textField.seed(draft);
+    this.answerSeed = undefined; // owner change — a stale mark must never guard the new owner
+    // P3.M3.T1.S1 seeding ladder (spec :140 "Re-edit and commit"; ui-spec
+    // :46 EXPLAIN-002 amendment): freshest recovery draft → recorded
+    // write-in/text answer → blank. The duty is computed BEFORE the seed —
+    // when focus === "text" it is the SAME desiredTextDuty the tail below
+    // re-declares (the cursor was already re-seeded by the currentId
+    // setter) — so the answer fallback is gated by the NEW question's
+    // duty, never the outgoing session's. Capture-suppressed (TextField
+    // .seed → setText): a seeded answer never mints a recovery record.
+    const seedDuty = this.focus === "text" ? desiredTextDuty(this) : this.textDuty;
+    const seeded = this.seedTextFor(id, seedDuty);
+    this.textField.seed(seeded.text);
+    if (seeded.tier === "answer" && id !== undefined) {
+      this.answerSeed = { owner: id, text: seeded.text };
+    }
     // BUG-004 / WRITEIN-001 "duty follows entry path and cursor position":
     // a text-focus session that spans a question change re-declares its
     // duty from the NEW question's freshly-reseeded cursor (via
@@ -2152,7 +2286,20 @@ export class InterrogationPanel implements Component {
     this.focus = "text";
     this.syncBufferToQuestion(this.currentId); // re-derives from the cursor…
     if (duty !== undefined) this.textDuty = duty; // …then the explicit entry duty wins
-    this.textField.seed(this.freshestDraftFor(this.currentId));
+    // P3.M3.T1.S1 ladder re-seed — sync above early-returns when the buffer
+    // already owns this question, so THIS is the load-bearing seed for
+    // every re-focus. The explicit duty (or the caller's pre-set textDuty —
+    // actions.ts's ✎ Other accept / text-question entry assigns
+    // textDuty = "writein" before calling) gates the answer fallback:
+    // freshest draft → recorded write-in/text answer → blank. Never the
+    // raw freshestDraftFor any more — that would clobber the answer tier
+    // back to blank and miss durable recovery drafts.
+    const seeded = this.seedTextFor(this.currentId, duty ?? this.textDuty);
+    this.textField.seed(seeded.text);
+    this.answerSeed =
+      seeded.tier === "answer" && this.currentId !== undefined
+        ? { owner: this.currentId, text: seeded.text }
+        : undefined;
     this.bufferOwner = this.currentId;
     this.textField.focus();
     this.invalidate(); // the editor region appears immediately
@@ -3225,6 +3372,7 @@ export function openPanel(pi: PiUISurface, opts: OpenPanelOptions): boolean {
       config: resolvedOpts.config,
       drafts: resolvedOpts.drafts,
       inputCapture: resolvedOpts.inputCapture,
+      durableInputs: resolvedOpts.durableInputs,
       keys: resolvedOpts.keys,
       delivery: resolvedOpts.delivery,
       confirmRipple: resolvedOpts.confirmRipple,
@@ -3400,6 +3548,10 @@ export function maybeAutoOpen(
   drafts?: DraftStore,
   peekArgs: (toolCallId: string) => unknown = () => undefined,
   inputCapture?: InputCaptureStore,
+  // P3.M3.T1.S1 — narrow durable READ view for the panel seeding ladder
+  // (DurableInputStore satisfies it; optional last — existing call sites
+  // compile untouched, the inputCapture precedent).
+  durableInputs?: DurableRead,
 ): void {
   void pi.on("tool_execution_end", (event, ctx) => {
     if (event.toolName !== "interrogate" || event.isError) return;
@@ -3442,10 +3594,10 @@ export function maybeAutoOpen(
     // swallowing the upsert here would leave the interrogation without its
     // panel forever; dispose the stale panel's residue, re-arm the record,
     // and retry once.
-    if (!openPanel(ctx, { config, state, drafts, inputCapture, focusQuestionId: focusId }) && phase === "open") {
+    if (!openPanel(ctx, { config, state, drafts, inputCapture, durableInputs, focusQuestionId: focusId }) && phase === "open") {
       currentPanel?.dispose();
       resetHostRecord();
-      openPanel(ctx, { config, state, drafts, inputCapture, focusQuestionId: focusId });
+      openPanel(ctx, { config, state, drafts, inputCapture, durableInputs, focusQuestionId: focusId });
     }
   });
 }

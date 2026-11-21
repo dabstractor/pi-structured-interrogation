@@ -79,9 +79,12 @@ materialize; runtime loads via jiti against pi's tree.
    explicitly when a note rides along). While a foundational gate question is unanswered, auto-submit
    holds: commits show `⚠ {n} foundational unanswered — answer them or
    {submit} to submit now` (any key dismisses it), and `ctrl+s` is the
-   deliberate override. Each submit streams a compact delta message to the
-   model (rendered as a diff card in your transcript), ending with
-   `(state epoch {n})` — the epoch the model must echo when upserting
+   deliberate override. Each submit streams a delta message to the model — a
+   header line `Submitted {n} (state epoch {e})`, ONE full untruncated line
+   per changed answer (ANSWER-FIDELITY: no budget, rollup, or ellipsis exists
+   on this path), then the closing reminder; an early partial submit swaps
+   the reminder for the `PARTIAL` nudge above (KEEP-OPEN-002). The header's
+   `(state epoch {e})` is the epoch the model must echo when upserting
    existing questions afterwards. The diff card is your durable record of
    what you told the model (FULL-TRANSCRIPT-001): every changed answer in
    full — option labels, ✎ write-ins, and the elaborations you attached
@@ -392,7 +395,7 @@ extends it to 2a–2d, 15, 16, and 17. Summary (scripted where possible — see
 the spec for the full text and the scripted tests proving each):
 
 1. Model upserts questions across groups with one gate group → panel opens; gate focused; other groups dimmed but answerable.
-2. Partial `ctrl+s` → compact delta + reminder; epoch bumps; remainder stays open.
+2. Partial `ctrl+s` → header + every changed answer in full + the reminder (an early submit swaps in the `PARTIAL` nudge — KEEP-OPEN-002; ANSWER-FIDELITY: never a capped/partial delta); epoch bumps; remainder stays open.
 2a. **Write-in (WRITEIN-001)**: accept `✎ Other`, type, `enter` → `answer.value = <text>`, `custom: true`, no option selected; card/delta render `✎ {text}`.
 2b. **Elaboration (WRITEIN-001/002)**: `e`, type, `enter` → draft saved, still unanswered; option accept attaches it as `answer.text`; a real option after a committed write-in re-binds the slot as elaboration.
 2c. **Auto-submit (AUTOSUBMIT-001)**: answering the LAST question ships with no keypress beyond the answer (a `submitted — {n} answer(s)` notification); editing while complete ships the edit immediately.

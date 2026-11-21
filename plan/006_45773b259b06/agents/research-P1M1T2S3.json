@@ -1,0 +1,18 @@
+{
+  "role": "research",
+  "item": "P1.M1.T2.S3",
+  "key": "P1M1T2S3",
+  "agent": "piz",
+  "session": "prd-prp-P1M1T2S3",
+  "tag": "research-P1M1T2S3-2975988",
+  "cwd": "/home/dustin/projects/pi-structured-interrogation",
+  "prompt_file": "/home/dustin/projects/pi-structured-interrogation/plan/006_45773b259b06/agents/research-P1M1T2S3.prompt.md",
+  "started": 1795236993,
+  "artifacts": [
+    "The item's PRP: /home/dustin/projects/pi-structured-interrogation/plan/006_45773b259b06/P1M1T2S3/PRP.md",
+    "Research notes: /home/dustin/projects/pi-structured-interrogation/plan/006_45773b259b06/P1M1T2S3/research/",
+    "Task tree: /home/dustin/projects/pi-structured-interrogation/plan/006_45773b259b06/tasks.json",
+    "Static part of your kickoff prompt: /home/dustin/projects/pi-structured-interrogation/plan/006_45773b259b06/agents/_template-research.md"
+  ],
+  "args": []
+}

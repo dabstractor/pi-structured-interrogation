@@ -77,7 +77,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Refresh the README keymap-conflict re-verification record and cross-check keymap doc rows",
-              "status": "Planned",
+              "status": "Complete",
               "description": "Rewrite README.md's 'Keymap conflict re-verification' block (lines 428-504) from the fresh verification run — header date/commit/pi-version, stale per-key rows (o/t/m/e -> i/e/n/c), stale drift claims — and verify the keymap table and sample settings still match src/config.ts defaults (PRD AC-2). PRD-DELTA UPDATE: the block has since been partially refreshed by the newer changesets (the record cites 2026-10-20 @ eb09516 and now sits around :468 after later insertions) and PANELTOGGLE-001 added the toggle surfaces (sample settings ~:166, panelShortcut ~:174, keymap table row ~:211, dedicated section ~:294) — S1 reconciles against this fresh state instead of rewriting from the stale o/t/m/e premise; the new subtask S3 (Planned) extends the completed S2 cross-check to the 10th default.",
               "subtasks": [
                 {
@@ -120,7 +120,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T2.S3",
                   "title": "UPDATE REQUIRED: Extend the keymap cross-check to the PANELTOGGLE-001 surfaces (10th default + panelShortcut)",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 0.5,
                   "dependencies": [
                     "P1.M1.T1.S3"

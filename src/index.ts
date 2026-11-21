@@ -39,6 +39,7 @@ import { drainBatchNotes } from "./delivery.js";
 import { createRoundDetector } from "./detect.js";
 import { DraftStore } from "./draft-store.js";
 import { InputCaptureStore } from "./input-capture.js";
+import { DurableInputStore } from "./input-durability.js";
 import { createLifecycle } from "./lifecycle.js";
 import { createPanelHost, maybeAutoOpen, openPanel } from "./panel/panel.js";
 import { hasResumableQuestions, resumePanel } from "./panel/suspend.js";
@@ -100,6 +101,13 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   const mirror = createStateMirror(pi);
   pi.on("session_shutdown", () => {
     mirror.flush();
+    // P3.M2.T1.S2 — synchronous accelerator flush through the durable sink
+    // (StateMirror.flush precedent: no awaits — the process may not survive
+    // past this call). Flush, NEVER dispose: the factory closure and these
+    // stores outlive every session — /new, reload, and resume also fire
+    // session_shutdown, and a disposed capture store would never re-arm
+    // for the next session (spec §Local input recovery :141).
+    inputCapture.forceFlush();
   });
 
   // P1.M7.T2.S1 — compaction preservation (FR-29, h2.42): when pi compacts
@@ -146,7 +154,20 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   // In-memory capture + emit in THIS item — the sink seam receives records;
   // P3.M2.T1.S2 attaches the atomic fs writer, P3.M2.T1.S3 retirement.
   // No fs, no session-file writes, no answer/submit/send side effects.
-  const inputCapture = new InputCaptureStore();
+  // P3.M2.T1.S2 — durable input recovery (spec §Local input recovery :141):
+  // the atomic file sink (tmp+fsync+rename, <agentDir>/data/interrogator)
+  // attaches here as the capture sink, and lastSeq seeds the capture
+  // counters at first mint — without the seed a post-restart counter
+  // would restart at 1 and the durable monotonic guard would reject every
+  // later edit against the durable file (the restart-clobber hole).
+  // Same extension-lifetime pattern as drafts: created once per
+  // activation, NEVER disposed (see the shutdown handler below — session
+  // replacement fires session_shutdown too).
+  const durableInputs = new DurableInputStore();
+  const inputCapture = new InputCaptureStore({
+    sink: (record) => durableInputs.write(record), // never throws — outcome value only
+    seedSeq: (key) => durableInputs.lastSeq(key),
+  });
   // SURFACE-001 gate (1): start-phase args stash for interrogate calls.
   // Declared BEFORE maybeAutoOpen so its auto-open handler can CONSUME
   // entries by toolCallId (get + delete) — the stash's only consumer.

@@ -107,6 +107,7 @@ function canonicalKey(key: CaptureKey): string {
  */
 export class InputCaptureStore {
   private readonly sink: CaptureSink;
+  private readonly seedSeq: ((key: CaptureKey) => number) | undefined;
   private sessionResolver: (() => string) | undefined;
   /** Per-key last minted seq (note §ordering: never timestamps, never global). */
   private readonly seq = new Map<string, number>();
@@ -120,11 +121,31 @@ export class InputCaptureStore {
   private deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
 
-  constructor(options: { sink?: CaptureSink; session?: () => string } = {}) {
+  constructor(
+    options: {
+      sink?: CaptureSink;
+      session?: () => string;
+      /**
+       * Pluggable seed for the FIRST seq mint per canonical key
+       * (P3.M2.T1.S2). S1's counters are per-process; after a restart a
+       * naive counter restarts at 1, and the durable layer's monotonic
+       * guard would then REJECT every post-restart edit against a higher
+       * seq already on disk (the restart-clobber hole). The seed closes
+       * it: consulted LAZILY and EXACTLY ONCE per key, at the first mint
+       * (no eager work, no fs in this module — index.ts injects the
+       * durable store and answers from its load-time index). Absent
+       * option — or a non-positive/throwing seed — yields S1's original
+       * behavior (first mint 1). Requirement: a key's first minted seq is
+       * > the durable lastSeq for that key when a positive seed is given.
+       */
+      seedSeq?: (key: CaptureKey) => number;
+    } = {},
+  ) {
     // Default sink: in-memory capture only (latest()) — S1's "capture +
-    // emit" contract; S2 replaces this with the atomic file writer.
+    // emit" contract; S2 attaches the atomic file writer here.
     this.sink = options.sink ?? (() => {});
     this.sessionResolver = options.session;
+    this.seedSeq = options.seedSeq;
   }
 
   /**
@@ -221,8 +242,7 @@ export class InputCaptureStore {
 
   /** Mint, record, and deliver ONE capture (seq minted HERE — capture time). */
   private emit(k: string, key: CaptureKey, text: string, session: string): void {
-    const seqNum = (this.seq.get(k) ?? 0) + 1;
-    this.seq.set(k, seqNum);
+    const seqNum = this.mintSeq(k, key);
     this.lastValue.set(k, text);
     const record: CaptureRecord = { ...key, session, text, seq: seqNum };
     this.latestRecords.set(k, record);
@@ -232,6 +252,32 @@ export class InputCaptureStore {
       // fail silent-and-honest (note §failureSemantics): the in-memory
       // record stands; the next flush retries naturally; never surface.
     }
+  }
+
+  /**
+   * Per-key monotonic mint (note §ordering: never timestamps, never
+   * global). The FIRST mint for a key consults the seedSeq hook exactly
+   * once (durable lastSeq baseline → mint seed+1); every later mint is a
+   * plain increment. The consult is guarded — a hostile/failed seed
+   * degrades to the unseeded counter, never breaks the editor path.
+   */
+  private mintSeq(k: string, key: CaptureKey): number {
+    const prior = this.seq.get(k);
+    if (prior !== undefined) return prior + 1;
+    let base = 0;
+    if (this.seedSeq !== undefined) {
+      try {
+        const seeded = this.seedSeq(key);
+        if (typeof seeded === "number" && Number.isFinite(seeded) && seeded > 0) {
+          base = Math.floor(seeded);
+        }
+      } catch {
+        base = 0; // failed seed ⇒ unseeded behavior, never a throw upward
+      }
+    }
+    const seqNum = base + 1;
+    this.seq.set(k, seqNum);
+    return seqNum;
   }
 
   private resolveSession(): string {

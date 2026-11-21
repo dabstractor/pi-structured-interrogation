@@ -289,14 +289,14 @@
           "type": "Milestone",
           "id": "P3.M2",
           "title": "Core capture + recovery-point engine",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Implement the durable input-recovery store and wire capture-on-edit into every editor duty; prove atomicity, monotonicity, and failure honesty with scripted acceptance cases 2, 3, and the send-half of 4.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M2.T1",
               "title": "Implement the durable input-recovery store and wire capture into every editor duty",
-              "status": "Planned",
+              "status": "Ready",
               "description": "New src module (name per the P3.M1 design, e.g. input-recovery.ts) plus wiring in the editor duties: write-in/Other, text answer, elaboration, batch note, and the side-chat composer. Save the FULL expanded string on every edit; atomic replace; monotonic ordering; honest failure; retirement only on the three deliberate exits.",
               "subtasks": [
                 {
@@ -318,7 +318,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T1.S2",
                   "title": "Atomic persistence, durability, monotonicity, and honest failure",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 3,
                   "dependencies": [
                     "P3.M2.T1.S1"
@@ -332,7 +332,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T1.S3",
                   "title": "Retirement semantics, no-side-effects audit, and acceptance cases 2/3/4-send-half",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M2.T1.S2"
@@ -364,7 +364,7 @@
                   "type": "Subtask",
                   "id": "P3.M3.T1.S1",
                   "title": "Editor seeding rules: newer draft > recorded answer > blank; intentional empty preserved",
-                  "status": "Planned",
+                  "status": "Researching",
                   "story_points": 2,
                   "dependencies": [
                     "P3.M2.T1.S2"

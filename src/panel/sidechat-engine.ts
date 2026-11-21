@@ -132,8 +132,19 @@ export interface SidechatEngineDeps {
    * run, so a decision-bearing reply exposes its pendingConfirm to the
    * callback; (c) route() is reached only for the LIVE record (the settle
    * liveness guard), so replaced/dead records never observe. OPTIONAL —
-   * absent = plain routing, byte-identical. */
-  onSettle?: () => void;
+   * absent = plain routing, byte-identical.
+   *
+   * P3.M2.T1.S3 (additive, backward compatible): the callback now RECEIVES
+   * the terminal reason — "aborted" (esc abort: the turn was popped, "the
+   * turn never happened"), "error" (failed stream: user turn kept, nothing
+   * handed off), or the model stop reason string ("stop"-family: the turn
+   * completed and its reply froze — the handoff HAPPENED). Existing `()
+   * => void` handlers compile and run unchanged (they ignore the arg); the
+   * input-recovery retirement decision consumes it (panel.ts
+   * retireChatCaptureOnSettle: retire ONLY on a clean completion — never
+   * on error/abort, so a refused/failed/aborted send keeps the prompt
+   * recoverable for manual retry, spec :139). */
+  onSettle?: (stopReason: string) => void;
 }
 
 /**
@@ -331,7 +342,19 @@ export function createSidechatEngine(deps: SidechatEngineDeps): {
       // the freeze/tally/answer-settle bookkeeping above, for EVERY
       // terminal — instead of a thenable-keyed port wrapper that real
       // AssistantMessageEventStream results never trigger.
-      deps.onSettle?.();
+      // P3.M2.T1.S3: the observation now carries the CLASSIFIED terminal
+      // reason. Abort detection mirrors routeTerminal's own clauses (stop-
+      // reason OR raw reason) — an abort DOES route a settle (the port
+      // surfaces it as a terminal), so "aborted" must be explicit here for
+      // the retire decision. An undefined stopReason with a frozen message
+      // is a completed turn ("settled").
+      const settledReason: string =
+        stopReason === "aborted" || rawReason === "aborted"
+          ? "aborted"
+          : typeof stopReason === "string"
+            ? stopReason
+            : "settled";
+      deps.onSettle?.(settledReason);
     }
   }
 

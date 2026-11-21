@@ -43,8 +43,13 @@
  * answer application, no submission pipeline, no message transport, no
  * model calls, no session-file writes, no fs in THIS item — the sink seam
  * receives records in memory; P3.M2.T1.S2 attaches the atomic file writer
- * to it. P3.M2.T1.S3 adds retirement as store methods — deliberately
- * absent here.
+ * to it. Retirement (P3.M2.T1.S3) is the ONE deliberate exit seam: an
+ * EXPLICIT-only store method ({@link InputCaptureStore.retire}) that drops
+ * pending dirty state for the key — never flushing it — and forwards the
+ * retirement through an injected {@link InputCaptureStore-onRetire}
+ * callback (index.ts wires it to the durable store's retire). It reaches
+ * the durable layer ONLY through that callback: still zero fs imports
+ * here (the static scanner enforces it).
  *
  * Deliberately inert (mirroring draft-store.ts's posture): NO EventEmitter,
  * NO state-event subscriptions, NO panel/state imports, NO filesystem. The
@@ -91,6 +96,18 @@ export type CaptureSink = (record: CaptureRecord) => void;
 const DEBOUNCE_MS = 250;
 const MAX_DIRTY_AGE_MS = 1000;
 
+/**
+ * Destruction-guard options (P3.M2.T1.S3) — mirrors DraftStore's
+ * `{explicit: true}` precedent (draft-store.ts:111 clearDraft): destructive
+ * retirement is a NO-OP without the explicit flag. Nothing implicit retires
+ * — navigation, view toggles, programmatic setText, suspend. The flag is
+ * the single decision point separating "the user's hand moved" from
+ * "incidental buffer churn" (architecture note §retirement #1).
+ */
+export interface RetireOptions {
+  explicit?: boolean;
+}
+
 /** Internal map key: canonical, collision-safe join of the CaptureKey. */
 function canonicalKey(key: CaptureKey): string {
   return `${key.branchId}\u0000${key.questionId}\u0000${key.field}`;
@@ -108,6 +125,7 @@ function canonicalKey(key: CaptureKey): string {
 export class InputCaptureStore {
   private readonly sink: CaptureSink;
   private readonly seedSeq: ((key: CaptureKey) => number) | undefined;
+  private readonly onRetire: ((key: CaptureKey) => void) | undefined;
   private sessionResolver: (() => string) | undefined;
   /** Per-key last minted seq (note §ordering: never timestamps, never global). */
   private readonly seq = new Map<string, number>();
@@ -139,6 +157,16 @@ export class InputCaptureStore {
        * > the durable lastSeq for that key when a positive seed is given.
        */
       seedSeq?: (key: CaptureKey) => number;
+      /**
+       * Retirement forwarder (P3.M2.T1.S3) — invoked by {@link
+       * InputCaptureStore.retire} AFTER the pending-dirty drop, carrying
+       * the SAME CaptureKey the retirement targeted. index.ts wires it to
+       * `durableInputs.retire(key, { explicit: true })` so panel-side
+       * retire hooks stay terse (one explicit decision point, at the
+       * wiring). Isolated like the sink: a throwing forwarder must never
+       * break the retire path (never-throw contract).
+       */
+      onRetire?: (key: CaptureKey) => void;
     } = {},
   ) {
     // Default sink: in-memory capture only (latest()) — S1's "capture +
@@ -146,6 +174,7 @@ export class InputCaptureStore {
     this.sink = options.sink ?? (() => {});
     this.sessionResolver = options.session;
     this.seedSeq = options.seedSeq;
+    this.onRetire = options.onRetire;
   }
 
   /**
@@ -217,6 +246,45 @@ export class InputCaptureStore {
   }
 
   /**
+   * Retirement at a successful handoff (P3.M2.T1.S3; spec :139 — retire
+   * only the matching recovery value on deliberate discard, replacement,
+   * or successful handoff of that text; architecture note §retirement:
+   * "handoff durably recorded, THEN the file is unlinked" — callers MUST
+   * have completed the handoff BEFORE calling this).
+   *
+   * NO-OP unless `{explicit: true}` (draft-store.ts:111 guard precedent).
+   * With the flag it:
+   *
+   * 1. DROPS the key's pending-dirty entry — NEVER flush-then-retire: a
+   *    pre-handoff flush landing after the durable unlink would resurrect
+   *    retired text (the store-level timers are store-scoped and simply
+   *    no-op when their next flush finds nothing pending).
+   * 2. Clears the key's last-captured-text gate, so re-typing the SAME
+   *    text after retirement still mints a fresh seq (capturable again).
+   * 3. KEEPS the per-key seq counter — a genuine post-handoff re-edit
+   *    mints ABOVE the durable tombstone and captures normally.
+   * 4. Forwards to the injected onRetire (the durable retire), isolated:
+   *    a throwing forwarder never breaks the caller (commit/settle paths).
+   *
+   * `latestRecords` is left untouched: it is process-memory only (dies
+   * with the activation, never persisted) and P3.M3 reads the DURABLE
+   * layer for seeding — an in-memory record cannot resurrect anything.
+   */
+  retire(key: CaptureKey, opts?: RetireOptions): void {
+    if (!opts?.explicit || this.disposed) return;
+    const k = canonicalKey(key);
+    this.pending.delete(k); // drop — never flush pre-handoff text
+    this.lastValue.delete(k); // same-text re-typed re-mints
+    try {
+      this.onRetire?.(key);
+    } catch {
+      // sink isolation (note §failureSemantics): retirement is best-effort;
+      // a failed durable retire degrades to a leftover file — a harmless
+      // double-record after the handoff (text identical) — never a throw.
+    }
+  }
+
+  /**
    * Cancel pending timers idempotently (persistence.ts hygiene). NEVER
    * flushes: shutdown flushing is S2's accelerator wiring, and dispose must
    * stay side-effect-free. Post-dispose edits are ignored (their timers
@@ -263,7 +331,19 @@ export class InputCaptureStore {
    */
   private mintSeq(k: string, key: CaptureKey): number {
     const prior = this.seq.get(k);
-    if (prior !== undefined) return prior + 1;
+    if (prior !== undefined) {
+      // P3.M2.T1.S3 correction: the note's minting rule is seq =
+      // ++counter[key] — pre-increment AND PERSIST. The increment path
+      // previously returned prior+1 WITHOUT storing it, so every mint after
+      // the second returned the same seq (1,2,2,2…) — invisible to S1's
+      // two-mint tests, but it broke the per-key monotonic advance the
+      // tombstone guard compares against (a post-retire re-edit must mint
+      // strictly above the retirement seq, and every later edit must
+      // out-seq the one before it).
+      const next = prior + 1;
+      this.seq.set(k, next);
+      return next;
+    }
     let base = 0;
     if (this.seedSeq !== undefined) {
       try {

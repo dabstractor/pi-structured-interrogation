@@ -48,7 +48,10 @@
  * no status flag, no session-file writes, no answer/submit/send/model
  * surfaces. `latest(key) === undefined` means NEVER captured;
  * `{text: "", seq}` means DELIBERATELY EMPTIED — the distinction is
- * load-bearing for P3.M3's seeding ladder; never conflate them.
+ * load-bearing for P3.M3's seeding ladder; never conflate them. After a
+ * RETIREMENT (P3.M2.T1.S3) `latest()` also reads undefined — the durable
+ * value is gone (file unlinked) and unresurrectable (in-memory tombstone:
+ * writes at or below the retired seq are "ignored-stale").
  *
  * Lifecycle: constructed once per extension activation, next to the
  * capture store in index.ts, and NEVER disposed — session replacement
@@ -60,7 +63,7 @@ import * as crypto from "node:crypto";
 import * as nodeFs from "node:fs";
 import * as path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { CaptureField, CaptureRecord } from "./input-capture.js";
+import type { CaptureField, CaptureRecord, RetireOptions } from "./input-capture.js";
 
 /**
  * Full durable identity — the spec :137 recovery scope ("originating
@@ -94,6 +97,32 @@ export interface DurableValue {
   text: string;
   seq: number;
   savedAt?: string;
+}
+
+/**
+ * Anti-resurrection tombstone (P3.M2.T1.S3) — an in-memory-only index
+ * entry left behind by {@link DurableInputStore.retire}. Unlinking alone
+ * would reset the monotonic guard (the entry disappears, a delayed OLDER
+ * write sees `cur === undefined` and RECREATES the file = resurrection
+ * after handoff). The tombstone keeps the key's last seq as the ordering
+ * authority: writes with `seq <= tombstone.seq` are "ignored-stale" and
+ * the file stays gone. It carries the key so session-less lookups (the
+ * seedSeq scan path) still find it. NEVER persisted: after a restart
+ * there are no pending in-flight writes to guard, and a fresh capture
+ * mints from the durable lastSeq — above any tombstone — by construction.
+ */
+interface DurableTombstone {
+  key: DurableKey;
+  seq: number;
+  retired: true;
+}
+
+/** Index map value: a completed save, or a retirement tombstone. */
+type IndexEntry = { key: DurableKey; value: DurableValue } | DurableTombstone;
+
+/** Discriminator — the value-entry shape has no `retired` field. */
+function isTombstone(entry: IndexEntry): entry is DurableTombstone {
+  return "retired" in entry;
 }
 
 /**
@@ -223,8 +252,8 @@ export class DurableInputStore {
   private readonly dir: string;
   private readonly fs: DurableFs;
   private readonly nowFn: () => string;
-  /** canon → {key, value}: completed saves only, updated after each rename. */
-  private readonly index = new Map<string, { key: DurableKey; value: DurableValue }>();
+  /** canon → completed save or retirement tombstone, updated after each rename/retire. */
+  private readonly index = new Map<string, IndexEntry>();
   private tmpCounter = 0;
 
   constructor(options: DurableInputStoreOptions = {}) {
@@ -258,8 +287,16 @@ export class DurableInputStore {
     }
     const canon = canonicalKeyJson(key);
     const cur = this.index.get(canon);
-    if (cur !== undefined && record.seq < cur.value.seq) {
-      return "ignored-stale"; // a delayed older write can never clobber a newer save
+    if (cur !== undefined) {
+      if (isTombstone(cur)) {
+        // P3.M2.T1.S3 anti-resurrection: a straggler/delayed write at or
+        // below the tombstone seq can never recreate a retired file. A
+        // GENUINE post-handoff re-edit mints seq > tombstone.seq (the
+        // capture-side counter was kept) and captures normally below.
+        if (record.seq <= cur.seq) return "ignored-stale";
+      } else if (record.seq < cur.value.seq) {
+        return "ignored-stale"; // a delayed older write can never clobber a newer save
+      }
     }
     if (record.text === "" && cur === undefined) {
       return "skipped-empty"; // incidental empty never creates a file
@@ -292,18 +329,72 @@ export class DurableInputStore {
     }
   }
 
-  /** The last COMPLETED save for `query`, or undefined when never captured. */
+  /** The last COMPLETED save for `query` — undefined when never captured OR retired. */
   latest(query: DurableKeyQuery): DurableValue | undefined {
-    return this.lookup(query)?.value;
+    const entry = this.lookup(query);
+    return entry !== undefined && !isTombstone(entry) ? entry.value : undefined;
   }
 
-  /** The last durable seq for `query` — 0 when unknown (the seed baseline). */
+  /**
+   * The last durable seq for `query` — 0 when unknown (the seed baseline);
+   * a retired key reports its TOMBSTONE seq, keeping post-retire mints
+   * monotonic above the retirement point.
+   */
   lastSeq(query: DurableKeyQuery): number {
-    return this.lookup(query)?.value.seq ?? 0;
+    const entry = this.lookup(query);
+    if (entry === undefined) return 0;
+    return isTombstone(entry) ? entry.seq : entry.value.seq;
+  }
+
+  /**
+   * Retirement at a successful handoff (P3.M2.T1.S3; spec :139, architecture
+   * note §retirement #3 — ORDER IS LOAD-BEARING: callers MUST have recorded
+   * the handoff (answer committed / send accepted+settled) BEFORE calling
+   * this; kill between handoff and retire leaves the file — harmless, the
+   * text is identical to the handed-off answer).
+   *
+   * NO-OP unless `{explicit: true}` (draft-store.ts:111 guard precedent).
+   * With the flag it: unlinks the key's file (force: a missing file is a
+   * no-op) AND replaces the index entry with a TOMBSTONE at the key's last
+   * seq — so `latest()` reads undefined (never-captured/retired are
+   * indistinguishable for seeding), `lastSeq()` keeps the ordering
+   * baseline, and any straggler write `seq <= tombstone.seq` is
+   * "ignored-stale" (anti-resurrection). Tombstones are in-memory only.
+   * NEVER THROWS: a failed unlink leaves the file (harmless post-handoff
+   * double-record) and degrades to "ignored" with one console.error line.
+   *
+   * Accepts a {@link DurableKeyQuery} (session optional — entry ids are
+   * unique across sessions, the same rationale as the read surface); a
+   * key never captured tombstones at seq 0, which behaves identically to
+   * never-captured (harmless, uniform).
+   */
+  retire(query: DurableKeyQuery, opts?: RetireOptions): "retired" | "ignored" {
+    if (!opts?.explicit) return "ignored";
+    try {
+      const entry = this.lookup(query);
+      const key: DurableKey =
+        entry !== undefined
+          ? entry.key
+          : {
+              session: query.session ?? "",
+              branchId: query.branchId,
+              questionId: query.questionId ?? "-",
+              field: query.field,
+            };
+      const canon = canonicalKeyJson(key);
+      const priorSeq =
+        entry === undefined ? 0 : isTombstone(entry) ? entry.seq : entry.value.seq;
+      this.fs.rmSync(this.filePath(key, canon), { force: true });
+      this.index.set(canon, { key, seq: priorSeq, retired: true }); // TOMBSTONE
+      return "retired";
+    } catch (err) {
+      console.error("interrogator: durable input retire failed", err); // degraded-fallback style
+      return "ignored";
+    }
   }
 
   /** Exact lookup for full keys; session-less lookup scans by unique branchId. */
-  private lookup(query: DurableKeyQuery): { key: DurableKey; value: DurableValue } | undefined {
+  private lookup(query: DurableKeyQuery): IndexEntry | undefined {
     if (query.session !== undefined) {
       return this.index.get(
         canonicalKeyJson({
@@ -324,7 +415,7 @@ export class DurableInputStore {
         return entry;
       }
     }
-    return undefined;
+    return undefined; // no completed save, no tombstone
   }
 
   /** `input-<slug>-<sha1(canonical key)>.json` — identity is the full hash. */
@@ -380,7 +471,7 @@ export class DurableInputStore {
         if (parsed === undefined) continue; // corrupt/foreign: skip, leave on disk
         const canon = canonicalKeyJson(parsed.key);
         const cur = this.index.get(canon);
-        if (cur === undefined || parsed.seq > cur.value.seq) {
+        if (cur === undefined || isTombstone(cur) || parsed.seq > cur.value.seq) {
           this.index.set(canon, {
             key: parsed.key,
             value: { text: parsed.text, seq: parsed.seq, savedAt: parsed.savedAt },

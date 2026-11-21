@@ -731,8 +731,14 @@ function stepQuestion(panel: InterrogationPanel, delta: number): boolean {
  * draft — the same rule as DraftStore.hasDraft). applyAnswer is the
  * sanctioned raw primitive (no ripple — this folds the user's OWN typed
  * text into their OWN pending answer; values are never changed here).
+ *
+ * Returns the ids whose drafts it ACTUALLY applied (text→answer or
+ * choice→elaboration attach) — P3.M2.T1.S3's submit-side retirement set:
+ * held drafts (open/reasked choice) ship NOTHING and must never retire,
+ * and write-in answers retired at their enter-commit already.
  */
-function reconcileDraftsForSubmit(panel: InterrogationPanel): void {
+function reconcileDraftsForSubmit(panel: InterrogationPanel): string[] {
+  const appliedIds: string[] = [];
   for (const q of panel.state.orderedQuestions()) {
     const text = panel.draftTextFor(q.id);
     if (text === undefined || text.trim() === "") continue;
@@ -745,6 +751,7 @@ function reconcileDraftsForSubmit(panel: InterrogationPanel): void {
           custom: true,
           at: new Date().toISOString(),
         });
+        appliedIds.push(q.id);
       }
       continue;
     }
@@ -754,8 +761,10 @@ function reconcileDraftsForSubmit(panel: InterrogationPanel): void {
       q.answer.custom !== true // a write-in's draft already IS answer.value — never also attach as text
     ) {
       panel.state.applyAnswer(q.id, { ...q.answer, text });
+      appliedIds.push(q.id);
     }
   }
+  return appliedIds;
 }
 
 /**
@@ -811,8 +820,9 @@ function reconcileDraftsForSubmit(panel: InterrogationPanel): void {
 export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
   // NEW-002/NEW-003 (h2.45): typed drafts ship with the submission — text
   // answers become the recorded answer, ✎ elaborations attach as answer.text
-  // — BEFORE the baseline/diff/pending set below are read.
-  reconcileDraftsForSubmit(panel);
+  // — BEFORE the baseline/diff/pending set below are read. The applied ids
+  // are P3.M2.T1.S3's retirement set (drafts that actually shipped).
+  const shippedDraftIds = reconcileDraftsForSubmit(panel);
   const pre = submissionBaseline(panel);
   const diff = computeDiff(pre, panel.state.serialize());
   // BUG-008: the user-shipped set is the pending (answered) ids, read BEFORE
@@ -952,6 +962,18 @@ export function submit(panel: InterrogationPanel, deps: SubmitDeps): boolean {
     panel.drafts?.setNote("");
     panel.batchNote = "";
   }
+  // P3.M2.T1.S3 — retirement at the ship handoff (architecture note
+  // §retirement #3: the handoff is durably recorded — deliverSubmission
+  // returned; a delivery throw skips everything below — THEN the recovery
+  // values retire). ONLY drafts reconcileDraftsForSubmit actually applied
+  // retire, each under both its text roles: held choice drafts (open/
+  // reasked) ship nothing and keep their recovery values; write-in answers
+  // already retired at their enter-commit (consumeCommittedBuffer). The
+  // batch note rides the delivered message — its key retires only when it
+  // actually shipped (the guard above cleared it only then; the zero-
+  // pending early-return never reaches this, so a held note stays held).
+  for (const id of shippedDraftIds) panel.retireCapture(id, ["writein", "elaboration"]);
+  if (note) panel.retireCapture("-", ["note"]);
   // POST-SUBMIT EXIT (FR-3d, 2026-10-04 user directive): a real delivery
   // ends the panel session — suspend (done(null), the esc contract) backs
   // out to the normal prompt instead of parking on the current question.

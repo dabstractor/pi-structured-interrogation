@@ -167,6 +167,12 @@ export default async function interrogatorExtension(pi: ExtensionAPI): Promise<v
   const inputCapture = new InputCaptureStore({
     sink: (record) => durableInputs.write(record), // never throws — outcome value only
     seedSeq: (key) => durableInputs.lastSeq(key),
+    // P3.M2.T1.S3 — retirement forwarder: the capture store's retire
+    // drops its pending dirty state, then hands the key HERE (explicit is
+    // set ONCE, at the wiring, so panel-side retire hooks stay terse —
+    // the ONE retirement decision point). Order is the caller's duty:
+    // retire hooks fire only AFTER a handoff seam returned.
+    onRetire: (key) => durableInputs.retire(key, { explicit: true }),
   });
   // SURFACE-001 gate (1): start-phase args stash for interrogate calls.
   // Declared BEFORE maybeAutoOpen so its auto-open handler can CONSUME

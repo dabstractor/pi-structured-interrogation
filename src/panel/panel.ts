@@ -59,7 +59,7 @@ import {
   resolveExternalEditorCommand,
 } from "../external-editor.js";
 import { resolveKeyLabels, type InterrogatorConfig, type KeyAction } from "../config.js";
-import type { CaptureKey, InputCaptureStore } from "../input-capture.js";
+import type { CaptureField, CaptureKey, InputCaptureStore } from "../input-capture.js";
 // SURFACE-001 gate (1): the single upsert-args predicate (lifecycle.ts is its
 // only other consumer — no duplicate definition; no import cycle: lifecycle
 // imports merge.js + state.js only, never panel.js).
@@ -493,6 +493,37 @@ export function sidechatSettleObservation(panel: InterrogationPanel | undefined)
 }
 
 /**
+ * P3.M2.T1.S3 — the settle-side CHAT retirement decision (spec :139:
+ * "A refused or failed send or aborted turn leaves the prompt recoverable
+ * for manual retry"). Exported so the case-4 tests drive the EXACT
+ * production handler shape (resolveSidechatHostSeams wires
+ * `onSettle: (stopReason) => { sidechatSettleObservation(currentPanel);
+ * retireChatCaptureOnSettle(stopReason, currentPanel); }`).
+ *
+ * Retires the live chat composer's capture key ONLY on a clean
+ * completion — the three hazard paths all no-op here:
+ * - "error": failed stream/dispatch — nothing handed off; the typed
+ *   prompt stays recoverable (file intact) for manual retry.
+ * - "aborted": esc abort — the turn was popped ("the turn never
+ *   happened"); the prompt never shipped; nothing retires.
+ * - refuse (sendTurn false, streamState busy / no record): never routes
+ *   a settle at all, so this function is never even called.
+ *
+ * The sendTurn-returns-true-but-failed dispatch paths (registry throw /
+ * inert model / sync auth throw) also never route a settle — the composer
+ * is cleared by the panel but the capture + durable value stand, exactly
+ * the failure semantics the spec demands. Caller order note: this runs in
+ * route()'s finally, AFTER the reply froze — the handoff already happened.
+ */
+export function retireChatCaptureOnSettle(
+  stopReason: string,
+  panel: InterrogationPanel | undefined,
+): void {
+  if (stopReason === "error" || stopReason === "aborted") return;
+  panel?.retireChatCapture();
+}
+
+/**
  * SIDECHAT-001 host seams (P1.M2.T4.S1): derive the REAL side-chat rebind
  * deps + engine from THIS open surface — the surfaceSubmitDeps
  * precedent (the surface at runtime is an
@@ -618,7 +649,16 @@ function resolveSidechatHostSeams(
     // The engine seam fires for every port shape, after the answer settle
     // has written pendingConfirm, and only for the LIVE record (route() is
     // reached through the settle liveness guard).
-    onSettle: () => sidechatSettleObservation(currentPanel),
+    onSettle: (stopReason) => {
+      sidechatSettleObservation(currentPanel);
+      // P3.M2.T1.S3 — retirement rides the settle, CLEAN COMPLETIONS ONLY:
+      // "error" = failed dispatch/stream (prompt stays recoverable),
+      // "aborted" = esc abort (the turn never happened). A refused send
+      // (streamState busy / no record) never routes a settle at all. The
+      // decision body is shared with the case-4 tests via
+      // retireChatCaptureOnSettle so the tested shape IS the shipped shape.
+      retireChatCaptureOnSettle(stopReason, currentPanel);
+    },
     registry: registryPort,
     notify,
     // SIDECHAT-004 answer settle (P1.M2.T6.S1): the question read mirrors
@@ -1762,6 +1802,39 @@ export class InterrogationPanel implements Component {
     return { branchId, questionId, field: "sidechat-composer" };
   }
 
+  /**
+   * P3.M2.T1.S3 — retire capture keys for ONE question at a successful
+   * handoff (spec :139; architecture note §retirement #3 — the caller MUST
+   * have completed the handoff FIRST: applyAnswer returned / submit
+   * delivered / turn settled clean). Keys compose through the SAME live
+   * resolution the capture used ({@link captureBranchId} — the branch tip
+   * at retire time; a panel session cannot switch branches mid-edit, so
+   * tip-at-retire equals tip-at-capture). No-op when capture is unwired
+   * (tests/headless panels stay valid). NEVER call this ahead of the
+   * mutation seam — retiring first would clear the only durable copy
+   * (spec :139).
+   */
+  retireCapture(questionId: string, fields: CaptureField[]): void {
+    const branchId = this.captureBranchId();
+    if (branchId === undefined) return;
+    for (const field of fields) {
+      this.inputCapture?.retire({ branchId, questionId, field }, { explicit: true });
+    }
+  }
+
+  /**
+   * P3.M2.T1.S3 — retire the ACTIVE side-chat composer's capture key at a
+   * clean turn completion (the settle path; see
+   * {@link retireChatCaptureOnSettle} for the gating decision). Key
+   * resolution mirrors {@link captureKeyForChatField} exactly (the live
+   * record's questionId — settle-time and type-time agree because the
+   * esc-ladder pins the panel to the chat view while streaming).
+   */
+  retireChatCapture(): void {
+    const key = this.captureKeyForChatField();
+    if (key !== undefined) this.inputCapture?.retire(key, { explicit: true });
+  }
+
   private writeThroughCurrentDraft(): void {
     if (this.focus !== "text" && this.focus !== "note") return;
     const text = this.textField.getText();
@@ -1806,6 +1879,18 @@ export class InterrogationPanel implements Component {
     this.draftSlots.delete(questionId);
     this.drafts?.clearDraft?.(questionId, { explicit: true });
     this.bufferOwner = undefined;
+    // P3.M2.T1.S3 — retirement at THE write-in handoff seam. Every
+    // buffer→answer consume site routes here (writeInEnter's direct commit
+    // after applyAnswer returned, its byte-identical inert exit, and
+    // applyWriteInConfirm's ripple apply) — so this single hook covers all
+    // three exits and nowhere else. The answer above is already committed
+    // into state — the handoff is durably recorded, THEN the recovery file
+    // retires (the load-bearing order; kill between the two leaves the
+    // file with byte-identical text — a harmless double-record). Explicit
+    // by construction; never fires for the empty-buffer exit (commitTextDraft
+    // path — a saved DRAFT, not a handoff) or the ripple deferral
+    // (beginWriteInConfirm — nothing applied yet).
+    this.retireCapture(questionId, ["writein"]);
   }
 
   /**

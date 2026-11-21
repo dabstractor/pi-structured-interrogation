@@ -60,7 +60,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T1.S3",
                   "title": "UPDATE REQUIRED: Re-baseline at current HEAD and re-run keymap verification covering the 10th default (keys.toggle, PANELTOGGLE-001)",
-                  "status": "Planned",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: PRD delta at spec commit ec61eb1 ('input recovery specced; chat ephemerality narrowed') — eight rulings landed AFTER the 7377318 baseline (git: 74ebe39 DEEP-FULLSCREEN-001/DUMP-ONCE-001, 70b08ff PANELTOGGLE-001, 7fd63c2 ANSWER-FIDELITY, a4c6c9e KEEP-OPEN-001/002, 4baa95a CHAT-CONTEXT-001, 8f7255d+d4449f2 LENIENT-ANSWER-001/CHAT-STYLE-001/EMPTY-REPLY-001). src/config.ts DEFAULT_CONFIG.keys now carries a 10th default — keys.toggle 'ctrl+n' plus the panelShortcut toggle (PANELTOGGLE-001) — and scripts/verify-keymap-conflicts.sh already classifies it (ctrl+n's pi built-in collision, app.session.toggleNamedFilter, is PICKER-SCOPED; extension wins at the main editor, one startup diagnostic). HEAD is ec61eb1+ with 56 src test files (was 54).\n2. INPUT: current HEAD (`git rev-parse --short HEAD`); src/config.ts DEFAULT_CONFIG.keys (10 entries incl. toggle ctrl+n) and the panelShortcut flag.\n3. LOGIC: Re-run `npm test`, `npm run typecheck`, `npm run lint` and record the FRESH counts (do not assume 54/1624 — 56+ files expected). Re-run `bash scripts/verify-keymap-conflicts.sh`; require exit 0 with all 10 defaults clear (ctrl+n reported under its picker-scoped-overlap classification). A reproducible failure or a genuine collision is a BUG at the existing seam — report and stop; do NOT rebind keys and do NOT rebuild anything.\n4. OUTPUT: refreshed Baseline + VerificationRecord {head, testFiles, tests, typecheck, lint, date, piVersion, perKeyStatus[10], drift[]} that supersedes the S1/S2 records for P1.M1.T2.S3 and P1.M1.T3.S2.\n5. DOCS: none — data only; the README record block citation is reconciled by P1.M1.T2.S1.",
@@ -77,7 +77,7 @@
               "type": "Task",
               "id": "P1.M1.T2",
               "title": "Refresh the README keymap-conflict re-verification record and cross-check keymap doc rows",
-              "status": "Researching",
+              "status": "Planned",
               "description": "Rewrite README.md's 'Keymap conflict re-verification' block (lines 428-504) from the fresh verification run — header date/commit/pi-version, stale per-key rows (o/t/m/e -> i/e/n/c), stale drift claims — and verify the keymap table and sample settings still match src/config.ts defaults (PRD AC-2). PRD-DELTA UPDATE: the block has since been partially refreshed by the newer changesets (the record cites 2026-10-20 @ eb09516 and now sits around :468 after later insertions) and PANELTOGGLE-001 added the toggle surfaces (sample settings ~:166, panelShortcut ~:174, keymap table row ~:211, dedicated section ~:294) — S1 reconciles against this fresh state instead of rewriting from the stale o/t/m/e premise; the new subtask S3 (Planned) extends the completed S2 cross-check to the 10th default.",
               "subtasks": [
                 {

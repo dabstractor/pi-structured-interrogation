@@ -72,39 +72,44 @@ h1.5 State & Persistence — pi-interrogator
  h2.49 Auto-close algorithm (Q9=B)
  h2.50 Drafts lifecycle (R4)
  h2.51 Side chat (ephemeral by design — SIDECHAT-002)
- h2.52 Completion record format (the one full injection)
+ h2.52 Local input recovery
+ h2.53 Completion record format (the one full injection)
 h1.6 Implementation Plan — pi-interrogator
- h2.53 Prerequisites
- h2.54 Milestones
- h2.55 File checklist
- h2.56 Testing
- h2.57 Risks
- h2.58 Config reference (settings.json → "interrogator")
+ h2.54 Prerequisites
+ h2.55 Milestones
+ h2.56 File checklist
+ h2.57 Testing
+ h2.58 Risks
+ h2.59 Config reference (settings.json → "interrogator")
 h1.7 Decision Ledger — extracted from the structured interrogation session
- h2.59 Architecture & data flow
- h2.60 UI
- h2.61 Protocol
- h2.62 Remote bridge surface (2026-09-18; FR-31..34; REMOVED 2026-10-02 — see §Remote bridge surface removed below)
- h2.63 2026-09-30 interrogation — auto-submit trigger narrowed (AUTOSUBMIT-003)
- h2.64 Remote bridge surface removed (2026-10-02; supersedes D-R1..D-R7 / FR-31..34)
- h2.65 Staging philosophy (discussion resolution)
- h2.66 Defaulted (user may veto)
- h2.67 2026-09-30 interrogation — explain-any-answer
- h2.68 2026-10-04 interrogation — answer pinning (ANSWER-PIN-001)
- h2.69 2026-10-05 interrogation — pinned deep-view question (DEEP-PIN-001)
- h2.70 2026-10-05 interrogation — answer pinning re-ask amendment (ANSWER-PIN-001)
- h2.71 2026-10-06 interrogation — FR-18 closed-edit ripple (BUG-003)
- h2.72 2026-10-06 interrogation — moot reason persistence (BUG-004, Option A)
- h2.73 2026-10-07 interrogation — deep-view question framing (DEEP-PIN-002)
- h2.74 2026-10-07 interrogation — answered visibility, both views (DEEP-PIN-003)
- h2.75 2026-10-08 interrogation — transcript noise removal (GOAL-OUT-001 / MIRROR-SILENT-001)
- h2.76 2026-10-11 interrogation — deep-sticky advance (DEEP-STICKY-ADVANCE)
- h2.77 2026-10-12 interrogation — vim navigation, bare-key defaults, digit quick-select removed (VIMNAV-001 / BAREKEYS-001 / DIGIT-OUT-001)
- h2.78 2026-10-14 interrogation — landing scroll (DEEP-LAND-001)
- h2.79 2026-10-14 interrogation — WRITEIN-002 supersede re-bind restored (BUG-001)
- h2.80 2026-10-15 interrogation — per-question side-channel chat (SIDECHAT-001…005)
- h2.81 2026-10-19 interrogation — full-transcript cards (FULL-TRANSCRIPT-001)
- h2.82 2026-10-16 interrogation — feature-discovery footer (FOOTER-001)
- h2.83 2026-10-19 interrogation — mnemonic bare-letter defaults (KEYMNEMONICS-001)
+ h2.60 Architecture & data flow
+ h2.61 UI
+ h2.62 Protocol
+ h2.63 Remote bridge surface (2026-09-18; FR-31..34; REMOVED 2026-10-02 — see §Remote bridge surface removed below)
+ h2.64 2026-09-30 interrogation — auto-submit trigger narrowed (AUTOSUBMIT-003)
+ h2.65 Remote bridge surface removed (2026-10-02; supersedes D-R1..D-R7 / FR-31..34)
+ h2.66 Staging philosophy (discussion resolution)
+ h2.67 Defaulted (user may veto)
+ h2.68 2026-09-30 interrogation — explain-any-answer
+ h2.69 2026-10-04 interrogation — answer pinning (ANSWER-PIN-001)
+ h2.70 2026-10-05 interrogation — pinned deep-view question (DEEP-PIN-001)
+ h2.71 2026-10-05 interrogation — answer pinning re-ask amendment (ANSWER-PIN-001)
+ h2.72 2026-10-06 interrogation — FR-18 closed-edit ripple (BUG-003)
+ h2.73 2026-10-06 interrogation — moot reason persistence (BUG-004, Option A)
+ h2.74 2026-10-07 interrogation — deep-view question framing (DEEP-PIN-002)
+ h2.75 2026-10-07 interrogation — answered visibility, both views (DEEP-PIN-003)
+ h2.76 2026-10-08 interrogation — transcript noise removal (GOAL-OUT-001 / MIRROR-SILENT-001)
+ h2.77 2026-10-11 interrogation — deep-sticky advance (DEEP-STICKY-ADVANCE)
+ h2.78 2026-10-12 interrogation — vim navigation, bare-key defaults, digit quick-select removed (VIMNAV-001 / BAREKEYS-001 / DIGIT-OUT-001)
+ h2.79 2026-10-14 interrogation — landing scroll (DEEP-LAND-001)
+ h2.80 2026-10-14 interrogation — WRITEIN-002 supersede re-bind restored (BUG-001)
+ h2.81 2026-10-15 interrogation — per-question side-channel chat (SIDECHAT-001…005)
+ h2.82 2026-10-19 interrogation — full-transcript cards (FULL-TRANSCRIPT-001)
+ h2.83 2026-10-16 interrogation — feature-discovery footer (FOOTER-001)
+ h2.84 2026-10-19 interrogation — mnemonic bare-letter defaults (KEYMNEMONICS-001)
+ h2.85 2026-10-24 interrogation — deep pane goes fullscreen; submit dumps once and lets go (DEEP-FULLSCREEN-001, DUMP-ONCE-001)
+ h2.86 2026-11-06 interrogation — submitting does not complete; the close pass owns completion (KEEP-OPEN-001)
+ h2.87 2026-11-08 interrogation — the chat view keeps the question on screen (CHAT-CONTEXT-001)
+ h2.88 2026-11-08 interrogation — the side chat stops making the model jump through hoops; transcript styling; empty replies surfaced (LENIENT-ANSWER-001, CHAT-STYLE-001, EMPTY-REPLY-001)
 ---
-code:17 para:60 list:61 table:6 quote:3
+code:17 para:63 list:67 table:6 quote:3

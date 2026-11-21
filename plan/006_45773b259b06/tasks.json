@@ -4,14 +4,14 @@
       "type": "Phase",
       "id": "P1",
       "title": "Delta residue: keymap-conflict re-verification record refresh and README changeset sync (docs-only)",
-      "status": "Planned",
+      "status": "Ready",
       "description": "The six rulings bundled in spec d18bc39..7377318 (SANITIZE-001, DEEP-EDITOR-001, FULL-TRANSCRIPT-001, FOOTER-001, KEYMNEMONICS-001 + amendment, description-REQUIRED) are ALREADY IMPLEMENTED and verified green at HEAD 7377318 (54 files / 1624 tests, typecheck, lint). The only unshipped remainder is Mode B documentation: re-run scripts/verify-keymap-conflicts.sh, confirm the KEYMNEMONICS-001 defaults d/i/e/n/c (plus chords) claim nothing in pi built-ins or installed extensions' registerShortcut, refresh the README 'Keymap conflict re-verification' record block (README.md:428-504 — research confirmed it still cites the 2026-10-16 side-chat run and stale o/t/m/e letter rows), and sweep README for residual key fossils. HARD CONSTRAINT (PRD AC-3): README.md is the ONLY file this changeset may modify; any gap found in the six rulings is a BUG at the existing seam, never a rebuild. spec/ and plan/004_* are read-only (declared stale prose / historical records). PRD-DELTA UPDATE (spec ec61eb1): eight further rulings are now implemented and spec'd (DEEP-FULLSCREEN-001, DUMP-ONCE-001's forced half superseded by KEEP-OPEN-001/002, PANELTOGGLE-001, ANSWER-FIDELITY, CHAT-CONTEXT-001, LENIENT-ANSWER-001, CHAT-STYLE-001, EMPTY-REPLY-001) — P1's baseline, verification record, and 9-action cross-check predate them (the keymap surface is now 10 defaults incl. keys.toggle ctrl+n); the new refresh subtasks T1.S3 and T2.S3 (Planned) bring those records current. Gaps in the newer rulings route to P2 (conformance) / P3 (local input recovery), never a P1 rebuild; the README-only constraint stands.",
       "milestones": [
         {
           "type": "Milestone",
           "id": "P1.M1",
           "title": "Keymap verification re-run recorded; README fully synced to the KEYMNEMONICS-001 changeset",
-          "status": "Planned",
+          "status": "Ready",
           "description": "Re-establish the green baseline, produce a fresh authoritative keymap-conflict verification record (post-2026-10-16), rewrite the README record block from it, cross-check the keymap table and sample settings against src/config.ts defaults, sweep remaining README key fossils, and pass the final delta gate with a README-only diff.",
           "tasks": [
             {
@@ -139,14 +139,14 @@
               "type": "Task",
               "id": "P1.M1.T3",
               "title": "Sync changeset-level documentation",
-              "status": "Planned",
+              "status": "Ready",
               "description": "Mode B catch-all: sweep README (the only overview doc) so the whole six-ruling changeset — especially the KEYMNEMONICS-001 defaults — is surfaced consistently, fixing the residual key fossils research identified outside the record block, then run the final delta gate (suite/typecheck/lint green; diff confined to README.md).",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P1.M1.T3.S1",
                   "title": "Sweep README for remaining stale key fossils (changeset-level consistency)",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P1.M1.T2.S1",
@@ -170,7 +170,7 @@
                   "type": "Subtask",
                   "id": "P1.M1.T3.S2",
                   "title": "Final delta gate: suite/typecheck/lint green, diff confined to README.md",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 0.5,
                   "dependencies": [
                     "P1.M1.T3.S1"
@@ -214,7 +214,7 @@
                   "type": "Subtask",
                   "id": "P2.M1.T1.S1",
                   "title": "Conformance inventory: map each ruling to its cross-refs; run the full gates",
-                  "status": "Ready",
+                  "status": "Researching",
                   "story_points": 1,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: updated spec/decisions.md pins these cross-refs (all observed present at HEAD ec61eb1): ANSWER-FIDELITY -> src/delivery.ts (no SUBMISSION_LIST_MAX_CHARS / rollup / BUG-006 caps), src/results.ts, src/delivery.test.ts; KEEP-OPEN-001 -> src/completion.ts (NO-FORCE amendment; attemptCompletion has no force param; SubmitDeps.onSubmitted deleted), src/completion.test.ts; KEEP-OPEN-002 -> src/delivery.ts (partialNudge / NUDGE_UNANSWERED), src/delivery.test.ts, src/ac-scripted.test.ts; DEEP-FULLSCREEN-001 -> src/panel/deep-view.ts (allocation, clampGlobal, deepScrollBy/deepScrollPage), src/panel/terminal-budget.ts (deepViewportBudget = max(20, rows-5)), src/panel/keys.ts (page keys + expandDescription); PANELTOGGLE-001 -> src/shortcut.ts, src/panel/keys.ts (onToggle), src/config.ts (keys.toggle, panelShortcut), scripts/verify-keymap-conflicts.sh (toggle classification), src/shortcut.test.ts + src/config-surface.test.ts; CHAT-CONTEXT-001 -> src/panel/panel.ts (chat branch), src/panel/chat-view.ts (sixth SHRINK-ONLY viewportHeight arg), src/panel/chat-view.test.ts + src/panel/panel.test.ts; LENIENT-ANSWER-001 -> src/panel/sidechat.ts (parseAnswerBlock + evaluateCandidate/gateShape/matchOptionValue), src/panel/sidechat-prompt.ts, src/panel/sidechat.test.ts; EMPTY-REPLY-001 -> src/panel/sidechat-engine.ts (empty guard + EMPTY_REPLY_NOTICE), src/panel/sidechat-engine.test.ts; CHAT-STYLE-001 -> src/panel/chat-view.ts (ChatRowStyler), src/panel/panel.ts (styler binding), src/panel/chat-view.test.ts.\n2. INPUT: current HEAD; the decisions.md cross-ref lists above.\n3. LOGIC: For each ruling, confirm every cross-referenced file/test exists and the pinned describe/it blocks are present (grep by the ruling tag, e.g. KEEP-OPEN-001, LENIENT, EMPTY-REPLY, CHAT-CONTEXT, CHAT-STYLE). Then run `npm test`, `npm run typecheck`, `npm run lint` (counts per P1.M1.T1.S3's refresh; re-run once on a one-off flake). Missing cross-ref or reproducible failure = BUG at the existing seam — report and stop.\n4. OUTPUT: Conformance matrix {ruling -> crossRefsPresent, pinnedTestsPresent, green} consumed by P2.M1.T1.S2 (docs audit scope) and P3 (context).\n5. DOCS: none — verification only.",

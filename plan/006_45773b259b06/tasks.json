@@ -398,14 +398,14 @@
           "type": "Milestone",
           "id": "P3.M4",
           "title": "Blank-answer rejection at the shared final mutation (all ingress)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Reject blank answer values at applyAnswer regardless of ingress; keep the editor focused with an inline reason; guard reconstruction/replay against historical blanks. Independent of the capture engine (pure state seam) — may run in parallel with P3.M2/P3.M3.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M4.T1",
               "title": "Reject blank values at applyAnswer regardless of ingress",
-              "status": "Ready",
+              "status": "Complete",
               "description": "One shared guard at the final mutation: value.trim() tests emptiness only; nonblank stores untrimmed; rejection precedes any answer/status change, advance, or submission; prior answer preserved; editor keeps focus + content + inline 'Answer cannot be blank'.",
               "subtasks": [
                 {
@@ -425,7 +425,7 @@
                   "type": "Subtask",
                   "id": "P3.M4.T1.S2",
                   "title": "Reconstruction/replay blank guards + acceptance case 5",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 1,
                   "dependencies": [
                     "P3.M4.T1.S1"

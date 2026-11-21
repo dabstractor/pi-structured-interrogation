@@ -1014,6 +1014,230 @@ describe("reconstructFromBranch — submission replay values (BUG-007)", () => {
   });
 });
 
+// ------------------- replay blank guards (P3.M4.T1.S2)
+
+describe("reconstructFromBranch — replay blank guards (P3.M4.T1.S2)", () => {
+  /**
+   * Spec :141 replay half: a historical blank must neither replace a valid
+   * answer nor count as validly answered/submitted, and must not fabricate
+   * missing text. Same base shape as the BUG-007 fixture (label 'Beta' ≠
+   * value 'b' — the fabrication trigger), but submissions are a LIST so a
+   * describe can model chronological multi-submission history.
+   */
+  function branchWithSubmissions(
+    changedList: ReturnType<typeof diff>[][],
+    seed?: (s: InterrogationState) => void,
+  ) {
+    const base = seededState((s) => {
+      applyUpsert(s, [choiceQ("q1", { options: [{ value: "b", label: "Beta" }] })]);
+      applyUpsert(s, [choiceQ("q2", { dependsOn: [{ id: "q1", equals: "b" }] })]);
+      seed?.(s);
+    });
+    const entries: SessionEntry[] = [toolResultEntry(base)];
+    changedList.forEach((changed, i) => {
+      entries.push(submissionEntry({ changed, epoch: i + 1 }));
+    });
+    const ctx = makeCtx(entries);
+    const host = makeHost();
+    const result = reconstructFromBranch(ctx, makeOpts(host));
+    return { base, result, state: getState()! };
+  }
+
+  /** The ungrouped tally — groupSummaries is the status-line counter source. */
+  function ungrouped(state: InterrogationState) {
+    const summaries = state.groupSummaries();
+    expect(summaries).toHaveLength(1);
+    return summaries[0];
+  }
+
+  test.each([
+    ["two spaces", "  "],
+    ["newline+tab", "\n\t "],
+    ["unicode whitespace soup", " \n\t \u00A0 \n \t"], // NBSP trims too
+  ])("whitespace delta (%s) skips: no answer, no fabrication, no credit, no epoch burn", (_name, ws) => {
+    // CRASH-SHAPE PIN: S1's applyAnswer THROWS on blank — before the :466
+    // widening, this raw value passed the `raw !== ""` structural check,
+    // resolved to ITSELF, missed the old skip, and threw INSIDE replay
+    // (reconstruction crash). The skip must also NOT fall back to `to`
+    // ("Beta"): fabricating the label summary would answer a question the
+    // user left blank (spec :141 fabrication ban).
+    const { base, result, state } = branchWithSubmissions([[diff("q1", "Beta", ws)]]);
+    expect(result.source).toBe("tool-result");
+    expect(result.replayed).toBe(0); // no replayed credit
+    expect(state.getQuestion("q1")?.answer).toBeUndefined(); // no answer, no fabrication
+    expect(state.getQuestion("q1")?.status).toBe("open");
+    expect(state.epoch).toBe(base.epoch); // nothing applied → nothing bumped (h3.6)
+    // Counters: the blank never counts as answered/submitted.
+    const summary = ungrouped(state);
+    expect(summary.answered).toBe(0);
+    expect(summary.submitted).toBe(0);
+    expect(summary.open).toBe(1); // q1
+    expect(summary.moot).toBe(1); // q2: unmet dependsOn (q1 unanswered) → moot
+  });
+
+  test("blank-only via to (raw absent) skips — widened check covers the fallback", () => {
+    // Legacy entry with NO value: resolved = entry.to = whitespace. Today's
+    // code only skips ""/sentinel; the widening must skip whitespace `to`
+    // values too (a blank is a blank whatever field carried it).
+    const { base, result, state } = branchWithSubmissions([[diff("q1", "\t")]]);
+    expect(result.replayed).toBe(0);
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(state.getQuestion("q1")?.status).toBe("open");
+    expect(state.epoch).toBe(base.epoch);
+    expect(ungrouped(state).answered).toBe(0);
+  });
+
+  test("prior-valid-wins: valid submission then blank submission keeps the valid answer", () => {
+    // Chronological replay is structural prior-valid-wins: the blank entry
+    // applies nothing, so the first submission's answer stands. The blank
+    // earns NO replayed credit and burns NO epoch beyond the first's.
+    const { base, result, state } = branchWithSubmissions([
+      [diff("q1", "Beta", "b")], // valid commit — raw value 'b'
+      [diff("q1", "Beta", "  ")], // later legacy blank
+    ]);
+    expect(result.replayed).toBe(1); // only the valid submission counts
+    expect(state.getQuestion("q1")?.answer?.value).toBe("b");
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.epoch).toBe(base.epoch + 1); // ONE bump — from the first only
+    const summary = ungrouped(state);
+    expect(summary.answered).toBe(1);
+    expect(summary.open).toBe(1); // q2 askable again (dependency 'b' met)
+    expect(summary.moot).toBe(0);
+  });
+
+  test("blank delta on an already-answered base leaves the base answer standing", () => {
+    // The base itself carries a VALID answer; a later whitespace delta must
+    // not clear or replace it (a historical blank neither replaces a valid
+    // answer nor acts as a deletion — replay cannot express clearances).
+    const { base, result, state } = branchWithSubmissions([[diff("q1", "Beta", "  ")]], (s) => {
+      markAnswered(s, "q1", { value: "b", at: "t0" });
+    });
+    expect(result.replayed).toBe(0);
+    expect(state.getQuestion("q1")?.answer?.value).toBe("b"); // prior valid survives
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.epoch).toBe(base.epoch);
+    expect(ungrouped(state).answered).toBe(1);
+  });
+});
+
+// ------------------- base blank scrub (P3.M4.T1.S2)
+
+describe("reconstructFromBranch — base blank scrub (P3.M4.T1.S2)", () => {
+  /**
+   * Spec :141 base half: legacy BASE snapshots can carry blank answer
+   * values (deserialize accepts any string) with answered/submitted
+   * status — the payload-level scrub clears them pre-deserialize so
+   * groupSummaries can never count a blank as validly answered.
+   * Fixtures are REAL serialized envelopes, surgically poisoned (the
+   * guard-less era's shape), so plausibility/deserialize stay realistic.
+   */
+  function baseWithBlankAnswer(
+    status: Question["status"],
+    value = "  ",
+    opts: { unmetDep?: boolean } = {},
+  ): ReturnType<InterrogationState["serialize"]> {
+    const base = seededState((s) => {
+      applyUpsert(s, [
+        choiceQ("q1", {
+          options: [{ value: "b", label: "Beta" }],
+          // The moot case pins NO-RESURRECTION through the whole
+          // reconstruction, including the post-replay moot recompute: a
+          // moot question WITHOUT dependsOn is the BUG-006(b) degenerate
+          // always-met case that evaluateDependsOn legally reopens to
+          // `open` on EVERY reconstruct (shipped behavior, unrelated to
+          // the scrub). An UNMET dependency keeps it moot through that
+          // pass — isolating the scrub's own keep-status rule.
+          ...(opts.unmetDep ? { dependsOn: [{ id: "q2", equals: "never-met" }] } : {}),
+        }),
+      ]);
+      if (opts.unmetDep) applyUpsert(s, [choiceQ("q2")]);
+    });
+    const q = (base.questions as unknown as Record<string, Record<string, unknown>>).q1;
+    q.answer = { value, at: "t0" };
+    q.status = status;
+    return base;
+  }
+
+  function reconstructBase(
+    base: ReturnType<InterrogationState["serialize"]>,
+    extraEntries: SessionEntry[] = [],
+  ) {
+    const ctx = makeCtx([toolResultEntry(base), ...extraEntries]);
+    const host = makeHost();
+    const result = reconstructFromBranch(ctx, makeOpts(host));
+    return { base, result, state: getState()! };
+  }
+
+  test("blank answered base answer scrubs to no-answer + open; counts answered=0", () => {
+    const { base, result, state } = reconstructBase(baseWithBlankAnswer("answered"));
+    expect(result.source).toBe("tool-result"); // the scrubbed candidate still installs
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(state.getQuestion("q1")?.status).toBe("open");
+    expect(state.epoch).toBe(base.epoch); // scrub is pre-deserialize: no epoch involvement
+    const summary = state.groupSummaries()[0];
+    expect(summary.answered).toBe(0);
+    expect(summary.open).toBe(1);
+    expect(summary.submitted).toBe(0);
+  });
+
+  test("blank submitted base answer scrubs to open; counts submitted=0", () => {
+    const { state } = reconstructBase(baseWithBlankAnswer("submitted"));
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(state.getQuestion("q1")?.status).toBe("open");
+    expect(state.groupSummaries()[0].submitted).toBe(0);
+    expect(state.groupSummaries()[0].answered).toBe(0);
+  });
+
+  test.each(["moot", "withdrawn", "closed", "reasked"] as const)(
+    "blank answer on a %s base clears the answer but KEEPS the status (no resurrection)",
+    (status) => {
+      const { state } = reconstructBase(
+        baseWithBlankAnswer(status, "  ", { unmetDep: status === "moot" }),
+      );
+      expect(state.getQuestion("q1")?.answer).toBeUndefined(); // answer cleared only
+      expect(state.getQuestion("q1")?.status).toBe(status); // never un-terminal'd
+      const summary = state.groupSummaries()[0];
+      expect(summary.answered).toBe(0);
+      expect(summary[status]).toBe(1);
+    },
+  );
+
+  test("scrub does not block legitimate replay: base blank + later valid delta applies", () => {
+    // The scrub clears the BLANK only; a submission delta AFTER the base
+    // replays normally — the question becomes genuinely answered.
+    const { base, result, state } = reconstructBase(
+      baseWithBlankAnswer("answered"),
+      [submissionEntry({ changed: [diff("q1", "Beta", "b")], epoch: 2 })],
+    );
+    expect(result.replayed).toBe(1);
+    expect(state.getQuestion("q1")?.answer?.value).toBe("b");
+    expect(state.getQuestion("q1")?.status).toBe("answered");
+    expect(state.epoch).toBe(base.epoch + 1);
+    expect(state.groupSummaries()[0].answered).toBe(1);
+  });
+
+  test("scrub runs on MIRROR bases too (payload pass is source-independent)", () => {
+    const poisoned = baseWithBlankAnswer("submitted");
+    const ctx = makeCtx([mirrorEntry({ state: poisoned, epoch: poisoned.epoch, at: "t0" })]);
+    const result = reconstructFromBranch(ctx, makeOpts(makeHost()));
+    expect(result.source).toBe("mirror-entry");
+    const state = getState()!;
+    expect(state.getQuestion("q1")?.answer).toBeUndefined();
+    expect(state.getQuestion("q1")?.status).toBe("open");
+    expect(state.groupSummaries()[0].submitted).toBe(0);
+  });
+
+  test("garbage payloads are tolerated silently by the scrub (strict-guard posture)", () => {
+    // Non-object data / missing or non-object questions / hostile question
+    // shapes: the scrub no-ops and deserialize's own tolerance degrades the
+    // candidate — never a throw toward untrusted persisted data.
+    for (const garbage of [null, 42, "x", [], { questions: [] }, { questions: { q1: 7 } }]) {
+      const ctx = makeCtx([toolResultEntry(garbage)]);
+      expect(() => reconstructFromBranch(ctx, makeOpts(makeHost()))).not.toThrow();
+    }
+  });
+});
+
 // ------------------- submission replay fidelity (BUG-001)
 
 describe("reconstructFromBranch — submission replay fidelity (BUG-001)", () => {

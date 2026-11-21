@@ -55,6 +55,12 @@
  *    state's real mutation methods so `changed` fires; each replayed
  *    submission that changed something bumps the epoch exactly once (h3.6:
  *    one submission = one bump). CAVEAT: entries replay VALUE-FIRST —
+ *    P3.M4.T1.S2 (spec :141): a historical BLANK resolved value skips
+ *    entirely — no applyAnswer (whose blank throw a legacy whitespace
+ *    delta would otherwise trip mid-replay), no fabrication from `to`,
+ *    no replayed credit, no epoch burn; and every base candidate is
+ *    payload-scrubbed of legacy blank answers (answered/submitted → open)
+ *    pre-deserialize.
  *    DiffEntry.value is the raw answer.value (P1.M2.T2.S1), with a legacy
  *    fallback to `to` (the label-preferred display summary) for history
  *    written before the field existed; elaboration `text` and write-in
@@ -170,6 +176,7 @@ import {
 } from "./persistence.js";
 import {
   InterrogationState,
+  isBlankAnswerValue,
   resetState,
   setState,
   type InterrogationState as LiveState,
@@ -436,6 +443,37 @@ function isPlausibleBase(data: unknown, state: LiveState): boolean {
   return isObj(data) && isObj(data.questions);
 }
 
+/**
+ * P3.M4.T1.S2 (spec state-and-persistence.md :141): legacy base snapshots
+ * (serialized before applyAnswer's blank guard existed) can carry blank
+ * answer values — deserialize's answer guard accepts any string, so a
+ * base `answer: {value: "  "}` with status `answered`/`submitted` would
+ * otherwise reconstruct into a state whose counters (groupSummaries is
+ * status-keyed) count a blank as validly answered. Scrub such answers at
+ * the PAYLOAD level, BEFORE deserialize: `questions` is private on
+ * InterrogationState, so a deserialized state cannot be scrubbed from
+ * here, and reconstruct never writes back to persistence (the session
+ * file on disk is untouched — this mutates only the freshly parsed
+ * in-memory candidate object).
+ *
+ * Status rule is CONSERVATIVE: only `answered`/`submitted` revert to
+ * `open` (exactly the two statuses groupSummaries counts as validly
+ * answered); terminal statuses (moot/withdrawn/closed) and `reasked`
+ * KEEP their status with only the blank answer cleared — a historical
+ * blank must never resurrect or un-terminal a question. Tolerates any
+ * garbage silently (deserialize's own strict-guard posture, BUG-001).
+ */
+function scrubLegacyBlankAnswers(data: unknown): void {
+  if (!isObj(data) || !isObj(data.questions)) return;
+  for (const q of Object.values(data.questions)) {
+    if (!isObj(q) || !isObj(q.answer)) continue;
+    const value = (q.answer as Record<string, unknown>).value;
+    if (typeof value !== "string" || !isBlankAnswerValue(value)) continue;
+    delete q.answer;
+    if (q.status === "answered" || q.status === "submitted") q.status = "open";
+  }
+}
+
 // ------------------------------------------------------------------- replay
 
 /**
@@ -460,10 +498,28 @@ function replaySubmission(state: LiveState, details: SubmissionMessage["details"
     // Answer `at` timestamps are still not carried. See module JSDoc.
     const raw = entry.value;
     const resolved = typeof raw === "string" && raw !== "" ? raw : entry.to;
-    // The sentinel check applies to the RESOLVED value: it skips answer
+    // The skip check applies to the RESOLVED value: it skips answer
     // CLEARANCES (`to` sentinel) and guards a hypothetical legacy entry
     // whose `value` is unset while `to` is the sentinel.
-    if (typeof resolved !== "string" || resolved === "" || resolved === UNANSWERED_SUMMARY) continue;
+    // P3.M4.T1.S2 (spec state-and-persistence.md :141): a historical BLANK
+    // (whitespace-only) resolved value skips too — it must neither replace
+    // a valid answer (prior-valid-wins is structural: chronological replay
+    // leaves any earlier submission's answer standing) nor count as
+    // answered, and it skips WITHOUT consulting `to` — falling back to the
+    // label summary would fabricate text the user never gave (the `value:
+    // ""` → `to` legacy fallback above is a PINNED tolerance and stays).
+    // The skip is load-bearing: S1's applyAnswer THROWS on blank, so a
+    // whitespace legacy delta that escaped this check would CRASH
+    // reconstruction mid-replay. Skipped entries: no applyAnswer, no
+    // `applied` credit, no `replayed` count, no epoch bump (h3.6 bumps
+    // only per APPLIED submission).
+    if (
+      typeof resolved !== "string" ||
+      isBlankAnswerValue(resolved) ||
+      resolved === UNANSWERED_SUMMARY
+    ) {
+      continue;
+    }
     state.applyAnswer(id, {
       value: resolved,
       // BUG-001 consumer half: carry the elaboration / write-in marker when
@@ -548,6 +604,10 @@ export function reconstructFromBranch(
   let state: LiveState | undefined;
   let baseIndex = -1;
   for (const candidate of candidates) {
+    // P3.M4.T1.S2 — scrub legacy blank answers BEFORE deserialize so
+    // plausibility, replay, and the surface decision all read the same
+    // clean payload (harmless on already-clean candidates).
+    scrubLegacyBlankAnswers(candidate.data);
     const candidateState = tryDeserialize(candidate.data);
     // NEW-004: a throwing payload (hostile getter) AND a tolerantly-empty
     // non-state envelope (realistically corrupt plain-object garbage) are

@@ -258,21 +258,21 @@
           "type": "Milestone",
           "id": "P3.M1",
           "title": "Research and architecture: durable capture design (storage, atomicity, pacing, keying)",
-          "status": "Ready",
+          "status": "Complete",
           "description": "Decide the storage mechanism, edit-event seams, write pacing, monotonic ordering, and scoping keys before writing engine code; record the design as a plan artifact.",
           "tasks": [
             {
               "type": "Task",
               "id": "P3.M1.T1",
               "title": "Produce the input-recovery architecture note",
-              "status": "Ready",
+              "status": "Complete",
               "description": "Research and write plan/006_45773b259b06/architecture/input-recovery.md covering storage location, atomic write strategy, capture seams, pacing, ordering, keying, and failure semantics per the PRD's recovery-point bullets.",
               "subtasks": [
                 {
                   "type": "Subtask",
                   "id": "P3.M1.T1.S1",
                   "title": "Research storage mechanism, edit-event seams, and write pacing; write the architecture note",
-                  "status": "Ready",
+                  "status": "Complete",
                   "story_points": 2,
                   "dependencies": [],
                   "context_scope": "CONTRACT DEFINITION:\n1. RESEARCH NOTE: spec/state-and-persistence.md §Local input recovery is the binding text. Open design questions to resolve: (a) storage location available to a pi extension — extension-local directory (what pi exposes: settings dir, env, ctx paths); NEVER the session file (SIDECHAT-002 / cache-isolation guard tests); (b) atomic replace strategy (temp file + rename) so an interrupted write leaves the previous or new complete value, never a torn one; (c) the edit-event seam on composed editors (ctx.ui.getEditorComponent() composition / pi-tui Editor change hooks) for capture-on-edit INCLUDING paste; (d) pacing that makes progress during continuous typing — bounded interval (e.g. save at least every N ms while dirty), never waiting indefinitely for idle/send/blur/suspend/shutdown; (e) monotonic ordering (per-field sequence/timestamp) so older writes and incidental empty buffers (initialization, view change, send cleanup) never overwrite newer user edits; (f) keying by originating session, branch, question (if any), and field; (g) failure semantics — keep the last durable value and the live edit, never claim the edit was saved; recovery guarantees the latest COMPLETED save only.\n2. INPUT: spec/state-and-persistence.md §Local input recovery; src/draft-store.ts, src/panel/text-field.ts, src/panel/sidechat.ts (composer), src/persistence.ts (session/branch identity sources); pi docs (extensions.md, tui.md).\n3. LOGIC: Evaluate seams against the real composed-editor API (read the pi-tui Editor the factory returns — does it expose an on-change stream?); pick the storage path and write strategy; specify the retirement triggers (deliberate discard, user replacement, successful handoff — never clearing the only durable copy ahead of the handoff) and the no-side-effects rule (save/restore must not advance, commit, queue, submit, send, resend, or call a model). No code yet; note consumed by P3.M2/P3.M3.\n4. OUTPUT: plan/006_45773b259b06/architecture/input-recovery.md {storagePath, atomicity, captureSeams, pacing, ordering, keying, retirement, failureSemantics} for P3.M2.T1.* and P3.M3.T1.*.\n5. DOCS: plan artifact only (the pipeline's own tree); README/spec untouched.",
@@ -303,7 +303,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T1.S1",
                   "title": "Capture-on-edit wiring: full expanded string for all five editor duties",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 3,
                   "dependencies": [
                     "P3.M1.T1.S1"
@@ -318,7 +318,7 @@
                   "type": "Subtask",
                   "id": "P3.M2.T1.S2",
                   "title": "Atomic persistence, durability, monotonicity, and honest failure",
-                  "status": "Planned",
+                  "status": "Ready",
                   "story_points": 3,
                   "dependencies": [
                     "P3.M2.T1.S1"
